@@ -46,6 +46,18 @@ fn variable_block() -> &'static Regex {
     })
 }
 
+/// `sensitive = true` / `ephemeral = true` in a block's body.
+fn flag(name: &str) -> &'static Regex {
+    static S: OnceLock<Regex> = OnceLock::new();
+    static E: OnceLock<Regex> = OnceLock::new();
+    let (cell, re) = if name == "sensitive" {
+        (&S, r"(?m)^\s*sensitive\s*=\s*true\b")
+    } else {
+        (&E, r"(?m)^\s*ephemeral\s*=\s*true\b")
+    };
+    cell.get_or_init(|| Regex::new(re).expect("flag rule"))
+}
+
 /// The findings of one `.tf` file's text.
 pub fn builtin(file: &str, text: &str) -> Vec<IacFinding> {
     let lines: Vec<&str> = text.lines().collect();
@@ -102,12 +114,8 @@ pub fn builtin(file: &str, text: &str) -> Vec<IacFinding> {
         if let Some((start, name, d)) = in_variable.clone() {
             if depth <= d {
                 let body = lines[start..=i].join("\n");
-                let sensitive = Regex::new(r"(?m)^\s*sensitive\s*=\s*true\b")
-                    .expect("sensitive")
-                    .is_match(&body);
-                let ephemeral = Regex::new(r"(?m)^\s*ephemeral\s*=\s*true\b")
-                    .expect("ephemeral")
-                    .is_match(&body);
+                let sensitive = flag("sensitive").is_match(&body);
+                let ephemeral = flag("ephemeral").is_match(&body);
                 if !sensitive && !ephemeral {
                     out.push(IacFinding {
                         file: file.into(),

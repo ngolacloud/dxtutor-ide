@@ -5027,6 +5027,7 @@ dependencies = [
  "rquickjs",
  "serde",
  "serde_json",
+ "sha2",
  "syn 2.0.119",
  "tempfile",
  "toml 0.8.2",

@@ -24,6 +24,25 @@ pub const IGNORED_DIRS: &[&str] = &[
     "vendor",
 ];
 
+/// A Terraform/OpenTofu state file (r23 F4b, P05): it holds every value the infrastructure has,
+/// secrets included. The editor never loads, opens or writes one; the state is read through the
+/// IaC state view (addresses and ids only).
+pub fn is_state_file(path: &str) -> bool {
+    let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+    name.ends_with(".tfstate")
+        || name.ends_with(".tfstate.backup")
+        || name.ends_with(".tfstate.lock.info")
+}
+
+/// The refusal of a state file, in the words the UI shows.
+pub fn refuse_state_file(path: &str) -> Result<(), String> {
+    if is_state_file(path) {
+        Err(format!("{path}: a state file is not opened in the editor (it holds the infrastructure's secrets) — use Ops › State"))
+    } else {
+        Ok(())
+    }
+}
+
 #[derive(Debug, Serialize, Clone, PartialEq)]
 pub struct FileEntry {
     pub path: String,
@@ -72,6 +91,10 @@ pub fn load(root: &Path, max_files: usize, max_bytes: u64) -> io::Result<Loaded>
                 if !IGNORED_DIRS.contains(&name.as_str()) {
                     stack.push(p);
                 }
+                continue;
+            }
+            if is_state_file(&name) {
+                skipped += 1;
                 continue;
             }
             if files.len() >= max_files {
@@ -194,6 +217,7 @@ pub fn ensure_within(root: &Path, p: &Path) -> Result<(), String> {
 }
 
 pub fn write(root: &Path, rel: &str, content: &str) -> Result<(), String> {
+    refuse_state_file(rel)?;
     let p = safe_join(root, rel)?;
     ensure_within(root, &p)?;
     if let Some(parent) = p.parent() {
@@ -244,10 +268,16 @@ mod tests {
         fs::write(d.join("README.md"), "# hi\n").unwrap();
         fs::write(d.join("node_modules/x/a.js"), "x").unwrap();
         fs::write(d.join("logo.bin"), [0u8, 159, 146, 150]).unwrap();
+        // r23 F4b: a state file is never loaded into the editor, nor written from it
+        fs::write(d.join("terraform.tfstate"), "{\"serial\": 1}").unwrap();
         let l = load(&d, 100, 1024).unwrap();
         let paths: Vec<_> = l.files.iter().map(|f| f.path.as_str()).collect();
         assert_eq!(paths, vec!["README.md", "src/main.rs"]);
-        assert_eq!(l.skipped, 1);
+        assert_eq!(l.skipped, 2);
+        assert!(write(&d, "infra/terraform.tfstate", "{}")
+            .unwrap_err()
+            .contains("state file"));
+        assert!(is_state_file("a/b.tfstate.backup") && !is_state_file("main.tf"));
         assert!(!l.truncated);
     }
 

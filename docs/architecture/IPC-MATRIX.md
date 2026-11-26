@@ -1,4 +1,4 @@
-# DXTUTOR IDE — matriz IPC detalhada (262 comandos)
+# DXTUTOR IDE — matriz IPC detalhada (268 comandos)
 
 Entregável da **Etapa 1**. Estende o índice do `MIGRATION.md §2` com a matriz
 por comando: **args**, **retorno**, **erro**, **evento**, **consumidor na UI** e
@@ -50,7 +50,7 @@ Na `ui-app`, **toda** a invocação do backend passa por um único ponto:
 `pair.ts` (PairCode) e um par de usos em `features/codev.ts`. Não há wrapper
 tipado por comando — é o alvo da **Etapa 4** (`platform/tauri/` + `contracts/`).
 
-Dos 262 comandos, **180 são consumidos pela `ui-app`** e **82 não o são**: a UI
+Dos 268 comandos, **186 são consumidos pela `ui-app`** e **82 não o são**: a UI
 oficial é maioritariamente uma simulação de browser que `bridge.ts` substitui em
 runtime (E06) apenas para o subconjunto ligado. Caso notável: as operações de
 **git mutantes** (`git_stage/commit/checkout/…`) aparecem como *não-consumidas*
@@ -468,6 +468,19 @@ arquitectura e o bash do agente): bloqueado, devolve `SECRET_SCAN_BLOCKED:{relat
 | `secret_scan` | `root`, `scope: Option<String>` (`staged`\|`tracked`\|`working`\|`paths`), `paths: Option<Vec<String>>` | `scan::ScanReport {tool, files, findings[{file, line, rule, preview}]}` (gitleaks se instalado, senão as regras próprias) | String | — | `features/protect` (r23 F4a) | R |
 | `secret_scan_allow` | `root`, `reason: String` (obrigatório) | `()` — o próximo commit nessa pasta passa (um, 2 min); a UI audita antes | String | — | `features/protect` (r23 F4a) | W |
 
+## 16d. Pipeline de IaC — `commands/iac.rs` (3)
+
+r23 F4b (docs/v2/AUDIT-r23.md §4.4, P01/P02/P05): adaptadores finos sobre `tutor_eval::iac`, com as ferramentas
+resolvidas no ambiente da shell de login. As regras vivem no módulo: uma etapa falhada bloqueia o apply, o apply
+aplica o FICHEIRO do plano revisto (guardado em `app_local_data_dir/iac-plans/<sha256>.bin`, 0600, apagado ao fim de
+um dia), e o estado sai só com endereços e ids. Os riscos aceites vêm da base do Project (§17, `iac_risk_*`).
+
+| Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
+|---|---|---|---|---|---|---|
+| `iac_pipeline_run` | `root`, `dir` (relativo), `target: Option<String>` (um plano dirigido, para reverter um drift) | `PipelineRun {id (sha256 do plano), tool, dir, target, stages[{id, status (ok\|failed\|not_installed\|not_connected\|skipped), summary, detail, hint, command, findings[{source, rule, file, line, severity, message, resource, key, accepted}], ms}], plan: IacPlan (módulos, motivo do replace, raio de impacto, write-only, custo), blocked, blockers, notes}` — init, fmt, validate, regras internas, tflint, checkov, trivy, segredos no estado, plan, drift, conftest, infracost | String | `iac://stage` `{root, dir, stage}` (ao começar e ao acabar cada etapa) | `features/ops` (r23 F4b) | X (`tofu`/`terraform`, os scanners) · **W** (o ficheiro do plano nos dados da app) |
+| `iac_apply_command` | `root`, `dir`, `planId` | `ApplyInfo {command, planFile, tool, dir, destroy}` — o comando exacto `… apply -input=false <plano>`; recusado (Err) se a corrida bloqueou, se o ficheiro não é o revisto, se a configuração mudou depois ou se tem mais de um dia | String | — | `features/ops` (aprovação → terminal → auditoria com o resultado) | R |
+| `iac_state` | `root`, `dir` | `IacState {ok, tool, dir, backend, serial, lineage, resources[{address, kind, mode, module, id, sensitive (nomes, nunca valores)}], lock {id, who, operation, created}, lockReadable, backupSerial, notes}` (`state pull`; o lock e a cópia só no backend local) | String | — | `features/ops` (separador Estado) | X (`state pull`, `init` se o pedir) |
+
 ## 23. Under the hood real — `commands/hood.rs` (3)
 
 A8 (docs/v2/UI-AUDIT.md item 7): passagens directas para `tutor_eval::hood`, num worker bloqueante. Com os
@@ -620,7 +633,7 @@ ambiente da shell de login resolvido por `shellenv.rs`) e `ports.rs` (portas TCP
 | `problems_scan` | `root: String` | `problems::ScanResult` | String | `problems://check` | `features/panel` | **X** · R |
 | `ports_list` | `root: Option<String>` | `Vec<ports::PortInfo>` | String | — | `features/panel` | R |
 
-## 17. Project (SQLite) e quadro Tasks — `board.rs` (12)
+## 17. Project (SQLite) e quadro Tasks — `board.rs` (15)
 
 Project (docs/v2/UI-AUDIT.md, item 5; fase A5): Kanban, Scrum, XP ou Scrum + XP sobre o store
 `tutor_board::project` (`app_local_data_dir/board.sqlite3`, tabela `schema_version` e migrações só
@@ -645,6 +658,9 @@ utilizador do SO).
 | `audit_record` | `root: String`, `entry: IdeAudit {feature, action, command, scope?, approved, reason?, outcome? (sent\|ok\|failed), decidedAt?}` | `()` (uma linha no mesmo registo do `project_audit`, com origem `ide`: o backend decide quem (`git config user.name`) e quando, e mascara os segredos do `.env` e os padrões conhecidos no comando, no âmbito e no motivo — r23 F1, RF-BK-L01) | `ProjectError` (`invalid`: feature/action fora de `[a-z0-9._-]`, comando vazio ou > 8 KiB, resultado desconhecido) | — | `platform/tauri/audit.ts` (as aprovações do `app/approval.ts`: Ops) | **W** · S |
 | `test_results_record` | `root: String`, `run: NewTestRun {runner, command, passed, failed, ignored?}` | `bool` (`false` sem commit: nada gravado; o commit é o HEAD e `dirty` se a árvore tinha alterações — decididos no backend — r23 F3, UI-SCM-09) | `ProjectError` | — | `features/testing` (depois de cada corrida, desktop) | **W** · S |
 | `test_results_for` | `root: String`, `shas: Vec<String>` (hashes ou prefixos de 7+) | `Vec<TestResult {sha, dirty, at, runner, command, passed, failed, ignored, ok}>` (da mais recente) | `ProjectError` | — | `features/scm` (ciclo de vida do commit) | R |
+| `iac_risk_accept` | `root`, `key`, `kind` (`finding`\|`drift`), `label`, `reason` (obrigatório) | `AcceptedRisk {id, key, kind, label, reason, actor, at, expires}` — guardado 30 dias (migração 10, `iac_accepted`); vai primeiro para o registo de auditoria (`iac` · `risk.accept`/`drift.ignore`): sem auditoria não se guarda — r23 F4b, P03/P04 | `ProjectError` | — | `features/ops` (Segurança e política, Drift) | **W** · S |
+| `iac_risks` | `root` | `Vec<AcceptedRisk>` (as que ainda valem) | `ProjectError` | — | `features/ops` | R |
+| `iac_risk_revoke` | `root`, `id: i64` | `bool` (expira-a agora, auditado: o pipeline volta a bloquear nela) | `ProjectError` | — | `features/ops` | **W** · S |
 | `project_issue_prompt` | `root: String`, `key: String`, `lang: Option<String>` (`pt`/`en`; omisso = pelo texto da issue) | `Rendered {text, lang, source, version, tokens}` (o prompt exacto com que a issue vai ao Co-Dev: template do projecto em `.dxtutor/prompts/issue.{pt,en}.md` ou o embutido, versão do template, tokens estimados — RF-B03/B04) | `ProjectError` | — | `platform/tauri/project.ts` («Ver prompt» e «Work on it with Co-Dev») | R |
 
 ## 18. Pesquisa / projecto — `commands/search.rs` (4)
@@ -668,9 +684,9 @@ ferramenta LLM** local, não o comando IPC).
 
 | Dimensão | Valor |
 |---|---|
-| Comandos registados | **262** |
+| Comandos registados | **268** |
 | Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 8 · `commands/git.rs` 41 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 17 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 16 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 34 · `commands/hood.rs` 3 · `commands/ops.rs` 6 · `commands/codebase.rs` 2 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 16 · `fsops.rs` 10 · `lsp.rs` 18 · `pty.rs` 7 · `commands/panel.rs` 2 · `commands/protect.rs` 3 · `board.rs` 12 |
-| Consumidos pela `ui-app` | **180** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 16 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 2 · `features/panel` 8 · `platform/tauri/arch.ts` 7 · `features/lsp` 18 · `platform/tauri/project.ts` 4 · `features/testing` 3 da A6: `test_runners`/`test_run`/`test_history` · `features/scm` 8 da A4: `git_blame`/`git_history`/`git_show_path`/`git_compare`/`git_stash`/`git_worktree`/`git_rebase`/`git_amend` · `features/debug` 9 da A7 · `features/hood` 6 da A8: `hood_line_asm`/`hood_python_bytecode`/`measure_growth` e os já existentes `trace_execution`/`compile_pipeline`/`run_measured` · `features/ops` 6 da A9 · 5 da A10: `deps_report`/`onboard_map` (`features/codebase`), `git_diff_range` (`features/scm`), `debug_attach_targets`/`debug_attach` (`features/debug`) · `project_change_sets` (`features/scm`, RF-E08) · 5 do bloco 3: `arch_rules_load`/`arch_rules_save`/`adr_list`/`adr_accept`/`arch_rules_commit` (`platform/tauri/arch.ts`, F5.2/F5.5) · `audit_record` (`platform/tauri/audit.ts`, r23 F1) · `git_clone`/`git_clone_plan` (`features/welcome`, r23 F6) · `git_refs` (`features/scm`, r23 F3) · `git_hunks`/`git_stage_hunks` (`features/scm`, r23 F3) · `git_undo_*` (4: `features/scm`, r23 F3) · `git_predict_conflicts` (`features/scm`, r23 F3) · `git_merge`/`git_conflict_stages` (`features/scm`, r23 F3) · `git_sync_plan`/`git_sync` (`features/scm`, r23 F3) · `gh_status`/`gh_prs`/`gh_runs_for`/`gh_prs_for` (`features/scm`, r23 F3) · `test_results_record` (`features/testing`) e `test_results_for` (`features/scm`), r23 F3 · `git_commit_paths`/`git_lane_commit` (`features/scm`, r23 F3) · `protect_learn`/`secret_scan`/`secret_scan_allow` (`features/protect`, r23 F4a)) |
+| Consumidos pela `ui-app` | **186** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 16 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 2 · `features/panel` 8 · `platform/tauri/arch.ts` 7 · `features/lsp` 18 · `platform/tauri/project.ts` 4 · `features/testing` 3 da A6: `test_runners`/`test_run`/`test_history` · `features/scm` 8 da A4: `git_blame`/`git_history`/`git_show_path`/`git_compare`/`git_stash`/`git_worktree`/`git_rebase`/`git_amend` · `features/debug` 9 da A7 · `features/hood` 6 da A8: `hood_line_asm`/`hood_python_bytecode`/`measure_growth` e os já existentes `trace_execution`/`compile_pipeline`/`run_measured` · `features/ops` 6 da A9 · 5 da A10: `deps_report`/`onboard_map` (`features/codebase`), `git_diff_range` (`features/scm`), `debug_attach_targets`/`debug_attach` (`features/debug`) · `project_change_sets` (`features/scm`, RF-E08) · 5 do bloco 3: `arch_rules_load`/`arch_rules_save`/`adr_list`/`adr_accept`/`arch_rules_commit` (`platform/tauri/arch.ts`, F5.2/F5.5) · `audit_record` (`platform/tauri/audit.ts`, r23 F1) · `git_clone`/`git_clone_plan` (`features/welcome`, r23 F6) · `git_refs` (`features/scm`, r23 F3) · `git_hunks`/`git_stage_hunks` (`features/scm`, r23 F3) · `git_undo_*` (4: `features/scm`, r23 F3) · `git_predict_conflicts` (`features/scm`, r23 F3) · `git_merge`/`git_conflict_stages` (`features/scm`, r23 F3) · `git_sync_plan`/`git_sync` (`features/scm`, r23 F3) · `gh_status`/`gh_prs`/`gh_runs_for`/`gh_prs_for` (`features/scm`, r23 F3) · `test_results_record` (`features/testing`) e `test_results_for` (`features/scm`), r23 F3 · `git_commit_paths`/`git_lane_commit` (`features/scm`, r23 F3) · `protect_learn`/`secret_scan`/`secret_scan_allow` (`features/protect`, r23 F4a) · `iac_pipeline_run`/`iac_apply_command`/`iac_state`/`iac_risks`/`iac_risk_accept`/`iac_risk_revoke` (`features/ops`, r23 F4b)) |
 | Não consumidos pela `ui-app` | **82** |
 | Eventos distintos | **17** — `arch://proposal` (a ferramenta `arch_propose` do agente → Studio de arquitectura), `llm://token`, `llm://done`, `llm://error`, `proc-line`, `proc-exit`, `pty://data`, `pty://exit`, `pair-status`, `pair-msg`, `codev-agent://event`, `codev-agent://approval`, `codev-agent://error`, `lsp://diagnostics`, `lsp://status`, `lsp://apply-edit`, `problems://check` |
 | Executam processo/shell (**X**) | 30+ (estudo-run, testes, debug, devcontainers, exec/run_shell/run_path, lsp_start, pty, dictation_start/stop) |

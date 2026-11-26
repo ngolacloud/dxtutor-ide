@@ -653,3 +653,101 @@ mod tests {
         );
     }
 }
+
+// ───── r23 F4b: accepted IaC risks and ignored drift (P03/P04) ─────
+
+/// The keys of the accepted IaC risks still in force in this folder (what the pipeline does not
+/// block on). An unreadable base accepts nothing.
+pub fn accepted_keys(app: &AppHandle, root: &str) -> std::collections::HashSet<String> {
+    open(app)
+        .and_then(|s| s.accepted_risks(root.trim(), now_ms()))
+        .map(|v| v.into_iter().map(|r| r.key).collect())
+        .unwrap_or_default()
+}
+
+fn audit_iac(
+    app: &AppHandle,
+    root: &str,
+    action: &str,
+    label: &str,
+    reason: Option<&str>,
+) -> Result<(), ProjectError> {
+    let redactor = tutor_agent::redact::Redactor::for_root(Path::new(root));
+    let e = ide_audit_entry(
+        &IdeAudit {
+            feature: "iac".into(),
+            action: action.into(),
+            command: label.into(),
+            scope: None,
+            approved: true,
+            reason: reason.map(String::from),
+            outcome: Some("ok".into()),
+            decided_at: None,
+        },
+        &actor(root),
+        now_ms(),
+        &redactor,
+    )?;
+    open(app)?.record_audit(root, &e)
+}
+
+/// Accepts an IaC finding (`kind: finding`) or ignores a drift (`kind: drift`) with a reason, for 30
+/// days; who and when are decided here, and the acceptance goes to the audit log first — one that
+/// cannot be audited is not kept.
+#[tauri::command]
+pub fn iac_risk_accept(
+    app: AppHandle,
+    root: String,
+    key: String,
+    kind: String,
+    label: String,
+    reason: String,
+) -> Result<tutor_board::project::risks::AcceptedRisk, ProjectError> {
+    let root = root_of(&root)?;
+    if reason.trim().chars().count() < 3 {
+        return Err(invalid("an accepted risk needs a reason".into()));
+    }
+    let action = if kind == "drift" {
+        "drift.ignore"
+    } else {
+        "risk.accept"
+    };
+    audit_iac(
+        &app,
+        &root,
+        action,
+        &format!("{label} · 30 days"),
+        Some(&reason),
+    )?;
+    open(&app)?.accept_risk(
+        &root,
+        &key,
+        &kind,
+        &label,
+        &reason,
+        &actor(&root),
+        now_ms(),
+        tutor_board::project::risks::MAX_DAYS,
+    )
+}
+
+/// The accepted IaC risks still in force.
+#[tauri::command]
+pub fn iac_risks(
+    app: AppHandle,
+    root: String,
+) -> Result<Vec<tutor_board::project::risks::AcceptedRisk>, ProjectError> {
+    let root = root_of(&root)?;
+    open(&app)?.accepted_risks(&root, now_ms())
+}
+
+/// Ends an accepted risk now (audited): the pipeline blocks on it again.
+#[tauri::command]
+pub fn iac_risk_revoke(app: AppHandle, root: String, id: i64) -> Result<bool, ProjectError> {
+    let root = root_of(&root)?;
+    let gone = open(&app)?.revoke_risk(&root, id, now_ms())?;
+    if let Some(r) = &gone {
+        audit_iac(&app, &root, "risk.revoke", &r.label, None)?;
+    }
+    Ok(gone.is_some())
+}

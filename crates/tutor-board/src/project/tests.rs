@@ -968,3 +968,61 @@ fn test_results_are_kept_per_commit_newest_first() {
         .unwrap()
         .is_empty());
 }
+
+/// r23 F4b: an accepted IaC risk has a reason, lasts at most 30 days, and can be revoked.
+#[test]
+fn accepted_risks_expire_and_can_be_revoked() {
+    let mut st = store();
+    let day = 24 * H;
+    assert!(st
+        .accept_risk("/p", "k1", "finding", "x", " ", "Walter", T0, 30)
+        .is_err());
+    assert!(st
+        .accept_risk("/p", "k1", "other", "x", "a reason", "Walter", T0, 30)
+        .is_err());
+    let a = st
+        .accept_risk(
+            "/p",
+            "k1",
+            "finding",
+            "checkov CKV_X · main.tf:5",
+            "fixture bucket",
+            "Walter",
+            T0,
+            90,
+        )
+        .unwrap();
+    assert_eq!(a.expires, T0 + 30 * day);
+    st.accept_risk(
+        "/p",
+        "drift:infra:x.y",
+        "drift",
+        "x.y",
+        "changed by the on-call",
+        "Walter",
+        T0 + 1,
+        7,
+    )
+    .unwrap();
+    st.accept_risk("/q", "k1", "finding", "x", "other folder", "Walter", T0, 30)
+        .unwrap();
+    let keys = |v: Vec<risks::AcceptedRisk>| v.into_iter().map(|r| r.key).collect::<Vec<_>>();
+    assert_eq!(
+        keys(st.accepted_risks("/p", T0 + day).unwrap()),
+        vec!["drift:infra:x.y", "k1"]
+    );
+    assert_eq!(
+        keys(st.accepted_risks("/p", T0 + 8 * day).unwrap()),
+        vec!["k1"]
+    );
+    assert!(st.accepted_risks("/p", T0 + 30 * day).unwrap().is_empty());
+    assert_eq!(
+        st.revoke_risk("/p", a.id, T0 + day).unwrap().map(|r| r.key),
+        Some("k1".into())
+    );
+    assert!(st.revoke_risk("/p", a.id, T0 + day).unwrap().is_none());
+    assert_eq!(
+        keys(st.accepted_risks("/p", T0 + 2 * day).unwrap()),
+        vec!["drift:infra:x.y"]
+    );
+}

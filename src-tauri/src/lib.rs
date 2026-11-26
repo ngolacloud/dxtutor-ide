@@ -97,6 +97,7 @@ use commands::git::{
     git_worktree,
 };
 use commands::hood::{hood_line_asm, hood_python_bytecode, measure_growth};
+use commands::iac::{iac_apply_command, iac_pipeline_run, iac_state};
 use commands::missions::{compile_pipeline, run_drill, run_measured, trace_execution};
 use commands::ops::{
     ops_cloud_inventory, ops_cloud_status, ops_iac_dirs, ops_iac_plan, ops_kube_history,
@@ -1074,6 +1075,9 @@ pub fn run() {
             protect_learn,
             secret_scan,
             secret_scan_allow,
+            iac_pipeline_run,
+            iac_apply_command,
+            iac_state,
             ports_list,
             lsp::lsp_start,
             lsp::lsp_did_open,
@@ -1104,6 +1108,9 @@ pub fn run() {
             board::audit_record,
             board::test_results_record,
             board::test_results_for,
+            board::iac_risk_accept,
+            board::iac_risks,
+            board::iac_risk_revoke,
             board::project_issue_prompt,
         ])
         .run(tauri::generate_context!())

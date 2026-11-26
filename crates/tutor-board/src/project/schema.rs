@@ -246,6 +246,21 @@ const MIGRATIONS: &[&str] = &[
     //     breakpoint (`file:line`, relative) that arms this one; `grp` the scenario it belongs to
     "ALTER TABLE breakpoints ADD COLUMN trigger_on TEXT;
     ALTER TABLE breakpoints ADD COLUMN grp TEXT;",
+    // 10 — accepted IaC risks and ignored drift (r23 F4b, P03/P04): a finding of the IaC pipeline (or
+    //      a drifted resource) accepted with a reason until `expires` (at most 30 days); revoking
+    //      expires it now, so the history stays
+    "CREATE TABLE iac_accepted (
+        id       INTEGER PRIMARY KEY AUTOINCREMENT,
+        root     TEXT NOT NULL,
+        key      TEXT NOT NULL,
+        kind     TEXT NOT NULL,
+        label    TEXT NOT NULL DEFAULT '',
+        reason   TEXT NOT NULL,
+        actor    TEXT NOT NULL,
+        at       INTEGER NOT NULL,
+        expires  INTEGER NOT NULL
+    );
+    CREATE INDEX idx_iac_accepted ON iac_accepted(root, expires);",
 ];
 
 /// The schema version this code expects.

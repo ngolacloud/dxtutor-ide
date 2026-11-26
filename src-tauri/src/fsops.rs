@@ -103,12 +103,14 @@ pub fn list_dir(path: String) -> Result<Vec<EntryDto>, String> {
 /// Read a UTF-8 (lossy-free) text file in full.
 #[tauri::command]
 pub fn read_text_file(path: String) -> Result<String, String> {
+    crate::workspace::refuse_state_file(&path)?;
     fs::read_to_string(&path).map_err(|e| format!("cannot read `{path}`: {e}"))
 }
 
 /// Overwrite (or create) a text file with `contents`.
 #[tauri::command]
 pub fn write_text_file(path: String, contents: String) -> Result<(), String> {
+    crate::workspace::refuse_state_file(&path)?;
     fs::write(&path, contents).map_err(|e| format!("cannot write `{path}`: {e}"))
 }
 

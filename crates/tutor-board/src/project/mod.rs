@@ -15,6 +15,7 @@
 
 pub mod breakpoints;
 pub mod reports;
+pub mod risks;
 pub mod schema;
 pub mod testhist;
 
@@ -979,6 +980,41 @@ impl ProjectStore {
             })?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
+    }
+
+    /// Accepts an IaC finding or a drift with a reason, for at most 30 days (r23 F4b).
+    #[allow(clippy::too_many_arguments)]
+    pub fn accept_risk(
+        &mut self,
+        root: &str,
+        key: &str,
+        kind: &str,
+        label: &str,
+        reason: &str,
+        actor: &str,
+        now: i64,
+        days: i64,
+    ) -> Result<risks::AcceptedRisk, ProjectError> {
+        risks::accept(&self.conn, root, key, kind, label, reason, actor, now, days)
+    }
+
+    /// The accepted IaC risks still in force.
+    pub fn accepted_risks(
+        &self,
+        root: &str,
+        now: i64,
+    ) -> Result<Vec<risks::AcceptedRisk>, ProjectError> {
+        risks::active(&self.conn, root, now)
+    }
+
+    /// Ends an accepted risk now.
+    pub fn revoke_risk(
+        &mut self,
+        root: &str,
+        id: i64,
+        now: i64,
+    ) -> Result<Option<risks::AcceptedRisk>, ProjectError> {
+        risks::revoke(&self.conn, root, id, now)
     }
 
     /// The gutter's breakpoints of the project (DBG-03).
