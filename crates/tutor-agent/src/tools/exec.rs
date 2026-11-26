@@ -13,13 +13,33 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
-use super::head_tail;
 use crate::tool::{Tool, ToolCtx, ToolOutput};
 
 /// Tecto do timeout que o modelo pode pedir.
 pub const MAX_TIMEOUT: Duration = Duration::from_secs(600);
-/// Caracteres de stdout e de stderr devolvidos ao modelo (cada um, início + fim).
-const OUT_MAX_CHARS: usize = 30_000;
+/// Caracteres de saída (stdout + stderr) devolvidos ao modelo. Cada resultado fica no
+/// histórico e é reenviado em todos os pedidos seguintes; o que importa num comando que falha
+/// está quase sempre no fim, por isso o corte guarda sobretudo o fim ([`tail_heavy`]).
+pub const OUT_MAX_CHARS: usize = 20_000;
+/// A parte do orçamento que o stderr pode usar quando também há stdout.
+const ERR_SHARE_CHARS: usize = 10_000;
+
+/// Corta texto longo guardando um quarto do orçamento para o início e três quartos para o fim
+/// (onde estão os erros e o resumo), com uma nota que diz como ver o resto.
+pub(crate) fn tail_heavy(s: &str, max_chars: usize) -> String {
+    let n = s.chars().count();
+    if n <= max_chars {
+        return s.to_string();
+    }
+    let head: String = s.chars().take(max_chars / 4).collect();
+    let tail: String = s.chars().skip(n - max_chars * 3 / 4).collect();
+    format!(
+        "{head}\n…[{} de {n} caracteres omitidos do meio; para ver outra parte, corre o comando \
+         outra vez filtrando a saída (`| grep -n padrão`, `| tail -n 100`) ou guarda-a num \
+         ficheiro e lê-o com `read`/`grep`]…\n{tail}",
+        n - max_chars
+    )
+}
 /// Bytes guardados em memória por stream (o resto é descartado ao ler).
 const CAPTURE_MAX_BYTES: usize = 4 * 1024 * 1024;
 
@@ -51,13 +71,20 @@ impl ExecOutcome {
             }
         };
         let mut s = status;
-        if !self.stdout.trim().is_empty() {
+        let (out, err) = (self.stdout.trim_end(), self.stderr.trim_end());
+        // o stderr (erros) tem a sua parte garantida; o stdout fica com o resto do orçamento
+        let (out_len, err_len) = (out.chars().count(), err.chars().count());
+        let err_max = ERR_SHARE_CHARS
+            .max(OUT_MAX_CHARS.saturating_sub(out_len))
+            .min(err_len);
+        let out_max = OUT_MAX_CHARS - err_max;
+        if !out.trim().is_empty() {
             s.push_str("\n--- stdout\n");
-            s.push_str(&head_tail(self.stdout.trim_end(), OUT_MAX_CHARS));
+            s.push_str(&tail_heavy(out, out_max));
         }
-        if !self.stderr.trim().is_empty() {
+        if !err.trim().is_empty() {
             s.push_str("\n--- stderr\n");
-            s.push_str(&head_tail(self.stderr.trim_end(), OUT_MAX_CHARS));
+            s.push_str(&tail_heavy(err, err_max));
         }
         s
     }
@@ -300,5 +327,50 @@ impl Tool for Verify {
             is_error: !r.ok(),
             content: format!("$ {}\n{}", self.command, r.render()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn outcome(stdout: String, stderr: String) -> ExecOutcome {
+        ExecOutcome {
+            code: Some(1),
+            stdout,
+            stderr,
+            timed_out: false,
+            cancelled: false,
+        }
+    }
+
+    #[test]
+    fn long_output_keeps_mostly_the_end_where_the_errors_are() {
+        let s = format!("INICIO{}error[E0308]: mismatched types", "x".repeat(50_000));
+        let c = tail_heavy(&s, 1000);
+        assert!(c.starts_with("INICIO"));
+        assert!(c.ends_with("error[E0308]: mismatched types"));
+        assert!(c.contains("omitidos do meio") && c.contains("tail -n"));
+        assert_eq!(tail_heavy("curto", 100), "curto");
+    }
+
+    #[test]
+    fn the_whole_render_fits_the_budget_and_stderr_keeps_its_share() {
+        let r = outcome("o".repeat(60_000), format!("{}FALHOU", "e".repeat(60_000)));
+        let s = r.render();
+        assert!(s.starts_with("exit 1"));
+        // o orçamento total mais as notas e os cabeçalhos
+        assert!(
+            s.chars().count() < OUT_MAX_CHARS + 800,
+            "{}",
+            s.chars().count()
+        );
+        assert!(s.ends_with("FALHOU"));
+        // só stderr: fica com o orçamento todo
+        let r = outcome(String::new(), "e".repeat(15_000));
+        assert!(!r.render().contains("omitidos"));
+        // stdout curto: o stderr usa o resto
+        let r = outcome("ok".into(), "e".repeat(12_000));
+        assert!(!r.render().contains("omitidos"));
     }
 }

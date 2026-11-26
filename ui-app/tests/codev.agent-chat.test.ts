@@ -7,7 +7,8 @@ import { makeAgentChat } from "../src/features/codev/application/agent-chat";
 import type { AgentChatDeps, AgentGateway } from "../src/features/codev/application/ports";
 import type { AgentEvent, ApprovalRequest, HistoryItem, SessionSummary } from "../src/features/codev/domain/agent-events";
 import { isAgentProvider, isNoToolsError, parseAgentEvent, parseApproval, describeCall, summarizeResult, describeSession, parseSessions, parseHistory, ago, parseExtensions } from "../src/features/codev/domain/agent-events";
-import { costUSD, formatUsage } from "../src/features/codev/domain/pricing";
+import { cacheHitPercent, costUSD, formatUsage } from "../src/features/codev/domain/pricing";
+import { architectureSession, isArchitectureRequest } from "../src/features/codev/domain/session-kind";
 
 type H = Parameters<AgentGateway["subscribe"]>[0];
 
@@ -118,6 +119,8 @@ test("abre a sessão com os comandos detectados e o modo, faz streaming do texto
     reviewEdits: false,
     // the Project issue, when the conversation starts from one (A5)
     issue: null,
+    // toolset 9: an architecture session only when the deps say so (Studio open / the request)
+    architecture: false,
   });
   expect(t.gateway.send).toHaveBeenCalledWith("S1", "olá", { kind: "chat" });
   expect(t.calls).toContain("reasoning vou ver");
@@ -495,7 +498,34 @@ test("o uso de cada pedido do agente segue para o contador e o ctx (entrada com 
     t.emit(done());
   });
   await t.chat.send("olá");
-  expect(onUsage.mock.calls).toEqual([[1230, 50], [400, 20]]); // por pedido, não o acumulado da volta
+  // por pedido, não o acumulado da volta; com a cache lida/escrita e o custo do pedido
+  expect(onUsage.mock.calls.map((c) => c.slice(0, 2))).toEqual([[1230, 50], [400, 20]]);
+  expect(onUsage.mock.calls[0][2]).toEqual({ cacheRead: 200, cacheWrite: 30, cost: costUSD("claude-opus-5-5", u(1000, 50, 200, 30)) });
+  expect(onUsage.mock.calls[1][2]).toEqual({ cacheRead: 0, cacheWrite: 0, cost: costUSD("claude-opus-5-5", u(400, 20)) });
+});
+
+test("conjunto 9: a sessão nova é de arquitectura conforme as deps, com o primeiro pedido", async () => {
+  const t = setup();
+  const architecture = vi.fn((q: string) => q.includes("arquitectura"));
+  (t.deps as { architecture?: (q: string) => boolean }).architecture = architecture;
+  t.setScript(() => t.emit(done()));
+  await t.chat.send("desenha a arquitectura do serviço");
+  expect(architecture).toHaveBeenCalledWith("desenha a arquitectura do serviço");
+  expect(t.gateway.start).toHaveBeenLastCalledWith(expect.objectContaining({ architecture: true }));
+  // the next message reuses the session: the kind is decided once
+  await t.chat.send("e agora corrige o bug");
+  expect(t.gateway.start).toHaveBeenCalledTimes(1);
+});
+
+test("custo: as escritas de cache de 1 hora custam 2× a entrada; a percentagem da cache", () => {
+  // Opus 5.5: 4k × $4 × 1.25 + 6k × $4 × 2 = $0.02 + $0.048
+  expect(costUSD("claude-opus-5-5", { ...u(0, 0, 0, 10_000), cache_creation_1h_input_tokens: 6_000 })).toBeCloseTo(0.068);
+  expect(cacheHitPercent(10_000, 8_700)).toBe(87);
+  expect(cacheHitPercent(0, 0)).toBeNull();
+  expect(isArchitectureRequest("Desenha a arquitetura do sistema")).toBe(true);
+  expect(isArchitectureRequest("draw an architecture diagram")).toBe(true);
+  expect(isArchitectureRequest("corrige o teste do lexer")).toBe(false);
+  expect(architectureSession(true, "corrige o teste")).toBe(true);
 });
 
 test("live hunks: opens with reviewEdits, saves before sending, and shows the review bar and validation", async () => {

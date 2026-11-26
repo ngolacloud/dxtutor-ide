@@ -49,8 +49,8 @@ pub mod types;
 
 pub use agent::{Agent, AgentConfig, AgentError, AgentEvent, Decision, PendingCall, TurnOutcome};
 pub use provider::{
-    BlockKind, Effort, Provider, ProviderError, Request, Response, StopReason, StreamEvent,
-    SystemBlock, ThinkingDisplay, ToolDef, Usage,
+    BlockKind, CacheTtl, Effort, Provider, ProviderError, Request, Response, StopReason,
+    StreamEvent, SystemBlock, ThinkingDisplay, ToolDef, Usage,
 };
 pub use tool::{Tool, ToolCtx, ToolOutput};
 pub use types::{Message, Role, ToolResult, ToolUse, Transcript};

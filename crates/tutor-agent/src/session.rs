@@ -51,9 +51,25 @@ pub struct SessionMeta {
     /// sub-agentes respondem nela. Ficheiros anteriores não a têm → português, como eram.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lang: Option<String>,
+    /// Toolset 9: os conjuntos extra desta sessão, decididos quando começou (`issue` →
+    /// `finish_issue`; `arch` → `arch_propose`). Uma retoma usa os gravados (o prefixo do pedido
+    /// não pode mudar). Ficheiros anteriores não os têm, e nas versões < 9 não contam.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scopes: Vec<String>,
 }
 
+/// O conjunto extra das sessões que trabalham numa issue do Project (`finish_issue`).
+pub const SCOPE_ISSUE: &str = "issue";
+/// O conjunto extra das sessões de arquitectura (`arch_propose`, Studio).
+pub const SCOPE_ARCH: &str = "arch";
+
 impl SessionMeta {
+    /// Esta sessão tem o conjunto extra `scope`? Antes do toolset 9 todas as sessões tinham
+    /// todas as ferramentas, por isso responde sim.
+    pub fn has_scope(&self, scope: &str) -> bool {
+        self.toolset < 9 || self.scopes.iter().any(|s| s == scope)
+    }
+
     /// A língua em que esta sessão responde ([`crate::context::ReplyLang`]).
     pub fn lang(&self) -> crate::context::ReplyLang {
         crate::context::ReplyLang::from_ui(self.lang.as_deref())
@@ -401,7 +417,28 @@ mod tests {
             provider: "claude".into(),
             lang: None,
             mcp_tools: vec![],
+            scopes: vec![],
         }
+    }
+
+    #[test]
+    fn scopes_count_only_from_toolset_9_and_old_files_have_none() {
+        let mut m = meta("s");
+        assert!(
+            m.has_scope(SCOPE_ARCH),
+            "antes do 9 todas as sessões tinham tudo"
+        );
+        m.toolset = 9;
+        assert!(!m.has_scope(SCOPE_ARCH) && !m.has_scope(SCOPE_ISSUE));
+        m.scopes = vec![SCOPE_ISSUE.into()];
+        assert!(m.has_scope(SCOPE_ISSUE) && !m.has_scope(SCOPE_ARCH));
+        // gravado e relido; sem conjuntos, nem aparece no ficheiro
+        let j = serde_json::to_string(&m).unwrap();
+        assert!(j.contains("\"scopes\":[\"issue\"]"));
+        let back: SessionMeta = serde_json::from_str(&j).unwrap();
+        assert_eq!(back.scopes, m.scopes);
+        m.scopes.clear();
+        assert!(!serde_json::to_string(&m).unwrap().contains("scopes"));
     }
 
     #[test]

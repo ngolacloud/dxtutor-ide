@@ -8,15 +8,23 @@ use super::{looks_binary, FileState};
 use crate::sandbox;
 use crate::tool::{Tool, ToolCtx, ToolOutput};
 
-/// Linhas devolvidas por omissão e no máximo por `read`.
+/// Linhas devolvidas no máximo por `read` (o `limit` que o modelo pode pedir).
 pub const READ_MAX_LINES: usize = 2000;
-/// Bytes máximos devolvidos por `read`.
-pub const READ_MAX_BYTES: usize = 256 * 1024;
+/// Linhas devolvidas por `read` sem `limit`: cada leitura fica no histórico e é reenviada em
+/// todos os pedidos seguintes, por isso um ficheiro grande lê-se por excertos.
+pub const READ_DEFAULT_LINES: usize = 500;
+/// Bytes máximos devolvidos por `read` (abaixo da rede de segurança do loop,
+/// [`crate::agent::MAX_RESULT_CHARS`], para a nota de continuação nunca ser cortada).
+pub const READ_MAX_BYTES: usize = 28_000;
 /// Linhas mais longas são cortadas (minificados, dados).
 const LINE_MAX_CHARS: usize = 2000;
 
 pub struct Read {
     pub state: Arc<FileState>,
+    /// Toolset 9: a descrição diz a leitura por omissão (500 linhas) e manda orientar-se
+    /// primeiro. As sessões anteriores mantêm a descrição com que começaram (o prefixo do
+    /// pedido não pode mudar).
+    pub v9: bool,
 }
 
 impl Tool for Read {
@@ -24,9 +32,16 @@ impl Tool for Read {
         "read"
     }
     fn description(&self) -> &str {
-        "Lê um ficheiro de texto do projecto, com números de linha. `offset` (1 = primeira \
-         linha) e `limit` (até 2000) lêem um excerto de ficheiros grandes. Lê sempre um \
-         ficheiro antes de o editar."
+        if self.v9 {
+            "Lê um ficheiro de texto do projecto, com números de linha: por omissão as primeiras \
+             500 linhas; `offset` (1 = primeira linha) e `limit` (até 2000) lêem outro excerto. \
+             Num ficheiro grande, localiza primeiro o que precisas (`outline`, `grep` com \
+             mode=\"content\") e lê só esse excerto. Lê sempre um ficheiro antes de o editar."
+        } else {
+            "Lê um ficheiro de texto do projecto, com números de linha. `offset` (1 = primeira \
+             linha) e `limit` (até 2000) lêem um excerto de ficheiros grandes. Lê sempre um \
+             ficheiro antes de o editar."
+        }
     }
     fn input_schema(&self) -> Value {
         json!({
@@ -69,7 +84,7 @@ impl Tool for Read {
         let limit = input["limit"]
             .as_u64()
             .map(|l| l as usize)
-            .unwrap_or(READ_MAX_LINES)
+            .unwrap_or(READ_DEFAULT_LINES)
             .min(READ_MAX_LINES);
         if total == 0 {
             return ToolOutput::ok(format!("{given}: (ficheiro vazio)"));
@@ -100,7 +115,8 @@ impl Tool for Read {
         let last = offset + shown - 1;
         if last < total {
             out.push_str(&format!(
-                "…[mostradas as linhas {offset}–{last} de {total}; usa offset={} para continuar]\n",
+                "…[mostradas as linhas {offset}–{last} de {total}; usa offset={} para continuar, \
+                 ou localiza o que precisas com `outline`/`grep` e lê só esse excerto]\n",
                 last + 1
             ));
         }
@@ -240,11 +256,13 @@ impl Tool for Edit {
     }
 }
 
-/// Toolset 8 (RF-E01/E02, docs/v2/RF-DELONIX-PLANO.md F2.1): the main way to change a file —
-/// replace (or insert) a range of lines, anchored on their current text. With live hunks on, the
-/// IDE turns the call into a hunk the human reviews; without (TUI/CLI) it writes directly.
+/// Toolset 8 (RF-E01/E02, docs/v2/RF-DELONIX-PLANO.md F2.1): replace (or insert) a range of
+/// lines, anchored on their current text. With live hunks on, the IDE turns the call into a hunk
+/// the human reviews; without (TUI/CLI) it writes directly. Toolset 9 stops calling it «the main
+/// way» (the core prompt prefers `edit`; one guidance, not two that contradict each other).
 pub struct EditLines {
     pub state: Arc<FileState>,
+    pub v9: bool,
 }
 
 impl Tool for EditLines {
@@ -252,11 +270,21 @@ impl Tool for EditLines {
         "edit_lines"
     }
     fn description(&self) -> &str {
-        "A forma principal de alterar um ficheiro: substitui as linhas start..end (1-based, como \
-         o `read` as numera) por new_text; com start = end + 1 insere antes da linha start. \
-         `anchor` é o texto actual dessas linhas (vazio ao inserir): se o ficheiro mudou, a \
-         alteração é recusada e relês o ficheiro. Muda só as linhas necessárias; o fim de linha \
-         (LF/CRLF) do ficheiro mantém-se. Exige ter lido o ficheiro antes."
+        if self.v9 {
+            "Substitui as linhas start..end (1-based, como o `read` as numera) por new_text; com \
+             start = end + 1 insere antes da linha start. `anchor` é o texto actual dessas linhas \
+             (vazio ao inserir): se o ficheiro mudou, a alteração é recusada e relês o ficheiro. \
+             Usa-o para inserir linhas num ponto ou trocar um bloco grande que acabaste de ler; \
+             para mudanças pequenas prefere `edit`. Depois de uma alteração no mesmo ficheiro os \
+             números das linhas seguintes mudam. O fim de linha (LF/CRLF) mantém-se. Exige ter \
+             lido o ficheiro antes."
+        } else {
+            "A forma principal de alterar um ficheiro: substitui as linhas start..end (1-based, como \
+             o `read` as numera) por new_text; com start = end + 1 insere antes da linha start. \
+             `anchor` é o texto actual dessas linhas (vazio ao inserir): se o ficheiro mudou, a \
+             alteração é recusada e relês o ficheiro. Muda só as linhas necessárias; o fim de linha \
+             (LF/CRLF) do ficheiro mantém-se. Exige ter lido o ficheiro antes."
+        }
     }
     fn input_schema(&self) -> Value {
         json!({

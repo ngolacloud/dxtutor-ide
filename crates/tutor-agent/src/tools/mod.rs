@@ -57,6 +57,12 @@ pub struct ToolsetOptions {
     /// The read/edit/write state to share with the host (live hunks, RF-CODEV-STREAM);
     /// `None` creates a private one.
     pub files: Option<Arc<FileState>>,
+    /// The toolset version whose tool descriptions to use (a session keeps the one it started
+    /// with; [`agent_tools`] sets it). Sub-agents and the TUI/CLI use the current one.
+    pub version: u32,
+    /// Toolset 9: this session works on a Project issue, so it gets `finish_issue` (the other
+    /// sessions do not pay for a tool they never use).
+    pub issue: bool,
 }
 
 impl Default for ToolsetOptions {
@@ -66,6 +72,8 @@ impl Default for ToolsetOptions {
             lint_cmd: None,
             bash_timeout: Duration::from_secs(120),
             files: None,
+            version: TOOLSET_VERSION,
+            issue: false,
         }
     }
 }
@@ -76,6 +84,7 @@ pub fn coding_tools(opts: &ToolsetOptions) -> Vec<Arc<dyn Tool>> {
     let mut v: Vec<Arc<dyn Tool>> = vec![
         Arc::new(fs::Read {
             state: state.clone(),
+            v9: opts.version >= 9,
         }),
         Arc::new(search::Glob),
         Arc::new(search::Grep),
@@ -103,8 +112,12 @@ pub fn coding_tools(opts: &ToolsetOptions) -> Vec<Arc<dyn Tool>> {
 /// *preserved thinking* recusa-o). 1 = F2–F5; 2 = + todo_write/exit_plan/task (F6);
 /// 3 = + skill e as ferramentas injectadas pelo anfitrião (lsp_diagnostics, MCP) (F7);
 /// 4 = + as ferramentas do anfitrião da versão 4 (`arch_propose`, Studio de arquitectura);
-/// 5 = `exit_plan` com passos e ficheiros, `task` com papéis (A3: HARNESS-01/06).
-pub const TOOLSET_VERSION: u32 = 8;
+/// 5 = `exit_plan` com passos e ficheiros, `task` com papéis (A3: HARNESS-01/06);
+/// 6 = + `ask_human`/`suggest`; 7 = + `finish_issue`; 8 = + `edit_lines`;
+/// 9 = conjuntos por tipo de sessão (`finish_issue` só nas issues, `arch_propose` só nas
+/// sessões de arquitectura — o anfitrião decide) e as descrições de `read`/`edit_lines` que
+/// poupam tokens (ler por excertos, uma só ferramenta de edição preferida).
+pub const TOOLSET_VERSION: u32 = 9;
 
 /// O estado partilhado entre as ferramentas de fluxo e a sessão.
 #[derive(Clone, Default)]
@@ -140,6 +153,7 @@ pub fn agent_tools(
     let state = opts.files.clone().unwrap_or_default();
     let opts = &ToolsetOptions {
         files: Some(state.clone()),
+        version,
         ..opts.clone()
     };
     let mut v = coding_tools(opts);
@@ -173,8 +187,9 @@ pub fn agent_tools(
             suggestions: flow_state.suggestions.clone(),
         }));
     }
-    // toolset 7 (F4.5): the end of an issue, after the toolset 6 tools
-    if version >= 7 {
+    // toolset 7 (F4.5): the end of an issue, after the toolset 6 tools; from toolset 9 only in
+    // the sessions that work on an issue
+    if version >= 7 && (version < 9 || opts.issue) {
         v.push(Arc::new(flow::FinishIssue {
             criteria: flow_state.criteria.clone(),
             finished: flow_state.finished.clone(),
@@ -182,7 +197,10 @@ pub fn agent_tools(
     }
     // toolset 8 (F2.1): line edits anchored on the lines' text
     if version >= 8 {
-        v.push(Arc::new(fs::EditLines { state }));
+        v.push(Arc::new(fs::EditLines {
+            state,
+            v9: version >= 9,
+        }));
     }
     v
 }
