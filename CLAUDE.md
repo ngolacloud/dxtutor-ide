@@ -825,8 +825,10 @@ Nenhum segredo sai da máquina, e a regra vive no Rust:
   `services.protect.guard(f)` (o commit do desktop, o Composer e as lanes) mostra os achados no diálogo partilhado; passar
   exige motivo, auditado ANTES de `secret_scan_allow` (um commit, 2 min) e com o resultado. Um commit que o humano
   faz no seu terminal não passa por aqui.
-- **Máscara** (X04): o PTY (`tutor_protect::stream::Masker`, pedaço a pedaço: o eco interactivo não pode esperar — um
-  segredo partido entre duas leituras pode passar) e a saída do depurador.
+- **Máscara** (X04): o PTY (`tutor_protect::stream::Masker`) e a saída do depurador. Uma shell interactiva mascara
+  pedaço a pedaço (o eco não pode esperar: um segredo partido entre duas leituras pode passar); uma TAREFA (`pty_spawn`
+  com `command`) retém o fim de uma linha que pode ser o início de um segredo até à leitura seguinte e despeja o resto
+  no fim — uma linha que acaba em `:` (um pedido, `Password:`) mostra-se logo.
 - **IaC no editor** (P03/C03): `tutor_eval::iacfind` (regras próprias sobre `.tf`: um argumento com nome de segredo a
   partir de `var.`/literal é erro — fica no state e no plano —; variável secreta sem `sensitive`) entra no scan do
   Problems (`dxtutor-iac`). O tflint/checkov/trivy entram na pipeline da F4b.
@@ -863,7 +865,8 @@ O separador IaC do Ops tem Pipeline · Plano · Segurança e política · Drift 
 
 ## Keychain e Vault (r23 F4c1, `crates/tutor-platform`, `ui-app/src/features/vault/`)
 
-O token do Vault e as chaves de API dos modelos vivem no keychain do sistema (`tutor_platform::keychain`, crate
+O token do Vault e as chaves de API dos modelos vivem no keychain do sistema (`tutor_protect::keychain`, reexportado
+como `tutor_platform::keychain`; está no `tutor-protect` porque o `tutor-llm` também o usa; crate
 `keyring` 3 com o Secret Service sobre D-Bus — precisa de `libdbus-1-dev` para compilar e de um GNOME Keyring/KWallet a
 correr). Nenhum comando os devolve à UI. Regras (no Rust, com testes):
 - **Entrar:** OIDC (`auth_url` → o Rust abre o browser → volta a `127.0.0.1:8250/oidc/callback`, o mesmo do CLI do
@@ -880,7 +883,10 @@ correr). Nenhum comando os devolve à UI. Regras (no Rust, com testes):
   ficam no backend até um terminal aberto com o lease os receber como `VAULT_DYN_*`; o lease é revogado quando esse
   terminal acaba (evento `vault://lease-revoked`) ou à mão.
 - **Chaves dos modelos:** `keys.rs` guarda em `llm:<provider>`; uma chave ainda no `keys.json` passa para o keychain na
-  primeira leitura (e sai do ficheiro). Sem keychain, fica no `keys.json` (0600), como antes.
+  primeira leitura (e sai do ficheiro). Sem keychain, fica no `keys.json` (0600), como antes. O mesmo para o
+  `~/.config/dxtutor/providers.json` do assistente e do TUI (`tutor_llm::chat::load_config`/`save_config`, mesmas contas
+  `llm:claude`/`llm:codex`/`llm:gemini`): uma chave no ficheiro passa para o keychain sem substituir uma que lá esteja,
+  gravar põe-nas no keychain (uma apagada sai dele) e o ficheiro fica sem chaves.
 - GOTCHA-keychain: o serviço é `dxtutor`, ou `DXTUTOR_KEYCHAIN_SERVICE` — o auto-teste usa um seu (o HOME temporário
   não isola o keychain, que é da sessão D-Bus). GOTCHA-dev: `vault server -dev` escreve `~/.vault-token`; os testes
   correm-no com um HOME temporário.

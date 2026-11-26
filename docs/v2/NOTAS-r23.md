@@ -228,7 +228,7 @@ porque o motivo diz o que o desbloqueia. Nada disto foi esquecido: cada item est
 | Andar para trás com botões (`stepBack`/`reverseContinue` do DAP) | F2b | O gdb 15 em modo DAP não os tem; andar para trás é pela consola do rr | Uma versão do gdb que os implemente, ou um adaptador próprio sobre o gdb/MI |
 | «Restart frame» com o lldb-dap | F2a | O lldb-dap não anuncia `supportsRestartFrame` | Fica disponível no modo rr (gdb) |
 | codelldb | F2a | O `dapc` não o consegue conduzir (Q15b) | Só se houver motivo para trocar de adaptador |
-| Um segredo partido entre duas leituras do terminal pode passar | F4a | O eco interactivo não pode esperar pela linha inteira | Uma janela de retenção curta no `Masker` só para fluxos não interactivos (tarefas) |
+| Um segredo partido entre duas leituras do terminal pode passar | F4a | O eco interactivo não pode esperar pela linha inteira | **Feito para as tarefas** (`feat/r23-hardening`): retêm o possível início de um segredo até à leitura seguinte. Numa shell interactiva continua a poder passar |
 | Um commit feito à mão no teu próprio terminal não passa pelo secret scan | F4a | Não se instalam hooks de git no repositório sem o dono pedir | Oferecer (com o teu OK) um hook `pre-commit` que chame o mesmo scan |
 | O ficheiro do plano guarda os valores (segredos incluídos) | F4b | É assim que o tofu/terraform gravam o plano | Já mitigado: 0600, pasta de dados da app, apagado ao fim de um dia |
 | O raio de impacto pára num módulo | F4b | Seguir as variáveis dentro de um módulo exige avaliar as expressões | Avaliar `module_calls` com os valores do plano |
@@ -239,7 +239,7 @@ porque o motivo diz o que o desbloqueia. Nada disto foi esquecido: cada item est
 
 | Item | Fase | Notas |
 |---|---|---|
-| As chaves antigas em `~/.config/dxtutor/providers.json` (UI pré-v7) continuam em texto | F4c1 | Só são lidas; movê-las para o keychain é pequeno e fecha um buraco de segurança |
+| As chaves antigas em `~/.config/dxtutor/providers.json` continuam em texto | F4c1 | **Feito** (`feat/r23-hardening`): passam para o keychain na primeira leitura (o ficheiro é do assistente e do TUI, não só da UI antiga) |
 | Canary e blue-green no deploy | F4c2 | O rollout é rolling; o plano já tem o passo «Estratégia» |
 | Credenciais dinâmicas do Vault durante o rollout | F4c2 | O rollout usa a identidade do kubeconfig |
 | Terragrunt e Helm no pipeline de IaC | F4b | O pipeline cobre tofu/terraform |
