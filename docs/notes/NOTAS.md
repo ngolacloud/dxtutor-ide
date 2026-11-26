@@ -6,10 +6,10 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 
 ## Índice
 
-- [Co-Dev: o assistente escreve no editor e mostra quem está a trabalhar](#co-dev-o-assistente-escreve-no-editor-e-mostra-quem-esta-a-trabalhar) — 2 acções
+- [Co-Dev: o assistente escreve no editor e mostra quem está a trabalhar](#co-dev-o-assistente-escreve-no-editor-e-mostra-quem-esta-a-trabalhar) — 3 acções
 - [Explain · Code review · Under the hood](#explain-code-review-under-the-hood) — 9 acções
 - [Quadro (backlog, sprints e kanban)](#quadro-backlog-sprints-e-kanban) — 2 acções
-- [Project](#project) — 2 acções
+- [Project](#project) — 4 acções
 - [Testes](#testes) — 1 acção
 - [Servidor de linguagem (LSP)](#servidor-de-linguagem-lsp) — 1 acção
 - [Protecção de dados — nenhum segredo sai da máquina](#proteccao-de-dados-nenhum-segredo-sai-da-maquina) — 3 acções
@@ -24,12 +24,13 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 
 Quando o Co-Dev cria ou edita código, escreve-o no próprio editor: abre o ficheiro, escreve só as linhas que mudam, no sítio delas (as antigas riscadas, as novas a aparecer), e no fim aceitas ou rejeitas cada bloco com as diferenças à vista. Nada fica no ficheiro sem o teu «Aceitar».
 
-<sub>Código: `ui-app/src/features/codev/domain/agent-map.ts`, `ui-app/src/features/codev/application/agent-map.ts`, `ui-app/src/features/codev/ui/agent-map-view.ts`, `ui-app/src/features/codev/application/hunk-review.ts`, `ui-app/src/features/codev/application/local-proposals.ts`, `ui-app/src/features/codev/domain/proposal.ts`, `crates/tutor-agent/src/hunks.rs` · revisto em 2026-11-26</sub>
+<sub>Código: `ui-app/src/features/codev/application/codev-sessions.ts`, `ui-app/src/features/codev/ui/session-view.ts`, `ui-app/src/features/codev/ui/codevs-view.ts`, `ui-app/src/features/codev/domain/scope-overlap.ts`, `ui-app/src/features/codev/domain/agent-map.ts`, `ui-app/src/features/codev/application/agent-map.ts`, `ui-app/src/features/codev/ui/agent-map-view.ts`, `ui-app/src/features/codev/application/hunk-review.ts`, `ui-app/src/features/codev/application/local-proposals.ts`, `ui-app/src/features/codev/domain/proposal.ts`, `crates/tutor-agent/src/hunks.rs` · revisto em 2026-11-26</sub>
 
 | Acção | Onde |
 |---|---|
 | [Rever as mudanças no editor, bloco a bloco](#rever-as-mudancas-no-editor-bloco-a-bloco) | editor › barra de cada bloco (✓ Aceitar / ✗ Rejeitar / Explicar) · chat do Co-Dev › Aceitar tudo / Rejeitar tudo |
 | [Mapa de agentes](#mapa-de-agentes) | chat do Co-Dev › barra do compositor › chip «● N agentes» |
+| [Vários Co-Devs ao mesmo tempo (a faixa «Co-Devs»)](#varios-co-devs-ao-mesmo-tempo-a-faixa-co-devs) | Project › painel da issue › «Work on it with Co-Dev» · chat do Co-Dev › faixa «Co-Devs» por cima da conversa · mapa de agentes › detalhe de uma sessão › «Ver no chat» |
 
 ### Rever as mudanças no editor, bloco a bloco
 
@@ -88,6 +89,40 @@ O chip conta os agentes que estão a trabalhar agora; clicá-lo abre o mapa: a c
 - O texto que um sub-agente vai escrevendo não aparece em tempo real: só as ferramentas, os tokens e, no fim, o relatório.
 
 <sub>Cobre: `codev:agmap-open`, `codev:agmap-pick`, `codev:agmap-close`, `codev:agmap-chat`, `codev:agmap-run`</sub>
+
+### Vários Co-Devs ao mesmo tempo (a faixa «Co-Devs»)
+
+**Onde:** Project › painel da issue › «Work on it with Co-Dev» · chat do Co-Dev › faixa «Co-Devs» por cima da conversa · mapa de agentes › detalhe de uma sessão › «Ver no chat»
+
+Cada issue que mandas ao Co-Dev tem a sua sessão: começar outra issue já não fecha a que está a correr. A faixa «Co-Devs» aparece quando há mais de uma sessão, com um cartão por Co-Dev («Co-Dev · DX-12», a trabalhar / parado / precisa da tua decisão, o tempo e os tokens); clicar num cartão mostra a conversa dele. Os hunks de um Co-Dev em segundo plano só se pintam no editor quando abres a conversa dele, e as tuas decisões vão sempre para a sessão que as propôs.
+
+**Como usar**
+
+1. No Project, abre uma issue Ready e carrega em «Work on it with Co-Dev»; depois faz o mesmo com outra issue.
+2. Se os âmbitos das duas não se cruzarem, a segunda abre noutra sessão e a faixa «Co-Devs» aparece; a primeira continua a trabalhar.
+3. Se se cruzarem, a app diz em que ficheiros e pergunta se a issue espera: com «OK» ela fica na faixa («espera por DX-12») e começa sozinha quando esse Co-Dev fechar; com «Cancelar» não começa.
+4. Clica num cartão para ver a conversa desse Co-Dev (e os hunks dele no editor); o ✕ fecha o Co-Dev (a sessão acaba) e o ✕ de uma issue à espera desiste de esperar.
+
+**Fluxo (por dentro)**
+
+1. A conversa é uma por sessão (`makeAgentChat`): a à vista escreve no chat e na barra de execução como sempre; as outras escrevem num transcript fora do ecrã e guardam a sua execução (o tempo, o «parar», a decisão pendente) até as abrires.
+2. Antes de abrir outra sessão, o comando `project_scope_overlap` (só leitura) compara o âmbito da issue nova com o de cada issue que tem uma sessão aberta, com a regra do plano paralelo: um ficheiro que as duas podem mudar, pelo âmbito ou por ser conhecido (change sets, commits ligados, o ramo).
+3. Nesta fase todas as sessões trabalham na MESMA árvore de trabalho: por isso a verificação é obrigatória e, se falhar, a issue não começa.
+4. Fechar um Co-Dev liberta o âmbito dele: as issues à espera voltam a ser verificadas e as que já não chocam começam em segundo plano.
+
+**Dicas**
+
+- Com um só Co-Dev nada muda: não há faixa e a conversa é a de sempre.
+- «Nova conversa» recomeça só a conversa à vista; os outros Co-Devs continuam.
+
+**Limites**
+
+- Uma issue segura o âmbito enquanto a sessão dela estiver aberta, mesmo parada: fecha-a (✕) quando acabares.
+- O separador «Co-Dev run» e o `ctx` da barra de estado seguem a conversa à vista.
+- O quadro Tasks antigo («Delegar») continua a usar a conversa à vista.
+- Fases seguintes: uma worktree e ficheiros reservados por Co-Dev (fase 3), o revisor e a porta de integração (fase 4).
+
+<sub>Cobre: `codev:codevs-pick`, `codev:codevs-close`, `codev:codevs-unqueue`</sub>
 
 ---
 
@@ -409,14 +444,16 @@ Cria as issues dos componentes planeados no Studio (o ADR, um serviço, aplicaç
 
 ## Project
 
-O Project guarda o trabalho da pasta aberta (issues, sprints, releases, relatórios) na base SQLite da app desktop. Na vista «Planning», cada sprint diz quantos Co-Devs a trabalham ao mesmo tempo e mostra o plano paralelo: que issue cada Co-Dev faz, por que ordem, e porque é que nenhum par mexe nos mesmos ficheiros ao mesmo tempo.
+O Project guarda o trabalho da pasta aberta (issues, sprints, releases, relatórios) na base SQLite da app desktop. Na vista «Planning», cada sprint diz quantos Co-Devs a trabalham ao mesmo tempo e mostra o plano paralelo: que issue cada Co-Dev faz, por que ordem, e porque é que nenhum par mexe nos mesmos ficheiros ao mesmo tempo. Guarda também os dados da porta de integração: as verificações obrigatórias do projecto e a aprovação funcional de cada issue.
 
-<sub>Código: `crates/tutor-board/src/project/plan.rs`, `src-tauri/src/board.rs (project_sprint_plan)`, `ui-app/src/features/project/domain/plan.ts`, `ui-app/src/features/project/ui/plan-view.ts` · revisto em 2026-11-26</sub>
+<sub>Código: `crates/tutor-board/src/project/plan.rs`, `src-tauri/src/board.rs (project_sprint_plan)`, `ui-app/src/features/project/domain/plan.ts`, `ui-app/src/features/project/ui/plan-view.ts`, `ui-app/src/features/project/domain/gate.ts`, `src-tauri/src/roles.rs (functional_check)` · revisto em 2026-11-26</sub>
 
 | Acção | Onde |
 |---|---|
 | [Co-Devs da sprint](#co-devs-da-sprint) | Project › Planning › cartão da sprint, campo «Co-Devs» |
 | [Plano paralelo](#plano-paralelo) | Project › Planning › cartão da sprint, botão «Parallel plan» |
+| [Verificações obrigatórias](#verificacoes-obrigatorias) | Project › Settings › «Mandatory checks» |
+| [Aprovação funcional](#aprovacao-funcional) | Project › painel da issue › secção «Functional approval» |
 
 ### Co-Devs da sprint
 
@@ -473,6 +510,52 @@ Mostra como as issues Ready da sprint se repartiriam pelos Co-Devs: uma coluna p
 - Fases seguintes: uma sessão por Co-Dev, uma worktree e ficheiros reservados por Co-Dev, o revisor que integra num worktree temporário só com os testes a passar, e a autonomia delegada com PRs.
 
 <sub>Cobre: `pj-sprint-plan`, `pj-plan-close`</sub>
+
+### Verificações obrigatórias
+
+**Onde:** Project › Settings › «Mandatory checks»
+
+A lista das verificações que cada mudança tem de passar antes de ser integrada (o nome e o comando exacto, uma por linha: `tests: cargo test --workspace`). Sem nenhuma definida, vale o comando de testes detectado na pasta, e a página di-lo.
+
+**Como usar**
+
+1. Abre o Project e a vista «Settings».
+2. Escreve uma verificação por linha, `nome: comando`, e carrega em «Save»; deixa vazio para voltar ao comando detectado.
+
+**Fluxo (por dentro)**
+
+1. O «Save» manda a operação `settings` com `checks` ao `project_apply`; o store guarda-as na coluna `projects.checks` (migração 15), aparadas, sem nomes repetidos, até 12.
+2. O comando `project_checks` lê-as para as fases seguintes (a porta de integração corre-as no commit actual).
+
+**Limites**
+
+- Nesta fase a lista só se guarda: quem a corre é a porta de integração (fase 4).
+
+<sub>Cobre: `pj-submit`</sub>
+
+### Aprovação funcional
+
+**Onde:** Project › painel da issue › secção «Functional approval»
+
+O responsável pela issue regista que ela faz o que os critérios de aceitação pedem. Fica na issue quem aprovou, quando e a nota, e vai para o registo de auditoria. É a terceira condição da porta de integração: uma mudança só é integrada quando todas as verificações obrigatórias passam no commit actual, o revisor Co-Dev confirma os critérios e o responsável registou a aprovação funcional.
+
+**Como usar**
+
+1. Abre a issue (precisa de critérios de aceitação: sem eles o botão fica desligado).
+2. Carrega em «Record functional approval» e escreve, se quiseres, como verificaste.
+3. «Withdraw» retira-a, com um motivo.
+
+**Fluxo (por dentro)**
+
+1. As operações `approve_functional` e `revoke_functional` vão ao `project_apply`; o backend decide quem e quando (como em todas as operações), recusa sem critérios ou uma segunda aprovação, e grava a actividade e uma linha no registo de auditoria (origem `ide`, `functional.approve`/`functional.revoke`) na mesma transacção.
+2. Quem pode: o responsável da issue (o campo «Assignee», pelo `user.name`/`user.email` do git) ou, com pessoas no `.dxtutor/team.json`, um Product Owner ou um Tech Lead (os mesmos que levam uma issue a Done). Sem equipa definida e sem responsável, quem está ao teclado.
+3. Se os critérios de aceitação mudarem depois, a aprovação cai (fica na actividade): foi dada contra os critérios antigos.
+
+**Limites**
+
+- O código pode mudar depois da aprovação: confirmar que ela ainda vale no commit a integrar é da porta de integração (fase 4).
+
+<sub>Cobre: `pj-functional-approve`, `pj-functional-revoke`</sub>
 
 ---
 
