@@ -90,6 +90,7 @@ export const tauriLifecycle = (inv: Invoker = invoke): LifecyclePort => ({
   ghStatus: () => inv<GhStatusData>("gh_status"),
   runsFor: (root, sha) => inv<GhRun[]>("gh_runs_for", { root, sha }),
   prsFor: (root, sha) => inv<Pr[]>("gh_prs_for", { root, sha }),
+  deploysFor: (root, shas) => inv<import("../domain/lifecycle").DeployRow[]>("deploy_records", { root, shas }),
 });
 
 /** O Commit Composer (r23 F3): commit só destes ficheiros (`git_commit_paths`) ou, com as lanes, noutro ramo sem

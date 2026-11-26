@@ -81,6 +81,7 @@ use commands::debug_cmds::{
     debug_step, debug_stop, debug_stop_on_panic, debug_test_targets, debug_threads, debug_travel,
     debug_variables, debug_writes,
 };
+use commands::deploy::{deploy_plan, deploy_rollout};
 use commands::devcontainer::{
     devcontainer_exec, devcontainer_info, devcontainer_session_down, devcontainer_session_exec,
     devcontainer_session_run, devcontainer_session_status, devcontainer_session_up,
@@ -116,6 +117,10 @@ use commands::study::{
 };
 use commands::tests::{
     list_tests, run_all_tests, run_path, run_test, run_tests, test_history, test_run, test_runners,
+};
+use commands::vault::{
+    vault_dynamic, vault_kv_meta, vault_lease_revoke, vault_login_oidc, vault_login_token,
+    vault_renew, vault_reveal_local, vault_reveal_read, vault_revoke, vault_status,
 };
 
 use serde::Serialize;
@@ -1078,6 +1083,18 @@ pub fn run() {
             iac_pipeline_run,
             iac_apply_command,
             iac_state,
+            vault_status,
+            vault_login_token,
+            vault_login_oidc,
+            vault_renew,
+            vault_revoke,
+            vault_kv_meta,
+            vault_reveal_local,
+            vault_reveal_read,
+            vault_dynamic,
+            vault_lease_revoke,
+            deploy_plan,
+            deploy_rollout,
             ports_list,
             lsp::lsp_start,
             lsp::lsp_did_open,
@@ -1111,6 +1128,7 @@ pub fn run() {
             board::iac_risk_accept,
             board::iac_risks,
             board::iac_risk_revoke,
+            board::deploy_records,
             board::project_issue_prompt,
         ])
         .run(tauri::generate_context!())

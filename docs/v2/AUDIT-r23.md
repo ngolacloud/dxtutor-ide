@@ -754,3 +754,48 @@ tested as «not installed» in the real app and through their JSON in unit tests
 values (secrets included) by nature — kept 0600 in the app's data folder and swept after a day; the blast radius does
 not follow variables into a module; who changed a drifted resource needs a cloud audit source (F5); Terragrunt/Helm
 and the «Golden paths» tab are not in F4b.
+
+### F4c1 status: done (the keychain and Vault)
+
+F4c is split in two parts for review: F4c1 (the OS keychain, Vault sign-in, KV, reveal-local, dynamic credentials,
+the model keys in the keychain) and F4c2 (the guided deploy, deploy records, `dx-secret-check`).
+
+| What | Where |
+|---|---|
+| New crate `tutor-platform` (Tauri-free): `keychain` (the `keyring` crate over the Secret Service; `MemStore` for tests; service `dxtutor` or `DXTUTOR_KEYCHAIN_SERVICE`) and `vault` (HTTP API: status, token and OIDC sign-in, renew, revoke, KV metadata, reveal-local, dynamic credentials, lease revoke) | `crates/tutor-platform/` |
+| No staging/production value leaves Vault: the environment comes from a path segment; metadata only (key names for `local` only); `reveal_local` refuses anything else, in Rust, with a unit test and a real dev-Vault test | `vault::env_of`, `may_reveal` |
+| The token never reaches the UI: it goes to the keychain on sign-in; a terminal gets it from Rust (`pty_spawn` `vault`), masked in its output | `src-tauri/src/commands/vault.rs`, `pty.rs` |
+| Reveal (20 s) and dynamic credentials are audited in Rust before they happen; patching a value is a terminal command (`… key=-`), approved and audited by the UI with its exit code | `commands/vault.rs`, `features/vault` |
+| Dynamic credentials: the lease to the UI, the values to a terminal started with it, revoked when it ends | `vault::dynamic`, `pty.rs` |
+| Model API keys: in the keychain; `keys.json` entries move there on first read (§5 Q8/Q15e) | `src-tauri/src/keys.rs` |
+| UI `features/vault/` (A7/A8): the Vault tab (palette «Vault: …»), `#st-vault` in the status bar | `ui-app/src/features/vault/` |
+| Commands `vault_status`, `vault_login_token`, `vault_login_oidc`, `vault_renew`, `vault_revoke`, `vault_kv_meta`, `vault_reveal_local`, `vault_reveal_read`, `vault_dynamic`, `vault_lease_revoke` (268 → 278) | as listed |
+
+Tested against Vault 2.2.2 in dev mode and the session's GNOME Keyring. Reported: OIDC was tested end to end against a
+fake Vault only (no identity provider here); dynamic credentials too (the dev Vault has no database engine); the
+legacy `~/.config/dxtutor/providers.json` (pre-v7 UI) still holds keys in plain text and is only read, not moved;
+without a Secret Service the model keys stay in `keys.json` as before.
+
+### F4c2 status: done (the guided deploy)
+
+Owner decisions at the start of F4c2 (2026-11-26): staging and production secrets come only from Vault (the IDE no longer
+takes their values; the manifests' `Secret` objects are not applied — the cluster reads them through the Vault Secrets
+Operator); production's second approver is a merged pull request with the commit, approved by someone else on GitHub
+(`gh`); a failed check always blocks, and in production «not installed» / «not connected» block too unless waived with
+a reason (audited) — never the second approver or staging (`deploy::NOT_WAIVABLE`; the self-test found that the first
+draft let a «not connected» approver be waived, against the decision).
+
+| What | Where |
+|---|---|
+| `tutor_platform::deploy`: the plan (Target, Identity, Secrets, Preflight — version, sbom, signature, vulns, secrets, secret-check, drift, admission, slo, window, migrations, staging, approver —, Strategy, the exact commands), the rule (`blockers`, `waivable`), `check` (again at the rollout: waivers with reasons, HEAD, manifests, ≤ 30 min) and the rollout (namespace, `apply -f -` without the Secrets, version annotation, `rollout status`) | `crates/tutor-platform/src/deploy.rs` |
+| Commands `deploy_plan`, `deploy_rollout` (production: `production` typed and a reason, in Rust; audited before and with the result; `deploy://output`), `deploy_records` (278 → 281); project migration 11 `deploys` | `src-tauri/src/commands/deploy.rs`, `board.rs`, `crates/tutor-board/src/project/deploys.rs` |
+| `tutor_eval::iac::drift` (the drift check, reused) | `crates/tutor-eval/src/iac.rs` |
+| UI `features/deploy/` (A7/A8): the eight steps, waivers with a reason, the shared approval with the commands, the rollout's lines, the record and the history; Infra's Promote/Redeploy open it; Environments shows «Vault» for staging/production secrets and the deploy history | `ui-app/src/features/deploy/`, `features/infra*` |
+| A commit's lifecycle shows its deploys per environment (F3's «environments», until now «not connected») | `features/scm/domain/lifecycle.ts` |
+
+Tested with fake `kubectl`/`gh` (scripts) against a real git repository, and in the real app against an empty temporary
+kubeconfig (never the human's clusters). Reported: no real cluster was deployed to here; `dx-secret-check` (K03) is «not
+available» until its image exists; canary and blue-green, and dynamic credentials during the rollout (the rollout uses
+the kubeconfig's identity), are later; the old `ENVX.hist` promotion history is no longer written (the Environments view
+shows the deploy records).
+

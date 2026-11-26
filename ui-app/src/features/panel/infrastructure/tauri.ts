@@ -10,7 +10,7 @@ import type { PortInfo, PtyInfo, ScanResult, ShellProfile } from "../domain/type
 import { fromRuleViolations, type RuleViolation } from "../domain/problems";
 
 export const tauriPty: PtyPort = {
-  spawn: (r) => invoke<void>("pty_spawn", { id: r.id, rows: r.rows, cols: r.cols, cwd: r.cwd ?? null, shell: r.shell ?? null, command: r.command ?? null, env: r.env ?? null }),
+  spawn: (r) => invoke<void>("pty_spawn", { id: r.id, rows: r.rows, cols: r.cols, cwd: r.cwd ?? null, shell: r.shell ?? null, command: r.command ?? null, env: r.env ?? null, vault: r.vault ?? null }),
   write: (id, data) => invoke<void>("pty_write", { id, data }),
   resize: (id, rows, cols) => invoke<void>("pty_resize", { id, rows, cols }),
   kill: (id) => invoke<boolean>("pty_kill", { id }),

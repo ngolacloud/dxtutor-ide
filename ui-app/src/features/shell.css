@@ -130,3 +130,4 @@
   .panel-tools .pt-filter:focus{border-color:var(--blue)}
   .panel-tools .pt-sel{height:22px;background:var(--bg-input);border:1px solid var(--border);border-radius:5px;padding:0 6px;font-size:12px;margin-right:4px;outline:none}
   .panel-tools .pt-tg{font-size:11px;opacity:.45}.panel-tools .pt-tg.on{opacity:1}
+.sec-t .sec-vault{color:var(--fg-muted);font-size:11px;font-style:italic} /* r23 F4c2: staging/production secrets live in Vault */

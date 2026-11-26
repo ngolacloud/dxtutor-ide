@@ -24,6 +24,7 @@ import type * as Project from "../features/project/index";
 import type * as Protect from "../features/protect/index";
 import type * as Testing from "../features/testing/index";
 import type * as CodevIndex from "../features/codev/index";
+import type { DeployRecord } from "../features/deploy/domain/types";
 
 export interface Services {
   /** o Learning Track (features/learn.ts), lido pelo pane do tutor, que avalia antes */
@@ -68,6 +69,8 @@ export interface Services {
   tests: Pick<typeof Testing, "runLive">;
   /** propostas de ficheiro inteiro revistas no editor, bloco a bloco (features/codev/index.ts): o painel Explain / Code review */
   proposals: Pick<typeof CodevIndex, "proposeInEditor">;
+  /** r23 F4c2: o deploy guiado (features/deploy, que avalia depois da infra): o «Promote»/«Redeploy» abrem-no */
+  deploy: { open: (env: string) => void; recent: () => DeployRecord[] };
 }
 
 export const services: Partial<Services> = {};

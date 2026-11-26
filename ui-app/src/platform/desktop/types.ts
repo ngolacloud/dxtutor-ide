@@ -50,7 +50,7 @@ export interface Desktop {
   drawContainers?: () => Promise<void>;
   /** Terminais reais (features/panel): tarefas num PTY + canais do Output. Só no desktop. */
   term?: {
-    runTask: (line: string, o?: { env?: Record<string, string>; cwd?: string; label?: string }) => Promise<number>;
+    runTask: (line: string, o?: { env?: Record<string, string>; cwd?: string; label?: string; vault?: { addr: string; namespace?: string | null; lease?: string | null } }) => Promise<number>;
     log: (channel: string, text: string, err?: boolean) => void;
     inspect: () => {
       terminals: { id: string; kind: string; label: string | null; shell: string; process: string | null; cwd: string | null; exited: number | null }[];

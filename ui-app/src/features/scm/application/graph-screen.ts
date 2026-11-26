@@ -71,6 +71,7 @@ export function makeGraphScreen(deps: { git: GitRefsPort; root: () => string | n
     const e: Omit<LifecycleInput, "message"> = { tests: undefined, runs: undefined, prs: undefined, ghMissing: null };
     st.lifecycle[key] = e; emit();
     const tests = life.testsFor(r, [full]).then((t) => { e.tests = t; }, () => { e.tests = []; });
+    const deploys = life.deploysFor ? (e.deploys = undefined, life.deploysFor(r, [full]).then((d) => { e.deploys = d; }, () => { e.deploys = null; })) : Promise.resolve();
     gh ??= life.ghStatus().then((s) => (s.installed && s.signedIn ? "ok" : s.installed ? "error" : "not-installed"), () => "not-installed");
     const g = await gh;
     if (g !== "ok") { e.ghMissing = g; if (g === "error") e.ghError = "gh is not signed in"; }
@@ -78,7 +79,7 @@ export function makeGraphScreen(deps: { git: GitRefsPort; root: () => string | n
       life.runsFor(r, full).then((x) => { e.runs = x; }, (x) => { e.ghMissing = "error"; e.ghError = msg(x); }),
       life.prsFor(r, full).then((x) => { e.prs = x; }, (x) => { e.ghMissing = "error"; e.ghError = msg(x); }),
     ]);
-    await tests;
+    await Promise.all([tests, deploys]);
     emit();
   }
 

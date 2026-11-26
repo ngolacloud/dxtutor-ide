@@ -672,10 +672,26 @@ fn audit_iac(
     label: &str,
     reason: Option<&str>,
 ) -> Result<(), ProjectError> {
+    audit_backend(app, root, "iac", action, label, reason)
+}
+
+/// An operation the backend itself records in the audit log before it runs (r23 F4b/F4c: accepted
+/// risks, a Vault value revealed, dynamic credentials issued): who and when from here, secrets
+/// masked. An operation that cannot be recorded does not run.
+pub fn audit_backend(
+    app: &AppHandle,
+    root: &str,
+    feature: &str,
+    action: &str,
+    label: &str,
+    reason: Option<&str>,
+) -> Result<(), ProjectError> {
+    let root = root_of(root)?;
+    let root = root.as_str();
     let redactor = tutor_agent::redact::Redactor::for_root(Path::new(root));
     let e = ide_audit_entry(
         &IdeAudit {
-            feature: "iac".into(),
+            feature: feature.into(),
             action: action.into(),
             command: label.into(),
             scope: None,
@@ -750,4 +766,29 @@ pub fn iac_risk_revoke(app: AppHandle, root: String, id: i64) -> Result<bool, Pr
         audit_iac(&app, &root, "risk.revoke", &r.label, None)?;
     }
     Ok(gone.is_some())
+}
+
+// ───── r23 F4c2: deploy records (D04) ─────
+
+/// Keeps a rollout of the guided deploy; who deployed is decided here.
+pub fn record_deploy(
+    app: &AppHandle,
+    root: &str,
+    mut r: tutor_board::project::deploys::DeployRecord,
+) -> Result<i64, ProjectError> {
+    let root = root_of(root)?;
+    r.actor = actor(&root);
+    r.at = now_ms();
+    open(app)?.record_deploy(&root, &r)
+}
+
+/// The deploys of these commits (hashes or 7+ prefixes), or all of them, newest first.
+#[tauri::command]
+pub fn deploy_records(
+    app: AppHandle,
+    root: String,
+    shas: Option<Vec<String>>,
+) -> Result<Vec<tutor_board::project::deploys::DeployRecord>, ProjectError> {
+    let root = root_of(&root)?;
+    open(&app)?.deploys(&root, shas.as_deref())
 }

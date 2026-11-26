@@ -1,7 +1,8 @@
 /* ═══════════ feature `scm` — domain: a commit's lifecycle (r23 F3, UI-SCM-09) ═══════════
    issue → tests → CI → pull request → environments, each from a real source or saying it has none: the issue key
    in the message; the test results stored for that commit; GitHub Actions runs and the pull request that contains
-   it (from `gh`); environments are not connected yet (F4). Nothing is synthesised. PURE. */
+   it (from `gh`); environments from the guided deploy's records (r23 F4c2: `deploy_records`; without that source,
+   «not connected»). Nothing is synthesised. PURE. */
 
 import { issueKeyIn } from "./trailers";
 import type { Pr } from "./launchpad";
@@ -12,6 +13,8 @@ export interface Stage { key: StageKey; state: StageState; text: string; url?: s
 
 export interface TestResultRow { sha: string; dirty: boolean; at: number; runner: string; command: string; passed: number; failed: number; ignored: number; ok: boolean }
 export interface CiRun { name: string; status: string; conclusion: string; url: string }
+/** A rollout of the guided deploy (r23 F4c2, `tutor_board::project::deploys`). */
+export interface DeployRow { env: string; context: string; namespace: string; version: string; ok: boolean; at: number; actor: string; approver: string | null; failedStep: string | null }
 
 /** `undefined` = still reading; `null` = the source is missing (with `why`). */
 export interface LifecycleInput {
@@ -21,6 +24,24 @@ export interface LifecycleInput {
   prs: Pr[] | null | undefined;
   ghMissing: "not-installed" | "error" | null;
   ghError?: string;
+  /** the deploys of this commit; absent = no source (not connected) */
+  deploys?: DeployRow[] | null;
+}
+
+/** The latest deploy of a commit per environment: `staging ✓ · production ✗`. */
+export function envStage(deploys: DeployRow[] | null | undefined): Stage {
+  if (deploys === undefined) return { key: "env", state: "pending", text: "" };
+  if (deploys === null) return { key: "env", state: "not-connected", text: "" };
+  if (!deploys.length) return { key: "env", state: "none", text: "" };
+  const latest = new Map<string, DeployRow>();
+  for (const d of [...deploys].sort((a, b) => b.at - a.at)) if (!latest.has(d.env)) latest.set(d.env, d);
+  const rows = [...latest.values()].sort((a, b) => (a.env === "production" ? 1 : 0) - (b.env === "production" ? 1 : 0));
+  return {
+    key: "env",
+    state: rows.some((d) => !d.ok) ? "failed" : "ok",
+    text: rows.map((d) => `${d.env} ${d.ok ? "✓" : "✗"}`).join(" · "),
+    detail: rows.map((d) => `${d.env}: ${d.context}/${d.namespace} · ${d.actor}${d.approver ? ` (approved by ${d.approver})` : ""}${d.failedStep ? ` · failed at ${d.failedStep}` : ""}`).join("\n"),
+  };
 }
 
 export function lifecycleOf(i: LifecycleInput): Stage[] {
@@ -48,6 +69,6 @@ export function lifecycleOf(i: LifecycleInput): Stage[] {
     const p = i.prs[0];
     return { key: "pr", state: p.state === "MERGED" ? "ok" : p.state === "CLOSED" ? "failed" : "pending", text: `#${p.number}`, url: p.url, detail: `${p.title} · ${p.state.toLowerCase()}` };
   }));
-  out.push({ key: "env", state: "not-connected", text: "" });
+  out.push("deploys" in i ? envStage(i.deploys) : { key: "env", state: "not-connected", text: "" });
   return out;
 }

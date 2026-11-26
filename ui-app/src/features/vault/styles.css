@@ -1,0 +1,24 @@
+/* feature vault — r23 F4c: o separador Vault (features/vault/ui/view.ts) e o #st-vault. Prefixo vt- próprio. */
+.vt{height:100%;overflow:auto;padding:14px 20px 28px;box-sizing:border-box;font-family:var(--font-ui);color:var(--fg);font-size:12.5px}
+.vt-top{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:10px}.vt-top b{font-size:15px;color:var(--fg-bright)}
+.vt-dim{color:var(--fg-muted);font-size:11.5px}.vt-ok{color:var(--green)}.vt-bad{color:var(--red)}
+.vt-sp{flex:1}
+.vt-sec{border:1px solid var(--seam);border-radius:8px;padding:8px 12px;margin-bottom:12px;background:var(--bg-panel)}
+.vt-sec h3{margin:2px 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-muted)}
+.vt-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px}
+.vt-f{display:flex;flex-direction:column;gap:2px;font-size:11px;color:var(--fg-muted)}.vt-f .inp{margin:0;font-family:var(--font-mono);font-size:11.5px}
+.vt-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:6px 0}.vt-bar .vt-f{min-width:140px}
+.vt .btn{display:inline-block;width:auto;margin:0;padding:4px 10px;font-size:12px}
+.vt-card{margin-top:8px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg)}
+.vt-path{flex:1;min-width:200px;margin:0;font-family:var(--font-mono);font-size:11.5px}
+.vt-kids{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0}
+.vt-kid{background:none;border:1px solid var(--border);border-radius:5px;color:var(--accent-hover);font-family:var(--font-mono);font-size:11.5px;padding:1px 7px;cursor:pointer}
+.vt-ct{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-muted);margin:10px 0 4px}
+.vt-row{display:flex;align-items:center;gap:8px;padding:3px 6px;border-radius:5px;font-size:12px;flex-wrap:wrap}.vt-row:hover{background:var(--bg-hover)}
+.vt-key{font-family:var(--font-mono)}
+.vt-val{font-family:var(--font-mono);font-size:11.5px;padding:1px 6px;border-radius:4px;background:var(--bg-input);border:1px solid var(--yellow)}
+.vt-env{padding:1px 8px;border-radius:9px;font-size:11px;border:1px solid var(--border)}
+.vt-env.e-local{color:var(--green);border-color:var(--green)}.vt-env.e-staging{color:var(--yellow);border-color:var(--yellow)}.vt-env.e-production,.vt-env.e-none{color:var(--red);border-color:var(--red)}
+.vt-err{font-family:var(--font-mono);font-size:11.5px;color:var(--red);white-space:pre-wrap;margin:6px 0}
+#st-vault{cursor:pointer}#st-vault.vt-st-signedOut,#st-vault.vt-st-expiring{color:var(--yellow)}#st-vault.vt-st-unreachable,#st-vault.vt-st-sealed{color:var(--red)}
+#vt-secret .inp{width:100%;margin:8px 0;font-family:var(--font-mono)}

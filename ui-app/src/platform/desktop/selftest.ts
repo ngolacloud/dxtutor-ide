@@ -17,6 +17,7 @@ import { tauriGitExtras } from "../../features/scm/infrastructure/tauri";
 import { tauriHood } from "../../features/hood/infrastructure/tauri";
 import { tauriOps } from "../../features/ops/infrastructure/tauri";
 import { listen } from "../tauri/core";
+import { tauriVault } from "../../features/vault/infrastructure/tauri";
 import { tauriRulesGateway } from "../../features/arch/infrastructure/tauri";
 import { gfAsk } from "../../features/checkpoint";
 import { sdAdd } from "../../features/studio";
@@ -996,6 +997,96 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
         off();
         delete FS[main]; delete FS[extra]; flushSave(); await idle();
         await sh("rm", ["-rf", dir]);
+      }
+    });
+    // r23 F4c: o Vault na app real, contra um Vault dev que o runner arranca (DXTUTOR_SELFTEST_VAULT) e com um serviço de
+    // keychain só do auto-teste (DXTUTOR_KEYCHAIN_SERVICE): entrar com um token (vai para o keychain e nunca volta), os
+    // metadados de produção sem chaves nem valores, a recusa de revelar staging/produção (no Rust), revelar local (auditado,
+    // 20 s), um terminal que recebe o token do backend (a CLI vault funciona e o token aparece mascarado), e sair.
+    await step("vault", async () => {
+      const env = async (k: string) => ((await sh("printenv", [k])) as { stdout: string }).stdout.trim();
+      const addr = await env("DXTUTOR_SELFTEST_VAULT"), token = await env("DXTUTOR_SELFTEST_VAULT_TOKEN");
+      if (!addr || !token) return { skipped: "no dev Vault (DXTUTOR_SELFTEST_VAULT)" };
+      const v = tauriVault(), root = R.root as string, w = { addr, namespace: "" };
+      const before = await v.status(w);
+      const st = await v.loginToken(w, token);
+      const prod = await v.kvMeta(w, "secret", "apps/shop/production/db");
+      const local = await v.kvMeta(w, "secret", "apps/shop/local/db");
+      const refused = await v.reveal(root, w, "secret", "apps/shop/production/db", "DB_PASSWORD", "self-test").then(() => "revealed", (e) => String(e));
+      const r = await v.reveal(root, w, "secret", "apps/shop/local/db", "DB_PASSWORD", "self-test");
+      const value = await v.revealRead(r.id);
+      let cli = -1, masked = false, shown = "";
+      if (R.term) {
+        /* `-field` prints no newline: the echo starts its own line */
+        cli = await R.term.runTask("vault kv get -mount=secret -field=DB_USER apps/shop/local/db && echo && echo \"tok=$VAULT_TOKEN\"", { label: "selftest-vault", vault: { addr, namespace: null } });
+        const I = () => R.term!.inspect(), task = I().terminals.find((t) => t.label === "selftest-vault");
+        /* the program's own line (`tok=…`); the task header — the command, with `$VAULT_TOKEN` literal — can wrap */
+        const out = (id: string) => I().text(id).split("\n").find((l) => l.trim().startsWith("tok=") && !l.includes("$VAULT_TOKEN"));
+        if (task) { const t0 = Date.now(); while (!out(task.id) && Date.now() - t0 < 5000) await new Promise((res) => setTimeout(res, 200)); shown = out(task.id) ?? I().text(task.id).slice(-200); }
+        masked = shown.trim().startsWith("tok=") && shown.trim().length > 4 && !shown.includes(token);
+      }
+      const rows = await projectClient().audit(root, null) as Array<{ origin: string; tool: string | null; call: string | null; reason: string | null }>;
+      const audited = rows.some((x) => x.origin === "ide" && x.tool === "vault" && x.call === "reveal-local" && x.reason === "self-test");
+      const out = await v.revoke(w);
+      const json = JSON.stringify([before, st, prod, local, out]);
+      const res = {
+        before: before.signedIn, signedIn: st.signedIn, who: st.displayName, keychain: st.keychain, tokenInAnswers: json.includes(token),
+        prodKeys: prod.keys, prodVersions: prod.versions.length, prodValue: json.includes("st-production-pw-4821"), localKeys: local.keys,
+        refused: refused.slice(0, 80), value, ttlMs: r.ttlMs, cli, masked, shown: shown.slice(0, 40), audited, after: out.signedIn,
+      };
+      if (before.signedIn || !st.signedIn || !st.keychain || res.tokenInAnswers || prod.keys !== null || res.prodValue || !local.keys?.includes("DB_PASSWORD")
+        || !refused.includes("never leave Vault") || value !== "st-local-pw-4821" || cli !== 0 || !masked || !audited || out.signedIn) throw new Error("vault: " + JSON.stringify(res));
+      return res;
+    });
+    // r23 F4c2: o deploy guiado na app real, contra um kubeconfig TEMPORÁRIO e vazio (nunca os clusters do utilizador):
+    // o plano (versão = HEAD, o Secret deixado ao Vault, as ferramentas em falta com a dica, o cluster «not connected»),
+    // a produção bloqueada sem excepções e sem «production» escrito (no Rust), o rollout de staging que falha no cluster
+    // inexistente e fica registado (deploy_records) e no registo de auditoria.
+    await step("deploy", async () => {
+      const inv = window.__TAURI__!.core.invoke as (c: string, a?: Record<string, unknown>) => Promise<unknown>;
+      const root = R.root as string, man = ROOT + "deploy/k8s/app.yaml", kc = ROOT + "kubeconfig-deploy.yaml";
+      /* no image here: syft/grype on this machine would (rightly) fail an image that does not exist — the image checks are
+         covered by `cargo test -p tutor-platform deploy`; this step proves the rollout, the record and the audit */
+      writeFile(man, 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: web-config\ndata:\n  MODE: selftest\n---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: web-env\nstringData:\n  DB_PASSWORD: \"\"\n');
+      writeFile(kc, "apiVersion: v1\nkind: Config\nclusters: []\ncontexts: []\nusers: []\n");
+      flushSave(); await idle();
+      const before = ((await sh("git", ["rev-parse", "HEAD"])) as { stdout: string }).stdout.trim();
+      await git("add", "deploy/k8s/app.yaml");
+      const committed = ((await sh("git", ["commit", "-m", "feat: SELF-9 deploy manifests"])) as { code: number; stderr: string });
+      if (committed.code !== 0) throw new Error("deploy: could not commit the manifests: " + committed.stderr.slice(0, 200));
+      const kube = root.replace(/\/$/, "") + "/kubeconfig-deploy.yaml";
+      try {
+        const target = (env: string) => ({ env, context: "selftest-nowhere", namespace: "shop", kubeconfig: kube, stagingContext: "selftest-nowhere", stagingNamespace: "shop" });
+        const plan = await inv("deploy_plan", { root, target: target("staging") }) as { id: string; version: string; issue: string | null; secretsFromVault: string[]; gates: Array<{ id: string; status: string; hint: string | null }>; blockers: string[] };
+        const st = Object.fromEntries(plan.gates.map((g) => [g.id, g.status]));
+        const prod = await inv("deploy_plan", { root, target: target("production") }) as { id: string; blockers: string[]; waivable: string[] };
+        /* production: every unverified check blocks; even with each waivable one waived, the second approver (no gh signed
+           in here) and staging (no staging cluster) keep it closed — no waiver lifts them (owner decision) */
+        const noConfirm = await inv("deploy_rollout", { root, planId: prod.id, confirm: null, reason: "x", waivers: [] }).then(() => "rolled out", (e) => String(e));
+        const waivers = prod.waivable.map((gate) => ({ gate, reason: "self-test: no source here" }));
+        const unconfirmed = await inv("deploy_rollout", { root, planId: prod.id, confirm: "production", reason: "self-test", waivers }).then(() => "rolled out", (e) => String(e));
+        const forced = await inv("deploy_rollout", { root, planId: prod.id, confirm: "production", reason: "self-test", waivers: [...waivers, { gate: "approver", reason: "self-test" }] }).then(() => "rolled out", (e) => String(e));
+        const lines: string[] = [];
+        const off = await listen("deploy://output", (p) => { const e = p as { planId: string; line: string }; if (e.planId === plan.id) lines.push(e.line); });
+        const rec = await inv("deploy_rollout", { root, planId: plan.id, confirm: null, reason: "self-test", waivers: [] }) as { ok: boolean; failedStep: string | null; version: string; issue: string | null; env: string };
+        off();
+        const recs = await inv("deploy_records", { root, shas: [plan.version.slice(0, 12)] }) as Array<{ env: string; ok: boolean }>;
+        const rows = await projectClient().audit(root, null) as Array<{ origin: string; tool: string | null; call: string | null }>;
+        const audited = ["rollout", "rollout-failed"].every((c) => rows.some((r) => r.origin === "ide" && r.tool === "deploy" && r.call === c));
+        const out = {
+          version: plan.version.slice(0, 10), issue: plan.issue, secretsFromVault: plan.secretsFromVault, gates: st, hints: plan.gates.filter((g) => g.status === "not_installed").every((g) => !!g.hint),
+          stagingBlockers: plan.blockers, prodBlockers: prod.blockers, prodWaivable: prod.waivable, noConfirm: noConfirm.slice(0, 90), unconfirmed: unconfirmed.slice(0, 90), forced: forced.slice(0, 90),
+          rec: { ok: rec.ok, failedStep: rec.failedStep, env: rec.env, issue: rec.issue }, records: recs.map((r) => `${r.env}:${r.ok}`), lines: lines.length, audited,
+          leaked: lines.some((l) => /DB_PASSWORD/.test(l)),
+        };
+        if (st.version !== "ok" || plan.issue !== "SELF-9" || plan.secretsFromVault.join() !== "web-env" || st.admission !== "not_connected" || st["secret-check"] !== "not_connected" || !out.hints
+          || plan.blockers.length || !prod.blockers.includes("approver") || prod.waivable.includes("approver") || prod.waivable.includes("staging") || !/blocked by/.test(noConfirm)
+          || !/^.*blocked by: [a-z, -]*approver/.test(unconfirmed) || !/approver cannot be waived/.test(forced) || rec.ok || rec.failedStep !== "namespace"
+          || !recs.some((r) => r.env === "staging" && !r.ok) || !audited || out.leaked) throw new Error("deploy: " + JSON.stringify(out));
+        return out;
+      } finally {
+        delete FS[kc]; delete FS[man]; flushSave(); await idle();
+        if (before) await git("reset", "--hard", before);
       }
     });
     // A8: «Under the hood» real com a toolchain desta máquina — as instruções de uma linha em debug e

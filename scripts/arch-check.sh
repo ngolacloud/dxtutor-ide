@@ -41,7 +41,7 @@ strip_comments() {
 }
 
 # Baseline esperada (Etapa 0 — MIGRATION §2/§3). Actualizar DELIBERADAMENTE.
-EXPECT_TOTAL=268
+EXPECT_TOTAL=281
 # @ts-nocheck: contamos a DIRECTIVA real (linha-comentário `// @ts-nocheck`), não
 # a palavra por substring (A6 antigo contava 24 com `grep -rl`, inflado por 13
 # ficheiros que só a mencionam em prosa/JSDoc). Baseline = 0 desde a U4j5b do ADR-0004
@@ -129,7 +129,11 @@ EXPECT_TSNOCHECK=0
 # r23 F4a (protecção de dados): commands/protect.rs (novo) com protect_learn, secret_scan e secret_scan_allow: 259 + 3 = 262.
 # r23 F4b (pipeline de IaC): commands/iac.rs (novo) com iac_pipeline_run, iac_apply_command e iac_state; board.rs ganha
 # iac_risk_accept, iac_risks e iac_risk_revoke (12→15): 262 + 6 = 268.
-declare -A EXPECT_PER_FILE=( [lib.rs]=0 [commands/review.rs]=3 [commands/codeintel.rs]=10 [commands/tests.rs]=8 [commands/git.rs]=41 [commands/codev.rs]=5 [commands/codev_agent.rs]=17 [commands/dictation.rs]=4 [commands/search.rs]=4 [commands/agent.rs]=16 [commands/assistant.rs]=8 [commands/debug_cmds.rs]=34 [commands/hood.rs]=3 [commands/ops.rs]=6 [commands/codebase.rs]=2 [commands/devcontainer.rs]=8 [commands/sandbox.rs]=3 [commands/pair.rs]=4 [commands/plugins.rs]=3 [commands/study.rs]=11 [commands/missions.rs]=4 [bridge.rs]=16 [fsops.rs]=10 [lsp.rs]=18 [pty.rs]=7 [commands/panel.rs]=2 [commands/protect.rs]=3 [commands/iac.rs]=3 [board.rs]=15 )
+# r23 F4c (Vault): commands/vault.rs (novo) com vault_status, vault_login_token, vault_login_oidc, vault_renew,
+# vault_revoke, vault_kv_meta, vault_reveal_local, vault_reveal_read, vault_dynamic e vault_lease_revoke: 268 + 10 = 278.
+# r23 F4c2 (deploy guiado): commands/deploy.rs (novo) com deploy_plan e deploy_rollout; board.rs ganha deploy_records
+# (15→16): 278 + 3 = 281.
+declare -A EXPECT_PER_FILE=( [lib.rs]=0 [commands/review.rs]=3 [commands/codeintel.rs]=10 [commands/tests.rs]=8 [commands/git.rs]=41 [commands/codev.rs]=5 [commands/codev_agent.rs]=17 [commands/dictation.rs]=4 [commands/search.rs]=4 [commands/agent.rs]=16 [commands/assistant.rs]=8 [commands/debug_cmds.rs]=34 [commands/hood.rs]=3 [commands/ops.rs]=6 [commands/codebase.rs]=2 [commands/devcontainer.rs]=8 [commands/sandbox.rs]=3 [commands/pair.rs]=4 [commands/plugins.rs]=3 [commands/study.rs]=11 [commands/missions.rs]=4 [bridge.rs]=16 [fsops.rs]=10 [lsp.rs]=18 [pty.rs]=7 [commands/panel.rs]=2 [commands/protect.rs]=3 [commands/iac.rs]=3 [commands/vault.rs]=10 [commands/deploy.rs]=2 [board.rs]=16 )
 
 echo "== A1 · comandos registados em generate_handler! =="
 # Extrai o bloco generate_handler!, remove comentários //, apanha os identificadores
@@ -148,7 +152,7 @@ fi
 
 echo "== A2 · #[tauri::command] por ficheiro =="
 sum=0
-for f in lib.rs commands/review.rs commands/codeintel.rs commands/tests.rs commands/git.rs commands/codev.rs commands/codev_agent.rs commands/dictation.rs commands/search.rs commands/agent.rs commands/assistant.rs commands/debug_cmds.rs commands/hood.rs commands/ops.rs commands/codebase.rs commands/devcontainer.rs commands/sandbox.rs commands/pair.rs commands/plugins.rs commands/study.rs commands/missions.rs bridge.rs fsops.rs lsp.rs pty.rs commands/panel.rs commands/protect.rs commands/iac.rs board.rs; do
+for f in lib.rs commands/review.rs commands/codeintel.rs commands/tests.rs commands/git.rs commands/codev.rs commands/codev_agent.rs commands/dictation.rs commands/search.rs commands/agent.rs commands/assistant.rs commands/debug_cmds.rs commands/hood.rs commands/ops.rs commands/codebase.rs commands/devcontainer.rs commands/sandbox.rs commands/pair.rs commands/plugins.rs commands/study.rs commands/missions.rs bridge.rs fsops.rs lsp.rs pty.rs commands/panel.rs commands/protect.rs commands/iac.rs commands/vault.rs commands/deploy.rs board.rs; do
   # `grep -c` imprime 0 E sai com status 1 quando não há matches (ex. lib.rs após o 13º
   # grupo sair), por isso NÃO encadeamos `|| echo 0` (duplicaria para "0\n0" e partia a
   # aritmética); normalizamos o vazio para 0 à parte.
@@ -244,7 +248,7 @@ fi
 # O resíduo strangler `features/<f>.ts` (publica os shims window.*) está FORA
 # desta subárvore e não é governado por A7/A8 — é transitório (ADR, passo 6).
 # A7/A8 cobrem CADA feature nesta lista (codev + ext; a próxima acrescenta-se aqui).
-FEATURES="codev ext codereview scm debug board visualizer infra learn panel arch testing lsp project hood ops codebase comments welcome protect"
+FEATURES="codev ext codereview scm debug board visualizer infra learn panel arch testing lsp project hood ops codebase comments welcome protect vault deploy"
 FEAT_ROOT=ui-app/src/features
 
 echo "== A7 · domínio não importa application/ui/infrastructure =="

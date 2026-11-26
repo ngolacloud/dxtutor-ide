@@ -14,6 +14,7 @@
 //!   cite an issue key are linked to the issue.
 
 pub mod breakpoints;
+pub mod deploys;
 pub mod reports;
 pub mod risks;
 pub mod schema;
@@ -980,6 +981,24 @@ impl ProjectStore {
             })?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
+    }
+
+    /// Records a rollout of the guided deploy (r23 F4c2).
+    pub fn record_deploy(
+        &mut self,
+        root: &str,
+        r: &deploys::DeployRecord,
+    ) -> Result<i64, ProjectError> {
+        deploys::record(&self.conn, root, r)
+    }
+
+    /// The deploys of these commits (or all of them), newest first.
+    pub fn deploys(
+        &self,
+        root: &str,
+        shas: Option<&[String]>,
+    ) -> Result<Vec<deploys::DeployRecord>, ProjectError> {
+        deploys::list(&self.conn, root, shas)
     }
 
     /// Accepts an IaC finding or a drift with a reason, for at most 30 days (r23 F4b).

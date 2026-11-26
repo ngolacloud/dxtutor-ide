@@ -131,6 +131,8 @@ export interface InfraDeps {
   clock: Clock;
   /** O cluster real dos ambientes (a porta desktop), consultado no acto; null no browser. */
   envCluster: () => EnvCluster | null;
+  /** r23 F4c2: o deploy guiado (features/deploy, desktop) — promover e redeploy abrem-no; null no browser */
+  deployWizard: () => { open(env: string): void } | null;
 }
 
 /** Resultado de um deploy (o decorador v6 lê `.ok`). */

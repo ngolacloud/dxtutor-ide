@@ -11,7 +11,7 @@
 import type { CommandRecord, TerminalMeta } from "../domain/types";
 import type { ShellEvent } from "../domain/shell-integration";
 import { terminalTitle } from "../domain/naming";
-import type { Clock, PtyPort, WorkspacePort } from "./ports";
+import type { Clock, PtyPort, TaskVault, WorkspacePort } from "./ports";
 import type { OutputLog } from "./output";
 
 export const TASKS_CHANNEL = "Tasks";
@@ -27,6 +27,7 @@ interface Pending {
   cwd?: string | null;
   command?: string | null;
   env?: Record<string, string> | null;
+  vault?: TaskVault | null;
 }
 
 export interface Terminals {
@@ -36,7 +37,7 @@ export interface Terminals {
   group(id: string): TerminalMeta[];
   create(o?: { shell?: string | null; cwd?: string | null; group?: string }): TerminalMeta;
   start(id: string, rows: number, cols: number): Promise<void>;
-  runTask(command: string, o?: { label?: string; cwd?: string | null; env?: Record<string, string> | null }): Promise<number>;
+  runTask(command: string, o?: { label?: string; cwd?: string | null; env?: Record<string, string> | null; vault?: TaskVault | null }): Promise<number>;
   split(id?: string | null): TerminalMeta | null;
   focus(id: string): void;
   kill(id: string): Promise<void>;
@@ -135,7 +136,7 @@ export function makeTerminals(deps: { pty: PtyPort; workspace: WorkspacePort; ou
       if (!p) return;
       pending.delete(id);
       try {
-        await pty.spawn({ id, rows, cols, cwd: p.cwd, shell: p.shell, command: p.command, env: p.env });
+        await pty.spawn({ id, rows, cols, cwd: p.cwd, shell: p.shell, command: p.command, env: p.env, ...(p.vault ? { vault: p.vault } : {}) });
         void this.refreshInfo(id); // a shell real (o «default» resolvido pelo backend)
       } catch (e) {
         const t = get(id);
@@ -166,7 +167,7 @@ export function makeTerminals(deps: { pty: PtyPort; workspace: WorkspacePort; ou
         commands: 0,
         command,
       };
-      pending.set(id, { command, cwd: t.cwd, env: { ...workspace.env(), ...(o.env ?? {}) } });
+      pending.set(id, { command, cwd: t.cwd, env: { ...workspace.env(), ...(o.env ?? {}) }, vault: o.vault ?? null });
       list.push(t);
       active = id;
       output.append(TASKS_CHANNEL, `▶ ${label}${label !== command ? `\n    ${command.split("\n").join("\n    ")}` : ""}`);

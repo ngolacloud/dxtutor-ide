@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 268 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 281 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -42,7 +42,7 @@ dependências — só `bash`/`awk`/`grep`). Verifica:
   falha até sair). As métricas «globais publicadas» e «shims de estado» do `ui-metrics.sh` também só descem.
 - **A7–A8** — fronteiras da Clean Architecture das features extraídas (abaixo).
   A var `FEATURES` do `arch-check.sh` lista quais governam (hoje `codev`, `ext`,
-  `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra`, `panel`, `learn`, `arch`, `testing`, `lsp`, `project`, `hood` — o «Under the hood» e o traço reais da A8 — `ops` — o separador Ops da A9 —, `codebase` — Dependencies e Onboarding da A10 —, `comments`, `welcome` — a página de boas-vindas da r23 F6 — e `protect` — a protecção de dados da r23 F4a); cada nova
+  `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra`, `panel`, `learn`, `arch`, `testing`, `lsp`, `project`, `hood` — o «Under the hood» e o traço reais da A8 — `ops` — o separador Ops da A9 —, `codebase` — Dependencies e Onboarding da A10 —, `comments`, `welcome` — a página de boas-vindas da r23 F6 — `protect` — a protecção de dados da r23 F4a — `vault` — o Vault da r23 F4c — e `deploy` — o deploy guiado da r23 F4c2); cada nova
   extracção acrescenta-se lá. A `arch` (Studio de arquitectura de sistema, separador «Architecture»)
   é uma feature nova e tipada, separada do Studio do catálogo cloud (`features/studio.ts`). Nota: desde a U4i do ADR-0004 nenhuma
   feature tem `@ts-nocheck` (os resíduos `infra.ts`/`visualizer.ts` e o interpretador `vzRun`
@@ -840,6 +840,56 @@ O separador IaC do Ops tem Pipeline · Plano · Segurança e política · Drift 
 - Testes: `cargo test -p tutor-eval iac::` (parsers dos scanners, raio de impacto, e um pipeline real com o `tofu`:
   apply do ficheiro revisto, bloqueio, aceitação, segredo no estado), `cargo test -p tutor-board accepted_risks`,
   `tests/ops.test.ts` e o passo `iac` do auto-teste.
+
+## Keychain e Vault (r23 F4c1, `crates/tutor-platform`, `ui-app/src/features/vault/`)
+
+O token do Vault e as chaves de API dos modelos vivem no keychain do sistema (`tutor_platform::keychain`, crate
+`keyring` 3 com o Secret Service sobre D-Bus — precisa de `libdbus-1-dev` para compilar e de um GNOME Keyring/KWallet a
+correr). Nenhum comando os devolve à UI. Regras (no Rust, com testes):
+- **Entrar:** OIDC (`auth_url` → o Rust abre o browser → volta a `127.0.0.1:8250/oidc/callback`, o mesmo do CLI do
+  Vault; o papel tem de o ter em `allowed_redirect_uris`) ou um token colado (verificado com `lookup-self`). Os dois vão
+  para o keychain (conta `vault:<addr>#<namespace>`). Sair revoga e apaga.
+- **Ambientes pelo caminho:** um segmento `local`/`dev`, `staging`/`qa`, `production`/`prod` diz o ambiente. Os
+  metadados KV saem para todos (versões, datas, custom metadata); os NOMES das chaves só para `local`; os VALORES só
+  para `local` (`vault_reveal_local`, auditado no Rust antes de ler, legível 20 s por `vault_reveal_read`, depois
+  esquecido; o valor entra na redacção). Um caminho sem ambiente é tratado como não-local.
+- **Mudar um valor** é no terminal: `vault kv patch -mount=… caminho chave=-` lê o stdin. O `pty_spawn` ganhou
+  `vault: {addr, namespace?, lease?}`: o Rust põe `VAULT_ADDR`/`VAULT_NAMESPACE`/`VAULT_TOKEN` no ambiente (o token
+  nunca atravessa o IPC) e aprende-o para a máscara do terminal.
+- **Credenciais dinâmicas** (`<mount>/creds/<role>`): a UI recebe o lease (id, TTL, nomes dos campos); os valores
+  ficam no backend até um terminal aberto com o lease os receber como `VAULT_DYN_*`; o lease é revogado quando esse
+  terminal acaba (evento `vault://lease-revoked`) ou à mão.
+- **Chaves dos modelos:** `keys.rs` guarda em `llm:<provider>`; uma chave ainda no `keys.json` passa para o keychain na
+  primeira leitura (e sai do ficheiro). Sem keychain, fica no `keys.json` (0600), como antes.
+- GOTCHA-keychain: o serviço é `dxtutor`, ou `DXTUTOR_KEYCHAIN_SERVICE` — o auto-teste usa um seu (o HOME temporário
+  não isola o keychain, que é da sessão D-Bus). GOTCHA-dev: `vault server -dev` escreve `~/.vault-token`; os testes
+  correm-no com um HOME temporário.
+- Testes: `cargo test -p tutor-platform` (keychain real com serviço próprio; Vault real em modo dev: token, metadados,
+  recusa de produção/staging, revelar local, renovar, sair; OIDC e credenciais dinâmicas com um servidor falso),
+  `cargo test -p dxtutor-ide keys`, `tests/vault.test.ts` e o passo `vault` do auto-teste.
+
+## Deploy guiado (r23 F4c2, `tutor_platform::deploy`, `ui-app/src/features/deploy/`)
+
+Staging e produção só se mudam pelo deploy guiado: o «Promote» e o «Redeploy» do Infra abrem-no (`services.deploy`).
+Oito passos — Destino, Identidade, Segredos, Verificações, Estratégia, Aprovar, Rollout, Registo. Regras (no Rust):
+- **Segredos só pelo Vault** (decisão do dono, 2026-11-26): os `Secret` do `deploy/k8s` NÃO são aplicados — o cluster
+  lê-os do Vault (Vault Secrets Operator). O Infra já não aceita valores de staging/produção (as colunas dizem
+  «Vault»); a verificação vê só nomes (`kubectl get secret … -o name`) e metadados do Vault.
+- **O que bloqueia** (`deploy::blockers`): uma verificação falhada sempre; em produção, «not installed»/«not
+  connected» também, salvo excepção com motivo — nunca para o segundo aprovador nem para staging (`NOT_WAIVABLE`: sem
+  `gh` ou sem PR aprovado, a produção fica fechada). O rollout verifica outra vez (excepções, HEAD, manifestos, plano com
+  ≤ 30 min). Produção: motivo e `production` escrito (verificados no Rust) e um **segundo aprovador** = PR fundido com
+  o commit aprovado por outra pessoa (`gh`).
+- Verificações: version (HEAD limpo), sbom (syft), signature (cosign + política em `.dxtutor/deploy.json`), vulns
+  (trivy/grype), secrets, secret-check (`dx-secret-check`: «not available» até a imagem existir), drift (IaC do
+  ambiente: `iac::drift`), admission (`apply --dry-run=server`), slo («not connected»), window (janelas UTC), migrations,
+  staging (produção: saudável e com esta versão) e approver.
+- Rollout (rolling; canary/blue-green depois): namespace, `apply -f -` sem os Secrets, anotação `dxtutor.io/version`,
+  `rollout status`; linhas pelo `deploy://output`. Auditado antes e com o resultado; registo na base do Project
+  (migração 11, `deploys`), que alimenta a coluna «environments» do ciclo de vida do commit (F3).
+- Testes: `cargo test -p tutor-platform deploy` (kubectl e gh falsos por scripts, repositório git real),
+  `cargo test -p tutor-board deploy_records`, `tests/deploy.test.ts`, `tests/infra.r5c1.test.ts` e o passo `deploy` do
+  auto-teste (kubeconfig temporário vazio: nunca os clusters do utilizador).
 
 ## Boas-vindas e walkthroughs (`ui-app/src/features/welcome/`, r23 F6)
 

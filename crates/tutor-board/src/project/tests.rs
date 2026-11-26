@@ -1026,3 +1026,46 @@ fn accepted_risks_expire_and_can_be_revoked() {
         vec!["drift:infra:x.y"]
     );
 }
+
+/// r23 F4c2: deploy records, per commit (prefixes of 7+) and all of them.
+#[test]
+fn deploy_records_per_commit() {
+    let mut st = store();
+    let rec = |env: &str, version: &str, at: i64, ok: bool| deploys::DeployRecord {
+        env: env.into(),
+        context: "kind-dev".into(),
+        namespace: "shop".into(),
+        version: version.into(),
+        issue: Some("SHOP-7".into()),
+        actor: "ana".into(),
+        approver: None,
+        at,
+        ok,
+        failed_step: (!ok).then(|| "rollout".into()),
+        waivers: "[]".into(),
+        gates: "{}".into(),
+        reason: None,
+        ..Default::default()
+    };
+    st.record_deploy("/p", &rec("staging", "abcdef1234567890", T0, true))
+        .unwrap();
+    st.record_deploy("/p", &rec("production", "abcdef1234567890", T0 + H, false))
+        .unwrap();
+    st.record_deploy("/p", &rec("staging", "1234567aaaa", T0 + 2 * H, true))
+        .unwrap();
+    st.record_deploy("/q", &rec("staging", "abcdef1234567890", T0, true))
+        .unwrap();
+    let mine = st.deploys("/p", Some(&["abcdef1".to_string()])).unwrap();
+    assert_eq!(
+        mine.iter()
+            .map(|r| (r.env.as_str(), r.ok))
+            .collect::<Vec<_>>(),
+        vec![("production", false), ("staging", true)]
+    );
+    assert_eq!(mine[0].failed_step.as_deref(), Some("rollout"));
+    assert!(st
+        .deploys("/p", Some(&["abc".to_string()]))
+        .unwrap()
+        .is_empty());
+    assert_eq!(st.deploys("/p", None).unwrap().len(), 3);
+}
