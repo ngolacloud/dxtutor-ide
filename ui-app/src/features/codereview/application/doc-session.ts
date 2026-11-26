@@ -8,12 +8,13 @@
    os testes e a vista chegam por `deps`. Uma resposta de um pedido antigo (o humano pediu outro
    entretanto) nunca pinta por cima do novo: cada pedido tem o seu `id`. */
 
-import { explainPrompt, reviewPrompt, fixTestsPrompt, type DocLang } from "../domain/prompts";
+import { explainPrompt, reviewPrompt, fixTestsPrompt, applySuggestionPrompt, type DocLang } from "../domain/prompts";
+import { parseTestOutput, spotsText } from "../domain/test-report";
 import { improvedCode } from "../domain/markdown";
 import type { ExplainCard } from "./ports";
 import type { DocCopyKey } from "./messages";
 
-export type DocKind = "explain" | "review" | "fix";
+export type DocKind = "explain" | "review" | "fix" | "apply";
 export type DocStatus = "idle" | "streaming" | "done" | "error" | "stopped" | "local";
 
 export interface TestOutcome {
@@ -36,6 +37,10 @@ export interface DocState {
   /** o conteúdo antes de «Apply» (para «Revert»); `null` sem nada aplicado */
   applied: { prev: string } | null;
   test: TestOutcome | null;
+  /** a proposta foi recusada («Deny»): o cartão do código sai */
+  denied: boolean;
+  /** de onde veio (o Explain, quando é «Apply» de uma sugestão): «Back» volta lá */
+  back: DocState | null;
 }
 
 /* ───── portas do painel ───── */
@@ -91,7 +96,7 @@ export function makeDocSession(deps: DocDeps) {
 
   const fresh = (kind: DocKind, path: string, from: number | null): DocState => ({
     id: ++seq, kind, path, from, status: "idle", text: "", error: null,
-    original: files.read(path) ?? "", improved: null, applied: null, test: null,
+    original: files.read(path) ?? "", improved: null, applied: null, test: null, denied: false, back: null,
   });
   const paint = () => { if (state) view.render(state); };
 
@@ -169,6 +174,50 @@ export function makeDocSession(deps: DocDeps) {
 
   function regenerate(): void { if (last) last(); }
 
+  /** «Apply» num bloco de código do documento (as sugestões do Explain): o modelo integra-o no ficheiro
+   *  e devolve-o inteiro; o painel mostra as diferenças para «Accept» ou «Deny». «Back» volta ao documento. */
+  function applySuggestion(snippet: string, snippetLang: string): void {
+    const from = state;
+    if (!from) return;
+    const path = from.path;
+    const run = () => {
+      const s = fresh("apply", path, null);
+      s.back = from.kind === "apply" ? from.back : from;
+      void ask(s, applySuggestionPrompt({ path: files.short(path), ext: files.ext(path), content: s.original, snippet, snippetLang, context: from.text, lang: deps.lang() }));
+    };
+    last = run;
+    run();
+  }
+
+  /** «Back»: volta ao documento de onde veio a proposta (o Explain). Nada aplicado é desfeito. */
+  function goBack(): void {
+    const s = state;
+    if (!s || !s.back) return;
+    stop();
+    state = s.back;
+    last = null;
+    paint();
+  }
+
+  /** «Deny»: recusa a proposta (o ficheiro não muda; se já estava aplicada, repõe-no). */
+  function deny(): void {
+    const s = state;
+    if (!s || !s.improved) return;
+    if (s.applied) { files.write(s.path, s.applied.prev); s.applied = null; }
+    s.improved = null;
+    s.denied = true;
+    s.test = null;
+    paint();
+  }
+
+  /** «Accept»: aplica e, onde há testes, corre-os logo para provar que nada quebrou. */
+  async function accept(): Promise<void> {
+    const s = state;
+    if (!s || !s.improved) return;
+    if (tests.unavailable()) { apply(); if (state === s) { s.test = { status: "unavailable", output: tests.unavailable() ?? "" }; paint(); } return; }
+    await test();
+  }
+
   /** Põe o código melhorado no ficheiro (guarda o anterior para «Revert»). */
   function apply(): boolean {
     const s = state;
@@ -220,14 +269,15 @@ export function makeDocSession(deps: DocDeps) {
       const n = fresh("fix", s.path, null);
       n.applied = prev;            // continua a ser possível voltar ao ficheiro de antes de tudo
       if (prev) n.original = prev.prev;
-      void ask(n, fixTestsPrompt(files.short(s.path), files.ext(s.path), cur, out, deps.lang()));
+      n.back = s.back;
+      void ask(n, fixTestsPrompt(files.short(s.path), files.ext(s.path), cur, out, deps.lang(), spotsText(parseTestOutput(out))));
     };
     last = run;
     run();
   }
 
   return {
-    explain, review, regenerate, stop, apply, revert, test, fixTests,
+    explain, review, regenerate, stop, apply, revert, test, fixTests, applySuggestion, goBack, deny, accept,
     state: (): DocState | null => state,
     /** fecha o painel: pára o pedido em curso e esquece o estado (o que foi aplicado fica) */
     close(): void { stop(); state = null; last = null; },

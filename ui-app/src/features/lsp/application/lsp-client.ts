@@ -23,7 +23,7 @@ import { caretAfterFormatting, formattingEdits } from "../domain/formatting";
 import { flattenSymbols, type SymbolEntry } from "../domain/symbols";
 import { locateInFile, rankWorkspaceSymbols, workspaceSymbolHits, type WorkspaceSymbolHit } from "../domain/workspace-symbols";
 import { preparedTypes, typeNodes, type TypeDirection, type TypeNode } from "../domain/type-hierarchy";
-import type { Defer, EditorPort, LspPort, WorkspacePort } from "./ports";
+import type { InstallPort, Defer, EditorPort, LspPort, WorkspacePort } from "./ports";
 
 export interface LspClientDeps {
   lsp: LspPort;
@@ -32,6 +32,8 @@ export interface LspClientDeps {
   defer: Defer;
   /** Esperar (os testes passam uma que não espera). */
   sleep?: (ms: number) => Promise<void>;
+  /** Copiar/instalar o servidor em falta (sem ela, o aviso só tem «Dismiss»). */
+  installer?: InstallPort;
 }
 
 /** Quantas vezes, e com que intervalo, repetir um rename que voltou vazio. */
@@ -189,8 +191,41 @@ export function makeLspClient(d: LspClientDeps): LspClient {
   async function serverOk(doc: Doc): Promise<boolean> {
     const st = await statusOf(doc);
     const n = st && !dismissed.has(st.language) ? missingServerNotice(st) : null;
-    d.editor.notice(doc.key, n, st ? () => dismissed.add(st.language) : undefined);
+    const ins = d.installer;
+    const acts = n && ins
+      ? {
+          copy: () => { void ins.copy(n.install).then((ok) => d.editor.notify(ok ? `Copied: ${n.install}` : `Could not copy — select the command: ${n.install}`)); },
+          install: n.command ? () => void installServer(doc, n.command!, n.server) : undefined,
+        }
+      : undefined;
+    d.editor.notice(doc.key, n, st ? () => dismissed.add(st.language) : undefined, acts);
     return !st || st.installed;
+  }
+
+  /** Instala o servidor em falta: aprovação com o comando exacto → auditoria → terminal de tarefa (shell
+   *  de login, na pasta aberta) → volta a perguntar se está instalado e, se sim, arranca-o. */
+  let installing = false;
+  async function installServer(doc: Doc, command: string, server: string): Promise<void> {
+    const ins = d.installer, root = d.workspace.diskRoot();
+    if (!ins || !root || installing) return;
+    const scope = `terminal · ${root} (login shell: your npm/go/dotnet/rustup, e.g. nvm's node)`;
+    const dec = await ins.approve({ title: `Install the ${server} language server`, command, scope });
+    const row = { action: "lsp.install", command, scope, approved: dec.approved, reason: dec.reason, decidedAt: dec.decidedAt };
+    if (!dec.approved) { void ins.audit(root, row).catch(() => undefined); return; }
+    try { await ins.audit(root, { ...row, outcome: "sent" }); } catch (e) { d.editor.notify(`Not installed: the audit log failed (${e instanceof Error ? e.message : String(e)})`); return; }
+    installing = true;
+    d.editor.notify(`Installing ${server} in the terminal…`);
+    let code = -1;
+    try { code = await ins.run(command, root); } catch { code = -1; } finally { installing = false; }
+    void ins.audit(root, { ...row, outcome: code === 0 ? "ok" : "failed" }).catch(() => undefined);
+    if (code !== 0) {
+      d.editor.notify(`${server} was not installed (exit code ${code}). Read the terminal: a permission error from npm -g usually means Node is not from nvm — run "nvm use --lts" or "npm config set prefix ~/.npm-global".`);
+      return;
+    }
+    servers.delete(doc.languageId);
+    dismissed.delete(doc.languageId);
+    if (await ensureOpen(doc)) { d.editor.notify(`${server} installed — live diagnostics, hover and go to definition are on.`); d.editor.repaint(doc.key); }
+    else d.editor.notify(`${server} installed, but dxtutor still does not find it on PATH. Restart dxtutor so it reads the new PATH.`);
   }
 
   /** O documento LSP de uma chave do editor, ou `null` se não há servidor para ele. */

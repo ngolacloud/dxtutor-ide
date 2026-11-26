@@ -30,6 +30,8 @@ import { bindActions, type ActionTable } from "./codereview/ui/actions";
 import { docHtml, docBlocks, filterBar, findingCards, scoreRing, extOfLang, type ReviewFindingView, type ReviewUi } from "./codereview/ui/doc-view";
 import { diffLines, MAX_CELLS } from "./diff/domain/diff";
 import { codevAsk } from "../app/codev-ask";
+import { copyText } from "../app/clipboard";
+import { parseTestOutput, spotsText } from "./codereview/domain/test-report";
 import {
   files,
   currentTabId,
@@ -78,7 +80,8 @@ interface PanelUi {
   codeView: "code" | "diff";
   width: number;
 }
-const PANEL: PanelUi = { mode: "explain", path: "", tab: "findings", view: "preview", codeView: "code", width: 480 };
+/* o código proposto abre nas diferenças: o humano vê o que muda antes de aceitar */
+const PANEL: PanelUi = { mode: "explain", path: "", tab: "findings", view: "preview", codeView: "diff", width: 480 };
 /** filtros, descartados e «mostrar descartados» da revisão, por ficheiro (o painel e a tab partilham-nos) */
 const RV = new Map<string, ReviewUi>();
 const rvUi = (p: string): ReviewUi => { let u = RV.get(p); if (!u) RV.set(p, (u = { filter: [], dismissed: [], showDismissed: false })); return u; };
@@ -162,8 +165,9 @@ function schedule(): void {
 function shownDoc(): DocState | null {
   const s = session.state();
   if (!s) return null;
-  if (PANEL.mode === "explain") return s.kind === "explain" ? s : null;
-  return s.kind !== "explain" && s.path === PANEL.path ? s : null;
+  /* as propostas que nascem do Explain («Apply» de uma sugestão, e a correcção dos testes delas) ficam no modo Explain */
+  if (PANEL.mode === "explain") return s.kind === "explain" || s.kind === "apply" || s.back ? s : null;
+  return (s.kind === "review" || s.kind === "fix") && !s.back && s.path === PANEL.path ? s : null;
 }
 
 function statusTag(s: DocState | null): string {
@@ -224,14 +228,33 @@ function renderPanel(): void {
       body.innerHTML = `<div class="sub cr-rules">${esc(td("rulesNote"))}</div>${findingCards(p, fv, ui, hlLine, td, extOf(p), aiReady(), ic)}${an ? `<div class="cr-analyzers">${an.html}</div>` : ""}`;
     } else {
       body.innerHTML = s
-        ? docHtml(s, PANEL, hlLine, td, s.improved ? extOfLang(s.improved.lang) || extOf(p) : extOf(p), improvedDiff(s), ic)
+        ? docHtml(s, PANEL, hlLine, td, s.improved ? extOfLang(s.improved.lang) || extOf(p) : extOf(p), improvedDiff(s), ic, docCtx())
         : aiCta();
     }
   } else {
     sub.innerHTML = "";
-    body.innerHTML = s ? docHtml(s, PANEL, hlLine, td, extOf(s.path), null, ic) : "";
+    body.innerHTML = s ? docHtml(s, PANEL, hlLine, td, s.improved ? extOfLang(s.improved.lang) || extOf(s.path) : extOf(s.path), improvedDiff(s), ic, docCtx()) : "";
   }
   body.scrollTop = same && s?.status === "streaming" && atEnd ? body.scrollHeight : top;
+}
+
+/** O que a view do documento precisa de saber do mundo (ver `DocCtx`). */
+function docCtx() {
+  const pre = fsRoot();
+  return {
+    canApply: aiReady(),
+    testsHere: !!desktopRoot(),
+    canAskChat: codevAsk.available(),
+    /** um caminho citado pela saída dos testes → a chave do editor (relativo à pasta, ou absoluto dentro dela) */
+    resolve: (file: string): string | null => {
+      const root = desktopRoot();
+      const rel = root && file.startsWith(root + "/") ? file.slice(root.length + 1) : file.replace(/^\.\//, "");
+      const fs = files();
+      if (fs[pre + rel]) return pre + rel;
+      const hit = Object.keys(fs).find((k) => k.startsWith(pre) && k.endsWith("/" + rel));
+      return hit ?? null;
+    },
+  };
 }
 
 function aiCta(): string {
@@ -400,10 +423,8 @@ export { renderCreviewView, renderHoodView, curFile, explainCmd, reviewCmd, revi
 const splitOn = (on: string): [string, string] => { const i = on.indexOf("|"); return i < 0 ? [PANEL.path, on] : [on.slice(0, i), on.slice(i + 1)]; };
 /** Redesenha o que mostra a revisão: o painel e, se estiver à vista, a tab. */
 const refreshReview = (): void => { renderPanel(); rerender("creview"); };
-const copyText = (s: string): void => {
-  const done = () => toast(td("copied"));
-  try { void navigator.clipboard.writeText(s).then(done, () => toast(s.slice(0, 60))); } catch { toast(s.slice(0, 60)); }
-};
+/* a cópia partilhada (`app/clipboard`): o caminho síncrono primeiro — no WebKitGTK o `navigator.clipboard` recusava */
+const copy = (s: string): void => { void copyText(s).then((ok) => toast(ok ? td("copied") : td("copyFailed"))); };
 const ACTIONS: ActionTable = {
   "open-file": { on: "click", run: (e) => openPath(e.on) },
   "open-line": {
@@ -420,11 +441,11 @@ const ACTIONS: ActionTable = {
   "cr:tab": { on: "click", run: (e) => { PANEL.tab = e.on === "ai" ? "ai" : "findings"; renderPanel(); } },
   "cr:stop": { on: "click", run: () => session.stop() },
   "cr:regenerate": { on: "click", run: () => session.regenerate() },
-  "cr:copy-doc": { on: "click", run: () => { const s = shownDoc(); if (s) copyText(s.text); } },
-  "cr:copy-improved": { on: "click", run: () => { const s = shownDoc(); if (s?.improved) copyText(s.improved.code); } },
+  "cr:copy-doc": { on: "click", run: () => { const s = shownDoc(); if (s) copy(s.text); } },
+  "cr:copy-improved": { on: "click", run: () => { const s = shownDoc(); if (s?.improved) copy(s.improved.code); } },
   "cr:copy-block": {
     on: "click",
-    run: (e) => { const s = shownDoc(); if (!s) return; const b = docBlocks(s).filter((x) => x.k === "code")[+e.on]; if (b && b.k === "code") copyText(b.v); },
+    run: (e) => { const s = shownDoc(); if (!s) return; const b = docBlocks(s).filter((x) => x.k === "code")[+e.on]; if (b && b.k === "code") copy(b.v); },
   },
   "cr:to-chat": {
     on: "click",
@@ -441,10 +462,32 @@ const ACTIONS: ActionTable = {
       });
     },
   },
-  "cr:apply": { on: "click", run: () => { session.apply(); } },
+  "cr:apply-block": {
+    on: "click",
+    run: (e) => { const s = shownDoc(); if (!s) return; const b = docBlocks(s).filter((x) => x.k === "code")[+e.on]; if (b && b.k === "code") { PANEL.codeView = "diff"; session.applySuggestion(b.v, b.lang); } },
+  },
+  "cr:back": { on: "click", run: () => session.goBack() },
+  "cr:accept": { on: "click", run: () => { void session.accept(); } },
+  "cr:deny": { on: "click", run: () => session.deny() },
   "cr:revert": { on: "click", run: () => session.revert() },
   "cr:test": { on: "click", run: () => { void session.test(); } },
   "cr:fix-tests": { on: "click", run: () => session.fixTests() },
+  "cr:fix-in-chat": {
+    on: "click",
+    run: () => {
+      const s = shownDoc();
+      if (!s || !s.test) return;
+      const name = s.path.split("/").pop() || s.path;
+      const rep = parseTestOutput(s.test.output);
+      void codevAsk.ask({
+        intent: "fix", text: "", send: false, scope: "file",
+        context: [
+          { kind: "file", label: name, path: s.path, text: (files()[s.path]?.content ?? "").slice(0, 16000) },
+          { kind: "test", label: rep.failed[0] ?? td("testsFailed"), text: (spotsText(rep) + "\n\n" + s.test.output.slice(-6000)).trim() },
+        ],
+      });
+    },
+  },
   "cr:as-tab": { on: "click", run: () => { if (PANEL.path) reviewTab(PANEL.path); } },
   "cr:rerun": { on: "click", run: () => { loadAnalyzers(PANEL.path, true); renderPanel(); } },
   "cr:ai-review": { on: "click", run: (e) => { const p = e.on || PANEL.path; if (p) startAiReview(p); } },
