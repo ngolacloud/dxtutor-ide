@@ -35,8 +35,34 @@ pub async fn codev_agent_start(
     language: Option<String>,
     architecture: Option<bool>,
     backlog: Option<bool>,
+    worktree: Option<bool>,
 ) -> Result<String, String> {
     let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    // Multi Co-Dev (fase 3): a sessão da issue trabalha na worktree dela — a que a app criou (com
+    // aprovação), nunca um caminho vindo da interface
+    let worktree = match (worktree.unwrap_or(false), issue.as_deref()) {
+        (false, _) => None,
+        (true, None) => {
+            return Err("uma worktree só serve uma sessão que trabalha numa issue".into())
+        }
+        (true, Some(key)) => {
+            let base = super::codev_worktree::base(&app)?;
+            let (r, k) = (root.clone(), key.to_string());
+            let found = tauri::async_runtime::spawn_blocking(move || {
+                tutor_eval::gitwork::codev::find(std::path::Path::new(r.trim()), &base, &k)
+            })
+            .await
+            .map_err(|e| format!("worktree task failed: {e}"))??;
+            match found {
+                Some(w) => Some(std::path::PathBuf::from(w.dir)),
+                None => {
+                    return Err(format!(
+                        "a worktree de {key} não existe: começa a issue de novo para a criar"
+                    ))
+                }
+            }
+        }
+    };
     // `arch_propose` (Studio, F6): a proposta chega à UI pelo evento `arch://proposal`
     let emitter = app.clone();
     let arch_propose = crate::agent::ArchProposeTool {
@@ -79,6 +105,7 @@ pub async fn codev_agent_start(
         lang: language,
         architecture: architecture.unwrap_or(false),
         backlog: backlog.unwrap_or(false),
+        worktree,
         ..Default::default()
     };
     let id = tauri::async_runtime::spawn_blocking(move || {
@@ -184,10 +211,16 @@ pub fn codev_agent_cancel(session_id: String) -> bool {
     codev_agent::cancel(&session_id)
 }
 
-/// Fecha a sessão.
+/// Fecha a sessão. Multi Co-Dev (fase 3): as reservas de ficheiros dela voltam e a worktree sai
+/// se não tiver alterações por commitar (com `keep_worktree`, fica: a mesma issue recomeça nela) —
+/// fora da thread da interface (espera que o turno pare).
 #[tauri::command]
-pub fn codev_agent_close(session_id: String) -> bool {
-    codev_agent::close(&session_id)
+pub async fn codev_agent_close(session_id: String, keep_worktree: Option<bool>) -> bool {
+    tauri::async_runtime::spawn_blocking(move || {
+        codev_agent::close_keeping(&session_id, keep_worktree.unwrap_or(false))
+    })
+    .await
+    .unwrap_or(false)
 }
 
 /// As sessões gravadas do projecto `root` (mais recentes primeiro).

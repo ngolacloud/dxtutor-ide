@@ -219,7 +219,7 @@ export interface ChatPresenter {
     ref: ToolRef,
     /** `outside`: RF-G08 — blocks of the call outside the lines the plan gave for the file (a warning, never a block).
      *  `violations`: RF-A03/A04 — the rules it breaks: «accept» stays off until the architect's override. */
-    info: { path: string; count: number; reason: string; outside?: { n: number; planned: string }; violations?: string[] },
+    info: { path: string; count: number; reason: string; outside?: { n: number; planned: string }; violations?: string[]; where?: string },
     on: { acceptAll(): void; rejectAll(): void; open(): void; override?(): void },
   ): { settle(label: string): void; unblock?(adr: string): void };
 }
@@ -273,6 +273,8 @@ export interface AgentGateway {
     architecture?: boolean;
     /** A backlog session (toolset 11, `/backlog` and `/project`): only these carry `backlog_propose`/`project_propose`. */
     backlog?: boolean;
+    /** Multi Co-Dev (phase 3): the issue's session works in its worktree (the backend finds it). */
+    worktree?: boolean;
   }): Promise<string>;
   /** Decides the hunks of a `hunk_review` (hunks without a decision count as rejected). */
   review(session: string, call: string, decisions: Array<{ hunk: string; accept: boolean; reason?: string }>): Promise<void>;
@@ -294,7 +296,8 @@ export interface AgentGateway {
   approve(session: string, toolUseId: string, allow: boolean, reason?: string, remember?: boolean): Promise<boolean>;
   cancel(session: string): Promise<boolean>;
   setMode(session: string, mode: string): Promise<boolean>;
-  close(session: string): Promise<boolean>;
+  /** Fase 3: com `keepWorktree`, a worktree da sessão fica (a mesma issue recomeça nela). */
+  close(session: string, keepWorktree?: boolean): Promise<boolean>;
   /** Liga os três eventos do agente; devolve a função que os desliga. */
   subscribe(h: {
     event(session: string, e: AgentEvent): void;
@@ -313,6 +316,9 @@ export interface UsageDetail {
 export interface AgentChatDeps {
   /** Asks the human before something that cannot be undone from the chat (RF-G07: discarding a stopped turn). */
   confirm?(message: string): boolean;
+  /** Multi Co-Dev (fase 3): onde a sessão trabalha, quando não é a árvore principal («⎇ ramo · worktree»):
+   *  a revisão de hunks di-lo. */
+  where?(): string | null;
   /** Os textos para o humano na língua da interface (`./messages`); sem ela, os de antes (português). */
   copy?: CodevCopy;
   gateway: AgentGateway;

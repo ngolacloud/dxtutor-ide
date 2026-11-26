@@ -49,9 +49,19 @@ export interface RegServer {
   /** barato o bastante para arrancar só para um pedido (o `file_outline`) */
   oneShot?: boolean;
   quirks?: string[];
-  /** como instalar (só para mostrar; o que a UI pode CORRER é uma lista fixa no código) */
+  /** como instalar à mão (só texto, nunca corre): o aviso mostra-o quando nenhuma receita serve */
   install?: string;
+  /** como o dxtutor o pode instalar (LSP P3): o backend constrói o comando a partir daqui */
+  recipes?: RegRecipe[];
   vscodeExtensions?: string[];
+}
+
+/** Uma receita de instalação (ver `tutor_eval::langreg::Recipe`). */
+export interface RegRecipe {
+  manager: string;
+  packages?: string[];
+  version?: string;
+  assets?: { platform: string; url: string; sha256: string; archive: string; bin?: string }[];
 }
 
 export interface Registry {

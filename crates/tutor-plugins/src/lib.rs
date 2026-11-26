@@ -11,6 +11,7 @@ pub mod manifest;
 pub mod scaffold;
 pub mod source;
 pub mod store;
+pub mod support;
 pub mod validate;
 
 pub use manifest::{LanguageInfo, Manifest, SubjectInfo, MANIFEST_FILE, SCHEMA_VERSION};

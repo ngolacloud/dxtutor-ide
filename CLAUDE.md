@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 316 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 325 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -403,10 +403,10 @@ aceitação da issue e (3) o responsável REGISTOU a aprovação funcional. A fa
 - **Uma conversa por sessão** (`codev/application/codev-sessions.ts`): cada sessão é um `makeAgentChat` com o seu
   presenter/gate (`ui/session-view.ts`); a à vista escreve no `#ag-msgs` e no `RUN` como antes, as outras num transcript
   fora do documento e num registo de execução próprio (trocar MOVE os nós e aplica o registo, `applyRun`). Começar outra
-  issue do Project NÃO fecha a que corre: abre outra sessão — só se `project_scope_overlap` (só leitura; a regra
-  `plan::overlaps_with` da fase 1) não encontrar sobreposição com nenhuma issue que tenha sessão aberta. Com sobreposição
-  (ou se a verificação falhar), recusa com os ficheiros e oferece esperar: a issue fica na faixa e começa quando a sessão
-  com que choca FECHAR. Nesta fase todas correm na MESMA árvore de trabalho — por isso a verificação é obrigatória.
+  issue do Project NÃO fecha a que corre: abre outra sessão. Sem worktrees (pasta sem git; a fase 3 abaixo), só se
+  `project_scope_overlap` (só leitura; a regra `plan::overlaps_with` da fase 1) não encontrar sobreposição com nenhuma
+  issue que tenha sessão aberta. Com sobreposição (ou se a verificação falhar), recusa com os ficheiros e oferece
+  esperar: a issue fica na faixa e começa quando a sessão com que choca FECHAR — todas correm na MESMA árvore de trabalho.
 - **Hunks por sessão** (`hunk-review.ts`): um overlay por sessão, as decisões vão para a sessão dona da chamada, o
   `done` de uma não fecha as revisões das outras, e o editor só desenha as sessões não escondidas (`setHidden`: as que
   não estão à vista). Com uma sessão é igual a antes (o overlay composto É o da sessão).
@@ -423,8 +423,46 @@ aceitação da issue e (3) o responsável REGISTOU a aprovação funcional. A fa
   `roles::functional_check` no `project_apply` — o `assignee` da issue, ou PO/Tech Lead com equipa no `team.json`.
 - Testes: `cargo test -p tutor-board` (`the_functional_approval_…`, `the_mandatory_checks_…`, `another_codev_may_start_…`),
   `cargo test -p dxtutor-ide roles:: board::`, `tests/codev.sessions.test.ts`, `tests/project.gate.test.ts` e o e2e
-  `e2e/multi-codev.e2e.ts`. Para a fase 3/4: a worktree por sessão, as reservas de ficheiros, correr as verificações no
-  commit actual e confirmar que a aprovação ainda vale nesse commit.
+  `e2e/multi-codev.e2e.ts`. Para a fase 4: correr as verificações no commit actual e confirmar que a aprovação ainda vale
+  nesse commit.
+
+### Fase 3: uma worktree e ficheiros reservados por Co-Dev
+
+- **Quando:** a issue que começa com outra sessão aberta (ou que já tem worktree) trabalha numa worktree git própria, no
+  ramo da issue (o registado nela, ou `tutor_board::project::branches::branch_name` — a regra do «Create branch» da UI —,
+  que fica registado). Sozinha, e a conversa livre, ficam na árvore principal como antes. Numa pasta sem git (ou sem
+  commits) vale a regra da fase 2 (`codev-sessions.ts`: `prepare` → `unavailable`).
+- **Onde:** `app_local_data_dir/worktrees/<12 hex do SHA-256 do git common dir>/<KEY>` — fora da pasta do projecto, para
+  nenhuma ferramenta dele (testes, linters, watchers, pesquisa, o carregador do IDE) lá entrar e nunca aparecer no
+  `git status`; o git regista-a (`git worktree list`), por isso uma que ficou de um crash encontra-se ao abrir a pasta.
+- **Regras no Rust** (`tutor_eval::gitwork::codev`, caso de uso `src-tauri/src/codev_worktree.rs`, comandos
+  `commands/codev_worktree.rs`): `codev_worktree_plan` dá os comandos exactos; `codev_worktree_create` só corre o aprovado
+  e audita antes e com o resultado; um ramo em uso noutra worktree (a principal incluída) é recusado, nunca forçado;
+  `git worktree remove` nunca com `--force` (alterações por commitar, novas incluídas, mantêm-na); o commit
+  (`codev_worktree_commit`, o «✓» da faixa) é na worktree, no ramo dela, depois do secret scan (`guard_commit_as`: o scan
+  lê a worktree, o motivo humano é o do projecto) e auditado; o merge no ramo principal é a fase 4.
+- **A sessão** (`StartSpec.worktree`, resolvido pelo adaptador a partir das worktrees da app — nunca um caminho da UI;
+  `SessionMeta.worktree` para a retoma): `ctx.root` e a raiz da política = a worktree (ler/escrever/editar/grep/bash/
+  run_tests, checkpoints, prompt); `Session.project_root` = a pasta (Project, auditoria, papéis, permissões, regras do
+  arquitecto, comandos do projecto, redacção, reservas). Os hooks só carregam se o ficheiro da worktree for byte a byte
+  o confiado. Fechar remove a worktree se estiver limpa (auditado: `worktree` `removed`/`kept`), depois de esperar até
+  10 s que o turno cancelado pare e nunca se outra sessão aberta lá trabalha (`worktree_lock` com o `start`); «recomeçar a
+  mesma issue» fecha com `keep_worktree`.
+- **Reservas** (`tutor_board::project::claims`, migração 18 `file_claims`: raiz, caminho, sessão, issue, pid, quando):
+  o `claim_gate` do `codev_agent` reserva o ficheiro de cada `write`/`edit`/`edit_lines` antes da decisão (transacção
+  imediata) e recusa-o se outra sessão aberta o tem, com a issue e a sessão dona; uma escrita recusada devolve a reserva
+  que tomou. O que um `bash` mudou também se reserva (um ficheiro de outra vai para o chat, para o modelo e para a
+  auditoria, `claim`/`held`). Voltam quando a sessão fecha; as de uma sessão que já não está aberta neste processo, ou
+  cujo processo morreu, são abandonadas e retomadas. Sem base do Project (testes, CLI) nada se reserva; uma base que
+  falha recusa a escrita.
+- **UI:** com worktrees, a recusa por sobreposição da fase 2 passou a «começa, e as reservas decidem» (a sobreposição só
+  se diz). Os hunks de uma sessão numa worktree nunca se pintam no editor (são de outra árvore): a barra da revisão diz
+  o ramo e «Ver no editor» abre a proposta só de leitura (`hunkReview.proposal`); a faixa mostra o ramo, as reservas,
+  «Ficheiros» (só de leitura, `codev_worktree_file`), «Commit» e as worktrees sem sessão («Limpar», aprovado). A faixa
+  aparece também com uma só sessão numa worktree ou com worktrees guardadas; sem isso, nada muda (nenhum golden mudou).
+- Testes: `cargo test -p tutor-eval gitwork::codev`, `cargo test -p tutor-board claims branches`,
+  `cargo test -p dxtutor-ide codev_worktree codev_agent::worktree_tests`, `tests/codev.worktrees.test.ts`,
+  `tests/codev.sessions.test.ts`, o e2e `e2e/multi-codev.e2e.ts` e o passo `worktrees` do auto-teste.
 
 ## `/backlog` e `/project`: o backlog e o Project feitos pelo Co-Dev (conjunto 11)
 
@@ -738,6 +776,23 @@ cpp, sql.
   com a cópia do curso) vivem no modelo; o descritor escreve a árvore e corre o `project_test_cmd`
   (só o Python o tem). `submit_step` ganhou `files` (o `code` continua). Na UI, a lista de
   ficheiros por cima do editor (`lt-file`). Testes e solução nunca vão para o webview.
+- **Ficheiros de apoio** (`tutor_core::support`, Learn P1): um curso declara uma vez `[support]`
+  (caminho na pasta de trabalho → ficheiro do plugin), só de leitura e partilhados por TODOS os passos.
+  Quem lê o curso carrega-os (`tutor_plugins::support::load_support` do disco, sem ligações simbólicas;
+  os embutidos por `include_str!`, uma tabela por curso em `course.rs` que um teste compara com a
+  declaração); `Course::phase(step)` junta-os ao `Phase.support` e o descritor escreve-os depois dos do
+  passo, sem nunca substituir nada (`create_new`). Os runners nativos (Rust/Go) recusam-nos. Nunca vão
+  para o webview. Use SEMPRE `course.phase(step, …)` (não `step.as_phase`) onde se avalia.
+- **Curso Dxjs** (`courses/dxjs/`, o 1.º framework oficial, embutido só no backend, avaliado pelo
+  descritor TypeScript): o dxjs não está no npm, por isso o `support/` traz o `cdn/dxjs.js` 1.2.0
+  (reconstruído dos tarballs da release, sha256 fixo), um shim por pacote `@dxjs/*`, o happy-dom 15.11.7
+  num só ficheiro e o `@dxtutor/dom` (DOM no `globalThis`, como os testes do dxjs). Regenerar/verificar
+  com `node scripts/vendor-dxjs.mjs <checkout dxjs> <tarballs> --check`. Os passos de projecto TS correm
+  `node --test` sobre os `*.test.ts` ocultos; os desafios de um ficheiro importam por alias
+  (`effect as effectForTest`) para não chocar com os nomes do aluno. GOTCHA (dxjs 1.2.0): uma ligação
+  reactiva dentro de uma linha de `list` morre na 1.ª mudança da lista (os efeitos da linha pertencem
+  ao efeito da lista): o curso põe na chave o que muda (`t.id + ":" + t.done`). O `dxt plugin test`
+  diz a versão da ferramenta (`version_cmd` dos descritores).
 - Testes: `cargo test -p tutor-plugins`, `ui-app/tests/learn.domain.test.ts`,
   `learn.onboarding.test.ts`, `learn.frameworks.test.ts`; o plugin-fixture só de testes
   `crates/tutor-plugins/tests/fixtures/framework-project` passa por `dxt plugin test`
@@ -816,8 +871,8 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
   (`DXTUTOR_RUST_ANALYZER`, `DXTUTOR_GOPLS`), `searchDirs` (`~/`, um `*` = a versão mais alta primeiro),
   `rootMarkers`, `readySignal`, `initOptions` (o jdtls), `oneShot` (o cliente de um pedido do `tutor_eval::lsp`
   pode arrancá-lo: rust/go/ts/python, nunca um JVM), `quirks` (só `nodePath` e `rustupProxy` mudam código; os
-  outros registam o que já é genérico), `install` (SÓ texto: o que a UI pode correr é o `RUNNABLE` do
-  `server-status.ts`, comando a comando) e `vscodeExtensions` (o `KNOWN_LANGUAGE_SERVERS`). Leram-se daqui as
+  outros registam o que já é genérico), `install` (SÓ texto, a instrução à mão quando nenhuma receita serve),
+  `recipes` (LSP P3, abaixo) e `vscodeExtensions` (o `KNOWN_LANGUAGE_SERVERS`). Leram-se daqui as
   nove cópias antigas: `LANGS`/`server_cmd`/pistas/`init_options` do `lsp.rs`, a tabela do `tutor_eval::lsp`,
   `codeintel::outline_lang`, `languages.ts`, `server-status.ts`, `ext/domain/contributions.ts`, os comentários do
   `ext.ts`, o `OUTLINE_LANG` do explorador e os nomes da barra de estado (o `LANG` do `editor.ts` saiu, e com
@@ -943,10 +998,25 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
   aos ficheiros da pasta pelo `writeFile` (o autosave leva-as ao disco), envia `didChange` dos que o
   servidor tem abertos e conta o que salta (fora da pasta, operações de ficheiro).
 - **Servidor em falta:** sem servidor instalado o backend não abre sessão nem dá erro; o cliente
-  pergunta `lsp_server_status` (uma vez por linguagem) e o editor mostra uma faixa
-  (`#lsp-missing`, `domain/server-status.ts`) com o servidor que falta e como o instalar, reposta
-  a cada desenho da vista pelo evento `editor:file-view` do bus; «Dismiss» fecha-a para essa
-  linguagem na sessão.
+  pergunta `lsp_server_status` (uma vez por linguagem; diz também onde o encontrou: `foundAt`, `managed`) e o
+  editor mostra uma faixa (`#lsp-missing`, `domain/server-status.ts`) com o servidor que falta e as maneiras de o
+  instalar, reposta a cada desenho da vista pelo evento `editor:file-view` do bus; «Check again» volta a procurar
+  (depois de uma instalação à mão); «Dismiss» fecha-a para essa linguagem na sessão.
+- **Instalar a partir das receitas (LSP P3, `tutor_eval::lspinstall`, `commands/lsp_install.rs`):** cada servidor tem
+  `recipes` no registo (npm, pip, pipx, go, cargo, dotnet, gem, rustup, brew, apt, github; `langreg::validate` reprova
+  um gestor desconhecido, uma release sem `sha256` ou com um URL que não seja `https://github.com/<o>/<r>/releases/download/…`,
+  um pacote que pareça uma opção). O BACKEND constrói o comando (`lsp_install_plan`, só leitura, como o `git_clone_plan`):
+  só das receitas do registo de confiança (embutido + `lsp.json` do utilizador; as de um `.dxtutor/lsp.json` nunca, nem
+  as do embutido quando o `lsp.json` troca o programa — `withheld`), com os gestores achados no PATH da shell de login. A
+  UI nunca compõe nem envia um comando: mostra o do plano no diálogo partilhado, audita (`lsp.install`; sem auditoria não
+  corre) e corre-o num terminal de tarefa com o `cwd`/`env` do plano; uma release vai por `lsp_install_download(path,
+  id da maneira)`, que descarrega o ficheiro fixado, confere o SHA-256 ANTES de desempacotar (não confere → nada
+  instalado, o que lá estava fica) e desempacota em `<app_local_data_dir>/lsp-servers/<servidor>`. Os gestores do
+  utilizador instalam também lá (npm `--global --prefix`, venv, `GOBIN`, `--root`, `--tool-path`, `PIPX_*`,
+  `--install-dir`); o `resolve_server` procura lá primeiro (depois do `envOverride`), por isso o servidor arranca sem
+  reiniciar. apt e brew só se mostram (o apt pede sudo: o dxtutor nunca os corre). Um servidor instalado assim arranca
+  com o `GEM_PATH`/`DOTNET_ROOT` de que precisa (`lspinstall::launch_env`). Testes: `cargo test -p tutor-eval langreg
+  lspinstall` (gestores falsos num PATH temporário, servidor HTTP falso para o checksum) e `tests/lsp.install.test.ts`.
 - Os diagnósticos já chegavam ao Problems e ao gutter pelo `features/panel`. O backend usa a pasta
   aberta como raiz de reserva de um ficheiro sem marcador de projecto (o SQL não tem nenhum).
 - **Testes:** `lsp.domain.test.ts`, `lsp.client.test.ts`, `lsp.editor-hooks.test.ts`, `lsp.symbols.test.ts`, `lsp.workspace-symbols.test.ts`, `lsp.type-hierarchy.test.ts`, e o passo

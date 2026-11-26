@@ -98,21 +98,45 @@ export const editor: EditorPort = {
       el.classList.add("lsp-approval");
       el.innerHTML = `<b>⚠ ${esc(n.title)}</b><span class="lsp-detail">${esc(n.detail)}</span>${hint}<span class="lsp-acts">${acts?.review ? `<button class="mini pri" type="button" data-k="review">${esc(t("review"))}</button>` : ""}<button class="mini" type="button" data-k="dismiss">${esc(t("dismiss"))}</button></span>`;
     } else {
-      el.innerHTML = `<b>⚠ ${esc(n.title)}</b><span class="lsp-detail">${esc(n.detail)}</span><span class="lsp-install">To install: <code>${esc(n.install ?? "")}</code></span>${hint}<span class="lsp-acts">${acts?.copy ? '<button class="mini" type="button" data-k="copy">Copy</button>' : ""}${acts?.install ? '<button class="mini pri" type="button" data-k="install" title="Runs the command in a terminal with your login shell (e.g. the node from nvm), after you approve it">Install</button>' : ""}${acts?.configure ? `<button class="mini" type="button" data-k="configure">${esc(t("configure"))}</button>` : ""}<button class="mini" type="button" data-k="dismiss">Dismiss</button></span>`;
+      /* a faixa de servidor em falta (LSP P3): as maneiras que o backend construiu, a escolhida com o seu
+         comando exacto e uma frase; «Install» só para uma maneira que o dxtutor corre (apt/brew: «Copy») */
+      const L = n.labels;
+      const ways = n.ways ?? [];
+      const sel = ways.find((w) => w.id === n.way) ?? ways[0];
+      const pick = ways.length > 1
+        ? `<select class="lsp-way" aria-label="${esc(L?.way ?? "Way to install")}">${ways.map((w) => `<option value="${esc(w.id)}"${w === sel ? " selected" : ""}${w.available ? "" : " disabled"}>${esc(w.label)}</option>`).join("")}</select> `
+        : sel ? `<span class="lsp-way-one">${esc(sel.label)}</span> ` : "";
+      const shown = sel ? sel.shown : (n.install ?? "");
+      el.innerHTML = `<b>⚠ ${esc(n.title)}</b><span class="lsp-detail">${esc(n.detail)}</span><span class="lsp-install">${esc(L?.toInstall ?? "To install:")} ${pick}<code>${esc(shown)}</code></span>${sel ? `<span class="lsp-way-note">${esc(sel.note)}</span>` : ""}${hint}<span class="lsp-acts">${acts?.copy ? `<button class="mini" type="button" data-k="copy">${esc(L?.copy ?? "Copy")}</button>` : ""}${acts?.install ? `<button class="mini pri" type="button" data-k="install" title="${esc(L?.installTip ?? "")}">${esc(L?.install ?? "Install")}</button>` : ""}${acts?.recheck ? `<button class="mini" type="button" data-k="recheck">${esc(L?.recheck ?? "Check again")}</button>` : ""}${acts?.configure ? `<button class="mini" type="button" data-k="configure">${esc(L?.configure ?? t("configure"))}</button>` : ""}<button class="mini" type="button" data-k="dismiss">${esc(L?.dismiss ?? "Dismiss")}</button></span>`;
+      let current = sel?.id ?? null;
+      const installBtn = el.querySelector('[data-k="install"]') as HTMLButtonElement | null;
+      const sync = (): void => {
+        const w = ways.find((x) => x.id === current);
+        if (installBtn) installBtn.hidden = !w?.runnable;
+        if (w) {
+          el.querySelector(".lsp-install code")!.textContent = w.shown;
+          const note = el.querySelector(".lsp-way-note");
+          if (note) note.textContent = w.note;
+        }
+      };
+      sync();
+      el.querySelector(".lsp-way")?.addEventListener("change", (e) => { current = (e.target as HTMLSelectElement).value; sync(); });
+      el.querySelector('[data-k="copy"]')?.addEventListener("click", () => acts?.copy?.(current));
+      installBtn?.addEventListener("click", () => { if (current) acts?.install?.(current); });
+      el.querySelector('[data-k="recheck"]')?.addEventListener("click", () => acts?.recheck?.());
     }
     el.querySelector('[data-k="dismiss"]')!.addEventListener("click", () => { el.remove(); onDismiss?.(); });
-    el.querySelector('[data-k="copy"]')?.addEventListener("click", () => acts?.copy?.());
-    el.querySelector('[data-k="install"]')?.addEventListener("click", () => acts?.install?.());
     el.querySelector('[data-k="configure"]')?.addEventListener("click", () => acts?.configure?.());
     el.querySelector('[data-k="review"]')?.addEventListener("click", () => acts?.review?.());
     ed.parentElement.insertBefore(el, ed);
   },
 };
 
-/** Corre um comando num terminal de tarefa (no desktop, um PTY com a shell de login — o `npm` do nvm,
- *  o `go`, o `dotnet`…) e resolve com o código de saída; sem terminais reais, `-1`. */
-export const runTerminalTask = async (command: string, cwd: string): Promise<number> => {
-  const term = (G as unknown as { DXR?: { term?: { runTask?: (c: string, o?: { cwd?: string; label?: string }) => Promise<number> } } }).DXR?.term;
-  if (term?.runTask) return term.runTask(command, { cwd, label: command });
+/** Corre a linha de um plano de instalação num terminal de tarefa (no desktop, um PTY: `sh -c`, na pasta e
+ *  com o ambiente do plano — o PATH da shell de login, para o `npm` achar o node do nvm) e resolve com o
+ *  código de saída; sem terminais reais, `-1`. */
+export const runTerminalTask = async (command: string, cwd: string, env: Record<string, string>, label: string): Promise<number> => {
+  const term = (G as unknown as { DXR?: { term?: { runTask?: (c: string, o?: { cwd?: string; label?: string; env?: Record<string, string> }) => Promise<number> } } }).DXR?.term;
+  if (term?.runTask) return term.runTask(command, { cwd, label, env });
   return -1;
 };

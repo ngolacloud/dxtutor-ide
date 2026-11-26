@@ -19,6 +19,7 @@ mod bridge;
 pub mod codeintel;
 pub mod codev;
 pub mod codev_agent;
+mod codev_worktree;
 mod commands;
 pub mod debug;
 pub mod devcontainer;
@@ -73,6 +74,10 @@ use commands::codev_agent::{
     codev_agent_send, codev_agent_sessions, codev_agent_set_mode, codev_agent_set_plan,
     codev_agent_start, codev_agent_trust,
 };
+use commands::codev_worktree::{
+    codev_claims, codev_worktree_commit, codev_worktree_create, codev_worktree_file,
+    codev_worktree_plan, codev_worktree_remove, codev_worktrees,
+};
 use commands::debug_cmds::{
     breakpoints_load, breakpoints_save, debug_attach, debug_attach_targets, debug_available,
     debug_break, debug_capabilities, debug_continue, debug_data_breakpoints, debug_evaluate,
@@ -100,6 +105,7 @@ use commands::git::{
 };
 use commands::hood::{hood_line_asm, hood_python_bytecode, measure_growth};
 use commands::iac::{iac_apply_command, iac_pipeline_run, iac_state};
+use commands::lsp_install::{lsp_install_download, lsp_install_plan};
 use commands::metrics::{
     incident_metrics_check, metrics_status, metrics_token_clear, metrics_token_set,
 };
@@ -1037,6 +1043,14 @@ pub fn run() {
             codev_agent_rewind,
             codev_agent_extensions,
             codev_agent_trust,
+            // Multi Co-Dev, fase 3 — worktrees e reservas de ficheiros (commands/codev_worktree.rs)
+            codev_worktree_plan,
+            codev_worktree_create,
+            codev_worktrees,
+            codev_worktree_remove,
+            codev_worktree_file,
+            codev_worktree_commit,
+            codev_claims,
             dictation_status,
             dictation_start,
             dictation_stop,
@@ -1204,6 +1218,9 @@ pub fn run() {
             lsp::lsp_config_file,
             lsp::lsp_user_config_save,
             lsp::lsp_approve_server,
+            // LSP P3: install a missing server from the registry's recipes
+            lsp_install_plan,
+            lsp_install_download,
             board::board_load,
             board::board_save,
             board::project_load,

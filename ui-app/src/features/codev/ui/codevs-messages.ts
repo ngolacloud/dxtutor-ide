@@ -1,4 +1,4 @@
-/* Textos da faixa «Co-Devs» (Multi Co-Dev, fase 2 — texto novo, sem par no motor de tradução): en + ptAO. */
+/* Textos da faixa «Co-Devs» (Multi Co-Dev, fases 2 e 3 — texto novo, sem par no motor de tradução): en + ptAO. */
 import type { Messages } from "../../../app/i18n";
 
 export const CODEVS_MESSAGES = {
@@ -15,6 +15,16 @@ export const CODEVS_MESSAGES = {
     tokens: "{n} tokens",
     close: "Close this Co-Dev (its session ends)",
     unqueue: "Stop waiting (it will not start by itself)",
+    worktree: "Works in its own worktree, on {branch}: {path}",
+    files: "Files this Co-Dev changed in its worktree (read-only)",
+    commit: "Commit this worktree's changes on {branch} (nothing is merged)",
+    claims: "{n} file(s) claimed: {list}",
+    claimsShort: "{n} claimed",
+    kept: "kept · {n} uncommitted",
+    leftover: "left over (no session)",
+    gone: "its folder is gone",
+    keptTitle: "A Co-Dev worktree with no open session ({path}): start {key} again to carry on in it",
+    cleanup: "Clean up this worktree (the branch stays)",
   },
   ptAO: {
     title: "Co-Devs",
@@ -29,5 +39,15 @@ export const CODEVS_MESSAGES = {
     tokens: "{n} tokens",
     close: "Fechar este Co-Dev (a sessão acaba)",
     unqueue: "Deixar de esperar (não começa sozinha)",
+    worktree: "Trabalha numa worktree própria, em {branch}: {path}",
+    files: "Ficheiros que este Co-Dev mudou na worktree dele (só de leitura)",
+    commit: "Commitar as alterações desta worktree em {branch} (nada é integrado)",
+    claims: "{n} ficheiro(s) reservado(s): {list}",
+    claimsShort: "{n} reservado(s)",
+    kept: "guardada · {n} por commitar",
+    leftover: "ficou de antes (sem sessão)",
+    gone: "a pasta dela desapareceu",
+    keptTitle: "Uma worktree do Co-Dev sem sessão aberta ({path}): começa {key} de novo para continuar nela",
+    cleanup: "Limpar esta worktree (o ramo fica)",
   },
 } satisfies Messages<string>;

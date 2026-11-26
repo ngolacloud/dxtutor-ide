@@ -88,14 +88,13 @@ describe("o registo efectivo (domínio)", () => {
     expect(projectFileKey("proj/")).toBe("proj/.dxtutor/lsp.json");
   });
 
-  it("um override que troca o comando não herda o «Install» do embutido", async () => {
+  it("um override que troca o comando não herda as receitas do embutido (o backend retém-nas: withheld)", async () => {
     const { missingServerNotice } = await import("../src/features/lsp/domain/server-status");
-    const st: ServerStatus = { language: "python", server: "pyright", installed: false, problem: "não encontrado" };
-    expect(missingServerNotice(st)!.command).toBe("npm install -g pyright");
-    useRegistry({ ...REGISTRY, servers: REGISTRY.servers.map((s) => (s.id === "python" ? { ...s, command: "basedpyright-langserver" } : s)) });
-    const n = missingServerNotice(st)!;
-    expect(n.command).toBe(null); // só a instrução
-    expect(n.install).toBe("npm install -g pyright");
+    const st: ServerStatus = { language: "python", server: "basedpyright", installed: false, problem: "não encontrado" };
+    const n = missingServerNotice(st, { server: "python", label: "basedpyright", name: "Python", dir: "/d/python", platform: "linux-x64", options: [], recommended: null, manual: null, withheld: "command" })!;
+    expect(n.options).toEqual([]);
+    expect(n.selected).toBe(null);
+    expect(n.withheld).toBe("command");
   });
 
   it("um pedido de aprovação só conta com o servidor instalado", () => {

@@ -56,6 +56,11 @@ pub struct SessionMeta {
     /// não pode mudar). Ficheiros anteriores não os têm, e nas versões < 9 não contam.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub scopes: Vec<String>,
+    /// Multi Co-Dev (phase 3): the folder the session works in when it is a linked git worktree
+    /// of `root` (the issue's branch), not `root` itself. A resume works there again; the request
+    /// prefix does not change. Older files do not have it → `root`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<String>,
 }
 
 /// O conjunto extra das sessões que trabalham numa issue do Project (`finish_issue`).
@@ -421,6 +426,7 @@ mod tests {
             lang: None,
             mcp_tools: vec![],
             scopes: vec![],
+            worktree: None,
         }
     }
 
