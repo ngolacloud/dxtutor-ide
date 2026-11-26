@@ -6,7 +6,7 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 
 ## Índice
 
-- [Co-Dev: o assistente escreve no editor](#co-dev-o-assistente-escreve-no-editor) — 1 acção
+- [Co-Dev: o assistente escreve no editor e mostra quem está a trabalhar](#co-dev-o-assistente-escreve-no-editor-e-mostra-quem-esta-a-trabalhar) — 2 acções
 - [Explain · Code review · Under the hood](#explain-code-review-under-the-hood) — 9 acções
 - [Quadro (backlog, sprints e kanban)](#quadro-backlog-sprints-e-kanban) — 2 acções
 - [Testes](#testes) — 1 acção
@@ -14,15 +14,16 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 
 ---
 
-## Co-Dev: o assistente escreve no editor
+## Co-Dev: o assistente escreve no editor e mostra quem está a trabalhar
 
 Quando o Co-Dev cria ou edita código, escreve-o no próprio editor: abre o ficheiro, escreve só as linhas que mudam, no sítio delas (as antigas riscadas, as novas a aparecer), e no fim aceitas ou rejeitas cada bloco com as diferenças à vista. Nada fica no ficheiro sem o teu «Aceitar».
 
-<sub>Código: `ui-app/src/features/codev/application/hunk-review.ts`, `ui-app/src/features/codev/application/local-proposals.ts`, `ui-app/src/features/codev/domain/proposal.ts`, `crates/tutor-agent/src/hunks.rs` · revisto em 2026-11-26</sub>
+<sub>Código: `ui-app/src/features/codev/domain/agent-map.ts`, `ui-app/src/features/codev/application/agent-map.ts`, `ui-app/src/features/codev/ui/agent-map-view.ts`, `ui-app/src/features/codev/application/hunk-review.ts`, `ui-app/src/features/codev/application/local-proposals.ts`, `ui-app/src/features/codev/domain/proposal.ts`, `crates/tutor-agent/src/hunks.rs` · revisto em 2026-11-26</sub>
 
 | Acção | Onde |
 |---|---|
 | [Rever as mudanças no editor, bloco a bloco](#rever-as-mudancas-no-editor-bloco-a-bloco) | editor › barra de cada bloco (✓ Aceitar / ✗ Rejeitar / Explicar) · chat do Co-Dev › Aceitar tudo / Rejeitar tudo |
+| [Mapa de agentes](#mapa-de-agentes) | chat do Co-Dev › barra do compositor › chip «● N agentes» |
 
 ### Rever as mudanças no editor, bloco a bloco
 
@@ -51,6 +52,36 @@ Cada mudança que o Co-Dev propõe aparece no ficheiro como um bloco: as linhas 
 - Em modo Automático o agente v2 aplica sem esperar (e valida com os testes no fim do turno).
 
 <sub>Cobre: `codev:hunk-accept`, `codev:hunk-reject`, `codev:local-proposal`</sub>
+
+### Mapa de agentes
+
+**Onde:** chat do Co-Dev › barra do compositor › chip «● N agentes»
+
+O chip conta os agentes que estão a trabalhar agora; clicá-lo abre o mapa: a conversa num cartão à esquerda, ligada aos seus agentes à direita, cada um com o estado (verde a correr, cinzento concluído, vermelho falhou), o tempo e os tokens. Clicar num agente mostra o que lhe pediram, as ferramentas que correu, o relatório ou a última resposta, os tokens (entrada, saída, cache) e o custo quando o preço do modelo é conhecido.
+
+**Como usar**
+
+1. Pede ao Co-Dev uma investigação maior; ele lança sub-agentes (só leitura) e o chip passa a «● 2 agentes».
+2. Clica no chip: o mapa abre com a sessão da conversa e os agentes dela.
+3. Clica num agente para o detalhe; «Ver no chat» volta à conversa e «Abrir o Co-Dev run» mostra o turno passo a passo.
+4. Fecha com ✕, Esc ou um clique fora do mapa.
+
+**Fluxo (por dentro)**
+
+1. O agente v2 (desktop) emite o progresso de cada sub-agente no mesmo evento do turno (`codev-agent://event`, `{kind: "subagent", call, step}`: arranque com o papel, cada ferramenta, os tokens acumulados); o relatório chega no resultado da chamada `task`.
+2. O mapa ouve os eventos de TODAS as sessões (a conversa só segue a sua) e, ao abrir, pede as sessões abertas (`codev_agent_live`): numa sprint, cada Co-Dev de uma issue aparece como um agente, com os sub-agentes dele por baixo.
+3. Os agentes que acabaram ficam no mapa até ao turno seguinte da sessão; o tempo dos que correm anda sozinho enquanto o mapa está aberto.
+
+**Dicas**
+
+- O custo usa a tabela de preços do Co-Dev; com um modelo fora dela o mapa mostra só os tokens.
+
+**Limites**
+
+- Só na app desktop (o agente v2): no browser o chip fica a zero e o mapa mostra só a conversa.
+- O texto que um sub-agente vai escrevendo não aparece em tempo real: só as ferramentas, os tokens e, no fim, o relatório.
+
+<sub>Cobre: `codev:agmap-open`, `codev:agmap-pick`, `codev:agmap-close`, `codev:agmap-chat`, `codev:agmap-run`</sub>
 
 ---
 

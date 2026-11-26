@@ -24,7 +24,7 @@ import {
   refreshComposer,
   mountComposer,
   resetComposer,
-  trackSubagent,
+  setAgentCount,
   type ComposerHost,
 } from "../src/features/codev/ui/composer";
 
@@ -266,22 +266,19 @@ test("anexos: mencionar ficheiro do projecto vira chip e entra no pedido; × rem
   expect(t.$("#cc-atts").hidden).toBe(true);
 });
 
-test("sub-agentes: o chip conta os que correm e o mapa lista-os; microfone sem motor avisa", () => {
+test("agentes: o chip conta os que trabalham agora e abre o mapa de agentes", () => {
   const t = setup();
-  trackSubagent("tu1", "Mapear o lexer", "running");
-  trackSubagent("tu2", "Ver os testes", "running");
-  expect(t.$("#cc-agents .cc-agl").textContent).toBe("2 agentes");
-  trackSubagent("tu1", "", "done");
-  expect(t.$("#cc-agents .cc-agl").textContent).toBe("1 agente");
-  t.click("#cc-agents");
-  expect(t.$("#cc-pop").textContent).toContain("Mapa de agentes");
-  expect(t.$("#cc-pop").textContent).toContain("Mapear o lexer");
-  expect(t.$("#cc-pop").textContent).toContain("concluído");
-  // clicar fora fecha
-  document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-  expect(t.$("#cc-pop").hidden).toBe(true);
-  resetComposer();
   expect(t.$("#cc-agents .cc-agl").textContent).toBe("0 agentes");
+  setAgentCount(2);
+  expect(t.$("#cc-agents .cc-agl").textContent).toBe("2 agentes");
+  expect(t.$("#cc-agents .cc-dot").classList.contains("live")).toBe(true);
+  setAgentCount(1);
+  expect(t.$("#cc-agents .cc-agl").textContent).toBe("1 agente");
+  // o clique é do mapa (ui/agent-map-view.ts), não um popover do compositor
+  expect(t.$("#cc-agents").dataset.action).toBe("agmap-open");
+  setAgentCount(0);
+  expect(t.$("#cc-agents .cc-agl").textContent).toBe("0 agentes");
+  expect(_composerState().agentCount).toBe(0);
 });
 
 

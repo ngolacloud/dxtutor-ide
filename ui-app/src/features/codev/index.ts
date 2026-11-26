@@ -32,6 +32,10 @@ import { editorOverlay } from "../../app/editor-overlay";
 import type { VView } from "./domain/hunk-overlay";
 import { makeHarness } from "./application/harness";
 import { makeHarnessView } from "./ui/harness-view";
+import { makeAgentMapStore } from "./application/agent-map";
+import { agentMapGateway } from "./infrastructure/agent-map-gateway";
+import { makeAgentMapView } from "./ui/agent-map-view";
+import { setAgentCount } from "./ui/composer";
 import { VIEW } from "../../app/store/registry";
 import type {
   Workspace,
@@ -272,6 +276,28 @@ export function openCodevRun(): void {
   bridge.openTab({ id: "codev-run", title: "Co-Dev run", kind: "codev-run" });
 }
 
+/* ───── the Agent map: every agent session and its sub-agents (the composer's «● N agents» chip) ───── */
+export const agentMapStore = makeAgentMapStore({
+  gateway: agentMapGateway,
+  primary: () => sessionOf(),
+  now: () => Date.now(),
+});
+export const agentMapView = makeAgentMapView(agentMapStore, {
+  base: () => bridge.agents()?.[bridge.monolith.activeAgent]?.n ?? "Co-Dev",
+  showInChat: () => {
+    presenter.scrollMsgs();
+    document.getElementById("ag-input")?.focus();
+  },
+  openRun: () => openCodevRun(),
+  now: () => Date.now(),
+  every: (ms, f) => {
+    const id = setInterval(f, ms);
+    return () => clearInterval(id);
+  },
+});
+agentMapStore.onChange(() => setAgentCount(agentMapStore.working()));
+void agentMapStore.start();
+
 const agentChat = makeAgentChat({
   copy,
   confirm: (m) => bridge.confirm(m),
@@ -309,6 +335,7 @@ const agentChat = makeAgentChat({
   },
   flush: () => bridge.flushSave(),
   run: { event: (s, e) => codevRun.event(s, e), turnStarted: () => codevRun.turnStarted() },
+  agentMap: agentMapStore.sink,
 });
 sessionOf = () => agentChat.sessionId();
 stopTurn = () => agentChat.cancel();

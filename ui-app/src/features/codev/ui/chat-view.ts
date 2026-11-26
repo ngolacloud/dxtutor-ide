@@ -19,7 +19,7 @@
 
 import { $, esc } from "../../../core";
 import * as bridge from "../infrastructure/legacy-bridge";
-import { composerContext, trackSubagent } from "./composer";
+import { composerContext } from "./composer";
 import { bus } from "../../../app/bus";
 import { explainProviderError, type ProviderError } from "../domain/provider-errors";
 import { translator } from "../../../app/i18n";
@@ -269,7 +269,6 @@ export const presenter: ChatPresenter = {
   scrollMsgs,
   userMessage: user,
   beginRun: (label: string) => runState(true, label),
-  subagent: (id: string, label: string, state: "running" | "done" | "error") => trackSubagent(id, label, state),
   endRun: () => runState(false),
   startAbort(): AbortSignal {
     const ctl = new AbortController();

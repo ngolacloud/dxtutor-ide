@@ -5,10 +5,10 @@ import type { FeatureNotes } from "../../app/notes/types";
 
 export const CODEV_NOTES: FeatureNotes = {
   id: "codev",
-  title: "Co-Dev: o assistente escreve no editor",
+  title: "Co-Dev: o assistente escreve no editor e mostra quem está a trabalhar",
   summary:
     "Quando o Co-Dev cria ou edita código, escreve-o no próprio editor: abre o ficheiro, escreve só as linhas que mudam, no sítio delas (as antigas riscadas, as novas a aparecer), e no fim aceitas ou rejeitas cada bloco com as diferenças à vista. Nada fica no ficheiro sem o teu «Aceitar».",
-  code: ["ui-app/src/features/codev/application/hunk-review.ts", "ui-app/src/features/codev/application/local-proposals.ts", "ui-app/src/features/codev/domain/proposal.ts", "crates/tutor-agent/src/hunks.rs"],
+  code: ["ui-app/src/features/codev/domain/agent-map.ts", "ui-app/src/features/codev/application/agent-map.ts", "ui-app/src/features/codev/ui/agent-map-view.ts", "ui-app/src/features/codev/application/hunk-review.ts", "ui-app/src/features/codev/application/local-proposals.ts", "ui-app/src/features/codev/domain/proposal.ts", "crates/tutor-agent/src/hunks.rs"],
   updated: "2026-11-26",
   actions: [
     {
@@ -28,6 +28,28 @@ export const CODEV_NOTES: FeatureNotes = {
       tips: ["Rejeitar um bloco não perde os outros: aceitas o que serve e pedes de novo o resto."],
       limits: ["Em modo Automático o agente v2 aplica sem esperar (e valida com os testes no fim do turno)."],
       covers: ["codev:hunk-accept", "codev:hunk-reject", "codev:local-proposal"],
+    },
+    {
+      title: "Mapa de agentes",
+      where: ["chat do Co-Dev › barra do compositor › chip «● N agentes»"],
+      what: "O chip conta os agentes que estão a trabalhar agora; clicá-lo abre o mapa: a conversa num cartão à esquerda, ligada aos seus agentes à direita, cada um com o estado (verde a correr, cinzento concluído, vermelho falhou), o tempo e os tokens. Clicar num agente mostra o que lhe pediram, as ferramentas que correu, o relatório ou a última resposta, os tokens (entrada, saída, cache) e o custo quando o preço do modelo é conhecido.",
+      howTo: [
+        "Pede ao Co-Dev uma investigação maior; ele lança sub-agentes (só leitura) e o chip passa a «● 2 agentes».",
+        "Clica no chip: o mapa abre com a sessão da conversa e os agentes dela.",
+        "Clica num agente para o detalhe; «Ver no chat» volta à conversa e «Abrir o Co-Dev run» mostra o turno passo a passo.",
+        "Fecha com ✕, Esc ou um clique fora do mapa.",
+      ],
+      flow: [
+        "O agente v2 (desktop) emite o progresso de cada sub-agente no mesmo evento do turno (`codev-agent://event`, `{kind: \"subagent\", call, step}`: arranque com o papel, cada ferramenta, os tokens acumulados); o relatório chega no resultado da chamada `task`.",
+        "O mapa ouve os eventos de TODAS as sessões (a conversa só segue a sua) e, ao abrir, pede as sessões abertas (`codev_agent_live`): numa sprint, cada Co-Dev de uma issue aparece como um agente, com os sub-agentes dele por baixo.",
+        "Os agentes que acabaram ficam no mapa até ao turno seguinte da sessão; o tempo dos que correm anda sozinho enquanto o mapa está aberto.",
+      ],
+      tips: ["O custo usa a tabela de preços do Co-Dev; com um modelo fora dela o mapa mostra só os tokens."],
+      limits: [
+        "Só na app desktop (o agente v2): no browser o chip fica a zero e o mapa mostra só a conversa.",
+        "O texto que um sub-agente vai escrevendo não aparece em tempo real: só as ferramentas, os tokens e, no fim, o relatório.",
+      ],
+      covers: ["codev:agmap-open", "codev:agmap-pick", "codev:agmap-close", "codev:agmap-chat", "codev:agmap-run"],
     },
   ],
 };
