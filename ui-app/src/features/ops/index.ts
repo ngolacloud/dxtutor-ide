@@ -9,8 +9,12 @@ import { translator } from "../../app/i18n";
 import { requestApproval } from "../../app/approval";
 import { isDesktop } from "../../platform/tauri/core";
 import { makeOps, type IacTab } from "./application/ops-service";
+import { makePlatform, type PfTab } from "./application/platform-service";
+import { renderPlatform } from "./ui/platform-view";
+import { PLATFORM_MESSAGES, type PlatformKey } from "./ui/platform-messages";
+import { registerActions } from "../../app/actions";
 import { services } from "../../app/services";
-import { tauriOps, tauriAudit } from "./infrastructure/tauri";
+import { tauriOps, tauriAudit, tauriPlatform } from "./infrastructure/tauri";
 import * as B from "./infrastructure/legacy-bridge";
 import { OPS_MESSAGES, type OpsKey } from "./ui/messages";
 import { renderOps } from "./ui/ops-view";
@@ -101,3 +105,49 @@ const ACTIONS: ActionTable = {
   "ops-evidence": { on: "click", run: () => { void ops.exportEvidence(); } },
 };
 bindActions(ACTIONS);
+
+/* ── r23 F5b: a actividade Platform (a fila, a revisão de PR de infra, os incidentes) — VIEW «platform» ── */
+const tp = translator(PLATFORM_MESSAGES);
+export const platform = makePlatform({
+  port: tauriPlatform(),
+  world: {
+    root: () => B.root(),
+    openFile: (f, l) => B.openFile(f, l),
+    runRunbook: (path) => { ops.selectRunbook(path); openOps(); },
+    openDeploy: (env) => { services.deploy?.open(env); },
+  },
+  human: { approve: (r) => requestApproval(r), text: (ph, i) => B.textPrompt(ph, i), toast: (m) => B.notify(m) },
+  codev: { available: () => codevAsk.available(), ask: (r) => { void codevAsk.ask(r); } },
+  say: (k, p) => tp(k as PlatformKey, p),
+});
+let pfHost: HTMLElement | null = null;
+const pfPaint = (): void => { if (pfHost && pfHost.isConnected) pfHost.innerHTML = renderPlatform(tp, platform.state(), codevAsk.available(), isDesktop() && !!B.root()); };
+VIEW.platform = (_t, h) => { pfHost = h; pfPaint(); if (isDesktop() && B.root() && !platform.state().queue) void platform.refresh(); };
+platform.subscribe(pfPaint);
+document.addEventListener("dx:workspace", () => platform.workspaceChanged());
+
+/** Abre a actividade Platform (num separador: a fila, a revisão, os incidentes). */
+export function openPlatform(tab: PfTab = "home"): void {
+  B.openTab("platform", tp("tab"));
+  platform.setTab(tab);
+}
+
+registerActions({
+  "pf:tab": { click: (c) => platform.setTab(c.on as PfTab) },
+  "pf:reload": { click: () => { void platform.loadQueue(); } },
+  "pf:act": { click: (c) => platform.act(c.on) },
+  "pf:verify": { click: (c) => { void platform.verify(c.on); } },
+  "pf:handover": { click: (c) => { void platform.handover(c.on); } },
+  "pf:ask-pr": { click: () => { void platform.askPr(); } },
+  "pf:submit": { click: (c) => { void platform.submit(c.on as "approve" | "request-changes" | "comment"); } },
+  "pf:ask-codev-pr": { click: () => platform.askCodevPr() },
+  "pf:new-incident": { click: () => { void platform.newIncident(); } },
+  "pf:reload-incidents": { click: () => { void platform.loadIncidents(); } },
+  "pf:incident": { click: (c) => { void platform.openIncident(Number(c.on)); } },
+  "pf:add": { click: (c) => { void platform.addEvent(c.on as "evidence" | "checked" | "not-checked" | "note"); } },
+  "pf:status": { click: (c) => { void platform.setStatus(c.on as "mitigated" | "resolved" | "investigating"); } },
+  "pf:feedback": { click: (c) => { void platform.feedback(c.on === "1"); } },
+  "pf:postmortem": { click: () => platform.postmortem() },
+  "pf:ask-cause": { click: () => platform.askCause() },
+});
+

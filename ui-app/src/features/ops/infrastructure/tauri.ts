@@ -9,9 +9,26 @@ import { invoke, isDesktop, listen, type Invoker } from "../../../platform/tauri
 import { auditClient } from "../../../platform/tauri/audit";
 import type { AuditPort, OpsPort } from "../application/ports";
 import type { DataSource, EvidenceFile, Runbook, StepRun } from "../domain/types";
+import type { PlatformPort } from "../application/platform-service";
+import type { Incident, IncidentView, PrReview, Queue } from "../domain/platform-types";
 import type { AcceptedRisk, ApplyInfo, CloudCli, CloudInventory, IacPlan, IacState, KubeState, PipelineRun, Revision, Stage } from "../domain/types";
 
 type Listen = (event: string, f: (payload: unknown) => void) => unknown;
+
+/* r23 F5b: a actividade Platform — `queue_*`, `pr_infra_review`/`pr_review_submit`, `incident_*` (commands/platform.rs) */
+export const tauriPlatform = (inv: Invoker = invoke): PlatformPort => ({
+  queue: (root) => inv<Queue>("queue_items", { root }),
+  verify: (root, id, title) => inv<{ done: boolean; proof: string | null }>("queue_verify", { root, id, title }),
+  handover: (root, id, title, recipient, reason) => inv<number>("queue_handover", { root, id, title, recipient, reason }),
+  review: (root, pr) => inv<PrReview>("pr_infra_review", { root, pr }),
+  submit: (root, pr, decision, body, reason) => inv<string>("pr_review_submit", { root, pr, decision, body, reason }),
+  incidents: (root) => inv<Incident[]>("incident_list", { root }),
+  incident: (root, id) => inv<IncidentView>("incident_get", { root, id }),
+  open: (root, title, severity) => inv<Incident>("incident_open", { root, title, severity }),
+  add: (root, id, kind, text, reason) => inv<void>("incident_add", { root, id, kind, text, reason }),
+  status: (root, id, status, note) => inv<Incident>("incident_status", { root, id, status, note }),
+  feedback: (root, id, right) => inv<void>("incident_feedback", { root, id, right }),
+});
 
 export const tauriOps = (inv: Invoker = invoke, on: Listen = (e, f) => (isDesktop() ? listen(e, f) : null)): OpsPort => ({
   iacDirs: (root) => inv<string[]>("ops_iac_dirs", { root }),
