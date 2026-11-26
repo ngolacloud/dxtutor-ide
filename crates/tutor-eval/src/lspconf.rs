@@ -42,6 +42,67 @@ pub const TRUST_FILE: &str = "lsp-trusted.json";
 /// An override file bigger than this is refused (a registry is a few KiB).
 pub const MAX_FILE_BYTES: u64 = 512 * 1024;
 
+/// What the language servers may use of the machine (LSP P6), from the user's file only
+/// (`"resources": { "idleMinutes": 10, "maxServers": 6 }`): a server with no open document for
+/// `idle_minutes` is shut down (0 = never), and at most `max_servers` run at once (the least recently
+/// used one with no open document stops first; one with open documents never does).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Resources {
+    #[serde(default = "default_idle_minutes")]
+    pub idle_minutes: u64,
+    #[serde(default = "default_max_servers")]
+    pub max_servers: usize,
+}
+
+/// The idle time after which a server with no open document stops, in minutes.
+pub const DEFAULT_IDLE_MINUTES: u64 = 10;
+/// How many language servers may run at once.
+pub const DEFAULT_MAX_SERVERS: usize = 6;
+/// The longest idle time one can set (a day); 0 turns the reaping off.
+pub const MAX_IDLE_MINUTES: u64 = 24 * 60;
+/// The most servers one can allow at once.
+pub const MAX_MAX_SERVERS: usize = 32;
+
+fn default_idle_minutes() -> u64 {
+    DEFAULT_IDLE_MINUTES
+}
+fn default_max_servers() -> usize {
+    DEFAULT_MAX_SERVERS
+}
+
+impl Default for Resources {
+    fn default() -> Self {
+        Resources {
+            idle_minutes: DEFAULT_IDLE_MINUTES,
+            max_servers: DEFAULT_MAX_SERVERS,
+        }
+    }
+}
+
+/// The `resources` of an override file, checked: unknown fields, wrong types and values out of
+/// range are errors (the whole file is then ignored, like any other error).
+pub fn parse_resources(m: &serde_json::Map<String, Value>) -> Result<Resources, Vec<String>> {
+    let r: Resources = serde_json::from_value(Value::Object(m.clone()))
+        .map_err(|e| vec![format!("resources: {e}")])?;
+    let mut errs = Vec::new();
+    if r.idle_minutes > MAX_IDLE_MINUTES {
+        errs.push(format!(
+            "resources: idleMinutes is at most {MAX_IDLE_MINUTES} (a day; 0 = never stop an idle server)"
+        ));
+    }
+    if r.max_servers == 0 || r.max_servers > MAX_MAX_SERVERS {
+        errs.push(format!(
+            "resources: maxServers is between 1 and {MAX_MAX_SERVERS}"
+        ));
+    }
+    if errs.is_empty() {
+        Ok(r)
+    } else {
+        Err(errs)
+    }
+}
+
 /// The server fields that decide WHAT runs: a project that sets any of them to something else than
 /// the trusted (bundled + user) value needs the human's approval before the server starts.
 pub const LAUNCH_FIELDS: &[&str] = &["command", "args", "resolver", "searchDirs", "envOverride"];
@@ -64,6 +125,9 @@ pub const USER_TEMPLATE: &str = r##"// dxtutor — your language servers (this f
 // Field reference: docs/lsp/overrides.md
 {
   "version": 1,
+  // How long a language server with no open file keeps running (minutes; 0 = until you close the
+  // folder) and how many run at once (only in this file, never in a project's):
+  // "resources": { "idleMinutes": 10, "maxServers": 6 },
   "languages": [
     // A new language with its own server:
     // { "id": "elixir", "name": "Elixir", "lspLanguageId": "elixir", "extensions": ["ex", "exs"],
@@ -136,11 +200,18 @@ pub struct Effective {
     pub stamps: Vec<(PathBuf, Stamp)>,
     /// `language:<id>` / `server:<id>` → the layers that made it, in order
     pub sources: BTreeMap<String, Vec<&'static str>>,
+    /// what the servers may use of the machine: the user file's `resources`, else the defaults
+    /// (a project file cannot set them)
+    pub resources: Resources,
 }
 
 /// Read one override file and merge it over `base`. The report says what happened; the registry is
 /// `base` when the file is missing or broken.
-fn layer(base: &Registry, path: &Path) -> (Registry, FileReport, Option<crate::langreg::Overlay>) {
+fn layer(
+    base: &Registry,
+    path: &Path,
+    who: &'static str,
+) -> (Registry, FileReport, Option<crate::langreg::Overlay>) {
     let mut rep = FileReport {
         path: path.display().to_string(),
         ..FileReport::default()
@@ -169,7 +240,9 @@ fn layer(base: &Registry, path: &Path) -> (Registry, FileReport, Option<crate::l
             return (base.clone(), rep, None);
         }
     };
-    let merged = parse_overlay(&text).and_then(|ov| apply_overlay(base, &ov).map(|r| (r, ov)));
+    let merged = parse_overlay(&text)
+        .and_then(|ov| check_resources(&ov, who).map(|_| ov))
+        .and_then(|ov| apply_overlay(base, &ov).map(|r| (r, ov)));
     match merged {
         Ok((reg, ov)) => {
             rep.applied = true;
@@ -179,6 +252,18 @@ fn layer(base: &Registry, path: &Path) -> (Registry, FileReport, Option<crate::l
             rep.errors = errs;
             (base.clone(), rep, None)
         }
+    }
+}
+
+/// A file's `resources`: checked in the user's file; an error in a project's (the machine is the
+/// user's to share, not a cloned repository's).
+fn check_resources(ov: &crate::langreg::Overlay, who: &'static str) -> Result<(), Vec<String>> {
+    match &ov.resources {
+        None => Ok(()),
+        Some(_) if who == PROJECT => Err(vec![
+            "`resources` is read only from your own lsp.json, not from a project's".into(),
+        ]),
+        Some(m) => parse_resources(m).map(|_| ()),
     }
 }
 
@@ -204,12 +289,16 @@ impl Effective {
             }
         };
         let mut stamps = Vec::new();
+        let mut resources = Resources::default();
         let (trusted, user_rep) = match user {
             Some(p) => {
                 stamps.push((p.to_path_buf(), stamp(p)));
-                let (reg, rep, ov) = layer(bundled, p);
+                let (reg, rep, ov) = layer(bundled, p, USER);
                 if let Some(ov) = &ov {
                     note(ov, USER);
+                    if let Some(Ok(r)) = ov.resources.as_ref().map(parse_resources) {
+                        resources = r;
+                    }
                 }
                 (reg, Some(rep))
             }
@@ -219,7 +308,7 @@ impl Effective {
             Some(root) => {
                 let p = project_file(root);
                 stamps.push((p.clone(), stamp(&p)));
-                let (reg, rep, ov) = layer(&trusted, &p);
+                let (reg, rep, ov) = layer(&trusted, &p, PROJECT);
                 if let Some(ov) = &ov {
                     note(ov, PROJECT);
                 }
@@ -237,6 +326,7 @@ impl Effective {
             root: project_root.map(Path::to_path_buf),
             stamps,
             sources,
+            resources,
         }
     }
 
@@ -1107,5 +1197,92 @@ mod tests {
             command_line("/a b/x", &["it's".into(), "".into()]),
             r"'/a b/x' 'it'\''s' ''"
         );
+    }
+
+    #[test]
+    fn resources_come_from_the_user_file_only_and_are_checked() {
+        // no file, or a file without them: the defaults
+        let (_d, user, root) = setup(None, None);
+        let eff = Effective::load(registry(), Some(&user), Some(&root));
+        assert_eq!(eff.resources, Resources::default());
+        assert_eq!(
+            (eff.resources.idle_minutes, eff.resources.max_servers),
+            (10, 6)
+        );
+        // the user's own, partial: the other field keeps its default
+        let (_d, user, root) = setup(Some(r#"{ "resources": { "maxServers": 2 } }"#), None);
+        let eff = Effective::load(registry(), Some(&user), Some(&root));
+        assert!(eff.user.as_ref().unwrap().applied);
+        assert_eq!(
+            eff.resources,
+            Resources {
+                idle_minutes: 10,
+                max_servers: 2
+            }
+        );
+        let (_d, user, root) = setup(Some(r#"{ "resources": { "idleMinutes": 0 } }"#), None);
+        let eff = Effective::load(registry(), Some(&user), Some(&root));
+        assert_eq!(
+            eff.resources.idle_minutes, 0,
+            "0 = never stop an idle server"
+        );
+        // wrong values make the whole file ignored, with the reason
+        for (text, want) in [
+            (
+                r#"{ "resources": { "maxServers": 0 } }"#,
+                "maxServers is between 1 and 32",
+            ),
+            (
+                r#"{ "resources": { "maxServers": 33 } }"#,
+                "maxServers is between 1 and 32",
+            ),
+            (
+                r#"{ "resources": { "idleMinutes": 1441 } }"#,
+                "idleMinutes is at most 1440",
+            ),
+            (
+                r#"{ "resources": { "idleMinutes": -1 } }"#,
+                "resources: invalid value",
+            ),
+            (
+                r#"{ "resources": { "idle": 5 } }"#,
+                "resources: unknown field `idle`",
+            ),
+            (r#"{ "resources": 5 }"#, "`resources` must be an object"),
+        ] {
+            let (_d, user, root) = setup(Some(text), None);
+            let eff = Effective::load(registry(), Some(&user), Some(&root));
+            let rep = eff.user.clone().unwrap();
+            assert!(!rep.applied, "{text}");
+            assert!(
+                rep.errors.iter().any(|e| e.contains(want)),
+                "want «{want}» in {:?}",
+                rep.errors
+            );
+            assert_eq!(eff.resources, Resources::default(), "{text}");
+        }
+        // a project file cannot set them: it is ignored, and the user's stay
+        let (_d, user, root) = setup(
+            Some(r#"{ "resources": { "maxServers": 3 } }"#),
+            Some(r#"{ "resources": { "maxServers": 30 } }"#),
+        );
+        let eff = Effective::load(registry(), Some(&user), Some(&root));
+        let rep = eff.project.clone().unwrap();
+        assert!(!rep.applied);
+        assert!(rep.errors[0].contains("only from your own lsp.json"));
+        assert_eq!(eff.resources.max_servers, 3);
+        // the template's commented line, uncommented, is a valid file
+        let line = USER_TEMPLATE
+            .lines()
+            .find(|l| l.contains("\"resources\""))
+            .unwrap()
+            .trim()
+            .trim_start_matches("//")
+            .trim()
+            .trim_end_matches(',');
+        let (_d, user, root) = setup(Some(&format!("{{ {line} }}")), None);
+        let eff = Effective::load(registry(), Some(&user), Some(&root));
+        assert!(eff.user.unwrap().applied);
+        assert_eq!(eff.resources, Resources::default());
     }
 }
