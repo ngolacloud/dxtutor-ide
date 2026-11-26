@@ -4,7 +4,31 @@
    instalar. Os nomes e as instruções de instalação vêm do registo de linguagens (`registry.ts`);
    o que o dxtutor pode CORRER continua a ser a lista fixa `RUNNABLE`, aqui no código. */
 
-import { REGISTRY, serverById } from "./registry";
+import { REGISTRY, activeRegistry, serverById } from "./registry";
+
+/** `lspconf::Approval` (camelCase): um servidor que o `.dxtutor/lsp.json` do projecto pede (novo, ou
+ *  com outro comando) e que só arranca depois de o humano aprovar o comando exacto. */
+export interface ServerApproval {
+  /** a pasta aberta cujo ficheiro o pede */
+  project: string;
+  server: string;
+  label: string;
+  /** o programa (caminho absoluto) e os argumentos */
+  program: string;
+  args: string[];
+  /** onde corre */
+  cwd: string;
+  /** o ficheiro que o pede */
+  file: string;
+  /** a que a aprovação fica presa (muda quando o comando muda) */
+  hash: string;
+  /** o programa está dentro da pasta do projecto (veio com o repositório) */
+  insideProject: boolean;
+  /** os campos de arranque que o projecto mudou */
+  changed: string[];
+  /** a linha de comando tal como o diálogo e a auditoria a mostram */
+  command: string;
+}
 
 /** `lsp::ServerStatus` (camelCase). */
 export interface ServerStatus {
@@ -12,10 +36,21 @@ export interface ServerStatus {
   server: string;
   installed: boolean;
   problem?: string | null;
+  /** o projecto pede um comando ainda não aprovado (o servidor não arranca até lá) */
+  approval?: ServerApproval | null;
 }
 
 /** O nome da linguagem (do servidor) e como instalar cada servidor vêm do registo de linguagens. */
-const installOf = (server: string): string | undefined => REGISTRY.servers.find((s) => s.label === server)?.install;
+const installOf = (server: string): string | undefined => activeRegistry().servers.find((s) => s.label === server)?.install;
+
+/** O servidor em uso ainda arranca o programa do registo embutido? Um override que troca o `command`
+ *  (p.ex. o basedpyright no lugar do pyright) herdaria a instalação do embutido — que instalaria outro
+ *  programa —, por isso aí não há «Install», só a instrução. */
+function bundledCommand(server: string): boolean {
+  const now = activeRegistry().servers.find((s) => s.label === server);
+  const was = now ? REGISTRY.servers.find((s) => s.id === now.id) : undefined;
+  return !!now && !!was && now.command === was.command && now.install === was.install;
+}
 
 /** Os servidores cuja instalação é UM comando que o dxtutor pode correr num terminal (com a shell de
  *  login, para o `npm`/`go`/`dotnet`/`rustup` do utilizador), com o comando EXACTO. Os outros são
@@ -45,6 +80,9 @@ export interface MissingNotice {
   language: string;
 }
 
+/** O pedido de aprovação pendente de um servidor (`null` se não há nenhum, ou se ele nem está instalado). */
+export const pendingApproval = (st: ServerStatus | null): ServerApproval | null => (st && st.installed && st.approval ? st.approval : null);
+
 export function missingServerNotice(st: ServerStatus | null): MissingNotice | null {
   if (!st || st.installed) return null;
   const install = installOf(st.server) ?? `install ${st.server} and put it on PATH`;
@@ -52,7 +90,7 @@ export function missingServerNotice(st: ServerStatus | null): MissingNotice | nu
     title: `No ${languageName(st.language)} language server`,
     detail: `dxtutor looked for ${st.server} and did not find it, so this file has no live diagnostics, hover or go to definition.`,
     install,
-    command: RUNNABLE[st.server] === install ? install : null,
+    command: RUNNABLE[st.server] === install && bundledCommand(st.server) ? install : null,
     server: st.server,
     language: st.language,
   };

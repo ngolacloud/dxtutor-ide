@@ -3,6 +3,7 @@
    o backend (comandos `lsp_*` + evento `lsp://diagnostics`), o workspace aberto e o editor. */
 
 import type { ServerStatus } from "../domain/server-status";
+import type { FileReport, LspConfigView } from "../domain/overrides";
 
 /** Os comandos `lsp_*` do backend (caminhos absolutos; posições 0-based). */
 export interface LspPort {
@@ -67,13 +68,59 @@ export interface EditorPort {
   builtinFormat(): void;
   /** Mostra (ou tira, com `null`) o aviso de servidor em falta no ficheiro `key`, se estiver aberto;
    *  `onDismiss` corre quando o utilizador o fecha; `acts` são os botões «Copy» e «Install». */
-  notice(key: string, notice: { title: string; detail: string; install: string; command?: string | null } | null, onDismiss?: () => void, acts?: NoticeActions): void;
+  notice(key: string, notice: EditorNotice | null, onDismiss?: () => void, acts?: NoticeActions): void;
 }
 
-/** Os botões do aviso de servidor em falta. `install` só existe quando a instalação é um comando. */
+/** A faixa do editor: o servidor em falta (`missing`, com o comando de instalação) ou um servidor que o
+ *  projecto pede e espera pela aprovação do humano (`approval`). */
+export interface EditorNotice {
+  kind?: "missing" | "approval";
+  title: string;
+  detail: string;
+  /** como instalar (só `missing`) */
+  install?: string;
+  command?: string | null;
+  /** uma linha a mais (o lembrete dos overrides, ou «o programa está dentro do projecto») */
+  hint?: string;
+}
+
+/** Os botões da faixa. `install` só existe quando a instalação é um comando; `configure` abre o
+ *  `lsp.json` do utilizador; `review` abre o diálogo de aprovação. */
 export interface NoticeActions {
   copy?: () => void;
   install?: () => void;
+  configure?: () => void;
+  review?: () => void;
+}
+
+/** Os comandos dos overrides do registo (LSP P2): `lsp_config`, `lsp_config_file`,
+ *  `lsp_user_config_save`, `lsp_approve_server` e o evento `lsp://config`. */
+export interface LspConfigPort {
+  /** o registo efectivo da pasta aberta e o estado dos ficheiros de overrides */
+  config(root: string | null): Promise<LspConfigView>;
+  /** o texto de um ficheiro de overrides (ou o modelo comentado, se não existe) */
+  configFile(kind: "user" | "project", root: string | null): Promise<{ path: string; exists: boolean; text: string }>;
+  /** grava o ficheiro do utilizador (o backend decide onde) e aplica-o; o relatório diz se foi ignorado */
+  saveUserConfig(text: string): Promise<FileReport>;
+  /** a decisão do humano sobre um servidor que o projecto pede (o backend audita-a primeiro) */
+  approveServer(root: string, server: string, hash: string, approved: boolean, reason: string, decidedAt: number): Promise<void>;
+  /** um ficheiro de overrides mudou (o backend já reiniciou os servidores afectados) */
+  onConfig(cb: () => void): void;
+}
+
+/** O diálogo de aprovação partilhado (`app/approval.ts`, tipagem estrutural). */
+export interface HumanPort {
+  approve(r: { title: string; command: string; scope: string }): Promise<{ approved: boolean; reason: string; decidedAt: number }>;
+}
+
+/** Os ecrãs dos overrides (`ui/config-view.ts`). */
+export interface OverridesView {
+  /** edita o ficheiro do utilizador: `save` grava e devolve o relatório (erros, se for ignorado) */
+  editUserFile(file: { path: string; exists: boolean; text: string }, save: (text: string) => Promise<FileReport>): void;
+  /** mostra a configuração efectiva (`review` abre a aprovação de um servidor pendente) */
+  showEffective(view: LspConfigView, selected: string | null, review: (serverId: string) => void): void;
+  /** mostra (ou tira, com `[]`) o aviso dos ficheiros ignorados; `open` abre um deles */
+  showInvalid(files: FileReport[], open: (f: FileReport) => void): void;
 }
 
 /** Instalar o servidor em falta: copiar o comando, ou corrê-lo num terminal de tarefa com a shell de

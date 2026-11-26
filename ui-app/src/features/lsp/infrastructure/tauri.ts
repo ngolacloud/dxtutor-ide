@@ -4,11 +4,24 @@
    `lsp_references` / `lsp_prepare_rename` / `lsp_rename` / `lsp_completion` /
    `lsp_signature_help` / `lsp_server_status` / `lsp_code_action` / `lsp_execute_command` / `lsp_format` /
    `lsp_document_symbols` / `lsp_workspace_symbols` / `lsp_prepare_type_hierarchy` / `lsp_type_hierarchy` e
-   os eventos `lsp://diagnostics` e `lsp://apply-edit`. Não toca em `window` (o cliente tipado é que o faz, fora da subárvore). */
+   os eventos `lsp://diagnostics` e `lsp://apply-edit`; e a `LspConfigPort` dos overrides (LSP P2):
+   `lsp_config` / `lsp_config_file` / `lsp_user_config_save` / `lsp_approve_server` e o evento `lsp://config`.
+   Não toca em `window` (o cliente tipado é que o faz, fora da subárvore). */
 
 import { invoke, listen } from "../../../platform/tauri/core";
-import type { LspPort } from "../application/ports";
+import type { LspConfigPort, LspPort } from "../application/ports";
 import type { ServerStatus } from "../domain/server-status";
+import type { FileReport, LspConfigView } from "../domain/overrides";
+
+export const tauriLspConfig: LspConfigPort = {
+  config: (root) => invoke<LspConfigView>("lsp_config", { root }),
+  configFile: (kind, root) => invoke<{ path: string; exists: boolean; text: string }>("lsp_config_file", { kind, root }),
+  saveUserConfig: (text) => invoke<FileReport>("lsp_user_config_save", { text }),
+  approveServer: (root, server, hash, approved, reason, decidedAt) => invoke<void>("lsp_approve_server", { root, server, hash, approved, reason, decidedAt }),
+  onConfig: (cb) => {
+    void listen("lsp://config", () => cb());
+  },
+};
 
 export const tauriLsp: LspPort = {
   start: (root) => invoke<void>("lsp_start", { root }),

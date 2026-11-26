@@ -17,7 +17,8 @@ import { gitExtras } from "../../features/scm/extras";
 import { tauriGitExtras } from "../../features/scm/infrastructure/tauri";
 import { tauriHood } from "../../features/hood/infrastructure/tauri";
 import { tauriOps } from "../../features/ops/infrastructure/tauri";
-import { listen } from "../tauri/core";
+import { listen, invoke } from "../tauri/core";
+import { tauriLspConfig } from "../../features/lsp/infrastructure/tauri";
 import { tauriVault } from "../../features/vault/infrastructure/tauri";
 import { tauriRulesGateway } from "../../features/arch/infrastructure/tauri";
 import { gfAsk } from "../../features/checkpoint";
@@ -112,7 +113,10 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
      auto-teste (um handler inline que tenha escapado à migração seria bloqueado aqui). */
   const cspViolations: string[] = [];
   document.addEventListener("securitypolicyviolation", (e) => cspViolations.push(`${e.violatedDirective} ${e.blockedURI || ""} ${(e.sample || "").slice(0, 80)}`.trim()));
+  /* DXTUTOR_SELFTEST_ONLY=lsp-java,lspOverrides corre só esses passos (os outros ficam `skipped`) */
+  const only = (R.info.selftestOnly ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   const step = async (n: string, f: () => unknown) => {
+    if (only.length && !only.includes(n)) { rep.steps[n] = "skipped"; return; }
     const e0 = R.errors.length;
     try { rep.steps[n] = await f(); } catch (e) { rep.steps[n] = "FAIL: " + ((e as Error) && (e as Error).message || e); }
     if (R.errors.length > e0) rep.stepErrors[n] = R.errors.slice(e0);
@@ -1436,6 +1440,10 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     // todos os ficheiros, gravado no disco); pelo meio completion, assinatura, code actions,
     // formatação, Go to Symbol (Ctrl+Shift+O + o Outline), Go to Symbol in Workspace (Ctrl+T) e a hierarquia de tipos (Shift+Alt+T). Só corre para as linguagens com servidor instalado.
     for (const lang of ["java", "kotlin"] as const) await step("lsp-" + lang, () => lspProbe(lang));
+    // LSP P2: os overrides no backend real — o vigia vê o .dxtutor/lsp.json mudar (sem reiniciar), um ficheiro
+    // inválido aparece no aviso, um comando do projecto espera pela aprovação (recusa e aprovação auditadas), e o
+    // lsp.json do utilizador grava-se e aplica-se. O comando do projecto é um `sh` que sai logo (nada corre).
+    await step("lspOverrides", () => lspOverridesProbe());
   }
   /* sem handlers inline em lado nenhum do DOM vivo (depois de o auto-teste ter aberto as vistas) e sem violações do CSP */
   await step("csp", async () => {
@@ -1451,6 +1459,50 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
   });
   rep.errors = R.errors;
   await app.selftestReport(rep);
+
+  async function lspOverridesProbe(): Promise<unknown> {
+    const root = R.root as string;
+    const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+    const until = async <T>(f: () => T | null | undefined | false, ms: number): Promise<T | null> => {
+      const t0 = Date.now();
+      for (;;) { const v = f(); if (v) return v; if (Date.now() - t0 > ms) return null; await sleep(200); }
+    };
+    const put = async (text: string) => { await sh("sh", ["-c", 'mkdir -p .dxtutor && printf "%s" "$1" > .dxtutor/lsp.json', "sh", text], { cwd: root }); };
+    const out: Record<string, unknown> = {};
+    await tauriLspConfig.config(root); // a pasta fica vigiada
+    // 1. inválido → ignorado e avisado (o vigia de 2 s + lsp://config + o aviso da UI)
+    await put('{ "servers": [ { "id": "sql", "comand": "sh" } ] }');
+    out.invalidNotice = (await until(() => document.getElementById("lsp-config-errors")?.textContent?.includes("comand") && document.getElementById("lsp-config-errors")!.textContent!.slice(0, 160), 10_000)) ?? "FAIL: no notice";
+    // 2. um comando do projecto → pedido de aprovação, nada arranca
+    await put('{ "servers": [ { "id": "sql", "command": "sh", "args": ["-c", "exit 0"] } ] }');
+    let cfg = await tauriLspConfig.config(root);
+    out.invalidCleared = await until(() => !document.getElementById("lsp-config-errors"), 10_000) ?? "FAIL: notice stayed";
+    const a = cfg.servers.find((s) => s.id === "sql")?.approval;
+    out.approval = a ? { command: a.command, changed: a.changed, file: a.file.endsWith(".dxtutor/lsp.json") } : "FAIL: no approval asked";
+    const st = await invoke<{ approval?: { hash: string } | null }>("lsp_server_status", { path: root + "/selftest.sql" });
+    out.statusAsks = !!st?.approval && st.approval.hash === a?.hash;
+    if (a) {
+      // recusado: auditado, continua pendente; um hash antigo é recusado; aprovado: deixa de pedir
+      await tauriLspConfig.approveServer(root, "sql", a.hash, false, "selftest: deny", Date.now());
+      out.deniedStillPending = !!(await tauriLspConfig.config(root)).servers.find((s) => s.id === "sql")?.approval;
+      try { await tauriLspConfig.approveServer(root, "sql", "0".repeat(64), true, "", Date.now()); out.staleHash = "FAIL: accepted"; } catch (e) { out.staleHash = String(e).slice(0, 80); }
+      await tauriLspConfig.approveServer(root, "sql", a.hash, true, "selftest: approve", Date.now());
+      cfg = await tauriLspConfig.config(root);
+      out.approved = !cfg.servers.find((s) => s.id === "sql")?.approval;
+      // o comando muda → volta a pedir
+      await put('{ "servers": [ { "id": "sql", "command": "sh", "args": ["-c", "exit 1"] } ] }');
+      out.changedAsksAgain = !!(await tauriLspConfig.config(root)).servers.find((s) => s.id === "sql")?.approval;
+    }
+    // 3. o lsp.json do utilizador: grava, aplica; inválido → relatório com o erro
+    const before = await tauriLspConfig.configFile("user", null);
+    const good = await tauriLspConfig.saveUserConfig('{ "servers": [ { "id": "go", "settings": { "gopls": { "staticcheck": true } } } ] }');
+    const bad = await tauriLspConfig.saveUserConfig('{ "servers": [ { "id": "go", "nope": 1 } ] }');
+    out.user = { path: before.path.endsWith("lsp.json"), applied: good.applied, badIgnored: !bad.applied && bad.errors.some((e) => e.includes("nope")) };
+    out.goSettings = (await tauriLspConfig.config(root)).servers.find((s) => s.id === "go")?.settings ?? null;
+    await tauriLspConfig.saveUserConfig(before.exists ? before.text : "{}");
+    await sh("rm", ["-rf", ".dxtutor/lsp.json"], { cwd: root });
+    return out;
+  }
 
   /* Uma linguagem no editor real: ficheiros com um erro de tipo, um símbolo para o hover e
      uma chamada cuja definição está noutro ficheiro (Java) ou mais acima (Kotlin). */

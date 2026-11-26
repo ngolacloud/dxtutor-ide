@@ -14,6 +14,11 @@
    só se volta a pintar o ficheiro aberto quando os dele mudam. Quando o servidor da linguagem
    não está instalado, o editor mostra um aviso com o que falta e como o instalar
    (`editor:file-view` repõe-no a cada desenho da vista).
+   Os overrides do registo (LSP P2, `application/overrides`): o registo efectivo da pasta (embutido +
+   `lsp.json` do utilizador + `.dxtutor/lsp.json` do projecto) entra em uso ao abrir a pasta; quando um
+   ficheiro muda (`lsp://config`), o cliente revê o ficheiro aberto; a paleta abre os dois ficheiros e
+   mostra a configuração efectiva; um comando que o projecto pede só corre depois do diálogo de aprovação
+   partilhado (o backend audita a decisão e guarda-a).
    No browser/testes não arranca: o editor continua exactamente como antes. */
 
 import { isDesktop } from "../../platform/tauri/core";
@@ -21,7 +26,11 @@ import { bus } from "../../app/bus";
 import { desktopPorts } from "../../app/desktop";
 import { languageIdFor } from "./domain/languages";
 import { makeLspClient } from "./application/lsp-client";
-import { tauriLsp } from "./infrastructure/tauri";
+import { makeOverrides } from "./application/overrides";
+import { LSP_OVERRIDE_MESSAGES } from "./application/override-messages";
+import { tauriLsp, tauriLspConfig } from "./infrastructure/tauri";
+import { overridesView } from "./ui/config-view";
+import { translator } from "../../app/i18n";
 import { workspace, editor, addPaletteCommand, runTerminalTask } from "./infrastructure/legacy-bridge";
 import { copyText } from "../../app/clipboard";
 import { requestApproval } from "../../app/approval";
@@ -36,8 +45,15 @@ import { bindTypeHierarchyHooks } from "./ui/type-hierarchy-hooks";
 
 if (isDesktop()) {
   const audit = auditClient();
+  const copy = translator(LSP_OVERRIDE_MESSAGES);
+  /* os overrides: o diálogo de aprovação partilhado decide; o backend audita e guarda */
+  const overrides = makeOverrides({
+    config: tauriLspConfig, workspace, editor, human: { approve: (r) => requestApproval(r) }, view: overridesView, copy,
+    onChanged: () => client.onConfigChanged(), // resolvido no acto (o cliente nasce a seguir)
+  });
   const client = makeLspClient({
     lsp: tauriLsp, workspace, editor, defer: (f) => setTimeout(f, 0),
+    overrides, copy, configure: () => void overrides.openUserFile(),
     /* «Copy» e «Install» no aviso de servidor em falta: instalar pede aprovação, fica auditado e corre num terminal */
     installer: {
       copy: (text) => copyText(text),
@@ -50,6 +66,12 @@ if (isDesktop()) {
   /* um comando de code action executado no servidor devolve as edições por workspace/applyEdit */
   tauriLsp.onApplyEdit((edit) => void client.onApplyEdit(edit));
   bus.on("editor:tab", ({ id }) => void client.onTab(id));
+  /* um ficheiro de overrides mudou: o backend já reiniciou os servidores afectados; o registo novo entra
+     em uso e o ficheiro aberto é revisto (faixa de aprovação, ou o servidor novo) */
+  tauriLspConfig.onConfig(() => void overrides.reload().then(() => client.onConfigChanged()));
+  addPaletteCommand(copy("cmdUser"), "", () => void overrides.openUserFile());
+  addPaletteCommand(copy("cmdProject"), "", () => void overrides.openProjectFile());
+  addPaletteCommand(copy("cmdShow"), "", () => void overrides.showEffective());
   /* a vista do ficheiro foi refeita: repõe o aviso de servidor em falta, se for o caso */
   bus.on("editor:file-view", ({ path }) => void client.onFileView(path));
   bus.on("workspace:changed", ({ fromEditor }) => {
