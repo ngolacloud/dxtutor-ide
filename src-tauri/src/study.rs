@@ -112,6 +112,13 @@ pub enum StudyError {
     NoGlossary(String),
     /// Não há guia de estudo para esta linguagem/unidade.
     NoStudyGuide { language: String, unit: String },
+    /// O curso avalia-se offline contra uma cache que ainda não foi preparada (ou cujas
+    /// dependências mudaram): a mensagem diz o que fazer e começa por `COURSE_NOT_PREPARED`.
+    NotPrepared(String),
+    /// Não há curso com este id.
+    NoCourseId(String),
+    /// O curso não tem nada a preparar (sem `[build] prepare`).
+    NothingToPrepare(String),
     /// A avaliação (`tutor_eval::assess`) falhou — erro cru anexado.
     Eval(String),
 }
@@ -129,6 +136,11 @@ impl std::fmt::Display for StudyError {
             StudyError::NoGlossary(lang) => write!(f, "no glossary for language `{lang}`"),
             StudyError::NoStudyGuide { language, unit } => {
                 write!(f, "no study guide for language `{language}` unit `{unit}`")
+            }
+            StudyError::NotPrepared(m) => f.write_str(m),
+            StudyError::NoCourseId(id) => write!(f, "no course with id `{id}`"),
+            StudyError::NothingToPrepare(id) => {
+                write!(f, "course `{id}` has nothing to prepare (no `[build] prepare`)")
             }
             StudyError::Eval(e) => write!(f, "evaluation failed: {e}"),
         }
@@ -321,6 +333,11 @@ pub fn grade_in(
                     course.language
                 )));
             }
+            // Um curso preparado uma vez avalia-se offline contra a sua cache: sem ela, a recusa
+            // diz o que fazer (preparar o curso), antes de compilar o que quer que seja.
+            if let Some(cache) = &phase.build.cache {
+                prepared_or_refuse(cache)?;
+            }
             let assessment = match submission {
                 Submission::Code(code) => tutor_eval::assess(&phase, code),
                 Submission::Files(files) => {
@@ -335,6 +352,105 @@ pub fn grade_in(
         }
     }
     Err(StudyError::StepNotFound(step_id.to_string()))
+}
+
+// ── Preparar um curso (Learn P1): a única porta para a rede, aprovada pelo humano ────────
+
+/// Recusa com [`StudyError::NotPrepared`] um curso cuja cache não está pronta.
+fn prepared_or_refuse(cache: &tutor_core::CourseCache) -> Result<(), StudyError> {
+    use tutor_eval::course_cache::{not_prepared_message, root, status, Status};
+    let root = root().ok_or_else(|| {
+        StudyError::NotPrepared(not_prepared_message(&cache.key, false))
+    })?;
+    match status(&root, cache).map_err(|e| StudyError::Eval(e.to_string()))? {
+        Status::Ready(_) => Ok(()),
+        Status::Missing => Err(StudyError::NotPrepared(not_prepared_message(&cache.key, false))),
+        Status::Stale(_) => Err(StudyError::NotPrepared(not_prepared_message(&cache.key, true))),
+    }
+}
+
+/// A cache de um curso (pelo seu id) que se prepara uma vez, ou `None` quando o curso não tem
+/// nada a preparar.
+pub fn course_cache_of(courses: &[Course], course_id: &str) -> Result<Option<tutor_core::CourseCache>, StudyError> {
+    let course = courses
+        .iter()
+        .find(|c| c.id == course_id)
+        .ok_or_else(|| StudyError::NoCourseId(course_id.to_string()))?;
+    Ok(course
+        .units
+        .iter()
+        .flat_map(|u| &u.steps)
+        .find_map(|s| s.build.cache.clone()))
+}
+
+/// O estado da preparação de um curso, com o comando exacto a aprovar.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PrepareStatus {
+    /// O curso precisa de uma preparação (tem `[build] prepare`).
+    pub needed: bool,
+    /// `not-needed`, `missing`, `stale` ou `ready`.
+    pub state: &'static str,
+    /// O plano (comandos e pastas) quando há algo a preparar.
+    pub plan: Option<tutor_eval::course_cache::Plan>,
+    pub marker: Option<tutor_eval::course_cache::Marker>,
+    /// O tempo limite (s) de cada compilação deste curso.
+    pub timeout_secs: u64,
+}
+
+/// O estado da preparação do curso `course_id` em `root` (a raiz das caches).
+pub fn prepare_status_in(
+    courses: &[Course],
+    course_id: &str,
+    root: &std::path::Path,
+) -> Result<PrepareStatus, StudyError> {
+    use tutor_eval::course_cache::{plan, status, Status};
+    let timeout_secs = courses
+        .iter()
+        .find(|c| c.id == course_id)
+        .map(|c| c.build.timeout_secs)
+        .unwrap_or(0);
+    let Some(cache) = course_cache_of(courses, course_id)? else {
+        return Ok(PrepareStatus {
+            needed: false,
+            state: "not-needed",
+            plan: None,
+            marker: None,
+            timeout_secs,
+        });
+    };
+    let eval = |e: anyhow::Error| StudyError::Eval(e.to_string());
+    let (state, marker) = match status(root, &cache).map_err(eval)? {
+        Status::Ready(m) => ("ready", Some(m)),
+        Status::Stale(m) => ("stale", Some(m)),
+        Status::Missing => ("missing", None),
+    };
+    Ok(PrepareStatus {
+        needed: true,
+        state,
+        plan: Some(plan(root, &cache).map_err(eval)?),
+        marker,
+        timeout_secs,
+    })
+}
+
+/// O plano de preparação do curso `course_id` que o humano aprovou: recusa quando o comando
+/// aprovado não é o plano de agora (o curso mudou entre o diálogo e o clique).
+pub fn approved_plan_in(
+    courses: &[Course],
+    course_id: &str,
+    root: &std::path::Path,
+    approved_command: &str,
+) -> Result<tutor_eval::course_cache::Plan, StudyError> {
+    let st = prepare_status_in(courses, course_id, root)?;
+    let plan = st
+        .plan
+        .ok_or_else(|| StudyError::NothingToPrepare(course_id.to_string()))?;
+    if plan.command != approved_command {
+        return Err(StudyError::Eval(
+            "the approved command is not this course's current preparation; ask again".into(),
+        ));
+    }
+    Ok(plan)
 }
 
 // ── Sugestão (a regra offline curada; o provedor LLM fica no adaptador) ──────────────
