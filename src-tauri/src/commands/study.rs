@@ -294,8 +294,19 @@ pub async fn course_prepare(
     course_id: String,
     decision: PrepareDecision,
 ) -> Result<CoursePreparedDto, String> {
+    // Everything here blocks (the course list, the audit log, cargo): off the async runtime.
+    tauri::async_runtime::spawn_blocking(move || prepare_blocking(&app, &course_id, &decision))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn prepare_blocking(
+    app: &tauri::AppHandle,
+    course_id: &str,
+    decision: &PrepareDecision,
+) -> Result<CoursePreparedDto, String> {
     let root = cache_root()?;
-    let plan = study::approved_plan_in(&study::all_courses(), &course_id, &root, &decision.command)
+    let plan = study::approved_plan_in(&study::all_courses(), course_id, &root, &decision.command)
         .map_err(|e| e.to_string())?;
     let dir = plan.layout.dir.display().to_string();
     std::fs::create_dir_all(&plan.layout.dir).map_err(|e| format!("{dir}: {e}"))?;
@@ -309,22 +320,17 @@ pub async fn course_prepare(
         outcome: Some(outcome.into()),
         decided_at: decision.decided_at,
     };
-    crate::board::audit_record(app.clone(), dir.clone(), row("sent"))
+    crate::board::record_ide_audit(app, &dir, &row("sent"))
         .map_err(|e| format!("not audited, nothing ran: {}", e.message))?;
-    let run = plan.clone();
-    let done =
-        tauri::async_runtime::spawn_blocking(move || tutor_eval::course_cache::prepare(&run))
-            .await
-            .map_err(|e| e.to_string())?;
-    let done = match done {
+    let done = match tutor_eval::course_cache::prepare(&plan) {
         Ok(d) => d,
         Err(e) => {
-            let _ = crate::board::audit_record(app.clone(), dir.clone(), row("failed"));
+            let _ = crate::board::record_ide_audit(app, &dir, &row("failed"));
             return Err(e.to_string());
         }
     };
-    let _ = crate::board::audit_record(app, dir, row(if done.ok { "ok" } else { "failed" }));
-    let status = study::prepare_status_in(&study::all_courses(), &course_id, &root)
+    let _ = crate::board::record_ide_audit(app, &dir, &row(if done.ok { "ok" } else { "failed" }));
+    let status = study::prepare_status_in(&study::all_courses(), course_id, &root)
         .map(|st| prepare_dto(&st))
         .map_err(|e| e.to_string())?;
     let tail: Vec<&str> = done.output.lines().rev().take(40).collect();

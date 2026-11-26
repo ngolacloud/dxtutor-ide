@@ -427,7 +427,9 @@ pub fn prepare_status_in(
             timeout_secs,
         });
     };
-    let eval = |e: anyhow::Error| StudyError::Eval(e.to_string());
+    fn eval(e: impl std::fmt::Display) -> StudyError {
+        StudyError::Eval(e.to_string())
+    }
     let (state, marker) = match status(root, &cache).map_err(eval)? {
         Status::Ready(m) => ("ready", Some(m)),
         Status::Stale(m) => ("stale", Some(m)),
