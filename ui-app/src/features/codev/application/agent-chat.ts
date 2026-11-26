@@ -515,6 +515,8 @@ export function makeAgentChat(deps: AgentChatDeps) {
     reset,
     /** The open session, if any (the harness view acts on it). */
     sessionId: (): string | null => session,
+    /** Multi Co-Dev: the Project issue this conversation works on (it holds the issue's scope). */
+    issueKey: (): string | null => issueKey,
     /** Stops the turn in progress (Esc in the editor overlay). */
     cancel(): void {
       if (session) void gateway.cancel(session);

@@ -14,6 +14,11 @@ export const PROJECT_ENGINE_MESSAGES = {
     noScm: "Source Control is not available",
     codevsRange: "A sprint has 1 to {max} Co-Devs", planNeedsDesktop: "The parallel plan is computed by the desktop app, with a folder open",
     planBad: "invalid response from the sprint planner",
+    approveNote: "Functional approval of {key}: you confirm that it does what its acceptance criteria ask (recorded with your name and the time, and audited).\n\nA note (optional): how you checked it",
+    revokeReason: "Withdraw the functional approval of {key} ({by}). The reason (recorded and audited):",
+    approved: "{key}: functional approval recorded",
+    revoked: "{key}: functional approval withdrawn",
+    checksBad: "A mandatory check needs a command: «{line}»",
   },
   ptAO: {
     badResponse: "resposta inválida do store do projecto",
@@ -24,6 +29,11 @@ export const PROJECT_ENGINE_MESSAGES = {
     noScm: "Source Control não está disponível",
     codevsRange: "Uma sprint tem de 1 a {max} Co-Devs", planNeedsDesktop: "O plano paralelo é calculado pela app desktop, com uma pasta aberta",
     planBad: "resposta inválida do planeador da sprint",
+    approveNote: "Aprovação funcional de {key}: confirmas que faz o que os critérios de aceitação pedem (fica registada com o teu nome e a hora, e auditada).\n\nUma nota (opcional): como o verificaste",
+    revokeReason: "Retirar a aprovação funcional de {key} ({by}). O motivo (fica registado e auditado):",
+    approved: "{key}: aprovação funcional registada",
+    revoked: "{key}: aprovação funcional retirada",
+    checksBad: "Uma verificação obrigatória precisa de um comando: «{line}»",
   },
 } satisfies Messages<string>;
 

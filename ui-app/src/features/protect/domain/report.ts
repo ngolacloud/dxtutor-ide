@@ -35,3 +35,7 @@ export const filesOf = (r: ScanReport): string[] => [...new Set(r.findings.map((
 /** A Terraform/OpenTofu state file (r23 F4b, P05): it holds every value of the infrastructure, secrets
  *  included — the editor never opens one (the backend refuses to read or write it as well). */
 export const isStateFile = (path: string): boolean => /\.tfstate(\.backup|\.lock\.info)?$/.test(path);
+
+/** The pre-commit hook (r23 hardening): where git looks for it in the open repository and whether one is
+ *  there — `installed` is dxtutor's, `foreign` someone else's (never overwritten). */
+export interface HookPlan { path: string; state: "missing" | "installed" | "foreign"; content: string }

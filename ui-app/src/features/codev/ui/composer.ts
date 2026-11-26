@@ -910,6 +910,14 @@ export function setAgentCount(n: number): void {
   refreshComposer();
 }
 
+/** Multi Co-Dev: a fila é da conversa à vista — trocar de sessão leva a fila dela e devolve a da outra. */
+export function swapQueue(next: string[]): string[] {
+  const prev = queue;
+  queue = next;
+  refreshComposer();
+  return prev;
+}
+
 /** Nova conversa: esquece a fila e o modo Plano pendente (o mapa de agentes esquece a sessão). */
 export function resetComposer(): void {
   queue = [];

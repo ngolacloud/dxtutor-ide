@@ -118,3 +118,5 @@
 .pj-ins-key{font:11px var(--font-mono);background:var(--bg-elevated);border:1px solid var(--border-strong);border-radius:4px;padding:1px 6px;color:var(--fg-bright);cursor:pointer}
 .pj-ins-key:hover{border-color:var(--accent)}.pj-ins-key.gone{cursor:default;color:var(--fg-muted);text-decoration:line-through}
 .pj-ins-held{margin-top:6px;font-size:12px}.pj-ins-held summary{cursor:pointer}.pj-ins-w{padding:2px 0 2px 12px}
+/* Multi Co-Dev (fase 2): a aprovação funcional no painel da issue */
+.pj-functional.ok > span{color:var(--green)}

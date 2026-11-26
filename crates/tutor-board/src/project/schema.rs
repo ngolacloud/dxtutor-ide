@@ -344,7 +344,14 @@ const MIGRATIONS: &[&str] = &[
     // 14 — how many Co-Devs work the sprint at the same time (Multi Co-Dev, phase 1: the parallel
     //      plan); `NULL`: not set (one)
     "ALTER TABLE sprints ADD COLUMN codevs INTEGER;",
-    // 15 — the history the sprint metrics read (Board A: honest burndown, velocity and insights): who joined
+    // 15 — Multi Co-Dev, phase 2 (the integration gate's data): the project's mandatory checks
+    //      (`[{name, command}]` in JSON; `NULL`: not set — the detected test command) and the
+    //      functional approval recorded on an issue (who, when, the note)
+    "ALTER TABLE projects ADD COLUMN checks TEXT;
+    ALTER TABLE issues ADD COLUMN functional_by TEXT;
+    ALTER TABLE issues ADD COLUMN functional_at INTEGER;
+    ALTER TABLE issues ADD COLUMN functional_note TEXT;",
+    // 16 — the history the sprint metrics read (Board A: honest burndown, velocity and insights): who joined
     //      or left a sprint and when, with the estimate at that moment; every estimate change with the old and
     //      the new points; what a sprint committed to when it started and what it held when it closed (`kind`
     //      `start | close`); when each sprint really started and closed. Nothing is back-filled: a sprint that
@@ -547,14 +554,14 @@ fn import_legacy_board(tx: &rusqlite::Transaction) -> rusqlite::Result<()> {
 mod tests {
     use super::*;
 
-    /// A base at schema 14 (before the sprint history) gains it without back-filling: the
+    /// A base at schema 15 (before the sprint history) gains it without back-filling: the
     /// project records from the migration on, its sprints have no start or close recorded.
     #[test]
-    fn the_sprint_history_starts_at_migration_15_and_invents_nothing() {
+    fn the_sprint_history_starts_at_migration_16_and_invents_nothing() {
         let mut c = Connection::open_in_memory().unwrap();
         c.execute_batch("CREATE TABLE schema_version (version INTEGER NOT NULL)")
             .unwrap();
-        for (i, sql) in MIGRATIONS.iter().take(14).enumerate() {
+        for (i, sql) in MIGRATIONS.iter().take(15).enumerate() {
             c.execute_batch(sql).unwrap();
             c.execute(
                 "INSERT INTO schema_version (version) VALUES (?1)",

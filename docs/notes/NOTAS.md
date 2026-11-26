@@ -6,13 +6,13 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 
 ## Índice
 
-- [Co-Dev: o assistente escreve no editor e mostra quem está a trabalhar](#co-dev-o-assistente-escreve-no-editor-e-mostra-quem-esta-a-trabalhar) — 2 acções
+- [Co-Dev: o assistente escreve no editor e mostra quem está a trabalhar](#co-dev-o-assistente-escreve-no-editor-e-mostra-quem-esta-a-trabalhar) — 3 acções
 - [Explain · Code review · Under the hood](#explain-code-review-under-the-hood) — 9 acções
 - [Quadro (backlog, sprints e kanban)](#quadro-backlog-sprints-e-kanban) — 2 acções
-- [Project](#project) — 4 acções
+- [Project](#project) — 6 acções
 - [Testes](#testes) — 1 acção
 - [Servidor de linguagem (LSP)](#servidor-de-linguagem-lsp) — 1 acção
-- [Protecção de dados — nenhum segredo sai da máquina](#proteccao-de-dados-nenhum-segredo-sai-da-maquina) — 3 acções
+- [Protecção de dados — nenhum segredo sai da máquina](#proteccao-de-dados-nenhum-segredo-sai-da-maquina) — 4 acções
 - [Ops — infraestrutura, Kubernetes, runbooks e evidências](#ops-infraestrutura-kubernetes-runbooks-e-evidencias) — 12 acções
 - [Platform — a minha fila, revisão de PR de infra e incidentes](#platform-a-minha-fila-revisao-de-pr-de-infra-e-incidentes) — 3 acções
 - [Vault — segredos, sessão e credenciais dinâmicas](#vault-segredos-sessao-e-credenciais-dinamicas) — 3 acções
@@ -24,12 +24,13 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 
 Quando o Co-Dev cria ou edita código, escreve-o no próprio editor: abre o ficheiro, escreve só as linhas que mudam, no sítio delas (as antigas riscadas, as novas a aparecer), e no fim aceitas ou rejeitas cada bloco com as diferenças à vista. Nada fica no ficheiro sem o teu «Aceitar».
 
-<sub>Código: `ui-app/src/features/codev/domain/agent-map.ts`, `ui-app/src/features/codev/application/agent-map.ts`, `ui-app/src/features/codev/ui/agent-map-view.ts`, `ui-app/src/features/codev/application/hunk-review.ts`, `ui-app/src/features/codev/application/local-proposals.ts`, `ui-app/src/features/codev/domain/proposal.ts`, `crates/tutor-agent/src/hunks.rs` · revisto em 2026-11-26</sub>
+<sub>Código: `ui-app/src/features/codev/application/codev-sessions.ts`, `ui-app/src/features/codev/ui/session-view.ts`, `ui-app/src/features/codev/ui/codevs-view.ts`, `ui-app/src/features/codev/domain/scope-overlap.ts`, `ui-app/src/features/codev/domain/agent-map.ts`, `ui-app/src/features/codev/application/agent-map.ts`, `ui-app/src/features/codev/ui/agent-map-view.ts`, `ui-app/src/features/codev/application/hunk-review.ts`, `ui-app/src/features/codev/application/local-proposals.ts`, `ui-app/src/features/codev/domain/proposal.ts`, `crates/tutor-agent/src/hunks.rs` · revisto em 2026-11-26</sub>
 
 | Acção | Onde |
 |---|---|
 | [Rever as mudanças no editor, bloco a bloco](#rever-as-mudancas-no-editor-bloco-a-bloco) | editor › barra de cada bloco (✓ Aceitar / ✗ Rejeitar / Explicar) · chat do Co-Dev › Aceitar tudo / Rejeitar tudo |
 | [Mapa de agentes](#mapa-de-agentes) | chat do Co-Dev › barra do compositor › chip «● N agentes» |
+| [Vários Co-Devs ao mesmo tempo (a faixa «Co-Devs»)](#varios-co-devs-ao-mesmo-tempo-a-faixa-co-devs) | Project › painel da issue › «Work on it with Co-Dev» · chat do Co-Dev › faixa «Co-Devs» por cima da conversa · mapa de agentes › detalhe de uma sessão › «Ver no chat» |
 
 ### Rever as mudanças no editor, bloco a bloco
 
@@ -88,6 +89,40 @@ O chip conta os agentes que estão a trabalhar agora; clicá-lo abre o mapa: a c
 - O texto que um sub-agente vai escrevendo não aparece em tempo real: só as ferramentas, os tokens e, no fim, o relatório.
 
 <sub>Cobre: `codev:agmap-open`, `codev:agmap-pick`, `codev:agmap-close`, `codev:agmap-chat`, `codev:agmap-run`</sub>
+
+### Vários Co-Devs ao mesmo tempo (a faixa «Co-Devs»)
+
+**Onde:** Project › painel da issue › «Work on it with Co-Dev» · chat do Co-Dev › faixa «Co-Devs» por cima da conversa · mapa de agentes › detalhe de uma sessão › «Ver no chat»
+
+Cada issue que mandas ao Co-Dev tem a sua sessão: começar outra issue já não fecha a que está a correr. A faixa «Co-Devs» aparece quando há mais de uma sessão, com um cartão por Co-Dev («Co-Dev · DX-12», a trabalhar / parado / precisa da tua decisão, o tempo e os tokens); clicar num cartão mostra a conversa dele. Os hunks de um Co-Dev em segundo plano só se pintam no editor quando abres a conversa dele, e as tuas decisões vão sempre para a sessão que as propôs.
+
+**Como usar**
+
+1. No Project, abre uma issue Ready e carrega em «Work on it with Co-Dev»; depois faz o mesmo com outra issue.
+2. Se os âmbitos das duas não se cruzarem, a segunda abre noutra sessão e a faixa «Co-Devs» aparece; a primeira continua a trabalhar.
+3. Se se cruzarem, a app diz em que ficheiros e pergunta se a issue espera: com «OK» ela fica na faixa («espera por DX-12») e começa sozinha quando esse Co-Dev fechar; com «Cancelar» não começa.
+4. Clica num cartão para ver a conversa desse Co-Dev (e os hunks dele no editor); o ✕ fecha o Co-Dev (a sessão acaba) e o ✕ de uma issue à espera desiste de esperar.
+
+**Fluxo (por dentro)**
+
+1. A conversa é uma por sessão (`makeAgentChat`): a à vista escreve no chat e na barra de execução como sempre; as outras escrevem num transcript fora do ecrã e guardam a sua execução (o tempo, o «parar», a decisão pendente) até as abrires.
+2. Antes de abrir outra sessão, o comando `project_scope_overlap` (só leitura) compara o âmbito da issue nova com o de cada issue que tem uma sessão aberta, com a regra do plano paralelo: um ficheiro que as duas podem mudar, pelo âmbito ou por ser conhecido (change sets, commits ligados, o ramo).
+3. Nesta fase todas as sessões trabalham na MESMA árvore de trabalho: por isso a verificação é obrigatória e, se falhar, a issue não começa.
+4. Fechar um Co-Dev liberta o âmbito dele: as issues à espera voltam a ser verificadas e as que já não chocam começam em segundo plano.
+
+**Dicas**
+
+- Com um só Co-Dev nada muda: não há faixa e a conversa é a de sempre.
+- «Nova conversa» recomeça só a conversa à vista; os outros Co-Devs continuam.
+
+**Limites**
+
+- Uma issue segura o âmbito enquanto a sessão dela estiver aberta, mesmo parada: fecha-a (✕) quando acabares.
+- O separador «Co-Dev run» e o `ctx` da barra de estado seguem a conversa à vista.
+- O quadro Tasks antigo («Delegar») continua a usar a conversa à vista.
+- Fases seguintes: uma worktree e ficheiros reservados por Co-Dev (fase 3), o revisor e a porta de integração (fase 4).
+
+<sub>Cobre: `codev:codevs-pick`, `codev:codevs-close`, `codev:codevs-unqueue`</sub>
 
 ---
 
@@ -409,9 +444,9 @@ Cria as issues dos componentes planeados no Studio (o ADR, um serviço, aplicaç
 
 ## Project
 
-O Project guarda o trabalho da pasta aberta (issues, sprints, releases, relatórios) na base SQLite da app desktop. Na vista «Planning», cada sprint diz quantos Co-Devs a trabalham ao mesmo tempo e mostra o plano paralelo: que issue cada Co-Dev faz, por que ordem, e porque é que nenhum par mexe nos mesmos ficheiros ao mesmo tempo. Na vista «Reports», os gráficos da sprint lêem o âmbito e as estimativas como eram em cada dia, e o painel «Insights» diz ao gestor o que o histórico mostra: se a sprint acaba, o que mudou desde o início, quanto do compromisso se cumpre, o que está parado ou bloqueado, quanto custa e quanto se refaz.
+O Project guarda o trabalho da pasta aberta (issues, sprints, releases, relatórios) na base SQLite da app desktop. Na vista «Planning», cada sprint diz quantos Co-Devs a trabalham ao mesmo tempo e mostra o plano paralelo: que issue cada Co-Dev faz, por que ordem, e porque é que nenhum par mexe nos mesmos ficheiros ao mesmo tempo. Guarda também os dados da porta de integração: as verificações obrigatórias do projecto e a aprovação funcional de cada issue. Na vista «Reports», os gráficos da sprint lêem o âmbito e as estimativas como eram em cada dia, e o painel «Insights» diz ao gestor o que o histórico mostra: se a sprint acaba, o que mudou desde o início, quanto do compromisso se cumpre, o que está parado ou bloqueado, quanto custa e quanto se refaz.
 
-<sub>Código: `crates/tutor-board/src/project/plan.rs`, `src-tauri/src/board.rs (project_sprint_plan, project_reports)`, `crates/tutor-board/src/project/reports.rs`, `crates/tutor-board/src/project/insights.rs`, `ui-app/src/features/project/domain/plan.ts`, `ui-app/src/features/project/ui/plan-view.ts`, `ui-app/src/features/project/ui/reports-view.ts` · revisto em 2026-11-26</sub>
+<sub>Código: `crates/tutor-board/src/project/plan.rs`, `src-tauri/src/board.rs (project_sprint_plan, project_reports)`, `crates/tutor-board/src/project/reports.rs`, `crates/tutor-board/src/project/insights.rs`, `ui-app/src/features/project/domain/plan.ts`, `ui-app/src/features/project/ui/plan-view.ts`, `ui-app/src/features/project/ui/reports-view.ts`, `ui-app/src/features/project/domain/gate.ts`, `src-tauri/src/roles.rs (functional_check)` · revisto em 2026-11-26</sub>
 
 | Acção | Onde |
 |---|---|
@@ -419,6 +454,8 @@ O Project guarda o trabalho da pasta aberta (issues, sprints, releases, relatór
 | [Plano paralelo](#plano-paralelo) | Project › Planning › cartão da sprint, botão «Parallel plan» |
 | [Burndown, burnup e velocidade](#burndown-burnup-e-velocidade) | Project › Reports (Scrum, XP e Scrum + XP) |
 | [Insights para o gestor](#insights-para-o-gestor) | Project › Reports, painel «Insights» (no topo, em todos os métodos) |
+| [Verificações obrigatórias](#verificacoes-obrigatorias) | Project › Settings › «Mandatory checks» |
+| [Aprovação funcional](#aprovacao-funcional) | Project › painel da issue › secção «Functional approval» |
 
 ### Co-Devs da sprint
 
@@ -489,7 +526,7 @@ O burndown mostra, dia a dia, os pontos que faltavam nesse dia, com o âmbito e 
 
 **Fluxo (por dentro)**
 
-1. Desde a migração 15 da base do Project, cada operação que mexe numa sprint grava o histórico: a issue que entra ou sai (criada já na sprint, planeada, retirada, transitada no fecho ou apagada), com a estimativa desse momento (`sprint_scope`); cada mudança de estimativa com o valor antigo e o novo (`estimate_changes`); e o que a sprint tinha ao começar e ao fechar (`sprint_snapshots`, `start` e `close`).
+1. Desde a migração 16 da base do Project, cada operação que mexe numa sprint grava o histórico: a issue que entra ou sai (criada já na sprint, planeada, retirada, transitada no fecho ou apagada), com a estimativa desse momento (`sprint_scope`); cada mudança de estimativa com o valor antigo e o novo (`estimate_changes`); e o que a sprint tinha ao começar e ao fechar (`sprint_snapshots`, `start` e `close`).
 2. O `project_reports` (`tutor_board::project::reports`) reconstrói cada dia a partir desse histórico: quem estava na sprint, com que estimativa e em que estado. Uma issue que já estava em Done quando a sprint começou não conta.
 3. A velocidade lê as fotografias do início e do fecho: o «comprometido vs feito» sobrevive à transição das issues por acabar para outra sprint.
 
@@ -500,7 +537,7 @@ O burndown mostra, dia a dia, os pontos que faltavam nesse dia, com o âmbito e 
 
 **Limites**
 
-- Uma sprint que começou antes da migração 15 aparece como parcial: o compromisso não se conhece e, antes de o registo começar, o âmbito e as estimativas são os de hoje. Nada é inventado para trás.
+- Uma sprint que começou antes da migração 16 aparece como parcial: o compromisso não se conhece e, antes de o registo começar, o âmbito e as estimativas são os de hoje. Nada é inventado para trás.
 - Os dias contam-se em UTC e por calendário (fins-de-semana incluídos).
 
 <sub>Cobre: `project_reports`</sub>
@@ -536,6 +573,52 @@ Frases curtas para o gestor do projecto, cada uma com a gravidade (risco, atenç
 - Quem mudou uma estimativa fica no histórico, mas o insight não o mostra.
 
 <sub>Cobre: `pj-open`</sub>
+
+### Verificações obrigatórias
+
+**Onde:** Project › Settings › «Mandatory checks»
+
+A lista das verificações que cada mudança tem de passar antes de ser integrada (o nome e o comando exacto, uma por linha: `tests: cargo test --workspace`). Sem nenhuma definida, vale o comando de testes detectado na pasta, e a página di-lo.
+
+**Como usar**
+
+1. Abre o Project e a vista «Settings».
+2. Escreve uma verificação por linha, `nome: comando`, e carrega em «Save»; deixa vazio para voltar ao comando detectado.
+
+**Fluxo (por dentro)**
+
+1. O «Save» manda a operação `settings` com `checks` ao `project_apply`; o store guarda-as na coluna `projects.checks` (migração 15), aparadas, sem nomes repetidos, até 12.
+2. O comando `project_checks` lê-as para as fases seguintes (a porta de integração corre-as no commit actual).
+
+**Limites**
+
+- Nesta fase a lista só se guarda: quem a corre é a porta de integração (fase 4).
+
+<sub>Cobre: `pj-submit`</sub>
+
+### Aprovação funcional
+
+**Onde:** Project › painel da issue › secção «Functional approval»
+
+O responsável pela issue regista que ela faz o que os critérios de aceitação pedem. Fica na issue quem aprovou, quando e a nota, e vai para o registo de auditoria. É a terceira condição da porta de integração: uma mudança só é integrada quando todas as verificações obrigatórias passam no commit actual, o revisor Co-Dev confirma os critérios e o responsável registou a aprovação funcional.
+
+**Como usar**
+
+1. Abre a issue (precisa de critérios de aceitação: sem eles o botão fica desligado).
+2. Carrega em «Record functional approval» e escreve, se quiseres, como verificaste.
+3. «Withdraw» retira-a, com um motivo.
+
+**Fluxo (por dentro)**
+
+1. As operações `approve_functional` e `revoke_functional` vão ao `project_apply`; o backend decide quem e quando (como em todas as operações), recusa sem critérios ou uma segunda aprovação, e grava a actividade e uma linha no registo de auditoria (origem `ide`, `functional.approve`/`functional.revoke`) na mesma transacção.
+2. Quem pode: o responsável da issue (o campo «Assignee», pelo `user.name`/`user.email` do git) ou, com pessoas no `.dxtutor/team.json`, um Product Owner ou um Tech Lead (os mesmos que levam uma issue a Done). Sem equipa definida e sem responsável, quem está ao teclado.
+3. Se os critérios de aceitação mudarem depois, a aprovação cai (fica na actividade): foi dada contra os critérios antigos.
+
+**Limites**
+
+- O código pode mudar depois da aprovação: confirmar que ela ainda vale no commit a integrar é da porta de integração (fase 4).
+
+<sub>Cobre: `pj-functional-approve`, `pj-functional-revoke`</sub>
 
 ---
 
@@ -638,6 +721,7 @@ O IDE tira os segredos de qualquer pedido a um modelo, verifica cada commit que 
 |---|---|
 | [Redacção antes de qualquer pedido a um modelo](#redaccao-antes-de-qualquer-pedido-a-um-modelo) | barra de estado › «N redacted» |
 | [Secret scan antes de cada commit](#secret-scan-antes-de-cada-commit) | Source Control › Commit · Commit Composer, lanes, quadro, Co-Dev |
+| [Hook de pre-commit — o mesmo scan nos commits do terminal](#hook-de-pre-commit-o-mesmo-scan-nos-commits-do-terminal) | paleta: «Protect: Install the Pre-commit Hook…» |
 | [Segredos mascarados e ficheiros de estado](#segredos-mascarados-e-ficheiros-de-estado) | terminal · depurador · editor (`.tf`, `.tfstate`) |
 
 ### Redacção antes de qualquer pedido a um modelo
@@ -673,9 +757,38 @@ Cada commit que a app faz é verificado: um segredo no que vai ser comitado, ou 
 
 **Limites**
 
-- Um commit feito à mão no teu próprio terminal não passa por aqui.
+- Um commit feito à mão no teu próprio terminal só passa por aqui com o hook de pre-commit instalado (abaixo).
 
 <sub>Cobre: `protect:secret-scan`</sub>
+
+### Hook de pre-commit — o mesmo scan nos commits do terminal
+
+**Onde:** paleta: «Protect: Install the Pre-commit Hook…»
+
+Instala no repositório aberto um hook de pre-commit que corre `dxt secret-scan --staged`: as mesmas regras da app, sobre o que o commit leva. Um commit feito num terminal com um segredo ou um `.env` fica bloqueado, com os achados mascarados.
+
+**Como usar**
+
+1. Instala o `dxt` uma vez, a partir do repositório do dxtutor-ide: `cargo install --path crates/tutor-cli`.
+2. Abre a pasta do projecto, corre o comando na paleta e aprova: o diálogo mostra o ficheiro e o texto exactos que vão ser escritos.
+3. Para o tirar, apaga o ficheiro `pre-commit` da pasta de hooks do repositório.
+
+**Fluxo (por dentro)**
+
+1. O backend descobre a pasta de hooks pelo git (respeita worktrees e `core.hooksPath`), regista a instalação no registo de auditoria antes de escrever o ficheiro, e a UI regista o resultado.
+2. O `dxt secret-scan` usa o gitleaks se estiver instalado, senão as regras próprias, e junta os valores secretos dos `.env` do repositório. Sai com 0 (limpo), 1 (achados) ou 2 (não conseguiu correr).
+
+**Dicas**
+
+- `dxt secret-scan --all` verifica o que um `git commit -a` levaria; `--working`, todas as mudanças.
+
+**Limites**
+
+- Um hook de pre-commit que não seja do dxtutor (husky, lint-staged…) nunca é substituído: acrescenta-lhe `dxt secret-scan --staged` à mão.
+- Sem o `dxt` no PATH, o hook bloqueia o commit e diz porquê.
+- O git deixa saltar qualquer hook com `git commit --no-verify`; o hook não é uma barreira contra quem o quer contornar.
+
+<sub>Cobre: `protect:hook`, `cmd:Protect: Install the Pre-commit Hook…`</sub>
 
 ### Segredos mascarados e ficheiros de estado
 

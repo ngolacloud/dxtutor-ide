@@ -111,7 +111,9 @@ use commands::platform::{
     pr_infra_review, pr_review_submit, queue_handover, queue_items, queue_verify,
 };
 use commands::plugins::{plugin_install, plugin_list, plugin_remove};
-use commands::protect::{protect_learn, secret_scan, secret_scan_allow};
+use commands::protect::{
+    protect_hook_install, protect_hook_plan, protect_learn, secret_scan, secret_scan_allow,
+};
 use commands::review::{list_review_analyzers, review_code, verify_review_fix};
 use commands::runbook::{
     runbook_decide, runbook_list, runbook_parse, runbook_step, sources_status,
@@ -1086,6 +1088,8 @@ pub fn run() {
             pty::pty_info,
             problems_scan,
             protect_learn,
+            protect_hook_plan,
+            protect_hook_install,
             secret_scan,
             secret_scan_allow,
             iac_pipeline_run,
@@ -1158,6 +1162,8 @@ pub fn run() {
             board::audit_export_evidence,
             board::project_issue_prompt,
             board::project_sprint_plan,
+            board::project_scope_overlap,
+            board::project_checks,
         ])
         .run(tauri::generate_context!())
         .expect("error while running dxtutor IDE");

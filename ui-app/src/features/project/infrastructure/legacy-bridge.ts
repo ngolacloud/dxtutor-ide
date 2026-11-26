@@ -13,7 +13,14 @@ import { codevIssue } from "../../../app/codev-issue";
 import type { Issue, Project } from "../domain/types";
 
 const G = window as unknown as {
-  DXR?: { root?: string | null; git?: boolean; reloadDisk?: () => Promise<unknown>; flush?: () => void; idle?: () => Promise<unknown> };
+  DXR?: {
+    root?: string | null;
+    git?: boolean;
+    reloadDisk?: () => Promise<unknown>;
+    flush?: () => void;
+    idle?: () => Promise<unknown>;
+    projectCmd?: (kind: "test" | "lint") => { cmd: string } | null;
+  };
   openTab?: (t: { id: string; title: string; kind: string }) => void;
   ROOT?: string;
   openDiff?: (p: string) => void;
@@ -30,6 +37,7 @@ let me = "";
 export const workspace: Workspace = {
   root: () => G.DXR?.root ?? null,
   me: () => me,
+  testCommand: () => G.DXR?.projectCmd?.("test")?.cmd ?? null,
 };
 
 /** Who "mine" means: the project's `git config user.name` (read once per folder). */

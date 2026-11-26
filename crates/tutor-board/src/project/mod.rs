@@ -12,6 +12,8 @@
 //!   is invented — with little history, reports come back empty.
 //! - Co-Dev change sets (accepted hunks, docs/v2/RF-CODEV-STREAM.md §9) and commits that
 //!   cite an issue key are linked to the issue.
+//! - The integration gate's data (Multi Co-Dev, phase 2): the project's mandatory checks and the
+//!   functional approval a person records on an issue ([`Op::ApproveFunctional`]).
 
 pub mod breakpoints;
 pub mod deploys;
@@ -43,6 +45,28 @@ const COS: [&str; 4] = ["expedite", "fixed", "standard", "intangible"];
 pub struct Criterion {
     pub text: String,
     pub done: bool,
+}
+
+/// A check every change must pass before it is integrated (Multi Co-Dev, the integration gate):
+/// a name and the exact command, run in the project folder on the current commit (phase 4).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Check {
+    pub name: String,
+    pub command: String,
+}
+
+/// The most mandatory checks a project may list.
+pub const MAX_CHECKS: usize = 12;
+
+/// The functional approval recorded on an issue: the responsible person confirmed that what was
+/// built does what the acceptance criteria ask (who and when are the backend's, like every op).
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct FunctionalApproval {
+    pub by: String,
+    pub at: i64,
+    pub note: String,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -105,6 +129,8 @@ pub struct Issue {
     pub budget_usd: Option<f64>,
     /// What Co-Dev spent on it (real cost of the turns in the audit log, RF-T04).
     pub spent_usd: f64,
+    /// The functional approval (the integration gate's third condition); `None`: not recorded.
+    pub functional: Option<FunctionalApproval>,
 }
 
 /// Does a criterion read as Given/When/Then (or Dado/Quando/Então)?
@@ -212,6 +238,8 @@ pub struct Project {
     pub wip: BTreeMap<String, u32>,
     pub dor: Vec<String>,
     pub dod: Vec<String>,
+    /// The mandatory checks (the integration gate); empty: not set — the detected test command.
+    pub checks: Vec<Check>,
     pub issues: Vec<Issue>,
     pub sprints: Vec<Sprint>,
     pub releases: Vec<Release>,
@@ -404,6 +432,9 @@ pub enum Op {
         dod: Option<Vec<String>>,
         #[serde(default)]
         key_prefix: Option<String>,
+        /// The mandatory checks (empty: back to the detected test command).
+        #[serde(default)]
+        checks: Option<Vec<Check>>,
     },
     CreateIssue {
         title: String,
@@ -582,6 +613,19 @@ pub enum Op {
     LinkCommits {
         commits: Vec<Commit>,
     },
+    /// The responsible person records that the issue does what its acceptance criteria ask (the
+    /// integration gate's third condition). Only with criteria; who and when are the actor's and
+    /// the store's clock; audited. Who may do it is checked by the command (`roles`).
+    ApproveFunctional {
+        key: String,
+        #[serde(default)]
+        note: Option<String>,
+    },
+    /// Withdraws the functional approval, with a reason (audited).
+    RevokeFunctional {
+        key: String,
+        reason: String,
+    },
 }
 
 fn story() -> String {
@@ -710,6 +754,22 @@ impl ProjectStore {
         )?;
         tx.commit()?;
         read_project(&self.conn, root)
+    }
+
+    /// The project's mandatory checks (the integration gate, Multi Co-Dev phases 2 and 4); empty
+    /// when none was set — then the detected test command is the one.
+    pub fn checks(&self, root: &str) -> Result<Vec<Check>, ProjectError> {
+        let v: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT checks FROM projects WHERE root = ?1",
+                params![root],
+                |r| r.get(0),
+            )
+            .optional()?
+            .flatten();
+        Ok(v.and_then(|c| serde_json::from_str(&c).ok())
+            .unwrap_or_default())
     }
 
     pub fn detail(&self, root: &str, key: &str) -> Result<IssueDetail, ProjectError> {
@@ -1185,6 +1245,124 @@ fn issue_row(c: &Connection, root: &str, key: &str) -> Result<IssueRow, ProjectE
 /// method, WIP limits, DoR, DoD.
 type Settings = (String, BTreeMap<String, u32>, Vec<String>, Vec<String>);
 
+/// The mandatory checks as they are kept: trimmed, each with a name and a command, no name twice,
+/// at most [`MAX_CHECKS`].
+fn valid_checks(v: Vec<Check>) -> Result<Vec<Check>, ProjectError> {
+    let mut out: Vec<Check> = Vec::new();
+    for ch in v {
+        let name = ch.name.trim().to_string();
+        let command = ch.command.trim().to_string();
+        if name.is_empty() && command.is_empty() {
+            continue;
+        }
+        if name.is_empty() || command.is_empty() {
+            return Err(err(
+                "invalid",
+                "cada verificação obrigatória tem um nome e um comando",
+            ));
+        }
+        if name.chars().count() > 60 || command.chars().count() > 500 || command.contains('\n') {
+            return Err(err(
+                "invalid",
+                "o nome de uma verificação tem até 60 caracteres e o comando é uma linha até 500",
+            ));
+        }
+        if out.iter().any(|c| c.name.eq_ignore_ascii_case(&name)) {
+            return Err(err(
+                "invalid",
+                format!("há duas verificações com o nome «{name}»"),
+            ));
+        }
+        out.push(Check { name, command });
+    }
+    if out.len() > MAX_CHECKS {
+        return Err(err(
+            "invalid",
+            format!("no máximo {MAX_CHECKS} verificações obrigatórias"),
+        ));
+    }
+    Ok(out)
+}
+
+/// The issue's acceptance criteria, in order (their text only).
+fn criteria_texts(c: &Connection, root: &str, key: &str) -> rusqlite::Result<Vec<String>> {
+    let mut st =
+        c.prepare("SELECT text FROM acceptance WHERE root = ?1 AND key = ?2 ORDER BY ord")?;
+    let v = st
+        .query_map(params![root, key], |r| r.get(0))?
+        .collect::<Result<Vec<String>, _>>()?;
+    Ok(v)
+}
+
+fn functional_of(
+    c: &Connection,
+    root: &str,
+    key: &str,
+) -> rusqlite::Result<Option<FunctionalApproval>> {
+    c.query_row(
+        "SELECT functional_by, functional_at, functional_note FROM issues WHERE root = ?1 AND key = ?2",
+        params![root, key],
+        |r| {
+            Ok(match (r.get::<_, Option<String>>(0)?, r.get::<_, Option<i64>>(1)?) {
+                (Some(by), Some(at)) => Some(FunctionalApproval {
+                    by,
+                    at,
+                    note: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                }),
+                _ => None,
+            })
+        },
+    )
+}
+
+fn set_functional(
+    c: &Connection,
+    root: &str,
+    key: &str,
+    a: Option<&FunctionalApproval>,
+    now: i64,
+) -> rusqlite::Result<()> {
+    c.execute(
+        "UPDATE issues SET functional_by = ?3, functional_at = ?4, functional_note = ?5, updated = ?6 WHERE root = ?1 AND key = ?2",
+        params![root, key, a.map(|a| &a.by), a.map(|a| a.at), a.map(|a| &a.note), now],
+    )?;
+    Ok(())
+}
+
+/// The functional approval (or its withdrawal) in the audit log, in the same transaction: origin
+/// `ide`, tool `project`, the actor as the one who decided.
+fn audit_functional(
+    c: &Connection,
+    root: &str,
+    key: &str,
+    actor: &str,
+    now: i64,
+    call: &str,
+    note: &str,
+) -> rusqlite::Result<()> {
+    let verb = if call.ends_with("revoke") {
+        "revoke"
+    } else {
+        "approve"
+    };
+    c.execute(
+        "INSERT INTO audit (root, at, session, event, origin, issue_key, actor, mode, tool, call, path, command,
+                            verdict, outcome, decided_by, decided_at, reason)
+         VALUES (?1, ?2, 'ide', 'approval', 'ide', ?3, ?4, 'manual', 'project', ?5, ?3, ?6, 'ask', 'ok', ?7, ?2, ?8)",
+        params![
+            root,
+            now,
+            key,
+            actor,
+            call,
+            format!("functional {verb} {key}"),
+            format!("human:{actor}"),
+            (!note.is_empty()).then_some(note)
+        ],
+    )?;
+    Ok(())
+}
+
 fn settings(c: &Connection, root: &str) -> Result<Settings, ProjectError> {
     Ok(c.query_row(
         "SELECT method, wip, dor, dod FROM projects WHERE root = ?1",
@@ -1286,7 +1464,15 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
             dor,
             dod,
             key_prefix,
+            checks,
         } => {
+            if let Some(v) = checks {
+                let v = valid_checks(v)?;
+                c.execute(
+                    "UPDATE projects SET checks = ?2 WHERE root = ?1",
+                    params![root, (!v.is_empty()).then(|| json(&v))],
+                )?;
+            }
             if let Some(m) = &method {
                 one_of(m, &METHODS, "método")?;
                 c.execute(
@@ -1705,6 +1891,7 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
         }
         Op::SetAcceptance { key, items } => {
             issue_row(c, root, &key)?;
+            let before: Vec<String> = criteria_texts(c, root, &key)?;
             c.execute(
                 "DELETE FROM acceptance WHERE root = ?1 AND key = ?2",
                 params![root, key],
@@ -1734,6 +1921,78 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
                 None,
                 "critérios de aceitação",
             )?;
+            // the approval was given against the criteria: other criteria, another approval
+            if criteria_texts(c, root, &key)? != before && functional_of(c, root, &key)?.is_some() {
+                set_functional(c, root, &key, None, now)?;
+                log(
+                    c,
+                    root,
+                    &key,
+                    now,
+                    actor,
+                    "functional_reset",
+                    None,
+                    None,
+                    "os critérios de aceitação mudaram: a aprovação funcional caiu",
+                )?;
+            }
+        }
+        Op::ApproveFunctional { key, note } => {
+            issue_row(c, root, &key)?;
+            if criteria_texts(c, root, &key)?.is_empty() {
+                return Err(err(
+                    "invalid",
+                    format!(
+                        "{key} não tem critérios de aceitação: a aprovação funcional confirma-os"
+                    ),
+                ));
+            }
+            if let Some(a) = functional_of(c, root, &key)? {
+                return Err(err(
+                    "invalid",
+                    format!("{key} já tem a aprovação funcional de {}", a.by),
+                ));
+            }
+            let note: String = note.unwrap_or_default().trim().chars().take(2000).collect();
+            set_functional(
+                c,
+                root,
+                &key,
+                Some(&FunctionalApproval {
+                    by: actor.to_string(),
+                    at: now,
+                    note: note.clone(),
+                }),
+                now,
+            )?;
+            log(c, root, &key, now, actor, "functional", None, None, &note)?;
+            audit_functional(c, root, &key, actor, now, "functional.approve", &note)?;
+        }
+        Op::RevokeFunctional { key, reason } => {
+            issue_row(c, root, &key)?;
+            let reason: String = reason.trim().chars().take(2000).collect();
+            if reason.is_empty() {
+                return Err(err(
+                    "invalid",
+                    "retirar a aprovação funcional pede um motivo",
+                ));
+            }
+            if functional_of(c, root, &key)?.is_none() {
+                return Err(err("invalid", format!("{key} não tem aprovação funcional")));
+            }
+            set_functional(c, root, &key, None, now)?;
+            log(
+                c,
+                root,
+                &key,
+                now,
+                actor,
+                "functional_revoked",
+                None,
+                None,
+                &reason,
+            )?;
+            audit_functional(c, root, &key, actor, now, "functional.revoke", &reason)?;
         }
         Op::Move { key, to, reason } => {
             move_issue(c, root, actor, now, &key, &to, reason.as_deref())?
@@ -2256,15 +2515,17 @@ fn move_issue(
 }
 
 fn read_project(c: &Connection, root: &str) -> Result<Project, ProjectError> {
-    let (key_prefix, method, iter_days, wip, dor, dod): (
+    #[allow(clippy::type_complexity)]
+    let (key_prefix, method, iter_days, wip, dor, dod, checks): (
         String,
         String,
         u32,
         String,
         String,
         String,
+        Option<String>,
     ) = c.query_row(
-        "SELECT key_prefix, method, iter_days, wip, dor, dod FROM projects WHERE root = ?1",
+        "SELECT key_prefix, method, iter_days, wip, dor, dod, checks FROM projects WHERE root = ?1",
         params![root],
         |r| {
             Ok((
@@ -2274,6 +2535,7 @@ fn read_project(c: &Connection, root: &str) -> Result<Project, ProjectError> {
                 r.get(3)?,
                 r.get(4)?,
                 r.get(5)?,
+                r.get(6)?,
             ))
         },
     )?;
@@ -2336,7 +2598,8 @@ fn read_project(c: &Connection, root: &str) -> Result<Project, ProjectError> {
     }
     let mut st = c.prepare(
         "SELECT key, title, kind, priority, points, assignee, pair, epic, cos, blocked, rank, state, sprint, ready, description, branch, dod_done, created, updated,
-                story_as, story_want, story_so, scope, deps, ready_by, attempts, criteria_report, template_version, budget_usd
+                story_as, story_want, story_so, scope, deps, ready_by, attempts, criteria_report, template_version, budget_usd,
+                functional_by, functional_at, functional_note
          FROM issues WHERE root = ?1 ORDER BY rank, key",
     )?;
     let issues = st
@@ -2381,6 +2644,17 @@ fn read_project(c: &Connection, root: &str) -> Result<Project, ProjectError> {
                 missing: vec![],
                 budget_usd: r.get(28)?,
                 spent_usd: 0.0,
+                functional: match (
+                    r.get::<_, Option<String>>(29)?,
+                    r.get::<_, Option<i64>>(30)?,
+                ) {
+                    (Some(by), Some(at)) => Some(FunctionalApproval {
+                        by,
+                        at,
+                        note: r.get::<_, Option<String>>(31)?.unwrap_or_default(),
+                    }),
+                    _ => None,
+                },
                 key,
             })
         })?
@@ -2499,6 +2773,9 @@ fn read_project(c: &Connection, root: &str) -> Result<Project, ProjectError> {
         wip: serde_json::from_str(&wip).unwrap_or_default(),
         dor: serde_json::from_str(&dor).unwrap_or_default(),
         dod: serde_json::from_str(&dod).unwrap_or_default(),
+        checks: checks
+            .and_then(|c| serde_json::from_str(&c).ok())
+            .unwrap_or_default(),
         issues,
         sprints,
         releases,

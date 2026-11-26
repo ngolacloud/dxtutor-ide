@@ -20,6 +20,9 @@ export const projectClient = (inv: Invoker = invoke) => ({
   /** Multi Co-Dev (phase 1): the parallel plan of a sprint (read-only) — `sprint: null` the active one, else the next
    *  planned; `codevs: null` the sprint's own count. */
   sprintPlan: (root: string, sprint: string | null, codevs: number | null): Promise<unknown> => inv<unknown>("project_sprint_plan", { root, sprint, codevs }),
+  /** Multi Co-Dev (phase 2): may a Co-Dev session start `key` while the sessions of `running` work in the same
+   *  tree? `{overlaps: [{a, b, paths, total, globs}], files}` — empty `overlaps`: it may (read-only). */
+  scopeOverlap: (root: string, key: string, running: string[]): Promise<unknown> => inv<unknown>("project_scope_overlap", { root, key, running }),
 });
 
 export type ProjectClient = ReturnType<typeof projectClient>;

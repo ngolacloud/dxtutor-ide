@@ -2,7 +2,7 @@
 //! With little history they come back empty, and the UI says so.
 //!
 //! The sprint charts (Board A) read the scope and the estimates as they were on each day —
-//! `sprint_scope`, `estimate_changes` and the `start`/`close` snapshots of migration 15 — so
+//! `sprint_scope`, `estimate_changes` and the `start`/`close` snapshots of migration 16 — so
 //! adding or re-estimating work mid-sprint no longer rewrites the past, and «committed vs done»
 //! survives the carry-over. A sprint that started before that history says it is `partial`.
 

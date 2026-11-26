@@ -8,7 +8,7 @@ export const PROJECT_NOTES: FeatureNotes = {
   id: "project",
   title: "Project",
   summary:
-    "O Project guarda o trabalho da pasta aberta (issues, sprints, releases, relatórios) na base SQLite da app desktop. Na vista «Planning», cada sprint diz quantos Co-Devs a trabalham ao mesmo tempo e mostra o plano paralelo: que issue cada Co-Dev faz, por que ordem, e porque é que nenhum par mexe nos mesmos ficheiros ao mesmo tempo. Na vista «Reports», os gráficos da sprint lêem o âmbito e as estimativas como eram em cada dia, e o painel «Insights» diz ao gestor o que o histórico mostra: se a sprint acaba, o que mudou desde o início, quanto do compromisso se cumpre, o que está parado ou bloqueado, quanto custa e quanto se refaz.",
+    "O Project guarda o trabalho da pasta aberta (issues, sprints, releases, relatórios) na base SQLite da app desktop. Na vista «Planning», cada sprint diz quantos Co-Devs a trabalham ao mesmo tempo e mostra o plano paralelo: que issue cada Co-Dev faz, por que ordem, e porque é que nenhum par mexe nos mesmos ficheiros ao mesmo tempo. Guarda também os dados da porta de integração: as verificações obrigatórias do projecto e a aprovação funcional de cada issue. Na vista «Reports», os gráficos da sprint lêem o âmbito e as estimativas como eram em cada dia, e o painel «Insights» diz ao gestor o que o histórico mostra: se a sprint acaba, o que mudou desde o início, quanto do compromisso se cumpre, o que está parado ou bloqueado, quanto custa e quanto se refaz.",
   code: [
     "crates/tutor-board/src/project/plan.rs",
     "src-tauri/src/board.rs (project_sprint_plan, project_reports)",
@@ -17,6 +17,8 @@ export const PROJECT_NOTES: FeatureNotes = {
     "ui-app/src/features/project/domain/plan.ts",
     "ui-app/src/features/project/ui/plan-view.ts",
     "ui-app/src/features/project/ui/reports-view.ts",
+    "ui-app/src/features/project/domain/gate.ts",
+    "src-tauri/src/roles.rs (functional_check)",
   ],
   updated: "2026-11-26",
   actions: [
@@ -71,7 +73,7 @@ export const PROJECT_NOTES: FeatureNotes = {
         "Abre a vista «Reports». Passa o rato por uma barra da velocidade para ver o comprometido, o feito, o acrescentado, o retirado e o que transitou.",
       ],
       flow: [
-        "Desde a migração 15 da base do Project, cada operação que mexe numa sprint grava o histórico: a issue que entra ou sai (criada já na sprint, planeada, retirada, transitada no fecho ou apagada), com a estimativa desse momento (`sprint_scope`); cada mudança de estimativa com o valor antigo e o novo (`estimate_changes`); e o que a sprint tinha ao começar e ao fechar (`sprint_snapshots`, `start` e `close`).",
+        "Desde a migração 16 da base do Project, cada operação que mexe numa sprint grava o histórico: a issue que entra ou sai (criada já na sprint, planeada, retirada, transitada no fecho ou apagada), com a estimativa desse momento (`sprint_scope`); cada mudança de estimativa com o valor antigo e o novo (`estimate_changes`); e o que a sprint tinha ao começar e ao fechar (`sprint_snapshots`, `start` e `close`).",
         "O `project_reports` (`tutor_board::project::reports`) reconstrói cada dia a partir desse histórico: quem estava na sprint, com que estimativa e em que estado. Uma issue que já estava em Done quando a sprint começou não conta.",
         "A velocidade lê as fotografias do início e do fecho: o «comprometido vs feito» sobrevive à transição das issues por acabar para outra sprint.",
       ],
@@ -80,7 +82,7 @@ export const PROJECT_NOTES: FeatureNotes = {
         "Reestimar a meio da sprint é legítimo, mas aparece no burnup como mudança de âmbito.",
       ],
       limits: [
-        "Uma sprint que começou antes da migração 15 aparece como parcial: o compromisso não se conhece e, antes de o registo começar, o âmbito e as estimativas são os de hoje. Nada é inventado para trás.",
+        "Uma sprint que começou antes da migração 16 aparece como parcial: o compromisso não se conhece e, antes de o registo começar, o âmbito e as estimativas são os de hoje. Nada é inventado para trás.",
         "Os dias contam-se em UTC e por calendário (fins-de-semana incluídos).",
       ],
       covers: ["project_reports"],
@@ -109,6 +111,37 @@ export const PROJECT_NOTES: FeatureNotes = {
         "Quem mudou uma estimativa fica no histórico, mas o insight não o mostra.",
       ],
       covers: ["pj-open"],
+    },
+    {
+      title: "Verificações obrigatórias",
+      where: ["Project › Settings › «Mandatory checks»"],
+      what:
+        "A lista das verificações que cada mudança tem de passar antes de ser integrada (o nome e o comando exacto, uma por linha: `tests: cargo test --workspace`). Sem nenhuma definida, vale o comando de testes detectado na pasta, e a página di-lo.",
+      howTo: ["Abre o Project e a vista «Settings».", "Escreve uma verificação por linha, `nome: comando`, e carrega em «Save»; deixa vazio para voltar ao comando detectado."],
+      flow: [
+        "O «Save» manda a operação `settings` com `checks` ao `project_apply`; o store guarda-as na coluna `projects.checks` (migração 15), aparadas, sem nomes repetidos, até 12.",
+        "O comando `project_checks` lê-as para as fases seguintes (a porta de integração corre-as no commit actual).",
+      ],
+      limits: ["Nesta fase a lista só se guarda: quem a corre é a porta de integração (fase 4)."],
+      covers: ["pj-submit"],
+    },
+    {
+      title: "Aprovação funcional",
+      where: ["Project › painel da issue › secção «Functional approval»"],
+      what:
+        "O responsável pela issue regista que ela faz o que os critérios de aceitação pedem. Fica na issue quem aprovou, quando e a nota, e vai para o registo de auditoria. É a terceira condição da porta de integração: uma mudança só é integrada quando todas as verificações obrigatórias passam no commit actual, o revisor Co-Dev confirma os critérios e o responsável registou a aprovação funcional.",
+      howTo: [
+        "Abre a issue (precisa de critérios de aceitação: sem eles o botão fica desligado).",
+        "Carrega em «Record functional approval» e escreve, se quiseres, como verificaste.",
+        "«Withdraw» retira-a, com um motivo.",
+      ],
+      flow: [
+        "As operações `approve_functional` e `revoke_functional` vão ao `project_apply`; o backend decide quem e quando (como em todas as operações), recusa sem critérios ou uma segunda aprovação, e grava a actividade e uma linha no registo de auditoria (origem `ide`, `functional.approve`/`functional.revoke`) na mesma transacção.",
+        "Quem pode: o responsável da issue (o campo «Assignee», pelo `user.name`/`user.email` do git) ou, com pessoas no `.dxtutor/team.json`, um Product Owner ou um Tech Lead (os mesmos que levam uma issue a Done). Sem equipa definida e sem responsável, quem está ao teclado.",
+        "Se os critérios de aceitação mudarem depois, a aprovação cai (fica na actividade): foi dada contra os critérios antigos.",
+      ],
+      limits: ["O código pode mudar depois da aprovação: confirmar que ela ainda vale no commit a integrar é da porta de integração (fase 4)."],
+      covers: ["pj-functional-approve", "pj-functional-revoke"],
     },
   ],
 };
