@@ -6,9 +6,50 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 
 ## Índice
 
+- [Co-Dev: o assistente escreve no editor](#co-dev-o-assistente-escreve-no-editor) — 1 acção
 - [Explain · Code review · Under the hood](#explain-code-review-under-the-hood) — 9 acções
 - [Testes](#testes) — 1 acção
 - [Servidor de linguagem (LSP)](#servidor-de-linguagem-lsp) — 1 acção
+
+---
+
+## Co-Dev: o assistente escreve no editor
+
+Quando o Co-Dev cria ou edita código, escreve-o no próprio editor: abre o ficheiro, escreve só as linhas que mudam, no sítio delas (as antigas riscadas, as novas a aparecer), e no fim aceitas ou rejeitas cada bloco com as diferenças à vista. Nada fica no ficheiro sem o teu «Aceitar».
+
+<sub>Código: `ui-app/src/features/codev/application/hunk-review.ts`, `ui-app/src/features/codev/application/local-proposals.ts`, `ui-app/src/features/codev/domain/proposal.ts`, `crates/tutor-agent/src/hunks.rs` · revisto em 2026-11-26</sub>
+
+| Acção | Onde |
+|---|---|
+| [Rever as mudanças no editor, bloco a bloco](#rever-as-mudancas-no-editor-bloco-a-bloco) | editor › barra de cada bloco (✓ Aceitar / ✗ Rejeitar / Explicar) · chat do Co-Dev › Aceitar tudo / Rejeitar tudo |
+
+### Rever as mudanças no editor, bloco a bloco
+
+**Onde:** editor › barra de cada bloco (✓ Aceitar / ✗ Rejeitar / Explicar) · chat do Co-Dev › Aceitar tudo / Rejeitar tudo
+
+Cada mudança que o Co-Dev propõe aparece no ficheiro como um bloco: as linhas que saem riscadas e as que entram escritas a seguir, a um ritmo legível. Aceitas ou rejeitas cada bloco; o que aceitas fica escrito, o resto não.
+
+**Como usar**
+
+1. Pede uma mudança ao Co-Dev (ou usa «Rever no editor» no painel Explain / Code review).
+2. O ficheiro abre e o Co-Dev escreve cada bloco no sítio; podes acelerar, pausar ou continuar a editar o resto do ficheiro.
+3. Em cada bloco: ✓ aceita, ✗ rejeita, «Explicar» pergunta porquê. Ctrl+Z desfaz o que aceitaste.
+
+**Fluxo (por dentro)**
+
+1. O agente v2 (desktop) manda as edições já por linhas (`edit`, `edit_lines`) e o backend emite as hunks (`hunk_start`/`chunk`/`end`/`review`).
+2. Quem só tem o ficheiro inteiro — o chat ao vivo antigo em Manual/Assistido, o desktop sem ferramentas, o painel Explain / Code review — passa pelas propostas locais: o diff dá os blocos (só as linhas que mudam) e a mesma revisão de hunks mostra-os; no fim só os aceites são escritos e gravados.
+3. Uma decisão sobre um bloco cujo sítio já mudou não se aplica (fica «desactualizado»).
+
+**Dicas**
+
+- Rejeitar um bloco não perde os outros: aceitas o que serve e pedes de novo o resto.
+
+**Limites**
+
+- Em modo Automático o agente v2 aplica sem esperar (e valida com os testes no fim do turno).
+
+<sub>Cobre: `codev:hunk-accept`, `codev:hunk-reject`, `codev:local-proposal`</sub>
 
 ---
 
@@ -25,7 +66,7 @@ Ajuda a perceber e a melhorar o ficheiro aberto sem sair do editor. O Explain e 
 | [Revisão com IA](#revisao-com-ia) | painel Code review › separador «Revisão com IA» · tab de Code review › «Rever com IA» |
 | [Corrigir com IA (um achado)](#corrigir-com-ia-um-achado) | cartão de um achado › «Corrigir com IA» |
 | [Aplicar uma sugestão do Explain](#aplicar-uma-sugestao-do-explain) | documento do Explain › bloco de código › «Aplicar» |
-| [Código melhorado: Diferenças / Código, Copiar, Aceitar, Recusar, Reverter](#codigo-melhorado-diferencas-codigo-copiar-aceitar-recusar-reverter) | cartão «Código melhorado» no painel |
+| [Código melhorado: Rever no editor, Diferenças / Código, Copiar, Aceitar, Recusar, Reverter](#codigo-melhorado-rever-no-editor-diferencas-codigo-copiar-aceitar-recusar-reverter) | cartão «Código melhorado» no painel |
 | [Aceitar e testar: onde quebrou e como corrigir](#aceitar-e-testar-onde-quebrou-e-como-corrigir) | cartão «Código melhorado» › «Aceitar e testar» · «Correr os testes outra vez» |
 | [Barra do painel de documento](#barra-do-painel-de-documento) | cabeçalho do painel |
 | [Under the hood](#under-the-hood) | barra do editor «Under the hood» · Ctrl+K U · paleta: «Co-Dev: Under the Hood» |
@@ -165,23 +206,25 @@ Integra uma sugestão do Explain no ficheiro e mostra as diferenças para aceita
 
 <sub>Cobre: `cr:apply-block`, `cr:back`</sub>
 
-### Código melhorado: Diferenças / Código, Copiar, Aceitar, Recusar, Reverter
+### Código melhorado: Rever no editor, Diferenças / Código, Copiar, Aceitar, Recusar, Reverter
 
 **Onde:** cartão «Código melhorado» no painel
 
-Mostra o ficheiro proposto como diferenças (+/−) contra o actual ou com realce, e aceita-o ou recusa-o com possibilidade de voltar atrás.
+Mostra o ficheiro proposto como diferenças (+/−) contra o actual ou com realce. «Rever no editor» escreve as mudanças no próprio ficheiro, só nas linhas que mudam, e aceitas ou rejeitas cada bloco lá; ou aceitas tudo de uma vez, ou recusas.
 
 **Como usar**
 
-1. O cartão abre nas «Diferenças»; «Código» mostra o ficheiro proposto inteiro.
-2. «Aceitar e testar» escreve o código no ficheiro e corre logo os testes (no browser: «Aceitar», sem testes).
-3. «Recusar» deita a proposta fora; o ficheiro não muda.
-4. Depois de aceitar, «Reverter» repõe o ficheiro como estava.
+1. «Rever no editor» (o botão principal): o ficheiro abre, cada bloco é escrito no sítio dele com as linhas antigas riscadas, e decides cada um com ✓ / ✗ no próprio bloco; quando acabas, os testes correm no separador «Tests».
+2. O cartão abre nas «Diferenças»; «Código» mostra o ficheiro proposto inteiro.
+3. «Aceitar e testar» escreve o código no ficheiro e corre logo os testes (no browser: «Aceitar», sem testes).
+4. «Recusar» deita a proposta fora; o ficheiro não muda.
+5. Depois de aceitar, «Reverter» repõe o ficheiro como estava.
 
 **Fluxo (por dentro)**
 
 1. As diferenças são linha a linha (`features/diff/domain/diff.ts`) contra o conteúdo actual do editor.
-2. Aceitar guarda primeiro o conteúdo anterior; Reverter (ou Recusar depois de aceite) escreve-o de volta.
+2. «Rever no editor» entrega a proposta às propostas locais do Co-Dev (`codev/application/local-proposals.ts`): os blocos saem do diff (`codev/domain/proposal.ts`) e passam pela mesma revisão de hunks do agente v2; no fim só os aceites são escritos.
+3. Aceitar guarda primeiro o conteúdo anterior; Reverter (ou Recusar depois de aceite) escreve-o de volta.
 
 **Dicas**
 
@@ -191,7 +234,7 @@ Mostra o ficheiro proposto como diferenças (+/−) contra o actual ou com realc
 
 - Se o ficheiro mudar entretanto, «Reverter» repõe a versão de antes de aceitar (perde as mudanças feitas depois).
 
-<sub>Cobre: `cr:code-view`, `cr:copy-improved`, `cr:accept`, `cr:deny`, `cr:revert`</sub>
+<sub>Cobre: `cr:code-view`, `cr:copy-improved`, `cr:accept`, `cr:deny`, `cr:revert`, `cr:review-editor`</sub>
 
 ### Aceitar e testar: onde quebrou e como corrigir
 

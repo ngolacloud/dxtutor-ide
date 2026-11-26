@@ -88,6 +88,8 @@ export interface DocCtx {
   testsHere: boolean;
   resolve: (file: string) => string | null;
   canAskChat: boolean;
+  /** há o editor com a revisão bloco a bloco (o Co-Dev) */
+  canEditor: boolean;
 }
 
 function statusNote(s: DocState, t: T): string {
@@ -136,11 +138,14 @@ function improvedCard(s: DocState, ui: DocUi, hl: Hl, t: T, ext: string, diff: D
   const same = add === 0 && del === 0;
   const seg = `<span class="cr-seg"><button class="${ui.codeView === "code" ? "on" : ""}" data-action="cr:code-view" data-on="code">${esc(t("code"))}</button><button class="${ui.codeView === "diff" ? "on" : ""}" data-action="cr:code-view" data-on="diff">${esc(t("diff"))}</button></span>`;
   const running = s.test?.status === "running";
+  const busy = running || s.inEditor;
   const acts = s.applied
-    ? `<button class="btn ghost" data-action="cr:revert"${running ? " disabled" : ""}>${ic("history")}${esc(t("revert"))}</button>${ctx.testsHere ? `<button class="btn pri" data-action="cr:test"${running ? " disabled" : ""}>${ic("run")}${esc(t("retest"))}</button>` : ""}`
-    : `<button class="btn ghost" data-action="cr:deny">${ic("close")}${esc(t("deny"))}</button><button class="btn pri" data-action="cr:accept"${same ? " disabled" : ""}>${ic("check")}${esc(t(ctx.testsHere ? "acceptTest" : "accept"))}</button>`;
+    ? `<button class="btn ghost" data-action="cr:revert"${busy ? " disabled" : ""}>${ic("history")}${esc(t("revert"))}</button>${ctx.testsHere ? `<button class="btn pri" data-action="cr:test"${busy ? " disabled" : ""}>${ic("run")}${esc(t("retest"))}</button>` : ""}`
+    : ctx.canEditor
+      ? `<button class="btn ghost" data-action="cr:deny"${busy ? " disabled" : ""}>${ic("close")}${esc(t("deny"))}</button><button class="btn ghost" data-action="cr:accept"${same || busy ? " disabled" : ""}>${ic("check")}${esc(t(ctx.testsHere ? "acceptTest" : "acceptAll"))}</button><button class="btn pri" data-action="cr:review-editor" title="${esc(t("reviewEditorTip"))}"${same || busy ? " disabled" : ""}>${ic("review")}${esc(t("reviewEditor"))}</button>`
+      : `<button class="btn ghost" data-action="cr:deny">${ic("close")}${esc(t("deny"))}</button><button class="btn pri" data-action="cr:accept"${same ? " disabled" : ""}>${ic("check")}${esc(t(ctx.testsHere ? "acceptTest" : "accept"))}</button>`;
   const body = ui.codeView === "diff" ? diffHtml(diff, ext, hl) : codeBlock(imp.code, ext, hl, t, null);
-  return `<section class="cr-imp"><div class="cr-imp-h"><b>${esc(t("improved"))}</b><span class="cr-stat notr"><span class="add">+${add}</span> <span class="del">−${del}</span></span>${seg}<span class="sp"></span><button class="btn ghost" data-action="cr:copy-improved">${esc(t("copy"))}</button>${acts}</div>${s.applied ? `<div class="cr-note ok">${esc(t("applied"))}</div>` : same ? `<div class="cr-note">${esc(t("noChange"))}</div>` : ""}<div class="cr-imp-b">${body}</div>${testBox(s, t, ctx)}</section>`;
+  return `<section class="cr-imp"><div class="cr-imp-h"><b>${esc(t("improved"))}</b><span class="cr-stat notr"><span class="add">+${add}</span> <span class="del">−${del}</span></span>${seg}<span class="sp"></span><button class="btn ghost" data-action="cr:copy-improved">${esc(t("copy"))}</button>${acts}</div>${s.inEditor ? `<div class="cr-note run"><span class="cr-spin"></span>${esc(t("inEditor"))}</div>` : s.applied ? `<div class="cr-note ok">${esc(t("applied"))}</div>` : same ? `<div class="cr-note">${esc(t("noChange"))}</div>` : ""}<div class="cr-imp-b">${body}</div>${testBox(s, t, ctx)}</section>`;
 }
 
 export function docHtml(s: DocState, ui: DocUi, hl: Hl, t: T, ext: string, diff: DiffRow[] | null, ic: Icon, ctx: DocCtx): string {

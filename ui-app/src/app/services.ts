@@ -23,6 +23,7 @@ import type * as Diagnostics from "../features/diagnostics";
 import type * as Project from "../features/project/index";
 import type * as Protect from "../features/protect/index";
 import type * as Testing from "../features/testing/index";
+import type * as CodevIndex from "../features/codev/index";
 
 export interface Services {
   /** o Learning Track (features/learn.ts), lido pelo pane do tutor, que avalia antes */
@@ -65,6 +66,8 @@ export interface Services {
   protect: Pick<typeof Protect.protect, "guard">;
   /** o runner ao vivo do separador «Tests» do painel (features/testing, só no desktop): o «Accept & test» do Code review */
   tests: Pick<typeof Testing, "runLive">;
+  /** propostas de ficheiro inteiro revistas no editor, bloco a bloco (features/codev/index.ts): o painel Explain / Code review */
+  proposals: Pick<typeof CodevIndex, "proposeInEditor">;
 }
 
 export const services: Partial<Services> = {};

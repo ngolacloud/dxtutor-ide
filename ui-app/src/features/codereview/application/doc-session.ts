@@ -41,6 +41,8 @@ export interface DocState {
   denied: boolean;
   /** de onde veio (o Explain, quando é «Apply» de uma sugestão): «Back» volta lá */
   back: DocState | null;
+  /** a proposta está a ser revista no editor, bloco a bloco */
+  inEditor: boolean;
 }
 
 /* ───── portas do painel ───── */
@@ -71,11 +73,18 @@ export interface DocView {
   render(state: DocState): void;
 }
 
+/** Rever a proposta no editor: só as linhas que mudam, no sítio, Aceitar / Rejeitar cada bloco (as
+ *  propostas locais do Co-Dev). Resolve com o que ficou aceite e o ficheiro de antes. */
+export interface EditorReviewPort {
+  propose(path: string, content: string, reason: string): Promise<{ applied: number; total: number; before: string }>;
+}
+
 export interface DocDeps {
   ai: AiPort;
   files: FilesPort;
   tests: TestsPort;
   view: DocView;
+  editor?: EditorReviewPort;
   lang(): DocLang;
   copy(key: DocCopyKey, params?: Record<string, string | number>): string;
 }
@@ -96,7 +105,7 @@ export function makeDocSession(deps: DocDeps) {
 
   const fresh = (kind: DocKind, path: string, from: number | null): DocState => ({
     id: ++seq, kind, path, from, status: "idle", text: "", error: null,
-    original: files.read(path) ?? "", improved: null, applied: null, test: null, denied: false, back: null,
+    original: files.read(path) ?? "", improved: null, applied: null, test: null, denied: false, back: null, inEditor: false,
   });
   const paint = () => { if (state) view.render(state); };
 
@@ -210,6 +219,25 @@ export function makeDocSession(deps: DocDeps) {
     paint();
   }
 
+  /** «Review in editor»: a proposta escreve-se no editor, bloco a bloco; o que o humano aceitar fica
+   *  escrito e, onde há testes, correm logo (no separador «Tests»). Nada aceite = recusada. */
+  async function reviewInEditor(): Promise<void> {
+    const s = state, ed = deps.editor;
+    if (!s || !s.improved || !ed || s.inEditor) return;
+    s.inEditor = true;
+    paint();
+    let r: { applied: number; total: number; before: string };
+    try { r = await ed.propose(s.path, s.improved.code, s.kind === "explain" || s.kind === "apply" ? "Explain" : "Code review"); }
+    catch (e) { s.inEditor = false; s.error = e instanceof Error ? e.message : String(e); paint(); return; }
+    if (state !== s) return;
+    s.inEditor = false;
+    if (!r.applied) { s.improved = null; s.denied = true; paint(); return; }
+    s.applied = { prev: r.before };
+    paint();
+    if (tests.unavailable()) { s.test = { status: "unavailable", output: tests.unavailable() ?? "" }; paint(); return; }
+    await test();
+  }
+
   /** «Accept»: aplica e, onde há testes, corre-os logo para provar que nada quebrou. */
   async function accept(): Promise<void> {
     const s = state;
@@ -277,7 +305,7 @@ export function makeDocSession(deps: DocDeps) {
   }
 
   return {
-    explain, review, regenerate, stop, apply, revert, test, fixTests, applySuggestion, goBack, deny, accept,
+    explain, review, regenerate, stop, apply, revert, test, fixTests, applySuggestion, goBack, deny, accept, reviewInEditor,
     state: (): DocState | null => state,
     /** fecha o painel: pára o pedido em curso e esquece o estado (o que foi aplicado fica) */
     close(): void { stop(); state = null; last = null; },

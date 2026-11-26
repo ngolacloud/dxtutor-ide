@@ -117,10 +117,11 @@ export const CODEREVIEW_NOTES: FeatureNotes = {
       covers: ["cr:apply-block", "cr:back"],
     },
     {
-      title: "Código melhorado: Diferenças / Código, Copiar, Aceitar, Recusar, Reverter",
+      title: "Código melhorado: Rever no editor, Diferenças / Código, Copiar, Aceitar, Recusar, Reverter",
       where: ["cartão «Código melhorado» no painel"],
-      what: "Mostra o ficheiro proposto como diferenças (+/−) contra o actual ou com realce, e aceita-o ou recusa-o com possibilidade de voltar atrás.",
+      what: "Mostra o ficheiro proposto como diferenças (+/−) contra o actual ou com realce. «Rever no editor» escreve as mudanças no próprio ficheiro, só nas linhas que mudam, e aceitas ou rejeitas cada bloco lá; ou aceitas tudo de uma vez, ou recusas.",
       howTo: [
+        "«Rever no editor» (o botão principal): o ficheiro abre, cada bloco é escrito no sítio dele com as linhas antigas riscadas, e decides cada um com ✓ / ✗ no próprio bloco; quando acabas, os testes correm no separador «Tests».",
         "O cartão abre nas «Diferenças»; «Código» mostra o ficheiro proposto inteiro.",
         "«Aceitar e testar» escreve o código no ficheiro e corre logo os testes (no browser: «Aceitar», sem testes).",
         "«Recusar» deita a proposta fora; o ficheiro não muda.",
@@ -128,11 +129,12 @@ export const CODEREVIEW_NOTES: FeatureNotes = {
       ],
       flow: [
         "As diferenças são linha a linha (`features/diff/domain/diff.ts`) contra o conteúdo actual do editor.",
+        "«Rever no editor» entrega a proposta às propostas locais do Co-Dev (`codev/application/local-proposals.ts`): os blocos saem do diff (`codev/domain/proposal.ts`) e passam pela mesma revisão de hunks do agente v2; no fim só os aceites são escritos.",
         "Aceitar guarda primeiro o conteúdo anterior; Reverter (ou Recusar depois de aceite) escreve-o de volta.",
       ],
       tips: ["O cabeçalho do cartão fica colado ao topo enquanto percorres o código, com as acções sempre à mão."],
       limits: ["Se o ficheiro mudar entretanto, «Reverter» repõe a versão de antes de aceitar (perde as mudanças feitas depois)."],
-      covers: ["cr:code-view", "cr:copy-improved", "cr:accept", "cr:deny", "cr:revert"],
+      covers: ["cr:code-view", "cr:copy-improved", "cr:accept", "cr:deny", "cr:revert", "cr:review-editor"],
     },
     {
       title: "Aceitar e testar: onde quebrou e como corrigir",

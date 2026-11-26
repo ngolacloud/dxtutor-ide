@@ -224,7 +224,8 @@ describe("o painel (harness): aplicar uma sugestão do Explain", () => {
     await wait();
     expect(side().querySelector(".cr-diff")).not.toBe(null);
     expect(side().querySelectorAll(".cr-diff .cr-cl.add").length).toBeGreaterThan(0);
-    expect(side().querySelector('[data-action="cr:accept"]')!.textContent).toBe("Accept"); // no browser não há testes
+    expect(side().querySelector('[data-action="cr:accept"]')!.textContent).toBe("Accept all"); // no browser não há testes
+    expect(side().querySelector('[data-action="cr:review-editor"]')!.textContent).toBe("Review in editor"); // o principal: bloco a bloco no editor
     side().querySelector<HTMLElement>('[data-action="cr:deny"]')!.click();
     await wait();
     expect(side().querySelector(".cr-imp")).toBe(null);
