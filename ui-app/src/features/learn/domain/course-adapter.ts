@@ -17,6 +17,8 @@ export interface CourseIn {
   id: string; title: string; summary: string; overview: string; units: UnitIn[];
   /** Ausentes num backend antigo: o curso é então de linguagem. */
   language?: string; category?: Category; subject?: string;
+  /** O curso compila contra dependências preparadas uma vez. */
+  prepare?: boolean;
 }
 
 const step = (s: StepIn): Step => ({
@@ -37,6 +39,7 @@ export function fromCourseDto(c: CourseIn): Course {
   return {
     id: c.id, language: c.language ?? "", category, subject: category === "language" ? "" : c.subject ?? "",
     title: c.title, summary: c.summary, overview: c.overview || "", units: c.units.map(unit), origin: "backend",
+    ...(c.prepare ? { prepare: true } : {}),
   };
 }
 
