@@ -61,6 +61,7 @@ import {
   hunkReview,
   codevRun,
   agentMapView,
+  codevsView,
 } from "./codev/index";
 import { services } from "../app/services";
 import type { ChatMessage } from "../app/store/agent";
@@ -389,7 +390,7 @@ const ACTIONS: ActionTable = {
     run: (e) => { ROUTE[e.on] = e.value; bridge.save(); bridge.show(bridge.monolith.currentTabId as string); },
   },
 };
-bindActions({ ...ACTIONS, ...composerActions(), ...agentMapView.actions() });
+bindActions({ ...ACTIONS, ...composerActions(), ...agentMapView.actions(), ...codevsView.actions() });
 
 /* ───── o compositor da conversa (ui/composer.ts): o mundo chega por este host ───── */
 function exportConversation() {
