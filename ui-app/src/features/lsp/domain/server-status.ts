@@ -6,8 +6,9 @@
 
 import { REGISTRY, activeRegistry, serverById } from "./registry";
 
-/** `lspconf::Approval` (camelCase): um servidor que o `.dxtutor/lsp.json` do projecto pede (novo, ou
- *  com outro comando) e que só arranca depois de o humano aprovar o comando exacto. */
+/** `lspconf::Approval` (camelCase): um servidor que o `.dxtutor/lsp.json` do projecto pede (novo, com
+ *  outro comando, ou com outras definições/initOptions). Com outro arranque, só arranca depois de o humano
+ *  aprovar o comando exacto; só com definições, corre com as de confiança até ele aprovar as do projecto. */
 export interface ServerApproval {
   /** a pasta aberta cujo ficheiro o pede */
   project: string;
@@ -28,6 +29,11 @@ export interface ServerApproval {
   changed: string[];
   /** a linha de comando tal como o diálogo e a auditoria a mostram */
   command: string;
+  /** o projecto mudou o arranque: não arranca até ser aprovado (`false`: só definições/initOptions — corre
+   *  com as de confiança até lá) */
+  blocksStart: boolean;
+  /** as definições/initOptions que o projecto dá e o que substituem (`null` se não mudou nenhuma) */
+  config: string | null;
 }
 
 /** `lsp::ServerStatus` (camelCase). */

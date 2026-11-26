@@ -208,12 +208,15 @@ export function makeLspClient(d: LspClientDeps): LspClient {
     const st = await statusOf(doc);
     const appr = pendingApproval(st);
     if (st && appr) {
-      const n = dismissed.has(st.language)
-        ? null
-        : { kind: "approval" as const, title: copy("approvalTitle", { label: appr.label }), detail: copy("approvalDetail", { command: appr.command }), hint: appr.insideProject ? copy("approvalInside") : undefined };
+      // só definições/initOptions: o servidor corre (com as de confiança) e a faixa pede a revisão
+      const fields = appr.changed.filter((f) => f === "settings" || f === "initOptions").join(", ");
+      const text = appr.blocksStart
+        ? { title: copy("approvalTitle", { label: appr.label }), detail: copy("approvalDetail", { command: appr.command }) }
+        : { title: copy("approvalSettingsTitle", { label: appr.label }), detail: copy("approvalSettingsDetail", { label: appr.label, fields }) };
+      const n = dismissed.has(st.language) ? null : { kind: "approval" as const, ...text, hint: appr.insideProject ? copy("approvalInside") : undefined };
       const ov = d.overrides;
       d.editor.notice(doc.key, n, () => dismissed.add(st.language), ov ? { review: () => void reviewApproval(doc, appr) } : undefined);
-      return false;
+      return !appr.blocksStart;
     }
     const miss = st && !dismissed.has(st.language) ? missingServerNotice(st) : null;
     const n = miss ? { ...miss, kind: "missing" as const, hint: copy("overridesHint") } : null;

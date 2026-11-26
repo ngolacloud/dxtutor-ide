@@ -1441,8 +1441,8 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     // formatação, Go to Symbol (Ctrl+Shift+O + o Outline), Go to Symbol in Workspace (Ctrl+T) e a hierarquia de tipos (Shift+Alt+T). Só corre para as linguagens com servidor instalado.
     for (const lang of ["java", "kotlin"] as const) await step("lsp-" + lang, () => lspProbe(lang));
     // LSP P2: os overrides no backend real — o vigia vê o .dxtutor/lsp.json mudar (sem reiniciar), um ficheiro
-    // inválido aparece no aviso, um comando do projecto espera pela aprovação (recusa e aprovação auditadas), e o
-    // lsp.json do utilizador grava-se e aplica-se. O comando do projecto é um `sh` que sai logo (nada corre).
+    // inválido aparece no aviso, um comando do projecto espera pela aprovação (recusa e aprovação auditadas), as
+    // definições do projecto também, e o lsp.json do utilizador grava-se e aplica-se. O comando do projecto é um `sh` que sai logo (nada corre).
     await step("lspOverrides", () => lspOverridesProbe());
   }
   /* sem handlers inline em lado nenhum do DOM vivo (depois de o auto-teste ter aberto as vistas) e sem violações do CSP */
@@ -1494,6 +1494,10 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       // o comando muda → volta a pedir
       await put(`{ "servers": [ { "id": "sql", "command": "sh", "args": ["-c", "exit 1", "${run}"] } ] }`);
       out.changedAsksAgain = !!(await tauriLspConfig.config(root)).servers.find((s) => s.id === "sql")?.approval;
+      // só definições do projecto: também pedem aprovação, mas o servidor arranca com as de confiança
+      await put(`{ "servers": [ { "id": "sql", "settings": { "sqls": { "selftest": "${run}" } } } ] }`);
+      const sa = (await tauriLspConfig.config(root)).servers.find((s) => s.id === "sql")?.approval;
+      out.settingsAsk = sa ? { blocksStart: sa.blocksStart, changed: sa.changed, shown: !!sa.config?.includes(run) } : "FAIL: settings not gated";
     }
     // 3. o lsp.json do utilizador: grava, aplica; inválido → relatório com o erro
     const before = await tauriLspConfig.configFile("user", null);

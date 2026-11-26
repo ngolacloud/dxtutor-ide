@@ -815,18 +815,23 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
   → `settings.java.format`; chaves com pontos no topo contam como aninhadas), `null` sem definições (como antes).
   As sessões arrancam com `current_dir` na raiz. O editor guarda o texto dos documentos abertos (`docs()`): um
   servidor que (re)arranca recebe o `didOpen` de cada um antes do primeiro pedido (`ensure_doc_open`).
-- **Confiança (regra no Rust).** O `lsp.json` do utilizador é dele: confiado. Um servidor que o `.dxtutor/lsp.json`
-  ACRESCENTA, ou cujo `command`/`args`/`resolver`/`searchDirs`/`envOverride` muda em relação ao valor confiado
-  (embutido + utilizador; `LAUNCH_FIELDS`), não arranca (`session_for`, `lsp_start`, `reconcile`) até o humano
-  aprovar o comando exacto: `lsp_server_status` devolve o `approval` (programa resolvido, args, pasta, ficheiro,
-  campos mudados, hash), a faixa do editor tem «Review…», o diálogo partilhado decide e `lsp_approve_server` confere
-  o hash, grava a decisão no registo de auditoria ANTES (`lsp.server.approve`; sem auditoria não aprova) e guarda-a
-  em `<app_config_dir>/lsp-trusted.json` (0600; nunca no projecto). O hash (`approval_hash`) junta o projecto, o
-  servidor, o programa encontrado, os campos de arranque e, para um programa DENTRO do projecto, o conteúdo dele:
-  mudou → volta a pedir. Definições, initOptions e marcadores não pedem aprovação (GOTCHA: um servidor pode correr o
-  que as definições lhe disserem, p.ex. o `overrideCommand` do rust-analyzer — o dxtutor não as inspecciona). O
-  `install` continua só texto, e o «Install» sai quando um override troca o `command` (instalaria outro programa).
-  O cliente de um pedido (`tutor_eval::lsp`) e o `codeintel` continuam com o registo embutido.
+- **Confiança (regra no Rust).** O `lsp.json` do utilizador é dele: confiado. Do `.dxtutor/lsp.json` nada que possa
+  pôr um servidor a correr algo vale sem o humano: (1) um servidor que ele ACRESCENTA, ou cujo
+  `command`/`args`/`resolver`/`searchDirs`/`envOverride` muda em relação ao valor confiado (embutido + utilizador;
+  `LAUNCH_FIELDS`), não arranca; (2) `settings`/`initOptions` diferentes das de confiança (`CONFIG_FIELDS`; p.ex. o
+  `check.overrideCommand` do rust-analyzer corre um comando) não se aplicam — o servidor arranca com as de confiança
+  (`Effective::trusted_config`) para a linguagem continuar a funcionar. `lsp.rs::gate` decide (em `open_session`,
+  `lsp_start`, `restart` e `reconcile`); `lsp_server_status` devolve o `approval` (programa resolvido, args, pasta,
+  ficheiro, campos mudados, `blocksStart`, `config` — as definições/initOptions do projecto e o que substituem —,
+  hash); a faixa do editor tem «Review…», o diálogo partilhado mostra o comando e as definições, e
+  `lsp_approve_server` confere o hash, grava a decisão no registo de auditoria ANTES (`lsp.server.approve`, com o
+  comando e as definições; sem auditoria não aprova), guarda-a em `<app_config_dir>/lsp-trusted.json` (0600; nunca no
+  projecto) e reconcilia as sessões do projecto (definições → `didChangeConfiguration`; initOptions → reinício). O
+  hash (`approval_hash`) junta o projecto, o servidor, o programa encontrado, os campos de arranque, as definições e
+  initOptions efectivas e, para um programa DENTRO do projecto, o conteúdo dele: mudou → volta a pedir. Marcadores,
+  nomes e extensões não correm nada e não pedem aprovação. O `install` continua só texto, e o «Install» sai quando um
+  override troca o `command` (instalaria outro programa). O cliente de um pedido (`tutor_eval::lsp`) e o `codeintel`
+  continuam com o registo embutido.
 - **UI dos overrides** (`application/overrides.ts`, `ui/config-view.ts`, catálogo `application/override-messages.ts`):
   o registo efectivo entra em uso ao abrir a pasta (`lsp_config` → `useRegistry`, lido também pelo editor, explorador
   e extensões), a paleta tem «LSP: Open User Language Server Settings» (`#lsp-config`, um editor próprio: o ficheiro

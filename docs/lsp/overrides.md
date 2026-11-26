@@ -6,7 +6,7 @@ Two override files let you change that table without touching the dxtutor source
 | File | Where | Applies to | Trusted |
 |---|---|---|---|
 | Your file | the app's config folder: `~/.config/ao.ngolacloud.dxtutor-ide/lsp.json` on Linux | every folder you open | yes |
-| The project file | `<project>/.dxtutor/lsp.json` | that folder only | no: a changed command needs your approval |
+| The project file | `<project>/.dxtutor/lsp.json` | that folder only | no: changed commands and settings need your approval |
 
 They are merged in this order: **bundled registry → your file → project file**. A later file wins.
 
@@ -89,11 +89,12 @@ dxtutor also sends the settings in `workspace/didChangeConfiguration`:
 - when the server starts, if it has settings;
 - whenever they change.
 
-Changing only `settings` never restarts the server.
+Changing only `settings` never restarts the server. Settings that come from a project file are applied only
+after you approve them (see below).
 
 ## Examples
 
-Run clippy instead of `cargo check` (in your file or in a project's file):
+Run clippy instead of `cargo check` (in your file; in a project's file you approve it first):
 
 ```jsonc
 { "servers": [ { "id": "rust", "settings": { "rust-analyzer": { "check": { "command": "clippy" } } } } ] }
@@ -149,32 +150,40 @@ not valid JSON: expected `,` or `]` at line 4 column 3
 language `go`: extension `rs` is also claimed by `rust`
 ```
 
-## Approving a project's command
+## Approving what a project changes
 
-A project file comes with a repository you may have just cloned. If it **adds a server**, or **changes how one
-starts**, that server does not run until you approve it. "How it starts" means `command`, `args`, `resolver`,
-`searchDirs` or `envOverride`, compared with the bundled value plus your file.
+A project file comes with a repository you may have just cloned. dxtutor trusts nothing in it that could make a
+language server run something:
 
-When you open a file of that language, a banner shows the exact command. **Review…** opens the approval
-dialog, which shows:
+- **Launch fields.** If the project file adds a server, or changes `command`, `args`, `resolver`, `searchDirs` or
+  `envOverride`, that server **does not start** until you approve it.
+- **Settings and init options.** If the project file changes a server's `settings` or `initOptions`, the server
+  **starts with your settings** (the bundled ones plus your file) and the project's are **not applied** until you
+  approve them. Settings can make a server run commands; rust-analyzer's `check.overrideCommand` is one example.
+
+"Changes" means a different value from the bundled registry plus your file. A project that repeats your values,
+or only changes fields such as `rootMarkers`, `label` or a language's extensions, needs no approval.
+
+When you open a file of that language, a banner says what waits. **Review…** opens the approval dialog. It
+shows:
 
 - the program (the full path dxtutor found);
 - its arguments and the folder it runs in;
+- the project's `settings` and `initOptions`, and what they replace;
 - the file that asked for it and the fields it changed;
 - whether the program lives inside the project folder.
 
-Approve it and the server starts. Deny it and nothing runs. You can review it again later.
+Approve, and the server starts, or gets the project's settings (a change to `initOptions` restarts it). Deny, and
+nothing the project asked for runs. You can review it again later.
 
 - dxtutor writes the decision to the project's audit log **before** anything else. If it cannot record the
   decision, the approval does not count.
 - dxtutor keeps approvals in `lsp-trusted.json` in the app's config folder, never in the project. A
   repository cannot ship its own approval.
-- An approval covers one project, one server and one exact command: the program file found, every launch field,
-  and, for a program inside the project folder, its content. If any of these changes, dxtutor asks again.
-- Settings, `initOptions`, `rootMarkers` and the other fields need no approval. Note that some servers run commands
-  their settings name (for example rust-analyzer's `check.overrideCommand`). Read a project's settings before you
-  trust the project.
-- Your own file is trusted. A command set there runs without asking, in every folder.
+- An approval covers one project, one server and one exact configuration: the program file found, every launch
+  field, the settings and init options, and, for a program inside the project folder, its content. If any of
+  these changes, dxtutor asks again.
+- Your own file is trusted. Commands and settings set there apply without asking, in every folder.
 
 ## Limits
 

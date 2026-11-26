@@ -161,7 +161,11 @@ export function makeOverrides(d: OverridesDeps): Overrides {
 
   async function review(a: ServerApproval): Promise<boolean> {
     const scope = copy("dialogScope", { cwd: a.cwd, file: a.file, changed: a.changed.join(", ") }) + (a.insideProject ? copy("dialogInside") : "");
-    const dec = await d.human.approve({ title: copy("dialogTitle", { label: a.label }), command: a.command, scope });
+    const fields = a.changed.filter((f) => f === "settings" || f === "initOptions").join(", ");
+    const title = a.blocksStart ? copy("dialogTitle", { label: a.label }) : copy("dialogSettingsTitle", { label: a.label, fields });
+    // o comando e, por baixo, as definições/initOptions que o projecto dá (e o que substituem)
+    const command = a.config ? `${a.command}\n\n${a.config}` : a.command;
+    const dec = await d.human.approve({ title, command, scope });
     try {
       // o backend audita a decisão ANTES de guardar a aprovação (sem auditoria, não aprova)
       await d.config.approveServer(a.project, a.server, a.hash, dec.approved, dec.reason, dec.decidedAt);

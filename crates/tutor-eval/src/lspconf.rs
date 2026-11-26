@@ -12,10 +12,13 @@
 //! The user file is the user's: trusted. A project file comes with a repository. When it adds a
 //! server, or changes how one starts (the [`LAUNCH_FIELDS`]: which program, found where, with which
 //! arguments), that server does not start until the human approves the exact program, arguments
-//! and folder ([`approval_request`]). The approval is kept per project, server and
-//! [`approval_hash`] ([`TrustStore`]): when the command changes, the hash changes and the server
-//! waits for a new approval. Settings, init options, root markers and every other field need no
-//! approval.
+//! and folder ([`approval_request`]). When it changes a server's `settings` or `initOptions`
+//! ([`CONFIG_FIELDS`]: a server may run a command its settings name, e.g. rust-analyzer's
+//! `check.overrideCommand`), the server runs with the trusted values only ([`Effective::trusted_config`])
+//! until the human approves the project's values, which the dialog shows. The approval is kept per
+//! project, server and [`approval_hash`] ([`TrustStore`]): when the command, the settings or the
+//! init options change, the hash changes and the server waits for a new approval. Root markers,
+//! labels and the other fields run nothing and need no approval.
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -42,6 +45,10 @@ pub const MAX_FILE_BYTES: u64 = 512 * 1024;
 /// The server fields that decide WHAT runs: a project that sets any of them to something else than
 /// the trusted (bundled + user) value needs the human's approval before the server starts.
 pub const LAUNCH_FIELDS: &[&str] = &["command", "args", "resolver", "searchDirs", "envOverride"];
+
+/// The server fields that configure a running server: a project that sets them to something else
+/// than the trusted value needs approval too; until then the server gets the trusted values.
+pub const CONFIG_FIELDS: &[&str] = &["settings", "initOptions"];
 
 /// The project file of an open folder.
 pub fn project_file(root: &Path) -> PathBuf {
@@ -74,9 +81,11 @@ pub const USER_TEMPLATE: &str = r##"// dxtutor — your language servers (this f
 /// What a new project file holds.
 pub const PROJECT_TEMPLATE: &str = r##"// dxtutor — language servers for THIS project (.dxtutor/lsp.json).
 // Merged over the bundled registry and your user file (Command Palette → "LSP: Open User Language
-// Server Settings"). Same fields as there. Settings need no approval; a server this file adds, or
-// whose command, args, resolver, searchDirs or envOverride it changes, does not start until you
-// approve the exact command (it came with the repository). Field reference: docs/lsp/overrides.md
+// Server Settings"). Same fields as there. It came with the repository, so you approve what it
+// changes: a server this file adds, or whose command, args, resolver, searchDirs or envOverride it
+// changes, does not start until you approve the exact command; settings and initOptions it gives
+// are not applied (the server runs with yours) until you approve them. Field reference:
+// docs/lsp/overrides.md
 {
   "version": 1,
   "languages": [],
@@ -262,6 +271,34 @@ impl Effective {
             }
         }
     }
+
+    /// The config fields ([`CONFIG_FIELDS`]) the project file set to something else than the
+    /// trusted value (both, for a server the project adds and configures).
+    pub fn project_config_changes(&self, server_id: &str) -> Vec<&'static str> {
+        let Some(eff) = self.registry.server(server_id) else {
+            return Vec::new();
+        };
+        let (ts, ti) = self.trusted_config(server_id);
+        let mut out = Vec::new();
+        if crate::langreg::normalize_settings(&eff.settings)
+            != crate::langreg::normalize_settings(&ts)
+        {
+            out.push("settings");
+        }
+        if eff.init_options != ti {
+            out.push("initOptions");
+        }
+        out
+    }
+
+    /// The `settings` and `initOptions` of a server without the project file (bundled + user;
+    /// `null` for a server the project adds): what it runs with until the project's are approved.
+    pub fn trusted_config(&self, server_id: &str) -> (Value, Value) {
+        self.trusted
+            .server(server_id)
+            .map(|t| (t.settings.clone(), t.init_options.clone()))
+            .unwrap_or((Value::Null, Value::Null))
+    }
 }
 
 /// The launch fields of a server, as JSON (the resolver with its default spelled out).
@@ -295,14 +332,79 @@ pub struct Approval {
     pub hash: String,
     /// the program lives inside the project folder (it came with the repository)
     pub inside_project: bool,
-    /// the launch fields the project set
+    /// the launch and config fields the project set
     pub changed: Vec<String>,
     /// the command line as the dialog and the audit log show it
     pub command: String,
+    /// the project changed how the server starts: it does not start until approved. `false` = only
+    /// settings/initOptions: it runs with the trusted ones until approved
+    pub blocks_start: bool,
+    /// the settings/initOptions the project gives, and what they replace (for the dialog and the
+    /// audit log); `None` when the project changed none
+    pub config: Option<String>,
 }
 
-/// What an approval is bound to: the project, the server, the resolved program and every launch
-/// field — and, for a program inside the project folder, its content ([`file_digest`]): a
+impl Approval {
+    /// What the dialog shows and the audit log records: the command line, then the project's
+    /// settings/initOptions (clipped so the audit row stays under its 8 KiB).
+    pub fn audit_text(&self) -> String {
+        let full = match &self.config {
+            Some(c) => format!("{}\n\n{}", self.command, c),
+            None => self.command.clone(),
+        };
+        if full.len() <= AUDIT_MAX {
+            return full;
+        }
+        let mut end = AUDIT_MAX;
+        while !full.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}\n… (clipped)", &full[..end])
+    }
+}
+
+/// The most the audit row's command holds here (the log takes 8 KiB).
+const AUDIT_MAX: usize = 7000;
+
+/// JSON for a person, clipped to `max` characters.
+fn pretty_clipped(v: &Value, max: usize) -> String {
+    let p = serde_json::to_string_pretty(v).unwrap_or_default();
+    if p.chars().count() <= max {
+        p
+    } else {
+        let mut s: String = p.chars().take(max).collect();
+        s.push_str("\n… (clipped; the approval covers all of it)");
+        s
+    }
+}
+
+/// The config fields the project changed, as the dialog shows them.
+fn config_text(eff: &Effective, server: &Server, changed: &[&str]) -> Option<String> {
+    let (ts, ti) = eff.trusted_config(&server.id);
+    let parts: Vec<String> = changed
+        .iter()
+        .map(|f| {
+            let (now, was) = if *f == "settings" {
+                (&server.settings, &ts)
+            } else {
+                (&server.init_options, &ti)
+            };
+            let was = if was.is_null() {
+                "none".to_string()
+            } else {
+                pretty_clipped(was, 1200)
+            };
+            format!(
+                "{f} from .dxtutor/lsp.json:\n{}\n(without the project: {was})",
+                pretty_clipped(now, 2400)
+            )
+        })
+        .collect();
+    (!parts.is_empty()).then(|| parts.join("\n\n"))
+}
+
+/// What an approval is bound to: the project, the server, the resolved program, every launch
+/// field and the effective settings and init options — and, for a program inside the project folder, its content ([`file_digest`]): a
 /// repository that replaces the approved binary at the same path is asking again. A different
 /// command, arguments, place to look or program file is a different hash.
 pub fn approval_hash(project: &str, server: &Server, program: &str) -> String {
@@ -317,6 +419,8 @@ pub fn approval_hash(project: &str, server: &Server, program: &str) -> String {
         "program": program,
         "content": content,
         "launch": launch_of(server),
+        "settings": crate::langreg::normalize_settings(&server.settings),
+        "initOptions": server.init_options,
     });
     let mut h = Sha256::new();
     h.update(doc.to_string().as_bytes());
@@ -388,8 +492,9 @@ pub fn approval_request(
     if !eff.project.as_ref().is_some_and(|p| p.applied) {
         return None;
     }
-    let changed = eff.project_launch_changes(server_id);
-    if changed.is_empty() {
+    let launch = eff.project_launch_changes(server_id);
+    let config = eff.project_config_changes(server_id);
+    if launch.is_empty() && config.is_empty() {
         return None;
     }
     let server = eff.registry.server(server_id)?;
@@ -409,8 +514,14 @@ pub fn approval_request(
         file: project_file(root).display().to_string(),
         hash,
         inside_project: inside,
-        changed: changed.iter().map(|s| s.to_string()).collect(),
+        changed: launch
+            .iter()
+            .chain(&config)
+            .map(|s| s.to_string())
+            .collect(),
         command: command_line(program, &server.args),
+        blocks_start: !launch.is_empty(),
+        config: config_text(eff, server, &config),
     })
 }
 
@@ -787,17 +898,14 @@ mod tests {
         let trust = TrustStore::new(d.path().join("cfg").join(TRUST_FILE));
         let (_p, user, root) = setup(
             Some(r#"{ "servers": [ { "id": "go", "command": "my-gopls" } ] }"#),
-            Some(
-                r#"{ "servers": [ { "id": "rust", "settings": { "rust-analyzer": {} } },
-                                   { "id": "python", "args": ["--stdio", "--verbose"] } ] }"#,
-            ),
+            Some(r#"{ "servers": [ { "id": "python", "args": ["--stdio", "--verbose"] } ] }"#),
         );
         let eff = Effective::load(registry(), Some(&user), Some(&root));
         let proj = root.display().to_string();
         let program = "/usr/bin/pyright-langserver";
-        // settings only, or the user's own command: no approval
-        assert!(approval_request(&eff, "rust", "/x/rust-analyzer", &proj, &trust).is_none());
+        // the user's own command, or a server the project does not touch: no approval
         assert!(approval_request(&eff, "go", "/x/my-gopls", &proj, &trust).is_none());
+        assert!(approval_request(&eff, "rust", "/x/rust-analyzer", &proj, &trust).is_none());
         // a project that changes the arguments: approval, with everything the dialog shows
         let a = approval_request(&eff, "python", program, &proj, &trust).unwrap();
         assert_eq!(a.server, "python");
@@ -857,6 +965,76 @@ mod tests {
         // a broken approvals file approves nothing
         std::fs::write(trust.path(), "{not json").unwrap();
         assert!(!trust.is_approved(&b.project, "python", &b.hash));
+    }
+
+    #[test]
+    fn project_settings_and_init_options_need_approval_but_the_users_do_not() {
+        let d = tempfile::tempdir().unwrap();
+        let trust = TrustStore::new(d.path().join(TRUST_FILE));
+        let (_p, user, root) = setup(
+            Some(
+                r#"{ "servers": [ { "id": "go", "settings": { "gopls": { "staticcheck": true } } } ] }"#,
+            ),
+            Some(
+                r#"{ "servers": [
+                  { "id": "rust", "settings": { "rust-analyzer.check.overrideCommand": ["sh", "-c", "evil"] } },
+                  { "id": "java", "initOptions": { "extendedClientCapabilities": {} } },
+                  { "id": "go", "settings": { "gopls": { "staticcheck": true } } }
+                ] }"#,
+            ),
+        );
+        let eff = Effective::load(registry(), Some(&user), Some(&root));
+        assert!(eff.project.as_ref().unwrap().applied, "{:?}", eff.project);
+        let proj = root.display().to_string();
+        // the project sets a setting that can run a command: approval, and the server still starts
+        // (with the trusted settings) — the dialog shows what the project gives
+        let a = approval_request(&eff, "rust", "/x/rust-analyzer", &proj, &trust).unwrap();
+        assert_eq!(a.changed, ["settings"]);
+        assert!(!a.blocks_start);
+        let cfg = a.config.clone().unwrap();
+        assert!(
+            cfg.contains("overrideCommand") && cfg.contains("evil"),
+            "{cfg}"
+        );
+        assert!(cfg.contains("without the project: none"), "{cfg}");
+        assert!(a
+            .audit_text()
+            .starts_with("/x/rust-analyzer\n\nsettings from .dxtutor/lsp.json"));
+        // a huge settings block still fits the audit row
+        let mut big = a.clone();
+        big.config = Some("é".repeat(9000));
+        assert!(big.audit_text().len() <= AUDIT_MAX + 20);
+        assert_eq!(eff.trusted_config("rust"), (Value::Null, Value::Null));
+        // initOptions too; the trusted ones are the bundled ones
+        let j = approval_request(&eff, "java", "/x/jdtls", &proj, &trust).unwrap();
+        assert_eq!(j.changed, ["initOptions"]);
+        assert!(!j.blocks_start);
+        assert_eq!(
+            eff.trusted_config("java").1,
+            registry().server("java").unwrap().init_options
+        );
+        // the project repeating the user's settings changes nothing: no approval
+        assert!(eff.project_config_changes("go").is_empty());
+        assert!(approval_request(&eff, "go", "/x/gopls", &proj, &trust).is_none());
+        // approved → remembered; the project then changes the settings → asked again
+        trust.approve(&a.project, "rust", &a.hash, 1).unwrap();
+        assert!(approval_request(&eff, "rust", "/x/rust-analyzer", &proj, &trust).is_none());
+        write(
+            &project_file(&root),
+            r#"{ "servers": [ { "id": "rust", "settings": { "rust-analyzer.check.overrideCommand": ["sh", "-c", "worse"] } } ] }"#,
+        );
+        let changed = Effective::load(registry(), Some(&user), Some(&root));
+        let b = approval_request(&changed, "rust", "/x/rust-analyzer", &proj, &trust).unwrap();
+        assert_ne!(a.hash, b.hash);
+        // a project that changes the command AND the settings blocks the start
+        write(
+            &project_file(&root),
+            r#"{ "servers": [ { "id": "rust", "args": ["-v"], "settings": { "x": 1 } } ] }"#,
+        );
+        let both = Effective::load(registry(), Some(&user), Some(&root));
+        let c = approval_request(&both, "rust", "/x/rust-analyzer", &proj, &trust).unwrap();
+        assert_eq!(c.changed, ["args", "settings"]);
+        assert!(c.blocks_start);
     }
 
     #[test]

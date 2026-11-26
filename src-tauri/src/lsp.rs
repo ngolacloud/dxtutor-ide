@@ -851,6 +851,8 @@ fn get_or_start(
             if s.lock().map(|g| g.fingerprint == fp).unwrap_or(false) {
                 drop(m);
                 wait_initialized(&s, INIT_BUDGET);
+                // the same start-up, maybe newer settings (an approval, or a reload not seen yet)
+                sync_settings(&s, &lang.server.settings);
                 return Ok(s);
             }
             m.remove(key);
@@ -1046,6 +1048,49 @@ fn pending_approval(lang: &Lang, program: &str, cwd: &str) -> Option<lspconf::Ap
     lspconf::approval_request(&lang.eff, &lang.id, program, cwd, &trust())
 }
 
+/// What a session group may run with now: its entry; or — while the project's `settings` /
+/// `initOptions` wait for the human — the entry with the trusted ones (bundled + user), so the
+/// language still works and nothing the project configured is applied; `Err` when the project
+/// changed how it starts and it may not start at all.
+fn gate(lang: &Lang, program: &str, cwd: &str) -> Result<Lang, Box<lspconf::Approval>> {
+    match pending_approval(lang, program, cwd) {
+        None => Ok(lang.clone()),
+        Some(a) if a.blocks_start => Err(Box::new(a)),
+        Some(_) => {
+            let mut l = lang.clone();
+            let (settings, init) = l.eff.trusted_config(&l.id);
+            l.server.settings = settings;
+            l.server.init_options = init;
+            Ok(l)
+        }
+    }
+}
+
+/// Give a running session these settings, if they are not the ones it has
+/// (`workspace/didChangeConfiguration`).
+fn sync_settings(s: &Arc<Mutex<Session>>, settings: &Value) {
+    let new_settings = langreg::normalize_settings(settings);
+    let changed = match s.lock() {
+        Ok(mut g) if g.settings != new_settings => {
+            g.settings = new_settings.clone();
+            true
+        }
+        _ => false,
+    };
+    if changed {
+        let payload = if new_settings.is_null() {
+            json!({})
+        } else {
+            new_settings
+        };
+        let _ = session_notify(
+            s,
+            "workspace/didChangeConfiguration",
+            json!({ "settings": payload }),
+        );
+    }
+}
+
 /// Resolve the session a file belongs to: its language (by name/extension, or first line), its project root
 /// (nearest marker), and the server for that language — starting it if needed — with the file open
 /// in it. Blocking. `None` when the file's language has no server, no project root is found, the
@@ -1075,9 +1120,11 @@ fn open_session(
         Ok(c) => c,
         Err(_) => return Ok(None), // server not installed → no session; frontend falls back
     };
-    if pending_approval(&lang, &program, &root).is_some() {
-        return Ok(None); // the project's command waits for the human (`lsp_server_status` says so)
-    }
+    // a project command waiting for the human does not start; project settings waiting for the
+    // human are not applied (`lsp_server_status` says so in both cases)
+    let Ok(lang) = gate(&lang, &program, &root) else {
+        return Ok(None);
+    };
     let key = session_key(&lang, &root);
     let session = get_or_start(map, app, &key, &root, &lang, &program, &args)?;
     let opened = ensure_doc_open(&session, path)?;
@@ -1277,28 +1324,27 @@ fn reconcile(app: &AppHandle, map: &SessionMap, old: &HashMap<String, Arc<Effect
             remove_session(map, &key, &s); // gone, or no language uses it any more
             continue;
         };
-        if fingerprint(&server) != fp {
+        let lang = Lang::of(&server, project.clone(), eff.clone());
+        // what it may run with now (the project's settings only once approved)
+        let run = match server_cmd(&server) {
+            Ok((program, _)) => gate(&lang, &program, root),
+            Err(_) => {
+                remove_session(map, &key, &s); // no longer installed (another command)
+                continue;
+            }
+        };
+        let Ok(run) = run else {
+            remove_session(map, &key, &s); // the project changed its command: waits for the human
+            continue;
+        };
+        if fingerprint(&run.server) != fp {
             remove_session(map, &key, &s);
-            let lang = Lang::of(&server, project.clone(), eff.clone());
             let (map, app, key, root) = (map.clone(), app.clone(), key.clone(), root.to_string());
             thread::spawn(move || restart(&map, &app, &key, &root, &lang));
             continue;
         }
-        let new_settings = langreg::normalize_settings(&server.settings);
-        if new_settings != settings {
-            if let Ok(mut g) = s.lock() {
-                g.settings = new_settings.clone();
-            }
-            let payload = if new_settings.is_null() {
-                json!({})
-            } else {
-                new_settings
-            };
-            let _ = session_notify(
-                &s,
-                "workspace/didChangeConfiguration",
-                json!({ "settings": payload }),
-            );
+        if langreg::normalize_settings(&run.server.settings) != settings {
+            sync_settings(&s, &run.server.settings);
         }
     }
 }
@@ -1318,10 +1364,10 @@ fn restart(map: &SessionMap, app: &AppHandle, key: &str, root: &str, lang: &Lang
     let Ok((program, args)) = server_cmd(&lang.server) else {
         return;
     };
-    if pending_approval(lang, &program, root).is_some() {
+    let Ok(lang) = gate(lang, &program, root) else {
         return;
-    }
-    let Ok(session) = get_or_start(map, app, key, root, lang, &program, &args) else {
+    };
+    let Ok(session) = get_or_start(map, app, key, root, &lang, &program, &args) else {
         return;
     };
     for path in docs_in(key) {
@@ -1346,8 +1392,10 @@ pub struct ServerView {
     pub entry: Server,
     /// the layers that made it (`bundled`, `user`, `project`)
     pub sources: Vec<&'static str>,
-    /// the launch fields the project file set (empty: it runs as bundled/user say)
+    /// the launch fields the project file set (empty: it starts as bundled/user say)
     pub project_launch: Vec<&'static str>,
+    /// the settings/initOptions the project file set (applied only once approved)
+    pub project_config: Vec<&'static str>,
     /// the approval it still needs (installed, and the project changed how it starts)
     pub approval: Option<lspconf::Approval>,
 }
@@ -1371,12 +1419,18 @@ fn config_view(project: Option<&str>) -> LspConfigView {
         .servers
         .iter()
         .map(|s| {
-            let project_launch = if eff.project.as_ref().is_some_and(|p| p.applied) {
+            let applied = eff.project.as_ref().is_some_and(|p| p.applied);
+            let project_launch = if applied {
                 eff.project_launch_changes(&s.id)
             } else {
                 Vec::new()
             };
-            let approval = if project_launch.is_empty() {
+            let project_config = if applied {
+                eff.project_config_changes(&s.id)
+            } else {
+                Vec::new()
+            };
+            let approval = if project_launch.is_empty() && project_config.is_empty() {
                 None
             } else {
                 server_cmd(s).ok().and_then(|(program, _)| {
@@ -1388,6 +1442,7 @@ fn config_view(project: Option<&str>) -> LspConfigView {
                 entry: s.clone(),
                 sources: eff.sources_of("server", &s.id),
                 project_launch,
+                project_config,
                 approval,
             }
         })
@@ -1543,7 +1598,7 @@ pub async fn lsp_approve_server(
             crate::board::IdeAudit {
                 feature: "lsp".into(),
                 action: "lsp.server.approve".into(),
-                command: req.command.clone(),
+                command: req.audit_text(),
                 scope: Some(format!(
                     "{} · asked by {} · cwd {}",
                     req.label, req.file, req.cwd
@@ -1559,6 +1614,9 @@ pub async fn lsp_approve_server(
             return Ok(());
         }
         trust().approve(&project, &server, &hash, crate::board::now_ms())?;
+        // running sessions of this project get what was approved (a settings-only approval: the
+        // project's settings; initOptions: a restart)
+        reconcile(&app, &map, &HashMap::from([(project.clone(), eff.clone())]));
         // the open files of this language start their server now
         let paths: Vec<String> = docs().lock().unwrap().keys().cloned().collect();
         for p in paths {
@@ -1597,9 +1655,9 @@ pub async fn lsp_start(
                 .any(|m| std::path::Path::new(&root).join(m).exists())
             {
                 if let Ok((program, args)) = server_cmd(&lang.server) {
-                    if pending_approval(&lang, &program, &root).is_some() {
+                    let Ok(lang) = gate(&lang, &program, &root) else {
                         continue;
-                    }
+                    };
                     let key = session_key(&lang, &root);
                     let _ = get_or_start(&map, &app, &key, &root, &lang, &program, &args);
                 }
@@ -2783,7 +2841,7 @@ mod override_tests {
         assert_eq!(lang.project.as_deref(), Some(root.as_str()));
         // elsewhere the bundled registry: Markdown has no server
         assert!(lang_for_path("/elsewhere/README.md").is_none());
-        // a settings-only or re-pointing project change needs no approval
+        // re-pointing a language to a trusted server needs no approval
         assert!(lang.eff.project_launch_changes("sql").is_empty());
         let view = config_view(Some(&root));
         assert!(view.project_file.as_ref().unwrap().applied);
@@ -2793,6 +2851,43 @@ mod override_tests {
             .languages
             .iter()
             .any(|l| l.id == "markdown" && l.server.as_deref() == Some("sql")));
+    }
+
+    #[test]
+    fn project_settings_wait_for_approval_and_the_server_runs_with_the_trusted_ones() {
+        let (_d, root) = project(&[(
+            ".dxtutor/lsp.json",
+            r#"{ "servers": [ { "id": "sql", "settings": { "sqls": { "connections": [ { "driver": "x" } ] } },
+                               "initOptions": { "a": 1 } } ] }"#,
+        )]);
+        let lang = lang_for_path(&format!("{root}/q.sql")).unwrap();
+        // the effective entry has the project's settings…
+        assert_eq!(
+            lang.server.settings["sqls"]["connections"][0]["driver"],
+            "x"
+        );
+        let a = pending_approval(&lang, "/x/sqls", &root).expect("project settings need approval");
+        assert!(!a.blocks_start);
+        assert_eq!(a.changed, ["settings", "initOptions"]);
+        assert!(a.config.as_deref().unwrap().contains("\"driver\": \"x\""));
+        // …but until approved the server runs with the trusted ones (none for sqls)
+        let run = gate(&lang, "/x/sqls", &root).expect("it still starts");
+        assert!(run.server.settings.is_null() && run.server.init_options.is_null());
+        assert_ne!(fingerprint(&run.server), fingerprint(&lang.server));
+        // the view says so too
+        let view = config_view(Some(&root));
+        let sql = view.servers.iter().find(|s| s.entry.id == "sql").unwrap();
+        assert_eq!(sql.project_config, ["settings", "initOptions"]);
+        assert!(sql.project_launch.is_empty());
+        // a project command blocks the start
+        std::fs::write(
+            format!("{root}/.dxtutor/lsp.json"),
+            r#"{ "servers": [ { "id": "sql", "args": ["-x"], "settings": { "a": 1 } } ] }"#,
+        )
+        .unwrap();
+        conf().lock().unwrap().cache.remove(&root);
+        let lang = lang_for_path(&format!("{root}/q.sql")).unwrap();
+        assert!(matches!(gate(&lang, "/x/sqls", &root), Err(a) if a.blocks_start));
     }
 
     #[test]

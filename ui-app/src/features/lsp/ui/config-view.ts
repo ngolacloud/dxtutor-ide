@@ -122,7 +122,7 @@ function showEffective(view: LspConfigView, selected: string | null, review: (se
     }
     body.innerHTML =
       `<p class="lsp-eff-meta">${esc(t("effSources", { sources: e.sources.join(" → ") }))} · ${esc(t("effLanguages", { list: e.languages.join(", ") || t("effNone") }))}</p>` +
-      (e.approval ? `<p class="lsp-eff-pending">${esc(t("effPending", { command: e.approval.command }))} <button class="mini pri" type="button" data-k="review">${esc(t("review"))}</button></p>` : "") +
+      (e.approval ? `<p class="lsp-eff-pending">${esc(t("effPending", { command: e.approval.command }))} <button class="mini pri" type="button" data-k="review">${esc(t("review"))}</button></p>${e.approval.config ? `<pre class="lsp-eff-config">${esc(e.approval.config)}</pre>` : ""}` : "") +
       (e.approved ? `<p class="lsp-eff-ok">${esc(t("effApproved"))}</p>` : "") +
       `<pre class="lsp-eff-json">${esc(e.json)}</pre>`;
     body.querySelector('[data-k="review"]')?.addEventListener("click", () => {

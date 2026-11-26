@@ -812,7 +812,7 @@ Na app desktop, o editor fala com o servidor de linguagem de cada ficheiro (rust
 | [Servidor de linguagem em falta: Copiar e Instalar](#servidor-de-linguagem-em-falta-copiar-e-instalar) | faixa amarela no topo do ficheiro «No … language server» |
 | [As tuas definições de servidores de linguagem (lsp.json)](#as-tuas-definicoes-de-servidores-de-linguagem-lspjson) | paleta: «LSP: Open User Language Server Settings (lsp.json)» · faixa de servidor em falta: «Configure…» |
 | [As definições do projecto (.dxtutor/lsp.json)](#as-definicoes-do-projecto-dxtutorlspjson) | paleta: «LSP: Open Project Language Server Settings (.dxtutor/lsp.json)» |
-| [Aprovar o comando que um projecto pede](#aprovar-o-comando-que-um-projecto-pede) | faixa no topo do ficheiro «… is waiting for your approval» → «Review…» · a configuração efectiva → «Review…» |
+| [Aprovar o comando e as definições que um projecto pede](#aprovar-o-comando-e-as-definicoes-que-um-projecto-pede) | faixa no topo do ficheiro «… is waiting for your approval» → «Review…» · a configuração efectiva → «Review…» |
 | [Ver a configuração efectiva](#ver-a-configuracao-efectiva) | paleta: «LSP: Show Effective Language Server Configuration» |
 | [Aviso de definições ignoradas](#aviso-de-definicoes-ignoradas) | cartão vermelho no canto «Language server settings ignored» |
 
@@ -886,7 +886,7 @@ Abre o `.dxtutor/lsp.json` da pasta aberta num separador (criado com um modelo c
 
 1. Paleta → «LSP: Open Project Language Server Settings». Escreve no mesmo formato do teu `lsp.json`.
 2. O autosave grava-o; em 2 segundos o dxtutor relê-o e aplica-o.
-3. Definições (`settings`) aplicam-se logo. Um servidor novo, ou um que o projecto põe a correr com outro comando, espera pela tua aprovação.
+3. Um servidor novo, ou um que o projecto põe a correr com outro comando, espera pela tua aprovação. As definições (`settings`) e as `initOptions` do projecto também: até as aprovares, o servidor corre com as tuas.
 
 **Fluxo (por dentro)**
 
@@ -899,31 +899,27 @@ Abre o `.dxtutor/lsp.json` da pasta aberta num separador (criado com um modelo c
 
 <sub>Cobre: `lsp:cmd-project-config`</sub>
 
-### Aprovar o comando que um projecto pede
+### Aprovar o comando e as definições que um projecto pede
 
 **Onde:** faixa no topo do ficheiro «… is waiting for your approval» → «Review…» · a configuração efectiva → «Review…»
 
-Um projecto clonado pode trazer um `.dxtutor/lsp.json` que acrescenta um servidor ou muda o programa, os argumentos, o resolvedor, as pastas de procura ou a variável de ambiente de um servidor. Esse servidor não arranca até aprovares o comando EXACTO.
+Um projecto clonado pode trazer um `.dxtutor/lsp.json` que acrescenta um servidor, muda o programa, os argumentos, o resolvedor, as pastas de procura ou a variável de ambiente de um servidor, ou lhe dá `settings`/`initOptions` (que podem pôr o servidor a correr comandos, como o `check.overrideCommand` do rust-analyzer). Com outro arranque, o servidor não arranca até aprovares o comando EXACTO; só com definições, arranca com as tuas e as do projecto só se aplicam depois de as aprovares.
 
 **Como usar**
 
-1. Abre um ficheiro da linguagem: a faixa diz o servidor e o comando.
-2. «Review…» abre o diálogo de aprovação com o programa (caminho completo), os argumentos, a pasta onde corre, o ficheiro que o pediu e o que mudou. Se o programa estiver dentro da pasta do projecto, o diálogo di-lo.
-3. Aprova para o servidor arrancar; recusa e nada corre (podes rever outra vez mais tarde).
+1. Abre um ficheiro da linguagem: a faixa diz o servidor e o que espera (o comando, ou as definições).
+2. «Review…» abre o diálogo de aprovação com o programa (caminho completo), os argumentos, a pasta onde corre, as definições/initOptions do projecto e o que substituem, o ficheiro que o pediu e o que mudou. Se o programa estiver dentro da pasta do projecto, o diálogo di-lo.
+3. Aprova para o servidor arrancar (ou receber as definições do projecto); recusa e nada do que o projecto pediu corre (podes rever outra vez mais tarde).
 
 **Fluxo (por dentro)**
 
-1. A regra vive no Rust: `lspconf::approval_request` decide se um servidor precisa de aprovação; sem ela, `session_for` e o arranque da pasta não o lançam, e `lsp_server_status` devolve o pedido.
+1. A regra vive no Rust: `lspconf::approval_request` decide se um servidor precisa de aprovação; `lsp.rs::gate` não o lança (arranque mudado) ou lança-o com as definições de confiança (`Effective::trusted_config`), e `lsp_server_status` devolve o pedido (`blocksStart`, `config`).
 2. `lsp_approve_server` confere o hash mostrado (se o comando mudou entretanto, recusa), grava a decisão no registo de auditoria ANTES de tudo (`audit_record`, acção `lsp.server.approve`; sem auditoria não aprova) e guarda a aprovação em `<config da app>/lsp-trusted.json` (0600), nunca no projecto.
-3. A aprovação fica presa ao projecto, ao servidor, ao programa encontrado, aos campos de arranque e, para um programa dentro do projecto, ao conteúdo dele: se algum mudar, volta a pedir.
+3. A aprovação fica presa ao projecto, ao servidor, ao programa encontrado, aos campos de arranque, às definições e initOptions e, para um programa dentro do projecto, ao conteúdo dele: se algum mudar, volta a pedir. Aprovadas as definições, o servidor a correr recebe-as (`didChangeConfiguration`; initOptions novas reiniciam-no).
 
 **Dicas**
 
-- Só as definições (`settings`, `initOptions`, marcadores de raiz) não pedem aprovação.
-
-**Limites**
-
-- Os servidores que lêem as definições podem correr comandos que elas digam (p.ex. o `overrideCommand` do rust-analyzer): o dxtutor não os inspecciona.
+- Os marcadores de raiz, o nome e as extensões não correm nada: não pedem aprovação. O teu `lsp.json` é de confiança.
 
 <sub>Cobre: `lsp:notice-review`, `lsp:effective-review`</sub>
 

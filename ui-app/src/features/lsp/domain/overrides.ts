@@ -20,6 +20,8 @@ export interface FileReport {
 export interface ServerView extends RegServer {
   sources: string[];
   projectLaunch: string[];
+  /** as definições/initOptions que o projecto mudou (só valem depois de aprovadas) */
+  projectConfig?: string[];
   approval: ServerApproval | null;
 }
 
@@ -37,7 +39,7 @@ export function effectiveRegistry(v: LspConfigView): Registry {
   return {
     version: 1,
     languages: v.languages,
-    servers: v.servers.map(({ sources: _s, projectLaunch: _p, approval: _a, ...entry }) => entry),
+    servers: v.servers.map(({ sources: _s, projectLaunch: _p, projectConfig: _c, approval: _a, ...entry }) => entry),
   };
 }
 
@@ -58,7 +60,7 @@ export interface EffectiveEntry {
   sources: string[];
   languages: string[];
   approval: ServerApproval | null;
-  /** o projecto mudou o arranque e o comando já está aprovado */
+  /** o projecto mudou o arranque ou as definições e isso já está aprovado */
   approved: boolean;
   /** o JSON da entrada efectiva (sem os campos de inspecção) */
   json: string;
@@ -67,14 +69,14 @@ export interface EffectiveEntry {
 export function effectiveEntry(v: LspConfigView, serverId: string): EffectiveEntry | null {
   const s = v.servers.find((x) => x.id === serverId);
   if (!s) return null;
-  const { sources, projectLaunch, approval, ...entry } = s;
+  const { sources, projectLaunch, projectConfig, approval, ...entry } = s;
   return {
     id: s.id,
     label: s.label,
     sources,
     languages: v.languages.filter((l) => l.server === s.id).map((l) => l.id),
     approval,
-    approved: projectLaunch.length > 0 && !approval,
+    approved: (projectLaunch.length > 0 || (projectConfig ?? []).length > 0) && !approval,
     json: JSON.stringify(entry, null, 2),
   };
 }

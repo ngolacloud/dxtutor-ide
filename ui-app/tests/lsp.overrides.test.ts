@@ -25,6 +25,20 @@ const approval: ServerApproval = {
   insideProject: true,
   changed: ["command", "args"],
   command: "/home/u/proj/bin/zls --stdio",
+  blocksStart: true,
+  config: null,
+};
+
+/* só definições: o servidor corre com as de confiança até o humano aprovar as do projecto */
+const settingsOnly: ServerApproval = {
+  ...approval,
+  program: "/usr/bin/zls",
+  insideProject: false,
+  changed: ["settings"],
+  command: "/usr/bin/zls --stdio",
+  hash: "def456",
+  blocksStart: false,
+  config: 'settings from .dxtutor/lsp.json:\n{ "zls": { "build_runner": "sh -c evil" } }\n(without the project: none)',
 };
 
 function view(extra: Partial<LspConfigView> = {}): LspConfigView {
@@ -200,6 +214,13 @@ describe("o caso de uso dos overrides (a paleta e os avisos)", () => {
     expect(t.calls[0]).toBe("approve /home/u/proj zls abc123 true ok");
     expect(t.calls).toContain("config /home/u/proj"); // volta a ler: a aprovação já conta
     expect(t.changed).toHaveBeenCalled(); // o editor revê o ficheiro aberto
+    // definições do projecto: o diálogo mostra-as por baixo do comando, e o título diz o que se aplica
+    const st = overridesSetup();
+    expect(await st.ov.review(settingsOnly)).toBe(true);
+    expect(st.dialogs[0].title).toBe("Apply this project's settings to the zls language server");
+    expect(st.dialogs[0].command).toContain("/usr/bin/zls --stdio\n\nsettings from .dxtutor/lsp.json:");
+    expect(st.dialogs[0].command).toContain("sh -c evil");
+    expect(st.calls[0]).toBe("approve /home/u/proj zls def456 true ok");
     // recusado: a recusa também vai ao backend (auditada), e nada corre
     const no = overridesSetup({ approve: false });
     expect(await no.ov.review(approval)).toBe(false);
@@ -277,6 +298,19 @@ describe("o cliente: a faixa de aprovação e o lembrete dos overrides", () => {
     expect(t.notices.at(-1)!.n).toBe(null); // a faixa sai
   });
 
+  it("só definições do projecto: o servidor arranca (com as de confiança) e a faixa pede a revisão das definições", async () => {
+    const t = clientSetup({ language: "zls", server: "zls", installed: true, approval: settingsOnly });
+    await t.client.onTab("proj/src/main.zig");
+    expect(t.calls).toContain("open /home/u/proj/src/main.zig zig"); // a linguagem funciona
+    const last = t.notices.at(-1)!;
+    expect(last.n?.kind).toBe("approval");
+    expect(last.n?.title).toBe("zls: this project's settings are waiting for your approval");
+    expect(last.n?.detail).toContain("its own settings");
+    expect(last.n?.detail).toContain("not applied until you approve them");
+    last.acts!.review!();
+    await vi.waitFor(() => expect(t.calls).toContain("review def456"));
+  });
+
   it("recusado: a faixa fica e nada arranca", async () => {
     const t = clientSetup({ language: "zls", server: "zls", installed: true, approval }, false);
     await t.client.onTab("proj/src/main.zig");
@@ -347,6 +381,10 @@ describe("os ecrãs dos overrides (DOM)", () => {
     expect(box.textContent).toContain("/home/u/proj/.dxtutor/lsp.json");
     expect(box.querySelector(".lsp-eff-json")!.textContent).toContain('"command": "zls-ls"');
     expect(box.textContent).toContain("Waiting for your approval: /home/u/proj/bin/zls --stdio");
+    // as definições pendentes aparecem na vista
+    overridesView.showEffective(view({ servers: [server("zls", { projectConfig: ["settings"], approval: settingsOnly })] }), "zls", review);
+    expect(document.querySelector(".lsp-eff-config")!.textContent).toContain("sh -c evil");
+    overridesView.showEffective(view(), "zls", review);
     (box.querySelector('[data-k="review"]') as HTMLButtonElement).click();
     expect(review).toHaveBeenCalledWith("zls");
     // escolher outro servidor redesenha
