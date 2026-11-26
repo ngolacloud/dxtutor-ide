@@ -9,6 +9,8 @@ export interface Usage {
   output_tokens: number;
   cache_read_input_tokens: number;
   cache_creation_input_tokens: number;
+  /** A parte de `cache_creation_input_tokens` escrita com TTL de 1 hora (custa 2× a entrada). */
+  cache_creation_1h_input_tokens?: number;
 }
 
 export type StreamEvent =

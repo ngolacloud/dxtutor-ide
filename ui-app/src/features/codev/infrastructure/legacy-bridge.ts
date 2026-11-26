@@ -19,7 +19,7 @@
 
 import { S, prov, provState, show, toast, log, writeFile, rerender, hhmm } from "../../../core";
 import type { Prov } from "../../../core";
-import { agentStore, layoutStore } from "../../../app/store";
+import { agentStore, editorStore, layoutStore } from "../../../app/store";
 
 export type { Prov };
 export { prov, provState, show, toast, log, writeFile, rerender, hhmm };
@@ -183,6 +183,9 @@ export interface RunState {
 export const run = (): RunState => agentStore.run as unknown as RunState;
 
 /* ───── tabs ───── */
+/** O Studio de arquitectura está aberto (um separador `arch`)? Uma conversa nova começa então
+ *  como sessão de arquitectura (conjunto 9: só essas levam `arch_propose`). */
+export const studioOpen = (): boolean => editorStore.tabs.some((t) => t.kind === "arch" || t.id === "arch");
 export interface CodevTab { id: string; title?: string; kind?: string; path?: string }
 export const tabOf = (id: string | null): CodevTab | undefined => G.tabOf(id);
 /* Rest-tuple forwarding below (openTab/openDiff/openPath/...): calling `fn(a)` must reach

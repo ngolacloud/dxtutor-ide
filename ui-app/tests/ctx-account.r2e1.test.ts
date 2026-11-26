@@ -37,6 +37,20 @@ describe("ctx: o uso real da conversa", () => {
     expect(ctx().title).toMatch(/did not report/);
   });
 
+  it("o agente v2: a percentagem lida da cache no ctx, a cache e o custo da conversa no título", () => {
+    const v2 = (input: number, output: number, cacheRead: number, cacheWrite: number, cost: number | null) =>
+      document.dispatchEvent(new window.CustomEvent("dx:llm-usage", { detail: { provider: "claude", input, output, cacheRead, cacheWrite, cost } }));
+    v2(10_000, 100, 0, 9_000, 0.05);
+    expect(ctx().textContent).toBe("ctx 10k · 0% cache");
+    v2(10_000, 100, 9_500, 0, 0.01);
+    expect(ctx().textContent).toBe("ctx 10k · 48% cache");
+    expect(ctx().title).toMatch(/Cache: 48% of the input was read from the cache \(9500 tokens read, 9000 written\)/);
+    expect(ctx().title).toMatch(/Conversation cost: \$0\.060/);
+    // without a price (another provider) no cost line
+    v2(100, 1, 0, 0, null);
+    expect(ctx().title).toMatch(/Conversation cost: \$0\.060/);
+  });
+
   it("«Nova conversa» repõe o ctx", async () => {
     usage(500, 10);
     expect(ctx().textContent).toBe("ctx 500");

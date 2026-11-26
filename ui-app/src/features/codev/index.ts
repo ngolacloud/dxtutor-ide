@@ -10,6 +10,7 @@
    The decision log is owned here (one source of truth) and re-published onto
    `window` by `codev.ts`. */
 
+import { architectureSession } from "./domain/session-kind";
 import { translator as streamTranslator } from "../../app/i18n";
 import { CODEV_STREAM_MESSAGES } from "./ui/stream-messages";
 const streamText = streamTranslator(CODEV_STREAM_MESSAGES);
@@ -273,11 +274,13 @@ const agentChat = makeAgentChat({
   openDiff: (path, before, after, label) => bridge.openDiff(bridge.root() + path, before, after, label),
   /* o uso de cada pedido do agente: o contador de uso (o custo medido das issues do Board) e o
      `ctx` da barra de estado, como as voltas do chat ao vivo (ADR-0006, R3c) */
-  onUsage: (input, output) => {
+  onUsage: (input, output, detail) => {
     const provider = bridge.monolith.activeProvider;
     bridge.recordUsage(provider, input + output);
-    document.dispatchEvent(new CustomEvent("dx:llm-usage", { detail: { provider, input, output } }));
+    document.dispatchEvent(new CustomEvent("dx:llm-usage", { detail: { provider, input, output, ...detail } }));
   },
+  /* conjunto 9: só as sessões de arquitectura levam `arch_propose` */
+  architecture: (first) => architectureSession(bridge.studioOpen(), first),
   // RF-S09: the live hunks also go to a PairCode guest (same stream, same highlight)
   hunks: {
     ...hunkReview.sink,
