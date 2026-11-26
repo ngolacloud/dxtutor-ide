@@ -39,9 +39,7 @@ pub const MAX_SUPPORT_BYTES: usize = 4 * 1024 * 1024;
 pub fn check_declared(support: &BTreeMap<String, String>) -> Vec<String> {
     let mut errs = Vec::new();
     if support.len() > MAX_SUPPORT_FILES {
-        errs.push(format!(
-            "support: more than {MAX_SUPPORT_FILES} files"
-        ));
+        errs.push(format!("support: more than {MAX_SUPPORT_FILES} files"));
     }
     for (dest, source) in support {
         if !safe_project_path(dest) {
@@ -55,7 +53,10 @@ pub fn check_declared(support: &BTreeMap<String, String>) -> Vec<String> {
             ));
         }
     }
-    errs.extend(file_folder_clashes(support.keys().map(String::as_str), "support"));
+    errs.extend(file_folder_clashes(
+        support.keys().map(String::as_str),
+        "support",
+    ));
     errs
 }
 
@@ -215,7 +216,10 @@ mod tests {
         })
         .unwrap_err()
         .join("\n");
-        assert!(errs.contains("`support/missing.js`: file not found"), "{errs}");
+        assert!(
+            errs.contains("`support/missing.js`: file not found"),
+            "{errs}"
+        );
         assert!(errs.contains("`a.js` is larger than 2 MiB"), "{errs}");
 
         let many: BTreeMap<String, String> = (0..=MAX_SUPPORT_FILES)

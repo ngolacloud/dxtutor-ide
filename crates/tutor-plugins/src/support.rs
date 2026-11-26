@@ -63,13 +63,17 @@ mod tests {
     fn le_os_ficheiros_do_plugin_para_os_caminhos_da_pasta_de_trabalho() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("support/lib")).unwrap();
-        std::fs::write(dir.path().join("support/lib/index.js"), "export const x = 1;\n").unwrap();
-        let mut c = course(
-            "[support]\n\"node_modules/lib/index.js\" = \"support/lib/index.js\"",
-        );
+        std::fs::write(
+            dir.path().join("support/lib/index.js"),
+            "export const x = 1;\n",
+        )
+        .unwrap();
+        let mut c = course("[support]\n\"node_modules/lib/index.js\" = \"support/lib/index.js\"");
         load_support(dir.path(), &mut c).unwrap();
         assert_eq!(
-            c.support_files.get("node_modules/lib/index.js").map(String::as_str),
+            c.support_files
+                .get("node_modules/lib/index.js")
+                .map(String::as_str),
             Some("export const x = 1;\n")
         );
         // Sem tabela, nada a fazer.
@@ -103,6 +107,9 @@ mod tests {
         ] {
             assert!(errs.contains(frag), "falta `{frag}` em:\n{errs}");
         }
-        assert!(c.support_files.is_empty(), "com erros, o curso fica sem apoio");
+        assert!(
+            c.support_files.is_empty(),
+            "com erros, o curso fica sem apoio"
+        );
     }
 }

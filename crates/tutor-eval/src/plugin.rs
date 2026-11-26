@@ -1863,12 +1863,20 @@ mod tests {
         }
         // A test file can never overwrite a learner file.
         let err = runner
-            .scaffold_tree(&files(&[("t.py", "learner")]), &files(&[("t.py", "test")]), &files(&[]))
+            .scaffold_tree(
+                &files(&[("t.py", "learner")]),
+                &files(&[("t.py", "test")]),
+                &files(&[]),
+            )
             .unwrap_err();
         assert!(format!("{err:#}").contains("already exists"), "{err:#}");
         // Nested folders are created inside the work dir.
         let dir = runner
-            .scaffold_tree(&files(&[("a/b/c.py", "x")]), &files(&[("test_a.py", "y")]), &files(&[]))
+            .scaffold_tree(
+                &files(&[("a/b/c.py", "x")]),
+                &files(&[("test_a.py", "y")]),
+                &files(&[]),
+            )
             .unwrap();
         assert_eq!(
             std::fs::read_to_string(dir.path().join("a/b/c.py")).unwrap(),
@@ -2004,7 +2012,9 @@ mod tests {
         assert!(out.ok && out.stdout.trim() == "42", "{out:?}");
     }
 
-    fn support(pairs: &[(&str, &str)]) -> std::sync::Arc<std::collections::BTreeMap<String, String>> {
+    fn support(
+        pairs: &[(&str, &str)],
+    ) -> std::sync::Arc<std::collections::BTreeMap<String, String>> {
         std::sync::Arc::new(files(pairs))
     }
 
@@ -2074,7 +2084,11 @@ mod tests {
         assert!(good.correctness.passed, "{}", good.correctness.raw);
         let bad = crate::assess_project(&phase, &files(&[])).unwrap();
         assert!(!bad.correctness.passed, "{}", bad.correctness.raw);
-        assert!(bad.correctness.raw.contains("todo"), "{}", bad.correctness.raw);
+        assert!(
+            bad.correctness.raw.contains("todo"),
+            "{}",
+            bad.correctness.raw
+        );
 
         // A project with no hidden test file fails instead of passing vacuously.
         let mut empty = phase.clone();
@@ -2099,7 +2113,10 @@ mod tests {
             .scaffold("// learner", None, &clash)
             .map(|_| ())
             .unwrap_err();
-        assert!(format!("{err:#}").contains("course support file `student.ts`"), "{err:#}");
+        assert!(
+            format!("{err:#}").contains("course support file `student.ts`"),
+            "{err:#}"
+        );
         let unsafe_path = files(&[("../escape.js", "x")]);
         assert!(runner.scaffold("", None, &unsafe_path).is_err());
         let tree = files(&[("node_modules/minilib/index.js", "learner")]);
@@ -2115,11 +2132,22 @@ mod tests {
         let refused = crate::assess(&phase, "pub fn add(a: i32, b: i32) -> i32 { a + b }")
             .map(|_| ())
             .unwrap_err();
-        assert!(refused.to_string().contains("support files are not supported"), "{refused}");
-        let drill = run_program_with_support("go", "package main\nfunc main() {}\n", &[], &files(LIB))
-            .map(|_| ())
-            .unwrap_err();
-        assert!(drill.to_string().contains("support files are not supported"), "{drill}");
+        assert!(
+            refused
+                .to_string()
+                .contains("support files are not supported"),
+            "{refused}"
+        );
+        let drill =
+            run_program_with_support("go", "package main\nfunc main() {}\n", &[], &files(LIB))
+                .map(|_| ())
+                .unwrap_err();
+        assert!(
+            drill
+                .to_string()
+                .contains("support files are not supported"),
+            "{drill}"
+        );
     }
 
     /// Real end-to-end with python3's SQLite (skipped where python3 is missing): a script runs and

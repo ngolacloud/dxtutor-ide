@@ -1233,7 +1233,12 @@ mod dxjs_tests {
     fn dxjs_is_a_framework_course_graded_by_typescript() {
         let c = load_course("dxjs-basics").unwrap();
         assert_eq!(
-            (c.language.as_str(), c.category, c.subject.as_str(), c.track()),
+            (
+                c.language.as_str(),
+                c.category,
+                c.subject.as_str(),
+                c.track()
+            ),
             ("typescript", CourseCategory::Framework, "dxjs", "dxjs")
         );
         assert!(c.overview.contains("https://ngolacloud.github.io/dxjs/"));
@@ -1270,7 +1275,10 @@ mod dxjs_tests {
                 );
             }
         }
-        assert!(projects >= 4, "pelo menos 4 passos de projecto, há {projects}");
+        assert!(
+            projects >= 4,
+            "pelo menos 4 passos de projecto, há {projects}"
+        );
     }
 
     #[test]
@@ -1312,11 +1320,17 @@ justification = "j"
         let errs = c
             .load_support(|_| Err("file not found".into()))
             .unwrap_err();
-        assert!(errs[0].contains("`support/lib.js`: file not found"), "{errs:?}");
+        assert!(
+            errs[0].contains("`support/lib.js`: file not found"),
+            "{errs:?}"
+        );
         c.load_support(|src| Ok(format!("// {src}"))).unwrap();
         let phase = c.phase(&c.units[0].steps[0], Level::Basico).unwrap();
         assert_eq!(
-            phase.support.get("node_modules/lib/index.js").map(String::as_str),
+            phase
+                .support
+                .get("node_modules/lib/index.js")
+                .map(String::as_str),
             Some("// support/lib.js")
         );
         // Clonar o curso partilha os ficheiros (Arc), não os copia.

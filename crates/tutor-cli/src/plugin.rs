@@ -275,7 +275,10 @@ fn head(s: &str) -> String {
 }
 
 /// Prova um passo com o avaliador real, com os ficheiros de apoio do curso (`[support]`).
-fn check_step(course: &tutor_core::Course, step: &tutor_core::Step) -> std::result::Result<String, String> {
+fn check_step(
+    course: &tutor_core::Course,
+    step: &tutor_core::Step,
+) -> std::result::Result<String, String> {
     use tutor_core::StepKind;
     let language = course.language.as_str();
     if step.kind != StepKind::Concept && !tutor_eval::language_supported(language) {

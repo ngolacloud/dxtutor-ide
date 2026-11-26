@@ -533,4 +533,61 @@ mod tests {
         let free = serde_json::to_value(study_policy("livre", None)).unwrap();
         assert!(autonomous.is_object() && free.is_object());
     }
+
+    /// O curso Dxjs embutido avalia-se com os seus ficheiros de apoio: sem eles,
+    /// `import … from "@dxjs/core"` falhava e a solução nunca passava. Corre o Node real
+    /// (saltado onde não há Node ou fora do motor `Host`).
+    #[test]
+    fn the_builtin_dxjs_course_grades_with_its_support_files() {
+        let Some(ts) = tutor_eval::find_plugin("typescript") else {
+            return;
+        };
+        if !ts.host_available() || tutor_eval::current_engine() != tutor_eval::SandboxEngine::Host {
+            return;
+        }
+        let courses = tutor_core::builtin_courses();
+        let dxjs = find_course(&courses, "typescript", Some("dxjs")).unwrap();
+        assert_eq!(dxjs.id, "dxjs-basics");
+        // O «curso de TypeScript» continua a ser o de linguagem.
+        assert_eq!(
+            find_course(&courses, "typescript", None).unwrap().id,
+            "typescript-basics"
+        );
+
+        let step = dxjs.step("dxjs-u01-x1-counter").unwrap();
+        let solution = step.gabarito.as_ref().unwrap().solution.clone();
+        let (good, phase) = grade_in(
+            &courses,
+            "dxjs-u01-x1-counter",
+            Some("typescript"),
+            Submission::Code(&solution),
+        )
+        .unwrap();
+        assert!(good.correctness.passed, "{}", good.correctness.raw);
+        assert_eq!(phase.support.len(), dxjs.support.len());
+        let (bad, _) = grade_in(
+            &courses,
+            "dxjs-u01-x1-counter",
+            Some("typescript"),
+            Submission::Code(&step.starter),
+        )
+        .unwrap();
+        assert!(!bad.correctness.passed);
+
+        // Um passo de projecto com os ficheiros editáveis entregues.
+        let project = dxjs
+            .step("dxjs-u07-p1-todo-store")
+            .unwrap()
+            .project
+            .clone()
+            .unwrap();
+        let (ok, _) = grade_in(
+            &courses,
+            "dxjs-u07-p1-todo-store",
+            Some("typescript"),
+            Submission::Files(&project.solution),
+        )
+        .unwrap();
+        assert!(ok.correctness.passed, "{}", ok.correctness.raw);
+    }
 }
