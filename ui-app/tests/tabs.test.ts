@@ -64,3 +64,20 @@ it("mudar de separador emite editor:tab no bus", async () => {
   TM.setActive(a);
   expect(seen).toEqual([a, b, a]);
 });
+
+it("fechar um separador emite editor:tab-closed com a chave do ficheiro (o didClose do LSP P6)", async () => {
+  const { bus } = await import("../src/app/bus");
+  const seen: Array<{ id: string; path: string | null }> = [];
+  bus.on("editor:tab-closed", (p) => seen.push(p));
+  const [a, b] = Object.keys(w.FS).filter((k: string) => k.endsWith(".rs")).slice(0, 2);
+  w.openPath(a);
+  w.openPath(b);
+  ES.tabs.push({ id: "welcome", title: "Welcome", kind: "welcome" });
+  TM.closeTab(a);
+  TM.closeTab("welcome");
+  TM.closeTab("nao-existe"); // sem efeito, sem evento
+  expect(seen).toEqual([
+    { id: a, path: a },
+    { id: "welcome", path: null },
+  ]);
+});

@@ -8,6 +8,7 @@ import { invoke, listen } from "../../../platform/tauri/core";
 import type { CheckEvent, LspPublish, PortsPort, ProblemsPort, PtyPort } from "../application/ports";
 import type { PortInfo, PtyInfo, ScanResult, ShellProfile } from "../domain/types";
 import { fromRuleViolations, type RuleViolation } from "../domain/problems";
+import type { LspLogLine } from "../domain/lsp-log";
 
 export const tauriPty: PtyPort = {
   spawn: (r) => invoke<void>("pty_spawn", { id: r.id, rows: r.rows, cols: r.cols, cwd: r.cwd ?? null, shell: r.shell ?? null, command: r.command ?? null, env: r.env ?? null, vault: r.vault ?? null }),
@@ -57,6 +58,15 @@ export const onLspStatus = (cb: (s: LspStatus) => void) =>
     const s = p as Partial<LspStatus>;
     if (s && typeof s.server === "string") cb({ server: s.server, kind: s.kind ?? "", title: s.title ?? "", message: s.message ?? "", percentage: s.percentage ?? null });
   });
+
+/** O registo dos servidores de linguagem (LSP P6): cada linha nova (`lsp://log`) e o registo guardado
+ *  (`lsp_server_log`, todos os servidores), para o canal «Language servers» do Output. */
+export const onLspLog = (cb: (lines: LspLogLine[]) => void) =>
+  listen("lsp://log", (p) => {
+    const lines = (p as { lines?: unknown }).lines;
+    if (Array.isArray(lines)) cb(lines as LspLogLine[]);
+  });
+export const lspLogBacklog = (): Promise<LspLogLine[]> => invoke<LspLogLine[]>("lsp_server_log", { key: null });
 
 /** Abre um URL no browser do sistema (xdg-open / open / start), pelo comando `exec`. */
 export function openExternal(url: string, os: string): void {

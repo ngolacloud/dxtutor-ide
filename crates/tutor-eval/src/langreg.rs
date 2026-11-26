@@ -734,6 +734,9 @@ pub fn validate(r: &Registry) -> Vec<String> {
 pub struct Overlay {
     pub languages: Vec<serde_json::Map<String, Value>>,
     pub servers: Vec<serde_json::Map<String, Value>>,
+    /// `resources` (LSP P6: how long an idle server lives, how many run at once) as written; read
+    /// and checked by [`crate::lspconf`], which takes it only from the user's file.
+    pub resources: Option<serde_json::Map<String, Value>>,
 }
 
 impl Overlay {
@@ -832,6 +835,10 @@ pub fn parse_overlay(text: &str) -> Result<Overlay, Vec<String>> {
                     errs.push(format!("version {val} (this build reads version 1)"));
                 }
             }
+            "resources" => match val {
+                Value::Object(m) => ov.resources = Some(m.clone()),
+                _ => errs.push("`resources` must be an object".into()),
+            },
             "languages" | "servers" => {
                 let Some(arr) = val.as_array() else {
                     errs.push(format!("`{k}` must be a list"));
@@ -859,7 +866,7 @@ pub fn parse_overlay(text: &str) -> Result<Overlay, Vec<String>> {
                 }
             }
             other => errs.push(format!(
-                "unknown field `{other}` (expected `version`, `languages` or `servers`)"
+                "unknown field `{other}` (expected `version`, `languages`, `servers` or `resources`)"
             )),
         }
     }

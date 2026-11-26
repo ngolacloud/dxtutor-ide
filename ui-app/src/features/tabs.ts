@@ -17,6 +17,7 @@
 import { tabMarks } from "../app/tab-marks";
 import { $, esc, svg, toast } from "../core";
 import { editorStore, type Tab } from "../app/store/editor";
+import { bus } from "../app/bus";
 import { VIEW } from "../app/store/registry";
 import { translator } from "../app/i18n";
 import { isStateFile } from "./protect/domain/report";
@@ -174,6 +175,7 @@ function closeTab(id: string): void {
   if (i < 0) return;
   const t = TB()[i];
   TB().splice(i, 1);
+  bus.emit("editor:tab-closed", { id, path: t.kind === "file" && typeof t.path === "string" ? t.path : null });
   if (t.kind === "agent") {
     parkAgent();
     services.shell!.setVar("--agent-w", "380px");
