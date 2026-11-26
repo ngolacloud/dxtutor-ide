@@ -1,5 +1,6 @@
 //! `tutor-core` — modelo de domínio e conteúdo curado do dxtutor.
 
+pub mod build;
 pub mod content;
 pub mod course;
 pub mod curriculum;
@@ -9,6 +10,7 @@ pub mod project;
 pub mod study;
 pub mod support;
 
+pub use build::{BuildEnv, CourseBuild, CourseCache};
 pub use content::{builtin_projects, find_phase, load_project};
 pub use course::{
     builtin_courses, load_course, Course, CourseCategory, CourseFormat, Step, StepKind, Unit,

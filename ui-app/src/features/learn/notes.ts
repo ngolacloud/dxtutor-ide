@@ -16,6 +16,9 @@ export const LEARN_NOTES: FeatureNotes = {
     "ui-app/src/features/learn.ts",
     "crates/tutor-core/src/project.rs",
     "crates/tutor-core/src/support.rs",
+    "crates/tutor-core/src/build.rs",
+    "crates/tutor-eval/src/course_cache.rs",
+    "ui-app/src/features/learn/application/prepare-service.ts",
     "src-tauri/src/study.rs",
   ],
   updated: "2026-11-26",
@@ -41,7 +44,7 @@ export const LEARN_NOTES: FeatureNotes = {
       ],
       limits: [
         "No browser só há os cursos embutidos de Rust e Go: os frameworks ficam todos «Coming soon».",
-        "Dos frameworks e ferramentas oficiais só o Dxjs tem curso (embutido na app); os outros chegam em fases próximas.",
+        "Dos frameworks e ferramentas oficiais, o Dxjs e o Seiva têm curso (embutidos na app); os outros chegam em fases próximas.",
       ],
       covers: ["lt-pick", "lt-onboard", "lt-install", "lt-remove"],
     },
@@ -66,7 +69,7 @@ export const LEARN_NOTES: FeatureNotes = {
       ],
       limits: [
         "Só na app desktop.",
-        "Hoje só os avaliadores de Python (`unittest`) e de TypeScript (`node --test`) correm passos de projecto; as outras linguagens dizem que ainda não o suportam.",
+        "Hoje os avaliadores de Python (`unittest`), de TypeScript (`node --test`) e de Rust (`cargo test`, um crate ou um workspace) correm passos de projecto; as outras linguagens dizem que ainda não o suportam.",
         "Não se criam ficheiros novos: o passo traz todos os ficheiros com que se trabalha.",
       ],
       covers: ["lt-file", "learn:go"],
@@ -94,6 +97,32 @@ export const LEARN_NOTES: FeatureNotes = {
         "No dxjs 1.2.0, uma ligação reactiva dentro de uma linha de `list` deixa de actualizar depois da primeira mudança da lista: o curso ensina a pôr na chave o que muda na linha.",
       ],
       covers: ["lt-pick", "submit_step"],
+    },
+    {
+      title: "Preparar um curso (Seiva): descarregar as bibliotecas uma vez",
+      where: ["Learning Track › um passo do curso Seiva › cartão «Prepare this course»"],
+      what: "Um curso que compila contra bibliotecas de fora (o Seiva 0.2.0, o tokio, o axum) avalia-se sempre sem rede. Antes da primeira avaliação, «Prepare course» descarrega essas bibliotecas uma vez para uma cache deste curso e compila-as; depois, cada passo compila offline em poucos segundos.",
+      howTo: [
+        "Abre um passo do curso Seiva: enquanto o curso não está preparado, aparece o cartão «Prepare this course».",
+        "Carrega em «Prepare course» e lê, no diálogo, os comandos exactos e a pasta onde correm.",
+        "Aprova: a preparação demora cerca de um minuto; no fim o cartão desaparece e «Submit» já avalia.",
+      ],
+      flow: [
+        "O backend constrói os comandos (`course_prepare_status`): `cargo fetch` (a única ida à rede) e `cargo test --offline --no-run`, com um `CARGO_HOME` e um `target` só do curso — o `~/.cargo` não é tocado.",
+        "O diálogo de aprovação partilhado mostra-os. Uma recusa vai para o registo de auditoria e nada corre.",
+        "Aprovado, `course_prepare` só corre se o comando aprovado for o plano actual; regista a operação na auditoria antes de correr e outra vez com o resultado.",
+        "No fim fica um marcador com a impressão digital das dependências e o `Cargo.lock`; cada avaliação corre com `--offline`, essa cache e o tempo limite do curso.",
+        "Sem preparação (ou se o curso mudou as bibliotecas), a avaliação recusa com `COURSE_NOT_PREPARED` e o cartão volta a aparecer.",
+      ],
+      tips: [
+        "Na linha de comandos, `dxt plugin prepare courses/seiva` faz o mesmo para a mesma cache.",
+        "A cache fica em `<dados do utilizador>/dxtutor/course-cache/seiva-basics` (uns 650 MB); apagá-la só obriga a preparar outra vez.",
+      ],
+      limits: [
+        "Só na app desktop, e só para cursos avaliados em Rust.",
+        "Precisa de rede na preparação (crates.io e GitHub).",
+      ],
+      covers: ["lt-prepare"],
     },
   ],
 };

@@ -3,7 +3,9 @@
 
 import { isDesktop } from "../../../platform/tauri/core";
 import * as ipc from "../../../platform/tauri/learn";
-import type { CourseGateway } from "../application/ports";
+import { auditClient } from "../../../platform/tauri/audit";
+import type { AuditPort, CourseGateway } from "../application/ports";
+import type { PrepareStatus } from "../domain/types";
 import { fromCourseDto, toPluginRow } from "../domain/course-adapter";
 
 export const tauriCourseGateway: CourseGateway = {
@@ -20,4 +22,18 @@ export const tauriCourseGateway: CourseGateway = {
     const a = await ipc.submitStep(stepId, code, language, files);
     return { passed: a.correctness.passed, summary: a.correctness.summary, raw: a.correctness.raw, gabarito: a.gabarito };
   },
+  prepareStatus: async (courseId) => prepareStatus(await ipc.coursePrepareStatus(courseId)),
+  prepare: async (courseId, decision) => {
+    const r = await ipc.coursePrepare(courseId, decision);
+    return { ok: r.ok, output: r.output, status: prepareStatus(r.status) };
+  },
+};
+
+const prepareStatus = (s: ipc.CoursePrepareDto): PrepareStatus => ({
+  needed: s.needed, state: s.state, command: s.command, dir: s.dir, timeoutSecs: s.timeoutSecs, fetchSecs: s.fetchSecs, warmSecs: s.warmSecs,
+});
+
+/** O registo de auditoria das operações do IDE (`audit_record`). */
+export const tauriLearnAudit: AuditPort = {
+  record: (root, entry) => auditClient().record(root, entry),
 };
