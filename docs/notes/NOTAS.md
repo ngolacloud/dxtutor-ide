@@ -607,7 +607,7 @@ Cada commit que a app faz é verificado: um segredo no que vai ser comitado, ou 
 
 **Fluxo (por dentro)**
 
-1. Usa o gitleaks se estiver instalado, senão as regras próprias; a excepção vale um commit durante 2 minutos.
+1. As regras próprias correm sempre; se o gitleaks estiver instalado, junta-lhes as dele (uma linha que os dois apontam aparece uma vez). A excepção vale um commit durante 2 minutos.
 
 **Limites**
 
@@ -630,7 +630,7 @@ Instala no repositório aberto um hook de pre-commit que corre `dxt secret-scan 
 **Fluxo (por dentro)**
 
 1. O backend descobre a pasta de hooks pelo git (respeita worktrees e `core.hooksPath`), regista a instalação no registo de auditoria antes de escrever o ficheiro, e a UI regista o resultado.
-2. O `dxt secret-scan` usa o gitleaks se estiver instalado, senão as regras próprias, e junta os valores secretos dos `.env` do repositório. Sai com 0 (limpo), 1 (achados) ou 2 (não conseguiu correr).
+2. O `dxt secret-scan` usa as regras próprias (mais as do gitleaks, se estiver instalado) e junta os valores secretos dos `.env` do repositório. Sai com 0 (limpo), 1 (achados) ou 2 (não conseguiu correr).
 
 **Dicas**
 

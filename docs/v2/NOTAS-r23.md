@@ -256,19 +256,46 @@ porque o motivo diz o que o desbloqueia. Nada disto foi esquecido: cada item est
 |---|---|---|
 | OIDC do Vault | F4c1 | Um fornecedor de identidade real |
 | Credenciais dinâmicas | F4c1 | Um motor de base de dados no Vault |
-| Deploy para um cluster real | F4c2 | Um cluster de staging (o auto-teste usa um kubeconfig vazio, de propósito) |
+| Deploy para um cluster real | F4c2 | **Provado** num kind local (ver «Ferramentas reais», abaixo). Falta um cluster de staging partilhado |
 | Revisão de um PR real | F5b | `gh` com sessão e um PR de infra |
-| tflint, checkov, trivy, conftest, infracost, gitleaks | F4a/F4b | Instalar as ferramentas (hoje dizem «não instalado», testados pelos JSON); o syft e o grype já estão instalados e correm de verdade |
+| tflint, checkov, trivy, conftest, infracost, gitleaks | F4a/F4b | **Instalados e provados** (ver «Ferramentas reais», abaixo). O infracost precisa de uma chave (`infracost auth login`) |
 
 ### Recomendação de ordem
 
 1. ~~**Segurança, pequeno:** mover as chaves do `providers.json` para o keychain; o hook `pre-commit` opcional (com o teu
    OK); a retenção do `Masker` nas tarefas do terminal.~~ **Feito** em `feat/r23-hardening`.
-2. **Provar o que só foi testado com falsos:** instalar tflint/checkov/trivy/conftest/infracost/gitleaks, e fazer um
-   deploy num cluster de staging (kind serve) — sem código novo, só verificação.
+2. ~~**Provar o que só foi testado com falsos:** instalar tflint/checkov/trivy/conftest/infracost/gitleaks, e fazer um
+   deploy num cluster de staging (kind serve) — sem código novo, só verificação.~~ **Feito**; a prova encontrou dois
+   defeitos, corrigidos (ver «Ferramentas reais»).
 3. **Uma fonte de métricas** (Prometheus): desbloqueia de uma vez o SLO, a capacidade e a confiança dos incidentes.
 4. **Funcionalidades sem bloqueio:** canary, credenciais dinâmicas no rollout, Terragrunt/Helm.
 5. O resto (catálogo, GitOps, custo, inventário, pager) espera pelas tuas decisões sobre as fontes.
+
+## Ferramentas reais (ponto 2, 2026-11-26)
+
+Instaladas em `~/.local/bin` a partir das releases oficiais, com o SHA-256 verificado contra o ficheiro de checksums de
+cada release, e só versões com pelo menos duas semanas: tflint 0.66.0, trivy 0.76.2, conftest 0.71.1, gitleaks 8.30.1,
+infracost 0.10.49 (diz `v0.10.48`; a linha 0.10 é a antiga, o projecto passou para `infracost/cli` 2.x), kind 0.33.0 e
+checkov 3.4.4 (num venv próprio, `~/.local/share/checkov-venv`).
+
+**Pipeline de IaC** (sonda com um `.tf` AWS com problemas conhecidos e uma política Rego): os quatro scanners correm e os
+parsers lêem a saída real — tflint (`terraform_required_version`), checkov (14 achados, p. ex. `CKV_AWS_24` SSH aberto),
+trivy (8 erros + 3 avisos, p. ex. `AWS-0086`), conftest (a regra `deny` da política); as regras próprias apanham as
+credenciais literais do provider; o plano (+3) e o drift correm com o provider AWS real, sem credenciais; o apply fica
+bloqueado por `rules`, `checkov`, `trivy` e `conftest`. O infracost sem chave fica «not connected».
+
+**Deploy** num cluster kind (`dxtutor-staging`, Kubernetes 1.37, kubeconfig próprio — o `~/.kube/config` não foi tocado):
+o syft e o trivy correm sobre a imagem real; sem o Secret no namespace, o deploy é bloqueado por `secrets`; com ele, o
+rollout aplica os manifestos SEM o Secret (o do cluster fica intacto), anota a versão e espera pelas réplicas (2/2).
+
+**Defeitos encontrados e corrigidos** (`feat/r23-hardening`):
+- Com o gitleaks instalado, o secret scan usava SÓ o gitleaks, que não tem regra para `postgres://u:p@h`: instalar a
+  ferramenta piorava a detecção. Agora as regras próprias correm sempre e o gitleaks junta as dele (`gitleaks + built-in`;
+  uma linha apontada pelos dois aparece uma vez). Teste: `scan::tests::gitleaks_adds_to_our_rules`.
+- O rollout anotava a versão com `annotate deploy --all`: num namespace partilhado, os Deployments de outras aplicações
+  ficavam com a versão deste deploy (medido no kind). Agora só os Deployments dos manifestos — também no deploy do pane
+  Infra e na promoção de ambientes (`platform/desktop/infra.ts`).
+- A dica do infracost sem chave dizia para o instalar; agora diz para fazer `infracost auth login`.
 
 ## A seguir
 

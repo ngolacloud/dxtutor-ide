@@ -849,8 +849,9 @@ Nenhum segredo sai da máquina, e a regra vive no Rust:
 - **Secret scan antes de CADA commit da app** (X03): `tutor_protect::scan::guard_commit` corre no backend, em cada sítio
   que comita: o `exec` quando é `git commit` (o pane, Ctrl+Enter, o quadro, o amend), o merge/Composer/lanes do
   `gitwork`, `git::commit`, as regras de arquitectura e o bash do agente (âmbito = todas as mudanças; o agente não tem
-  excepção). Usa o gitleaks se estiver instalado (só no índice), senão as mesmas regras; ficheiros proibidos (`.env`,
-  `.tfstate`, chaves). Bloqueado, devolve `SECRET_SCAN_BLOCKED:{relatório}` (pré-visualizações MASCARADAS). Na UI,
+  excepção). As regras próprias correm SEMPRE; o gitleaks, se estiver instalado, junta as dele no índice (`tool:
+  gitleaks + built-in` — medido: o gitleaks 8.30 não apanha `postgres://u:p@h`, por isso nunca as substitui); ficheiros
+  proibidos (`.env`, `.tfstate`, chaves). Bloqueado, devolve `SECRET_SCAN_BLOCKED:{relatório}` (pré-visualizações MASCARADAS). Na UI,
   `services.protect.guard(f)` (o commit do desktop, o Composer e as lanes) mostra os achados no diálogo partilhado; passar
   exige motivo, auditado ANTES de `secret_scan_allow` (um commit, 2 min) e com o resultado. Um commit que o humano
   faz no seu terminal só passa por aqui com o hook de pre-commit: «Protect: Install the Pre-commit Hook…» (paleta,

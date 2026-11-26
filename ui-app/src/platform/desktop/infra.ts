@@ -77,8 +77,9 @@ async function selectorOf(t: Extract<ObsTarget, { via: "kubectl" }>): Promise<st
   try { const m = JSON.parse(r.stdout || "{}") as Record<string, string>; const kv = Object.entries(m).map(([a, b]) => `${a}=${b}`).join(","); if (r.code === 0 && kv) sel = kv; } catch { /* fica app=<n> */ }
   return (selectors[k] = sel);
 }
-/** As anotações da versão e da hora do deploy (lidas de volta por `parseClusterState`). */
-const annotate = (kc: string, ns: string, ver: string) => `${kc} -n ${ns} annotate deploy --all ${ANN_VER}=${ver} ${ANN_AT}=$(($(date +%s)*1000)) --overwrite`;
+/** As anotações da versão e da hora do deploy (lidas de volta por `parseClusterState`).
+   Só os Deployments deste deploy (`--all` marcaria também os outros do namespace com esta versão). */
+const annotate = (kc: string, ns: string, ver: string, names: string[]) => names.length ? `${kc} -n ${ns} annotate ${names.map(n => "deploy/" + n).join(" ")} ${ANN_VER}=${ver} ${ANN_AT}=$(($(date +%s)*1000)) --overwrite` : "true";
 /* ───── o pane Containers (ADR-0006, R5a): os contentores e as imagens reais do runtime ligado ─────
    `docker`/`podman ps -a` e `images` em JSON (o docker escreve um objecto por linha; o podman um
    array), com o socket do pane Infra. Sem runtime ligado, di-lo. */
@@ -176,7 +177,7 @@ dxDeploy(_dxDeploy) {
   const proj = R.name!.toLowerCase().replace(/[^a-z0-9_-]/g, ""), ctx = ENVS.ctx, ns = ENVS.ns, kc = `kubectl --context ${ctx}`, deps = docs.filter(d => d.k === "Deployment");
   const load = (img: string) => /^kind-/.test(ctx) ? `kind load docker-image ${img} --name ${ctx.slice(5)}` : /^minikube/.test(ctx) ? `minikube image load ${img}` : /^k3d-/.test(ctx) ? `k3d image import ${img} -c ${ctx.slice(4)}` : `echo "push ${img} to a registry the cluster can pull from"`;
   const own = deps.filter(d => /registry\.example\.com/.test(d.img || ""));
-  const script = ["set -e", `${compose()} build`, ...own.map(d => `${rtBin()} tag ${proj}-${d.n} ${d.img} && ${load(d.img as string)}`), `${kc} create namespace ${ns} --dry-run=client -o yaml | ${kc} apply -f -`, `${kc} -n ${ns} apply -f deploy/k8s`, annotate(kc, ns, "$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"), ...deps.map(d => `${kc} -n ${ns} rollout status deploy/${d.n} --timeout=180s`)].join("\n");
+  const script = ["set -e", `${compose()} build`, ...own.map(d => `${rtBin()} tag ${proj}-${d.n} ${d.img} && ${load(d.img as string)}`), `${kc} create namespace ${ns} --dry-run=client -o yaml | ${kc} apply -f -`, `${kc} -n ${ns} apply -f deploy/k8s`, annotate(kc, ns, "$(git rev-parse --short HEAD 2>/dev/null || echo unknown)", deps.map(d => d.n as string)), ...deps.map(d => `${kc} -n ${ns} rollout status deploy/${d.n} --timeout=180s`)].join("\n");
   void idle().then(async () => { const code = await runInTerm(script, { env: envFor() }); if (code === 0) { await readK8s(); toast("Deployed to " + ctx); goPane("infra"); } infraDraw(); });
   return { ok: true, sum: "deploying" };
 },
@@ -234,7 +235,9 @@ cluster: {
     const nsY = await run(["create", "namespace", t.ns, "--dry-run=client", "-o", "yaml"]);
     let ok = show(nsY) && show(await run(["apply", "-f", "-"], nsY.stdout));
     if (ok) ok = show(await run(["-n", t.ns, "apply", "-f", "-"], manifest));
-    if (ok && ver) ok = show(await run(["-n", t.ns, "annotate", "deploy", "--all", `${ANN_VER}=${ver}`, `${ANN_AT}=${Date.now()}`, "--overwrite"]));
+    /* só os Deployments deste manifesto (`--all` marcaria os outros do namespace com esta versão) */
+    const mine = deploymentsIn(manifest).map(n => "deploy/" + n);
+    if (ok && ver && mine.length) ok = show(await run(["-n", t.ns, "annotate", ...mine, `${ANN_VER}=${ver}`, `${ANN_AT}=${Date.now()}`, "--overwrite"]));
     if (ok) {
       for (const n of deploymentsIn(manifest)) if (!show(await run(["-n", t.ns, "rollout", "status", `deploy/${n}`, "--timeout=180s"]))) { ok = false; break; }
     }

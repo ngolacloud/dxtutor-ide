@@ -156,6 +156,10 @@ pub fn install_hint(tool: &str) -> &'static str {
     }
 }
 
+/// infracost is installed but has no API key (the `not_connected` hint).
+pub const CONNECT_INFRACOST: &str =
+    "Run `infracost auth login` (a free API key) or set INFRACOST_API_KEY; prices are fetched from infracost's service.";
+
 /// The tool on PATH as the caller resolves it: OpenTofu first, then Terraform.
 pub fn tool_of(has: &dyn Fn(&str) -> bool) -> Option<&'static str> {
     ["tofu", "terraform"].into_iter().find(|t| has(t))
@@ -1380,7 +1384,8 @@ pub fn run(c: &Ctx, on: &mut dyn FnMut(&Stage)) -> PipelineRun {
                     {
                         Stage {
                             command,
-                            hint: Some(install_hint("infracost").into()),
+                            // installed but not signed in: the hint is the sign-in, not the install
+                            hint: Some(CONNECT_INFRACOST.into()),
                             detail: words(&o.stderr),
                             ..Stage::new(id, Status::NotConnected, "infracost has no API key")
                         }

@@ -1,8 +1,8 @@
 //! The secret scan before a commit (r23 F4a, X03). Every place the app commits asks
 //! [`guard_commit`] first: the lines the commit would add are checked against the secret rules
 //! (and the values learned from `.env` files), and some files never belong in a repository
-//! (`.env`, Terraform state, private keys). gitleaks is used when it is installed; otherwise the
-//! built-in rules — the report says which. A blocked commit can go ahead only with a reason
+//! (`.env`, Terraform state, private keys). The built-in rules always run; gitleaks, when it is
+//! installed, adds its rules to a staged scan — the report says which. A blocked commit can go ahead only with a reason
 //! ([`allow_once`]: one commit, in that folder, within two minutes), which the caller audits.
 
 use std::collections::HashMap;
@@ -32,7 +32,7 @@ pub struct Finding {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanReport {
-    /// `gitleaks` or `built-in`
+    /// `gitleaks + built-in` or `built-in`
     pub tool: String,
     pub files: usize,
     pub findings: Vec<Finding>,
@@ -223,13 +223,18 @@ pub fn scan(root: &Path, scope: &Scope) -> Result<ScanReport, String> {
     }
     let tool;
     if on_path("gitleaks") && matches!(scope, Scope::Staged) {
-        tool = "gitleaks".to_string();
-        findings.extend(gitleaks_staged(root)?);
-        // what gitleaks does not know: the values learned from `.env` files
+        // gitleaks adds its rules; it does not replace ours (measured: it has no rule for a URL with a
+        // password, `postgres://u:p@h`, nor the values learned from `.env` files). A line both flag
+        // is reported once, with gitleaks' rule.
+        tool = "gitleaks + built-in".to_string();
+        let leaks = gitleaks_staged(root)?;
+        let seen: std::collections::HashSet<(String, u32)> =
+            leaks.iter().map(|f| (f.file.clone(), f.line)).collect();
+        findings.extend(leaks);
         findings.extend(
             scan_diff(&diff, &r)
                 .into_iter()
-                .filter(|f| f.rule == "known-secret"),
+                .filter(|f| !seen.contains(&(f.file.clone(), f.line))),
         );
     } else {
         tool = "built-in".to_string();
@@ -526,5 +531,40 @@ mod tests {
             .unwrap_err()
             .contains("env-file"));
         assert!(guard_commit(root, &Scope::Paths(&["db.rs".into()])).is_ok());
+    }
+
+    /// Measured with gitleaks 8.30: it has no rule for a URL with a password. With gitleaks
+    /// installed, our rules still run, and a line both flag is reported once.
+    #[test]
+    fn gitleaks_adds_to_our_rules() {
+        if !on_path("gitleaks") {
+            eprintln!("skipped: no gitleaks");
+            return;
+        }
+        let d = repo();
+        let root = d.path();
+        std::fs::write(
+            root.join("db.rs"),
+            "const URL: &str = \"postgres://app:s3cr3tP4ss@db.internal:5432/app\";\nconst K: &str = \"AKIAQ3EGUPP4XMPLE7ZK\";\n",
+        )
+        .unwrap();
+        assert!(Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(["add", "db.rs"])
+            .status()
+            .unwrap()
+            .success());
+        let r = scan(root, &Scope::Staged).unwrap();
+        assert_eq!(r.tool, "gitleaks + built-in");
+        let at: Vec<(u32, &str)> = r
+            .findings
+            .iter()
+            .map(|f| (f.line, f.rule.as_str()))
+            .collect();
+        assert!(at.contains(&(1, "url-credentials")), "{at:?}");
+        assert!(at.iter().any(|(l, _)| *l == 2), "{at:?}");
+        assert_eq!(at.iter().filter(|(l, _)| *l == 2).count(), 1, "{at:?}");
+        assert!(r.findings.iter().all(|f| !f.preview.contains("s3cr3tP4ss")));
     }
 }
