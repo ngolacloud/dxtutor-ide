@@ -132,8 +132,9 @@ pub fn coding_tools(opts: &ToolsetOptions) -> Vec<Arc<dyn Tool>> {
 /// 11 = + as ferramentas do anfitrião das sessões de backlog (`backlog_propose`,
 /// `project_propose`; `/backlog` e `/project`), só nessas sessões — as outras ficam iguais;
 /// 12 = o `bash` ganha `unsandboxed` (H1: correr um comando fora da sandbox do sistema, sempre
-/// com aprovação humana). A sandbox em si vale para todas as sessões (não muda o prefixo).
-pub const TOOLSET_VERSION: u32 = 12;
+/// com aprovação humana). A sandbox em si vale para todas as sessões (não muda o prefixo);
+/// 13 = + a ferramenta do anfitrião `ide` (H3: o que o IDE sabe, por acção; as skills embutidas dizem quais).
+pub const TOOLSET_VERSION: u32 = 13;
 
 /// O estado partilhado entre as ferramentas de fluxo e a sessão.
 #[derive(Clone, Default)]

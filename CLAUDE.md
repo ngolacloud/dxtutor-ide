@@ -1513,6 +1513,20 @@ pastas de build saltam), ou o que o `.dxtutor/workspace.json` diz (`projects: [{
 - Testes: `cargo test -p tutor-agent workspace::`, `cargo test -p dxtutor-ide a_session_in_a_project`,
   `tests/workspace-projects.test.ts` (inclui o adaptador do Co-Dev a mandar `backlog` e `project` ao backend).
 
+## A ferramenta `ide` e as skills do IDE (H3, `src-tauri/src/ide_tool.rs`, `tutor_agent::extensions`)
+
+Decisão D4: o Co-Dev chega ao que o IDE sabe por UMA ferramenta, `ide` (conjunto 13, em todas as sessões novas),
+com `action` e `args`, decidida no Rust. Uma ferramenta por acção custaria dezenas de definições em cada pedido e
+mudaria o prefixo sempre que uma acção nascesse. Nesta fase só há LEITURAS: `workspace.projects`, `project.board`,
+`project.issue` (o Project nunca é criado por uma leitura), `git.refs`, `git.log`, `gh.prs`, `gh.runs`,
+`deps.report`, `codebase.map`, `arch.conformance`, `slo.status`. As que mudam algo (H4) terão nível próprio:
+proposta que o humano aceita, ou aprovação partilhada + auditoria; segredos do Vault e rollout de produção nunca.
+- **Skills embutidas** (`extensions::BUILTIN_SKILLS`, sempre no índice do system prompt; um
+  `.dxtutor/skills/<nome>/SKILL.md` com o mesmo nome substitui-as): `workspace`, `project-board`, `source-control`,
+  `dependencies`, `architecture`, `codebase-onboarding`, `sre-slo` — cada uma diz que acções usar e o que nunca fazer
+  sem o humano.
+- Testes: `cargo test -p dxtutor-ide ide_tool backlog_tools_enter`, `cargo test -p tutor-agent extensions::`.
+
 ## Medir o harness do Co-Dev (H0, `src-tauri/src/eval.rs`, `evals/`)
 
 `cargo run -p dxtutor-ide --example codev-eval -- run` corre o conjunto de tarefas reais (`evals/tasks/`, ≥ 30, Rust,
