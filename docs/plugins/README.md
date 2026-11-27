@@ -328,7 +328,7 @@ evaluator writes the file → the file in your plugin.
 
 ```toml
 [support]
-"node_modules/.dxjs/dxjs.js" = "support/dxjs-1.2.0.js"
+"node_modules/.dxjs/dxjs.js" = "support/dxjs-1.3.0.js"
 "node_modules/@dxjs/core/package.json" = "support/core/package.json"
 "node_modules/@dxjs/core/index.js" = "support/core/index.js"
 ```
@@ -343,7 +343,7 @@ evaluator writes the file → the file in your plugin.
 - They are never sent to the app. Only languages graded by a descriptor write them; the native
   Rust and Go runners refuse a course that has them.
 
-The official Dxjs course uses them to grade offline against the real dxjs 1.2.0
+The official Dxjs course uses them to grade offline against the real dxjs 1.3.0
 ([`courses/dxjs/support/`](../../courses/dxjs/support/README.md)).
 
 ### Shared dependencies and a prepared course cache: `[build]`

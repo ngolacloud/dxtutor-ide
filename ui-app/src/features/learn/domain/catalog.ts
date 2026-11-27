@@ -77,7 +77,7 @@ export function languageCards(courses: Readonly<Record<string, Course>>, plugins
 const official = (id: string): string => `ngolacloud/dxtutor-course-${id}`;
 
 export const FRAMEWORK_CATALOG: readonly Subject[] = [
-  { id: "dxjs", name: "Dxjs", icon: "⚡", category: "framework", docs: "https://ngolacloud.github.io/dxjs/", install: "Node.js 22.18 or newer. dxjs 1.2.0 itself comes with the course (it is not on npm).", repo: official("dxjs") },
+  { id: "dxjs", name: "Dxjs", icon: "⚡", category: "framework", docs: "https://ngolacloud.github.io/dxjs/", install: "Node.js 22.18 or newer. dxjs 1.3.0 itself comes with the course (it is not on npm).", repo: official("dxjs") },
   { id: "seiva", name: "Seiva", icon: "🌿", category: "framework", docs: "https://ngolacloud.github.io/seiva/", install: "The Rust toolchain (rustup, cargo).", repo: official("seiva") },
   { id: "django", name: "Django", icon: "🎸", category: "framework", docs: "https://docs.djangoproject.com/en/5.2/", install: "Python 3.10 or newer with its venv module. «Prepare course» installs Django 5.2 LTS for the course only, not into your Python.", repo: official("django") },
   { id: "delonix", name: "Delonix Engine", icon: "🌺", category: "tool", docs: "https://ngolacloud.github.io/delonix/", install: "The delonix 0.2.0 binary from its official releases. Grading runs only delonix manifest render and delonix compose config, which read your files and never touch the engine.", repo: official("delonix") },

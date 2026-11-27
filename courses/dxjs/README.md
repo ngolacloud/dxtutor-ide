@@ -20,7 +20,7 @@ steps span several files and are judged by hidden `node:test` files.
 ## Requirements
 
 **Node.js 22.18 or newer** (it runs TypeScript by stripping types; no `tsc` needed). dxtutor
-also finds a Node installed with nvm, Volta or fnm. Nothing else: the course brings dxjs 1.2.0
+also finds a Node installed with nvm, Volta or fnm. Nothing else: the course brings dxjs 1.3.0
 and a DOM for Node with it ([`support/`](support/README.md)), so grading works offline.
 
 The course is graded by dxtutor's TypeScript evaluator:
@@ -34,7 +34,7 @@ The course is graded by dxtutor's TypeScript evaluator:
 Built into dxtutor. To install this repository's version on top of it:
 
 ```sh
-dxt plugin install dxjs          # or ngolacloud/dxtutor-course-dxjs@v1.0.0
+dxt plugin install dxjs          # or ngolacloud/dxtutor-course-dxjs@v1.1.0
 ```
 
 ## Check the content

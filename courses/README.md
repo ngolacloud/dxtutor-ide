@@ -16,7 +16,7 @@ The source of the official dxtutor course plugins. Each folder is a complete plu
 | `kotlin/` | `ngolacloud/dxtutor-course-kotlin` | `dxt plugin install kotlin` |
 | `csharp/` | `ngolacloud/dxtutor-course-csharp` | `dxt plugin install csharp` |
 | `swift/` | `ngolacloud/dxtutor-course-swift` | `dxt plugin install swift` |
-| `dxjs/` | `ngolacloud/dxtutor-course-dxjs` | `dxt plugin install dxjs` (framework, graded by TypeScript; brings dxjs 1.2.0 in `support/`) |
+| `dxjs/` | `ngolacloud/dxtutor-course-dxjs` | `dxt plugin install dxjs` (framework, graded by TypeScript; brings dxjs 1.3.0 in `support/`) |
 | `seiva/` (framework, graded in Rust) | `ngolacloud/dxtutor-course-seiva` | `dxt plugin install seiva` |
 | `django/` (framework, graded in Python) | `ngolacloud/dxtutor-course-django` | `dxt plugin install django` (Django 5.2 LTS, pinned with hashes in `[build]`) |
 | `podman/` (tool, graded live in the rootless Podman sandbox) | `ngolacloud/dxtutor-course-podman` | `dxt plugin install podman` (three base images pinned by digest in `[build]`) |
