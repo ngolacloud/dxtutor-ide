@@ -717,4 +717,64 @@ mod tests {
         .unwrap();
         assert!(ok.correctness.passed, "{}", ok.correctness.raw);
     }
+
+    /// Os cursos de ferramentas (Learn P2b) avaliam-se pelo `submit_step` normal: a linguagem é
+    /// `yaml`, os ids não chocam entre os dois cursos, e um passo só estrutural passa com a solução
+    /// e falha com os ficheiros iniciais sem precisar de nenhuma ferramenta. Um curso de
+    /// ferramenta nunca é «o curso» de uma linguagem.
+    #[test]
+    fn the_tool_courses_grade_through_submit_step() {
+        let courses = tutor_core::builtin_courses();
+        assert_eq!(
+            find_course(&courses, "yaml", Some("kubernetes"))
+                .unwrap()
+                .id,
+            "kubernetes-basics"
+        );
+        assert_eq!(
+            find_course(&courses, "yaml", Some("delonix")).unwrap().id,
+            "delonix-basics"
+        );
+        assert!(matches!(
+            find_course(&courses, "yaml", None),
+            Err(StudyError::NoCourse(_))
+        ));
+        let k8s = find_course(&courses, "yaml", Some("kubernetes")).unwrap();
+        let project = k8s
+            .step("k8s-p3-deployment")
+            .unwrap()
+            .project
+            .clone()
+            .unwrap();
+        let (ok, _) = grade_in(
+            &courses,
+            "k8s-p3-deployment",
+            Some("yaml"),
+            Submission::Files(&project.solution),
+        )
+        .unwrap();
+        assert!(ok.correctness.passed, "{}", ok.correctness.raw);
+        let (bad, _) = grade_in(
+            &courses,
+            "k8s-p3-deployment",
+            Some("yaml"),
+            Submission::Files(&Default::default()),
+        )
+        .unwrap();
+        assert!(!bad.correctness.passed);
+        assert!(bad
+            .correctness
+            .raw
+            .contains("✗ deployment.yaml › spec.replicas"));
+        // Um só ficheiro (o `code` antigo) é o ficheiro principal do passo de projecto.
+        let main = project.solution[&project.main].clone();
+        let (ok, _) = grade_in(
+            &courses,
+            "k8s-p3-deployment",
+            Some("yaml"),
+            Submission::Code(&main),
+        )
+        .unwrap();
+        assert!(ok.correctness.passed, "{}", ok.correctness.raw);
+    }
 }

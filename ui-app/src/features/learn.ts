@@ -16,7 +16,7 @@ import { $, esc, svg, mdFull } from "../core";
 import { VIEW } from "../app/store/registry";
 import rustCourse from "../content/courses/rust.json";
 import goCourse from "../content/courses/go.json";
-import { LANGUAGE_CATALOG, findLanguage, findSubject, languageCards, subjectCards } from "./learn/domain/catalog";
+import { EVALUATION_LANGUAGES, LANGUAGE_CATALOG, findLanguage, findSubject, languageCards, subjectCards } from "./learn/domain/catalog";
 import { baseName, isReadonly, projectPaths, projectSubmission } from "./learn/domain/project";
 import { fromEmbedded } from "./learn/domain/course-adapter";
 import type { Course, PluginRow, PrepareStatus } from "./learn/domain/types";
@@ -77,7 +77,7 @@ const saveLT=()=>LS.set('lt3',LTS);
 /* LT_LANGS (forma antiga {id,n,g}) deriva do catálogo oficial de 10 linguagens; LT_EXT é
    preenchido do catálogo + manifestos dos plugins (mutado em sítio, como COURSES). */
 const LT_LEVELS=[['basic','Basic','Start from the ground up — syntax and first programs.'],['intermediate','Intermediate','Build on the basics with real-world patterns.'],['advanced','Advanced','Deep dives, performance and the tricky corners.']];
-const LT_EXT:Record<string,string>=Object.fromEntries(LANGUAGE_CATALOG.map(l=>[l.id,l.extension])),LT_BADGE:Record<string,string>={concept:'LEARN',drill:'DRILL',challenge:'APPLY'};
+const LT_EXT:Record<string,string>=Object.fromEntries(LANGUAGE_CATALOG.concat(EVALUATION_LANGUAGES).map(l=>[l.id,l.extension])),LT_BADGE:Record<string,string>={concept:'LEARN',drill:'DRILL',challenge:'APPLY'};
 /* a escolha do onboarding (língua e níveis): com dono aqui (U7j — era window.ONB) */
 export let ONB:{lang:string|null;levels:string[]}={lang:null,levels:[]};
 let LT_SUB:{ok:boolean;why:string}|null=null;let LT_HOOD=false;
