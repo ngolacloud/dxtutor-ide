@@ -50,6 +50,7 @@ pub mod review;
 pub mod rr;
 pub mod runner;
 pub mod rust_tracer;
+pub mod sandbox;
 pub mod search;
 pub mod testbins;
 pub mod testnav;
@@ -65,7 +66,7 @@ pub use container::{
     parse_engine, project_test_command, run_file_command, run_in_container, run_python_in_sandbox,
     run_rust_snippet_in_container, run_rust_snippet_in_container_deps, sandbox_engine,
     session_down, session_exec, session_name, session_running, session_shell_command, session_up,
-    set_engine, ContainerSpec, SandboxEngine,
+    set_engine, ContainerLimits, ContainerSpec, SandboxEngine,
 };
 pub use go_runner::{run_go_program, run_go_program_with_deps};
 pub use lang::{
