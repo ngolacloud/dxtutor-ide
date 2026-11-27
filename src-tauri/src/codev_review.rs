@@ -444,9 +444,24 @@ pub fn request(
         Ok(gi::Prepared::Conflict(files)) => {
             review.state = "conflict".into();
             review.conflicts = files.clone();
-            let id = store(db)?
-                .review_insert(root, &review)
-                .map_err(|e| e.message)?;
+            let saved =
+                store(db).and_then(|mut s| s.review_insert(root, &review).map_err(|e| e.message));
+            let id = match saved {
+                Ok(id) => id,
+                Err(e) => {
+                    let _ = record(
+                        db,
+                        root,
+                        "review.request",
+                        command,
+                        &scope,
+                        "failed",
+                        Some(e.clone()),
+                        decided_at,
+                    );
+                    return Err(e);
+                }
+            };
             let _ = record(
                 db,
                 root,
@@ -463,10 +478,17 @@ pub fn request(
     };
     review.candidate = c.commit.clone();
     review.tree = c.tree.clone();
+    // running before its row says `checking`: the panel never sees it as interrupted
+    let cancel = Arc::new(AtomicBool::new(false));
+    running()
+        .lock()
+        .unwrap()
+        .insert(job_key(root, key), cancel.clone());
     let id = match store(db).and_then(|mut s| s.review_insert(root, &review).map_err(|e| e.message))
     {
         Ok(id) => id,
         Err(e) => {
+            running().lock().unwrap().remove(&job_key(root, key));
             let _ = gi::discard(Path::new(root), ibase, key);
             let _ = record(
                 db,
@@ -482,11 +504,6 @@ pub fn request(
         }
     };
     review.id = id;
-    let cancel = Arc::new(AtomicBool::new(false));
-    running()
-        .lock()
-        .unwrap()
-        .insert(job_key(root, key), cancel.clone());
     Ok(Started {
         id,
         job: Some(Job {
