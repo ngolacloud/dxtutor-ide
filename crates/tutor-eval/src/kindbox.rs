@@ -69,6 +69,148 @@ pub const NODE_IMAGE: &str = "docker.io/kindest/node:v1.36.4@sha256:099e049362a1
 
 /// The internal Podman network the cluster runs on (no route out).
 pub const NETWORK: &str = "dxtutor-kind";
+
+/// The subnet of [`NETWORK`], explicit so it cannot be the one Podman would hand out next.
+/// Measured (Podman 4.9.3, rootless): the sandbox's own `XDG_RUNTIME_DIR` gives it its own user
+/// namespace and rootless-netns, so a bridge with the same name and subnet in the user's Podman
+/// context (`podman1`, `10.89.0.0/24`) did not clash. Still, a fixed range outside every pool
+/// that Podman, Docker and kind use keeps it apart from anything the user creates, and
+/// [`subnet_conflicts`] refuses it if the user's networks or the host's routes already use it.
+/// 198.18.0.0/15 is the IANA benchmarking range (RFC 2544): no tool allocates from it.
+pub const SUBNET: &str = "198.18.250.0/24";
+
+/// The ranges [`SUBNET`] must never overlap, whatever the machine: Podman's default network and
+/// subnet pools, Docker's default pools and the pod and service CIDRs inside the kind node.
+pub const RESERVED_RANGES: &[(&str, &str)] = &[
+    ("Podman's default network", "10.88.0.0/16"),
+    ("Podman's default subnet pools", "10.89.0.0/16"),
+    ("Podman's default subnet pools", "10.90.0.0/15"),
+    ("Podman's default subnet pools", "10.92.0.0/14"),
+    ("Podman's default subnet pools", "10.96.0.0/11"),
+    ("Podman's default subnet pools", "10.128.0.0/9"),
+    ("Docker's default address pools", "172.17.0.0/16"),
+    ("Docker's default address pools", "172.18.0.0/15"),
+    ("Docker's default address pools", "172.20.0.0/14"),
+    ("Docker's default address pools", "172.24.0.0/13"),
+    ("Docker's default address pools", "192.168.0.0/16"),
+    ("the kind cluster's Pod network", "10.244.0.0/16"),
+    ("the kind cluster's Service network", "10.96.0.0/12"),
+];
+
+/// An IPv4 CIDR as (network address, prefix length); `None` for anything else (IPv6 included).
+pub fn parse_cidr(cidr: &str) -> Option<(u32, u8)> {
+    let (addr, len) = cidr.trim().split_once('/')?;
+    let len: u8 = len.parse().ok().filter(|l| *l <= 32)?;
+    let ip: std::net::Ipv4Addr = addr.parse().ok()?;
+    let mask = if len == 0 { 0 } else { u32::MAX << (32 - len) };
+    Some((u32::from(ip) & mask, len))
+}
+
+/// Whether two IPv4 CIDRs share an address.
+pub fn overlaps(a: (u32, u8), b: (u32, u8)) -> bool {
+    let len = a.1.min(b.1);
+    let mask = if len == 0 { 0 } else { u32::MAX << (32 - len) };
+    a.0 & mask == b.0 & mask
+}
+
+/// Who already uses an address range that overlaps `subnet` (empty: it is free). `taken` is
+/// (who, CIDR); entries that are not IPv4 CIDRs, and the default route, are ignored.
+pub fn subnet_conflicts(subnet: &str, taken: &[(String, String)]) -> Vec<String> {
+    let Some(mine) = parse_cidr(subnet) else {
+        return vec![format!("`{subnet}` is not an IPv4 subnet")];
+    };
+    taken
+        .iter()
+        .filter_map(|(who, cidr)| {
+            let other = parse_cidr(cidr)?;
+            (other.1 > 0 && overlaps(mine, other)).then(|| format!("{who} ({cidr})"))
+        })
+        .collect()
+}
+
+/// The routes of `/proc/net/route` as (`interface route`, CIDR): every subnet the host reaches
+/// directly (Docker bridges, libvirt, VPNs, the LAN).
+pub fn routes_from(proc_net_route: &str) -> Vec<(String, String)> {
+    proc_net_route
+        .lines()
+        .skip(1)
+        .filter_map(|l| {
+            let f: Vec<&str> = l.split_whitespace().collect();
+            let dest = u32::from_str_radix(f.get(1)?, 16).ok()?;
+            let mask = u32::from_str_radix(f.get(7)?, 16).ok()?;
+            // The kernel prints the address as a number in host byte order.
+            let host = |x: u32| {
+                if cfg!(target_endian = "little") {
+                    x.swap_bytes()
+                } else {
+                    x
+                }
+            };
+            let dest = std::net::Ipv4Addr::from(host(dest));
+            let len = mask.count_ones();
+            Some((
+                format!("the host route on {}", f[0]),
+                format!("{dest}/{len}"),
+            ))
+        })
+        .collect()
+}
+
+/// The subnets of the user's own Podman networks: the netavark definitions in
+/// `<networks folder>/*.json` (read as files — the user's Podman is never run).
+pub fn podman_networks_in(dir: &Path) -> Vec<(String, String)> {
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for e in rd.flatten() {
+        let p = e.path();
+        if p.extension().is_none_or(|x| x != "json") {
+            continue;
+        }
+        let Some(v) = std::fs::read_to_string(&p)
+            .ok()
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        else {
+            continue;
+        };
+        let name = v
+            .get("name")
+            .and_then(|n| n.as_str())
+            .unwrap_or("?")
+            .to_string();
+        for sub in v
+            .get("subnets")
+            .and_then(|s| s.as_array())
+            .into_iter()
+            .flatten()
+        {
+            if let Some(cidr) = sub.get("subnet").and_then(|c| c.as_str()) {
+                out.push((format!("your Podman network `{name}`"), cidr.to_string()));
+            }
+        }
+    }
+    out
+}
+
+/// Everything [`SUBNET`] is checked against on this machine: the reserved ranges, the user's
+/// Podman networks (default storage) and the host's routes.
+pub fn taken_subnets() -> Vec<(String, String)> {
+    let mut taken: Vec<(String, String)> = RESERVED_RANGES
+        .iter()
+        .map(|(w, c)| (w.to_string(), c.to_string()))
+        .collect();
+    if let Some(home) = dirs::home_dir() {
+        taken.extend(podman_networks_in(
+            &home.join(".local/share/containers/storage/networks"),
+        ));
+    }
+    taken.extend(podman_networks_in(Path::new("/etc/containers/networks")));
+    if let Ok(r) = std::fs::read_to_string("/proc/net/route") {
+        taken.extend(routes_from(&r));
+    }
+    taken
+}
 /// Every practice cluster's name starts with this.
 pub const CLUSTER_PREFIX: &str = "dxtutor-";
 /// A cluster unused for this long is deleted.
@@ -807,7 +949,38 @@ fn ensure_network(sb: &Sandbox) -> Result<()> {
         QUICK_TIMEOUT,
     )?;
     if exists.ok {
-        return Ok(());
+        let r = run(
+            podman_cmd(
+                sb,
+                &[
+                    "network",
+                    "inspect",
+                    "--format",
+                    "{{range .Subnets}}{{.Subnet}} {{end}}",
+                    NETWORK,
+                ],
+            )?,
+            QUICK_TIMEOUT,
+        )?;
+        if r.ok && r.stdout.split_whitespace().collect::<Vec<_>>() == [SUBNET] {
+            return Ok(());
+        }
+        // Made by an earlier version without the explicit subnet: replace it (only the sandbox's
+        // own network; Podman refuses while a container uses it).
+        let rm = run(podman_cmd(sb, &["network", "rm", NETWORK])?, QUICK_TIMEOUT)?;
+        if !rm.ok {
+            bail!(
+                "the practice cluster's network has an old subnet and cannot be replaced: {}",
+                rm.stderr.trim()
+            );
+        }
+    }
+    let conflicts = subnet_conflicts(SUBNET, &taken_subnets());
+    if !conflicts.is_empty() {
+        bail!(
+            "{LIVE_UNAVAILABLE}: the practice cluster's network {SUBNET} overlaps {} on this machine; dxtutor does not create it (it would shadow those addresses). Free that range, or tell the dxtutor maintainers which range to use instead.",
+            conflicts.join(", ")
+        );
     }
     let r = run(
         podman_cmd(
@@ -816,6 +989,8 @@ fn ensure_network(sb: &Sandbox) -> Result<()> {
                 "network",
                 "create",
                 "--internal",
+                "--subnet",
+                SUBNET,
                 "--label",
                 podman::LABEL,
                 NETWORK,
@@ -1107,7 +1282,7 @@ pub fn cleanup(root: &Path, max_idle: Duration) -> Vec<Leftover> {
 /// exact commands (the Podman environment is the sandbox's, described by the preparation).
 pub fn start_command_text(sb: &Sandbox) -> String {
     format!(
-        "podman network create --internal --label {} {NETWORK}\nkind create cluster --name {} --image {NODE_IMAGE} --kubeconfig {} --wait 180s\nkind load image-archive {} --name {}",
+        "podman network create --internal --subnet {SUBNET} --label {} {NETWORK}\nkind create cluster --name {} --image {NODE_IMAGE} --kubeconfig {} --wait 180s\nkind load image-archive {} --name {}",
         podman::LABEL,
         sb.name,
         sb.kubeconfig.display(),
@@ -1364,5 +1539,95 @@ mod tests {
         let offline = std::fs::read_to_string(sb.conf.join("registries-offline.conf")).unwrap();
         assert!(offline.contains("prefix = \"docker.io\"") && offline.contains("blocked = true"));
         let _ = std::fs::remove_dir_all(&sb.runtime);
+    }
+
+    #[test]
+    fn the_cluster_subnet_is_outside_every_pool_and_overlaps_are_refused() {
+        // The fixed choice never collides with Podman, Docker or kind's own ranges.
+        let reserved: Vec<(String, String)> = RESERVED_RANGES
+            .iter()
+            .map(|(w, c)| (w.to_string(), c.to_string()))
+            .collect();
+        assert!(subnet_conflicts(SUBNET, &reserved).is_empty());
+        // The subnet Podman hands out first (what the cluster used before) is in a pool.
+        assert_eq!(
+            subnet_conflicts("10.89.0.0/24", &reserved),
+            ["Podman's default subnet pools (10.89.0.0/16)"]
+        );
+        let taken = vec![
+            (
+                "your Podman network `lab`".to_string(),
+                "198.18.0.0/16".to_string(),
+            ),
+            (
+                "the host route on wg0".to_string(),
+                "198.18.250.128/25".to_string(),
+            ),
+            (
+                "the host route on wlo1".to_string(),
+                "0.0.0.0/0".to_string(),
+            ),
+            ("ipv6".to_string(), "fd00::/64".to_string()),
+        ];
+        assert_eq!(
+            subnet_conflicts(SUBNET, &taken),
+            [
+                "your Podman network `lab` (198.18.0.0/16)",
+                "the host route on wg0 (198.18.250.128/25)"
+            ],
+            "a wider or a narrower overlap both count; the default route and IPv6 do not"
+        );
+        assert!(!overlaps(
+            parse_cidr("198.18.250.0/24").unwrap(),
+            parse_cidr("198.18.251.0/24").unwrap()
+        ));
+        assert_eq!(
+            parse_cidr("10.89.0.7/24"),
+            Some((u32::from(std::net::Ipv4Addr::new(10, 89, 0, 0)), 24))
+        );
+        assert_eq!(parse_cidr("nope"), None);
+    }
+
+    #[test]
+    fn host_routes_and_podman_network_files_are_read_without_running_anything() {
+        let route =
+            "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n\
+                     wlo1\t00000000\tFE1F030A\t0003\t0\t0\t600\t00000000\t0\t0\t0\n\
+                     wlo1\t001F030A\t00000000\t0001\t0\t0\t600\t00FFFFFF\t0\t0\t0\n\
+                     docker0\t000011AC\t00000000\t0001\t0\t0\t0\t0000FFFF\t0\t0\t0\n";
+        let r = routes_from(route);
+        assert_eq!(
+            r[1],
+            (
+                "the host route on wlo1".to_string(),
+                "10.3.31.0/24".to_string()
+            )
+        );
+        assert_eq!(
+            r[2],
+            (
+                "the host route on docker0".to_string(),
+                "172.17.0.0/16".to_string()
+            )
+        );
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join("lab.json"),
+            r#"{"name": "lab", "driver": "bridge", "subnets": [{"subnet": "198.18.250.0/24", "gateway": "198.18.250.1"}]}"#,
+        )
+        .unwrap();
+        std::fs::write(tmp.path().join("notes.txt"), "198.18.250.0/24").unwrap();
+        let nets = podman_networks_in(tmp.path());
+        assert_eq!(
+            nets,
+            [(
+                "your Podman network `lab`".to_string(),
+                "198.18.250.0/24".to_string()
+            )]
+        );
+        assert_eq!(subnet_conflicts(SUBNET, &nets).len(), 1);
+        // This machine: the subnet is free (the check that runs before the network is created).
+        let here = subnet_conflicts(SUBNET, &taken_subnets());
+        assert!(here.is_empty(), "{here:?}");
     }
 }

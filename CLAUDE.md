@@ -925,7 +925,9 @@ cpp, sql.
   do avaliador — e o `manifest_problems` antes de cada `apply`: só tipos com namespace, sem `hostPath`/`hostPort`/
   privilegiados, só as imagens preparadas), `tutor_eval::kindbox` (kind e imagem do nó FIXADOS no código, sha256 e
   digest; um Podman só do curso — `rootless_storage_path`, `XDG_RUNTIME_DIR` próprio em `/run/user/<uid>`,
-  `CONTAINERS_*` e registos bloqueados —; rede `--internal`; o processo de pausa e a pasta de execução saem com o
+  `CONTAINERS_*` e registos bloqueados —; rede `--internal` na sub-rede fixa `198.18.250.0/24` (fora dos pools do Podman,
+  do Docker e do kind; `subnet_conflicts` recusa-a se as redes do Podman do utilizador ou as rotas do anfitrião a usarem —
+  medido: com o `XDG_RUNTIME_DIR` próprio, o userns e o rootless-netns da caixa não são os do utilizador); o processo de pausa e a pasta de execução saem com o
   cluster) e o `CacheKind::Cluster` (`yaml`: linhas `registo/repo:tag@sha256:…`). Num namespace novo por avaliação
   (`dxt-<passo>-…`, apagado no fim); as `[[check]]` que não lêem saídas ao vivo correm antes e, falhando, o cluster
   nem é tocado. Só os passos ao vivo precisam da cache (`livecheck::phase_needs_cache`). O cluster nasce na

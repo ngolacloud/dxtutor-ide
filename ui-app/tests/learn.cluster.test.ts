@@ -10,7 +10,7 @@ import type { CourseGateway } from "../src/features/learn/application/ports";
 import type { ClusterState } from "../src/features/learn/domain/types";
 import { fromCourseDto } from "../src/features/learn/domain/course-adapter";
 
-const START = "podman network create --internal --label io.dxtutor.sandbox=kind dxtutor-kind\nkind create cluster --name dxtutor-kubernetes-basics --image docker.io/kindest/node:v1.36.4@sha256:" + "0".repeat(64) + " --kubeconfig /data/cc/kubernetes-basics/cluster/kubeconfig --wait 180s\nkind load image-archive /data/cc/kubernetes-basics/cluster/images.tar --name dxtutor-kubernetes-basics";
+const START = "podman network create --internal --subnet 198.18.250.0/24 --label io.dxtutor.sandbox=kind dxtutor-kind\nkind create cluster --name dxtutor-kubernetes-basics --image docker.io/kindest/node:v1.36.4@sha256:" + "0".repeat(64) + " --kubeconfig /data/cc/kubernetes-basics/cluster/kubeconfig --wait 180s\nkind load image-archive /data/cc/kubernetes-basics/cluster/images.tar --name dxtutor-kubernetes-basics";
 const DELETE = "kind delete cluster --name dxtutor-kubernetes-basics --kubeconfig /data/cc/kubernetes-basics/cluster/kubeconfig\npodman network rm --force dxtutor-kind";
 const DIR = "/data/cc/kubernetes-basics/cluster";
 

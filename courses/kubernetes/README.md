@@ -62,7 +62,8 @@ three images the course pins by digest — `nginx:1.27.5-alpine`, `nginx:1.28.0-
 `busybox:1.37.0`.
 
 The cluster lives in the course cache with its own Podman storage, runtime folder, registries
-configuration and kubeconfig, on an **internal** network: it never reads `~/.kube/config`, never
+configuration and kubeconfig, on an **internal** network (`198.18.250.0/24`, outside the Podman, Docker and
+kind address pools; dxtutor refuses to create it if your networks or routes already use that range): it never reads `~/.kube/config`, never
 touches the learner's containers or images, and cannot download anything while grading. «Prepare
 course» (or `dxt plugin prepare courses/kubernetes`) downloads, once and with approval, the kind
 release (checked by its SHA-256), the node image and the three images (by digest), about 1 GB. The
