@@ -120,10 +120,13 @@ fn session_sandbox(
     work_root: &Path,
     spec: &StartSpec,
     notes: &mut Vec<String>,
-) -> Option<Arc<tutor_agent::os_sandbox::OsSandbox>> {
+) -> (
+    Option<Arc<tutor_agent::os_sandbox::OsSandbox>>,
+    Option<tutor_agent::net_proxy::Proxy>,
+) {
     use tutor_agent::os_sandbox::{self, SandboxConfig, CONFIG_FILE};
     if spec.sandbox == Some(false) {
-        return None;
+        return (None, None);
     }
     let mut cfg = match SandboxConfig::load(work_root) {
         Ok(c) => c.unwrap_or_default(),
@@ -156,7 +159,7 @@ fn session_sandbox(
     }
     if cfg.enabled == Some(false) {
         notes.push(format!("sandbox desligada pelo {CONFIG_FILE} do projecto (confiado): os comandos correm sem ela"));
-        return None;
+        return (None, None);
     }
     match os_sandbox::available() {
         Ok(bwrap) => {
@@ -174,11 +177,33 @@ fn session_sandbox(
                     "a rede está ligada para os comandos deste projecto ({CONFIG_FILE})"
                 ));
             }
-            Some(Arc::new(sb))
+            // H1b: only the allowed domains, through a proxy outside the sandbox
+            if cfg.network.as_deref() == Some("allowlist") && !cfg.allow_domains.is_empty() {
+                let dir = std::env::temp_dir().join(format!("dxtutor-net-{}", new_id()));
+                let allow = tutor_agent::net_proxy::Allowlist::new(&cfg.allow_domains, &[]);
+                match (tutor_agent::net_proxy::Proxy::start(&dir, allow), std::env::current_exe()) {
+                    (Ok(proxy), Ok(exe)) => {
+                        notes.push(format!(
+                            "a rede dos comandos deste projecto só chega a: {} ({CONFIG_FILE})",
+                            cfg.allow_domains.join(", ")
+                        ));
+                        let net = os_sandbox::NetBridge {
+                            dir,
+                            bridge: vec![exe.into_os_string()],
+                            denied: proxy.denied_log(),
+                        };
+                        return (Some(Arc::new(sb.with_net(net))), Some(proxy));
+                    }
+                    (Err(e), _) | (_, Err(e)) => notes.push(format!(
+                        "a lista de domínios do {CONFIG_FILE} não arrancou ({e}): a rede fica desligada"
+                    )),
+                }
+            }
+            (Some(Arc::new(sb)), None)
         }
         Err(why) => {
             notes.push(format!("sem sandbox do sistema nesta máquina ({why}): os comandos do Co-Dev correm sem ela"));
-            None
+            (None, None)
         }
     }
 }
@@ -380,6 +405,8 @@ struct Session {
     /// editada, por isso o que muda entre turnos vai como mensagem `system`.
     notes: Mutex<Vec<String>>,
     /// Avisos do arranque para o humano (MCP que falhou, hooks por confiar…).
+    /// H1b: the allowlist proxy of this session's sandbox (stops with the session).
+    _net_proxy: Option<tutor_agent::net_proxy::Proxy>,
     startup_notices: Vec<String>,
     /// Live hunks on ([`StartSpec::review_edits`]).
     review_edits: bool,
@@ -835,10 +862,17 @@ pub fn start(
     // servidores MCP: ligam-se sempre; numa sessão nova as definições anunciadas ficam
     // gravadas, numa retoma usam-se as gravadas (o prefixo do pedido não pode mudar)
     let mut notes = vec![];
+    // H1: what the agent runs (bash, run_tests/lint, hooks, MCP servers) runs in the OS sandbox of the
+    // folder it works in; H1b: with the project's domain allowlist, through a proxy kept by the session
+    let (sandbox, net_proxy) = session_sandbox(&root, &work_root, &spec, &mut notes);
     let mut meta = meta;
     let new_session = log.is_none();
     let connected = if meta.toolset >= 3 {
-        let (tools, mut n) = mcp::connect_all(&mcp_servers(&root, &spec, &mut notes), &work_root);
+        let (tools, mut n) = mcp::connect_all_in(
+            &mcp_servers(&root, &spec, &mut notes),
+            &work_root,
+            sandbox.as_deref(),
+        );
         notes.append(&mut n);
         tools
     } else {
@@ -924,8 +958,6 @@ pub fn start(
         effort: acfg.effort,
         lang: meta.lang(),
     };
-    // H1: what the agent runs (bash, run_tests/lint, hooks) runs in the OS sandbox of the folder it works in
-    let sandbox = session_sandbox(&root, &work_root, &spec, &mut notes);
     let tools = agent_tools(
         &ToolsetOptions {
             test_cmd: meta.test_cmd.clone(),
@@ -993,6 +1025,7 @@ pub fn start(
         flow,
         notes: Mutex::new(vec![]),
         startup_notices: notes,
+        _net_proxy: net_proxy,
         review_edits: spec.review_edits,
         checks,
         review: Mutex::new(HashMap::new()),

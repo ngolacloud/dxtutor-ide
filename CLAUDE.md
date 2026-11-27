@@ -1483,8 +1483,15 @@ O `bash`, o `run_tests`/`lint` e os hooks do projecto correm dentro do bubblewra
   (todos os modos, sem «permitir sempre»; em Auto sem humano é recusado). Uma falha que cheira a sandbox (rede, disco só de
   leitura) volta ao modelo com a pista (`os_sandbox::hint`).
 - Sem bubblewrap (macOS, Windows, kernel sem user namespaces) os comandos correm como antes e a sessão DIZ que não há
-  sandbox. Fica para a H1b: a lista de domínios por projecto (proxy) e os servidores MCP.
-- Testes: `cargo test -p tutor-agent os_sandbox` (o teste real corre com o bwrap desta máquina e salta sem ele),
+  sandbox.
+- **H1b — lista de domínios** (`tutor_agent::net_proxy`): `"network": "allowlist"` + `"allowDomains": ["pypi.org",
+  "*.crates.io"]` (confiado). A sessão corre FORA da sandbox um proxy HTTP/CONNECT num socket Unix (só esses domínios,
+  portas 80/443; regista o que recusa); a pasta do socket é montada em `/tmp/.dxtutor-net` e o próprio binário do IDE,
+  em modo ponte (`DXTUTOR_NET_BRIDGE`, `net_proxy::bridge_main` no `main`), escuta `127.0.0.1:3128` lá dentro antes de
+  correr o comando, que recebe `HTTP(S)_PROXY`. O resto continua sem rede. O `bash` diz ao modelo os domínios recusados.
+- **Servidores MCP** correm também na sandbox (`mcp::connect_all_in`), com a mesma rede do projecto.
+- Testes: `cargo test -p tutor-agent os_sandbox net_proxy mcp::` (os testes reais — escrita, segredos, rede, a lista
+  de domínios pelo proxy e um servidor MCP — correm com o bwrap desta máquina e saltam sem ele),
   `a_command_outside_the_sandbox_is_always_the_humans`, `tests/codev.agent-chat.test.ts` (H1).
 
 ## Medir o harness do Co-Dev (H0, `src-tauri/src/eval.rs`, `evals/`)
