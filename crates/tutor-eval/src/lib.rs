@@ -45,6 +45,7 @@ pub mod lsp;
 pub mod lspconf;
 pub mod lspinstall;
 pub mod measured;
+mod odoo_check;
 pub mod onboard;
 pub mod ops;
 pub mod plugin;

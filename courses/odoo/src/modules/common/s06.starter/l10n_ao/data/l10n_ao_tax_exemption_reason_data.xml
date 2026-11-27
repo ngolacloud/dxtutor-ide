@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Part of the dxtutor Odoo course (l10n_ao). License: LGPL-3.
+     Source: Decreto Executivo n.º 683/25, Anexo I, Tabelas 4 and 5 (see the instructions). -->
+<odoo>
+    <record id="exemption_reason_m11" model="l10n_ao.tax.exemption.reason">
+        <field name="code">M11</field>
+        <field name="name">Isento nos termos da alínea b) do n.º 1 do artigo 12.º do CIVA</field>
+        <field name="description">Medicamentos destinados exclusivamente a fins terapêuticos e profilácticos.</field>
+        <field name="tax_type">iva</field>
+    </record>
+    <!-- TODO: the other codes of Tabela 4 and the three of Tabela 5. -->
+</odoo>

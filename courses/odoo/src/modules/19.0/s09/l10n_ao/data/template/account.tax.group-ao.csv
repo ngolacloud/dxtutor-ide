@@ -1,0 +1,8 @@
+"id","name","country_id","tax_payable_account_id","tax_receivable_account_id"
+"tax_group_iva_14","IVA 14%","base.ao","pgc_34561","pgc_34571"
+"tax_group_iva_7","IVA 7%","base.ao","pgc_34561","pgc_34571"
+"tax_group_iva_5","IVA 5%","base.ao","pgc_34561","pgc_34571"
+"tax_group_iva_1","IVA 1%","base.ao","pgc_34561","pgc_34571"
+"tax_group_iva_0","IVA Isento","base.ao","pgc_34561","pgc_34571"
+"tax_group_selo","Imposto do Selo","base.ao","",""
+"tax_group_retencao","Retenções na fonte","base.ao","",""

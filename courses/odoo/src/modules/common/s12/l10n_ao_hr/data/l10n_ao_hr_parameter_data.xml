@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Part of the dxtutor Odoo course (l10n_ao_hr). License: LGPL-3.
+     Seed values, from the dxtutor legal fact sheet (2026-11-27). noupdate="1": what the person
+     responsible changes in Employees > Configuration > Angola survives module updates. A value is
+     dated from 2026-01-01, the first date it was checked to be in force; earlier payrolls need
+     their own values. -->
+<odoo noupdate="1">
+    <record id="param_inss_employee_rate" model="l10n_ao_hr.parameter">
+        <field name="name">INSS – employee rate (%)</field>
+        <field name="code">inss_employee_rate</field>
+        <field name="description">Percentage of the INSS base withheld from the worker.</field>
+    </record>
+    <record id="param_inss_employee_rate_v2026" model="l10n_ao_hr.parameter.value">
+        <field name="parameter_id" ref="param_inss_employee_rate"/>
+        <field name="date_from">2026-01-01</field>
+        <field name="value">3.0</field>
+        <field name="source">Decreto Presidencial n.º 227/18, art. 12.º (no amendment found 2020-2026)</field>
+    </record>
+    <record id="param_inss_employer_rate" model="l10n_ao_hr.parameter">
+        <field name="name">INSS – employer rate (%)</field>
+        <field name="code">inss_employer_rate</field>
+        <field name="description">Percentage of the INSS base paid by the employer.</field>
+    </record>
+    <record id="param_inss_employer_rate_v2026" model="l10n_ao_hr.parameter.value">
+        <field name="parameter_id" ref="param_inss_employer_rate"/>
+        <field name="date_from">2026-01-01</field>
+        <field name="value">8.0</field>
+        <field name="source">Decreto Presidencial n.º 227/18, art. 12.º</field>
+    </record>
+    <record id="param_inss_retired_employee_rate" model="l10n_ao_hr.parameter">
+        <field name="name">INSS – retired worker who keeps working, worker's rate (%)</field>
+        <field name="code">inss_retired_employee_rate</field>
+        <field name="description">The worker's share for a retired worker who keeps working.</field>
+    </record>
+    <record id="param_inss_retired_employee_rate_v2026" model="l10n_ao_hr.parameter.value">
+        <field name="parameter_id" ref="param_inss_retired_employee_rate"/>
+        <field name="date_from">2026-01-01</field>
+        <field name="value">8.0</field>
+        <field name="source">Decreto Presidencial n.º 227/18, art. 12.º</field>
+    </record>
+    <record id="param_inss_ceiling" model="l10n_ao_hr.parameter">
+        <field name="name">INSS – contribution ceiling (to be confirmed)</field>
+        <field name="code">inss_ceiling</field>
+        <field name="description">To be confirmed. Decreto Presidencial n.º 227/18 sets no ceiling; Lei n.º 7/04 was not read in full. Without a value no ceiling is applied.</field>
+    </record>
+    <record id="param_irt_food_allowance_limit" model="l10n_ao_hr.parameter">
+        <field name="name">IRT – food allowance not subject, per month (Kz)</field>
+        <field name="code">irt_food_allowance_limit</field>
+        <field name="description">Subsídio de alimentação up to this amount is not subject to IRT; the excess is.</field>
+    </record>
+    <record id="param_irt_food_allowance_limit_v2026" model="l10n_ao_hr.parameter.value">
+        <field name="parameter_id" ref="param_irt_food_allowance_limit"/>
+        <field name="date_from">2026-01-01</field>
+        <field name="value">30000.0</field>
+        <field name="source">CIRT, art. 2.º, n.º 1, k) (Lei n.º 28/20)</field>
+    </record>
+    <record id="param_irt_transport_allowance_limit" model="l10n_ao_hr.parameter">
+        <field name="name">IRT – transport allowance not subject, per month (Kz)</field>
+        <field name="code">irt_transport_allowance_limit</field>
+        <field name="description">Subsídio de transporte up to this amount is not subject to IRT; the excess is.</field>
+    </record>
+    <record id="param_irt_transport_allowance_limit_v2026" model="l10n_ao_hr.parameter.value">
+        <field name="parameter_id" ref="param_irt_transport_allowance_limit"/>
+        <field name="date_from">2026-01-01</field>
+        <field name="value">30000.0</field>
+        <field name="source">CIRT, art. 2.º, n.º 1, n) (Lei n.º 28/20)</field>
+    </record>
+    <record id="param_irt_family_allowance_rate" model="l10n_ao_hr.parameter">
+        <field name="name">IRT – abono de família not subject (% of base salary)</field>
+        <field name="code">irt_family_allowance_rate</field>
+        <field name="description">Abono de família paid by the employer up to this percentage of the base salary is not subject to IRT.</field>
+    </record>
+    <record id="param_irt_family_allowance_rate_v2026" model="l10n_ao_hr.parameter.value">
+        <field name="parameter_id" ref="param_irt_family_allowance_rate"/>
+        <field name="date_from">2026-01-01</field>
+        <field name="value">5.0</field>
+        <field name="source">CIRT, art. 2.º, n.º 1, d) (Lei n.º 28/20)</field>
+    </record>
+</odoo>

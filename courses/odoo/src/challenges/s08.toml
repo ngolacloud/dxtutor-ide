@@ -1,0 +1,66 @@
+id = "chart-template"
+title = "The PGC chart template"
+points = 80
+difficulty = 4
+main = "l10n_ao/models/template_ao.py"
+install = ["l10n_ao", "dxt_check"]
+test_tags = ["/dxt_check"]
+min_tests = 9
+timeout_secs = 900
+message = "Loading the 'ao' chart into an Angolan company must give the PGC accounts and defaults the instructions describe."
+intro = "Odoo's chart templates: a Python template plus CSV files, loaded into a company."
+instructions = '''
+Write the `ao` chart template in `l10n_ao/models/template_ao.py`: a class that inherits the
+abstract model `account.chart.template` and declares its data with the `@template` decorator
+(`from odoo.addons.account.models.chart_template import template`).
+
+The accounts are given in `data/template/account.account-ao.csv` — the PGC classes 1–8 —
+**except the IVA block 34.5** (Decreto Presidencial n.º 180/19, arts. 20.º–22.º): add its 26
+leaf accounts (34.5.1.1 … 34.5.9) {iva_rule}. The unit text has the list; the names follow the
+pattern `IVA liquidado – Operações gerais`.
+
+Odoo account codes are the PGC codes **without dots, padded to `code_digits`**: with
+`code_digits` `'5'`, 31.1.2.1 is `31121` and 51 is `51000`. Ids are `pgc_<code without dots>`.
+
+The template:
+
+- `@template('ao')` → `code_digits` `'5'`{template_data_rule};
+- `@template('ao', 'res.company')` → for `self.env.company.id`: `account_fiscal_country_id`
+  `base.ao`; bank, cash and transfer prefixes `4311`, `4511` and `48`; exchange gain/loss
+  `pgc_662`/`pgc_762`; early-payment discount gain/loss `pgc_663`/`pgc_763`{company_rule};
+- `@template('ao', 'account.journal')` → the `bank` journal's `default_account_id` is
+  `pgc_4311` (43.1.1 Banco) and the `cash` journal's is `pgc_4511` (45.1.1 Caixa).
+
+The grader creates an Angolan company and loads the template with
+`try_loading('ao', company)`, then checks the accounts, the hierarchy, the defaults and the
+journals.
+'''
+explanation = '''
+Since Odoo 17 a chart is not data loaded at install: it is a *template*, read when a company
+chooses it. The module only teaches Odoo where the template is (`@template('ao')`, the code
+being the country) and ships CSV files named after the models (`account.account-ao.csv`); the
+records get ids prefixed with the company, so several companies can share one database.
+`_guess_chart_template` picks `ao` for an Angolan company because the template's code matches
+the country. The PGC stays recognisable in Odoo's fixed-width codes (31121 is 31.1.2.1).
+Accounts 27 and the sub-accounts of 14 are left out on purpose: their codes were extracted from
+a two-column PDF and still have to be checked against the Diário da República.
+{version_explanation}
+'''
+
+[vars."18.0"]
+iva_rule = "to the account CSV, and keep `data/template/account.group-ao.csv`, which already holds the hierarchy (group `345` IVA, `3453` IVA liquidado…)"
+template_data_rule = " and the four default accounts: `property_account_receivable_id` `pgc_31121`, `property_account_payable_id` `pgc_32121`, `property_account_expense_categ_id` `pgc_212` (21.2 Compras – Mercadorias) and `property_account_income_categ_id` `pgc_6131` (61.3.1 Vendas – Mercadorias – Mercado nacional)"
+company_rule = ""
+version_explanation = "In Odoo 18 the hierarchy is `account.group` (one CSV, prefixes matched against the codes) and the template data carries all four default accounts."
+
+[vars."19.0"]
+iva_rule = "to the account CSV, and keep `data/template/account.group-ao.csv`, which already holds the hierarchy (group `345` IVA, `3453` IVA liquidado…)"
+template_data_rule = ", `property_account_receivable_id` `pgc_31121` and `property_account_payable_id` `pgc_32121`"
+company_rule = "; and, new in Odoo 19, the product income and expense defaults are company fields: `expense_account_id` `pgc_212` (21.2 Compras – Mercadorias) and `income_account_id` `pgc_6131` (61.3.1 Vendas – Mercadorias – Mercado nacional)"
+version_explanation = "Odoo 19 moved the product income/expense defaults from the template data (`property_account_*_categ_id`) to `res.company` (`income_account_id`, `expense_account_id`); receivable and payable stay in the template data."
+
+[vars."20.0"]
+iva_rule = "to the account CSV. Odoo 20 has **no account groups**: the hierarchy is `parent_id`. The CSV header is `id,parent_id,active,name,code,account_type,reconcile`; every intermediate level (34.5, 34.5.3…) is an **inactive** account (`active` `False`) that the leaves point to with `parent_id` — add the nine 34.5.x parents and the `34.5` parent too, under `pgc_34`"
+template_data_rule = " (nothing else: in Odoo 20 the default accounts are company fields)"
+company_rule = "; and the four defaults, all company fields in Odoo 20: `receivable_account_id` `pgc_31121`, `payable_account_id` `pgc_32121`, `expense_account_id` `pgc_212` and `income_account_id` `pgc_6131`"
+version_explanation = "Odoo 20 removed `account.group`: the hierarchy is built with `account.account.parent_id`, the intermediate levels being inactive accounts (they keep their short code; only active codes are padded). The receivable and payable defaults joined income and expense on `res.company` (`receivable_account_id`, `payable_account_id`)."

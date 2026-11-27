@@ -1,0 +1,53 @@
+id = "data-files"
+title = "Data files: provinces and the AGT tables"
+points = 60
+difficulty = 3
+main = "l10n_ao/__manifest__.py"
+editable = []
+install = ["l10n_ao", "dxt_check"]
+test_tags = ["/dxt_check"]
+min_tests = 5
+message = "The provinces and every exemption code must be loaded from data files listed in the manifest."
+intro = "Load reference data — Angola's provinces and AGT's exemption codes — from CSV and XML."
+instructions = '''
+Two data files, both started for you:
+
+1. `l10n_ao/data/res.country.state.csv` — the **21 provinces** of Lei n.º 14/24, de 5 de
+   Setembro (Divisão Político-Administrativa), as `res.country.state` of `base.ao`, with external
+   ids `state_ao_<code in lower case>`. Odoo has no Angolan states, so the module brings them.
+   The code is the **ISO 3166-2:AO** code without `AO-` where one exists (17 provinces). The four
+   provinces created in 2024 have **no ISO code yet**, so they take the code of **Lei n.º 8/25**
+   (the national territorial codes): Icolo e Bengo `IBE`, Moxico Leste `MLE`, Cubango `CGO` and
+   Cuando `CDO`. Never `CCU` for Cubango: ISO's `AO-CCU` names the abolished Cuando Cubango.
+
+   | Code | Province | Code | Province | Code | Province |
+   |---|---|---|---|---|---|
+   | CAB | Cabinda | CNO | Cuanza-Norte | BIE | Bié |
+   | ZAI | Zaire | CUS | Cuanza-Sul | HUA | Huambo |
+   | UIG | Uíge | MAL | Malanje | BGU | Benguela |
+   | BGO | Bengo | LNO | Lunda-Norte | NAM | Namibe |
+   | LUA | Luanda | LSU | Lunda-Sul | HUI | Huíla |
+   | IBE | Icolo e Bengo | MOX | Moxico | CNN | Cunene |
+   | MLE | Moxico Leste | CGO | Cubango | CDO | Cuando |
+
+2. `l10n_ao/data/l10n_ao_tax_exemption_reason_data.xml` — every code of Decreto Executivo
+   n.º 683/25, Anexo I: **Tabela 4** (IVA: M10–M24, M30–M38, M80–M86, M90–M93, M00, M02, M04)
+   and **Tabela 5** (Imposto do Selo: S01–S03), with ids `exemption_reason_<code in lower case>`.
+   The mention is copied **exactly as published**, even where its wording is irregular — M18
+   reads "…alínea i) do n.º 1 artigo 12.º do CIVA", M22–M24 omit "n.º 1", M80–M93 omit "do
+   CIVA". The unit text has the whole table. Load them with `<odoo noupdate="1">`: the person
+   responsible for the module may correct or extend a mention in the UI when AGT changes the
+   table, and a module update must not undo that.
+
+Then list both files in the manifest's `data`, **after** the access file and **before** the
+views (a file can only use what earlier files created).
+'''
+explanation = '''
+Data files are loaded in the order of `data`. A CSV file is named after its model
+(`res.country.state.csv`) and its header names fields, `country_id:id` meaning "the external id
+of the country". XML records with an `id` become external ids (`l10n_ao.state_ao_cab`), so other
+modules and later upgrades find them again; without `noupdate="1"` an upgrade rewrites them from
+the file — what you want for legal tables that change by law. The four provinces of 2024 show a
+real localization decision: Odoo's `res.country.state.code` must be unique per country, ISO has
+not coded them yet, and the course takes the Lei n.º 8/25 codes rather than inventing ISO ones.
+'''

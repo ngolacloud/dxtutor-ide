@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Part of the dxtutor Odoo course (l10n_ao). License: LGPL-3. -->
+<odoo>
+    <!-- Angola calls its tax number NIF (Decreto Presidencial n.º 245/21). -->
+    <record id="base.ao" model="res.country">
+        <field name="vat_label">NIF</field>
+    </record>
+</odoo>

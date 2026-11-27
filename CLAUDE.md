@@ -971,6 +971,28 @@ cpp, sql.
   (cria, mede e apaga o cluster). O Podman do kind fica em `kindbox/podman.rs`, à parte da caixa do Learn P3a:
   o kind chama o `podman` sem as flags por comando dessa caixa e precisa de uma rede interna e de um nó privilegiado
   (rootless), que ela proíbe; o `ImageRef`/`normalize_image` do `tutor_core::build` é o mesmo texto do P3a.
+- **Curso de Odoo (Learn P3c):** `courses/odoo/` (framework `odoo`, linguagem de avaliação `odoo-module`,
+  só no backend) constrói o `l10n_ao` (PGC, impostos, posições fiscais, NIF, províncias) e o `l10n_ao_hr`
+  (INSS, IRT, feriados) para o **Odoo 18, 19 e 20**, um desafio por série (ids `odoo<série>-sNN-…`). O TOML
+  é **GERADO** por `scripts/build-odoo-course.py` a partir de `courses/odoo/src/` (texto, estágios e
+  módulos reais por camada `common`/`18.0`/`19.0`/`20.0`; `--check`, `--tree série estágio pasta`):
+  nunca se edita à mão. Cada desafio declara no `checks.toml` uma tabela `[odoo]` (`tutor_core::odootest`:
+  série, módulos, etiquetas, `min_tests`, `enterprise`) e o `tutor_eval::odoo_check` corre-a no sandbox do
+  P3a: PostgreSQL 17.12 `--network none` com os dados num tmpfs, Odoo da série no espaço de rede dele
+  (`--network container:`), a pasta do passo só de leitura em `/mnt/extra-addons`, `-i … --test-tags …
+  --stop-after-init` (`--without-demo=all` só no 18), e lê o registo: módulos carregados, a linha
+  `odoo.tests.result` e NENHUM aviso ou erro (a lista `BENIGN_WARNINGS` só tem o que se mediu numa
+  instalação limpa). As imagens (Odoo 18/19/20 e PostgreSQL, ~7 GB) são o `[build]`, puxadas pelo
+  digest no «Prepare course». Os passos Enterprise (o `l10n_ao_hr_payroll`, só 18 e 19) só correm com
+  `DXTUTOR_ODOO_ENTERPRISE_<major>` (montado `:ro`); sem ele o `dxt plugin test` salta-os
+  (`ODOO_ENTERPRISE_MISSING`); o dxtutor nunca descarrega nem copia código Enterprise. Regra do módulo
+  (decisão do dono): todo o valor legal é um registo editável na UI, semeado com a fonte e
+  `noupdate="1"`; um valor não confirmado vai vazio e a conta recusa nomeando-o. Os factos legais e o que
+  ficou de fora estão em `courses/odoo/README.md`; as diferenças entre séries em `courses/odoo/VERSIONS.md`.
+  GOTCHA-podman: com a máquina carregada, um `rm -f -t 0` de um contentor a correr pode prender-se contra
+  o `container cleanup` do conmon; o avaliador pára o PostgreSQL antes da limpeza. Testes: `cargo test
+  -p tutor-core odoo`, `-p tutor-eval odoo_check`; `dxt plugin prepare courses/odoo` + `dxt plugin test
+  courses/odoo`.
 - Testes: `cargo test -p tutor-plugins`, `ui-app/tests/learn.domain.test.ts`,
   `learn.onboarding.test.ts`, `learn.frameworks.test.ts`; o plugin-fixture só de testes
   `crates/tutor-plugins/tests/fixtures/framework-project` passa por `dxt plugin test`

@@ -1,0 +1,55 @@
+id = "wizard"
+title = "A wizard: assign a reason to several taxes"
+points = 50
+difficulty = 3
+main = "l10n_ao/wizard/l10n_ao_exemption_reason_assign.py"
+install = ["l10n_ao", "dxt_check"]
+test_tags = ["/dxt_check"]
+min_tests = 6
+message = "The wizard must default to the selected taxes, assign the reason and refuse taxes that charge tax."
+intro = "A TransientModel, a dialog and an entry in the Action menu."
+instructions = '''
+Assigning an exemption reason tax by tax is tedious. Write a wizard that does it for every tax
+selected in the tax list.
+
+In `l10n_ao/wizard/l10n_ao_exemption_reason_assign.py`, a `models.TransientModel` named
+`l10n_ao.exemption.reason.assign` with:
+
+- `reason_id` (Many2one to the exemption reason, required);
+- `tax_ids` (Many2many to `account.tax`) whose default is the taxes selected in the list: when
+  the context has `active_model == 'account.tax'`, browse its `active_ids`;
+- `action_assign()`: refuse with `UserError` if no tax is selected or if any selected tax is not
+  a 0% percentage tax (and then change nothing); otherwise write the reason on all of them and
+  return `{'type': 'ir.actions.act_window_close'}`.
+
+In `l10n_ao/wizard/l10n_ao_exemption_reason_assign_views.xml`:
+
+- a form `l10n_ao_exemption_reason_assign_view_form` with the two fields and a `<footer>`:
+  first a button calling `action_assign` (`type="object"`), then a Cancel button
+  (`special="cancel"`);
+- an action `action_l10n_ao_exemption_reason_assign` opening it in a dialog
+  (`target` `new`, `view_mode` `form`), bound to the tax **list** (`binding_model_id`
+  `account.model_account_tax`, `binding_view_types` `list`) and restricted to account managers:
+  {groups_rule}
+
+The access lines for the wizard model, the manifest and `__init__.py` files are given.
+'''
+explanation = '''
+A `TransientModel` stores its records in a table that Odoo empties regularly: they live as long
+as the dialog. `binding_model_id` puts the action in the *Action* menu of that model, and the
+`active_model`/`active_ids` context keys carry the selection into the wizard. Returning
+`ir.actions.act_window_close` closes the dialog. Since Odoo 14 a transient model needs access
+lines like any other model. {groups_explanation}
+'''
+
+[vars."18.0"]
+groups_rule = "in Odoo 18 the action's groups field is `groups_id`: `<field name=\"groups_id\" eval=\"[(4, ref('account.group_account_manager'))]\"/>`."
+groups_explanation = "Odoo 18 calls the groups of actions and users `groups_id`; Odoo 19 renamed them `group_ids` (and `res.users` gained `all_group_ids` for the implied ones), so the same XML fails to load in 19."
+
+[vars."19.0"]
+groups_rule = "Odoo 19 renamed the groups field of actions (and users) to **`group_ids`**: `<field name=\"group_ids\" eval=\"[(4, ref('account.group_account_manager'))]\"/>`. Writing `groups_id` makes the install fail."
+groups_explanation = "Odoo 19 renamed `groups_id` to `group_ids` on actions, menus' actions and users (`res.users.group_ids`, plus `all_group_ids` for the implied groups)."
+
+[vars."20.0"]
+groups_rule = "as in Odoo 19, the field is **`group_ids`**: `<field name=\"group_ids\" eval=\"[(4, ref('account.group_account_manager'))]\"/>`."
+groups_explanation = "Odoo 20 keeps 19's `group_ids`. The wizard's access line is an `ir.access` row with `crud` for account managers."

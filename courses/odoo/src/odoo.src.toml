@@ -1,0 +1,1078 @@
+# Odoo — the official dxtutor course for Odoo (Learn P3c).
+#
+# A FRAMEWORK course graded in the evaluation language `odoo-module`: every challenge installs the
+# learner's modules in a real Odoo 18, 19 or 20, next to a real PostgreSQL, in the private rootless
+# Podman sandbox of the Learning Track (tutor_eval::odoo_check), and runs their tests. The running
+# example is `l10n_ao`, an Angolan localization built the way Odoo's native ones are; the legal
+# values come from a cited fact sheet (see courses/odoo/README.md). Grading never pulls: «Prepare
+# course» pulls the three Odoo images and PostgreSQL, by digest, once.
+
+id = "odoo-basics"
+language = "odoo-module"
+category = "framework"
+subject = "odoo"
+title = "Odoo: Modules and an Angolan Localization, 18 to 20"
+level = "intermediate"
+summary = "Write Odoo modules the native way — manifest, models, views, security, wizards, data, chart templates, taxes, fiscal positions, HR — by building l10n_ao, the Angolan localization, for Odoo 18, 19 and 20, graded in a real Odoo."
+
+overview = '''
+**Odoo** is an open-source ERP written in Python on PostgreSQL: accounting, sales, inventory, HR
+and hundreds of other *modules*, each a folder of Python, XML and CSV files that Odoo loads into a
+database. Writing Odoo means writing modules — and a *localization* is the module that teaches Odoo
+a country: its chart of accounts, its taxes, its tax number, its provinces, its public holidays.
+
+Odoo has no localization for **Angola**. In this course you build one, `l10n_ao`, step by step,
+following the mandatory patterns of Odoo's native localizations (`l10n_mz`, `l10n_pt`, `l10n_br`):
+the manifest, a model, views, access rights, a wizard, data files, the **PGC** chart template
+(Plano Geral de Contabilidade), the **taxes** (IVA with its exemption codes, cativação, Imposto do
+Selo, withholdings — Imposto Industrial, IAC, Predial), **fiscal positions**, the **NIF**, and then
+`l10n_ao_hr`: the INSS number, the **IRT** and **INSS** computation and the **public holidays**,
+plus an Enterprise payroll structure.
+
+**Three versions, side by side.** Odoo publishes a major version every year and changes things
+that matter between them: `<tree>` became `<list>` in 18; 19 removed `_sql_constraints`, renamed
+`groups_id` to `group_ids`, moved the employee contract into `hr.version` and turned the fiscal
+position mapping around; 20 replaced `ir.model.access` with `ir.access`, removed account groups and
+`base_vat`, and dropped `version` from manifests. Every challenge exists for **Odoo 18.0, 19.0 and
+20.0** — do the track of the version you use. Each is graded in that exact version, and its
+instructions and solution say what differs. `courses/odoo/VERSIONS.md` (in the course's repository)
+lists every difference this course relies on, each one read in that version's source.
+
+**A design rule of the module: values are data.** Every tax rate, account, threshold, IRT bracket,
+INSS rate, allowance limit and holiday is a **record** the person responsible edits in Odoo, seeded
+from the law with its source and loaded with `noupdate="1"` so that edits survive updates. Python
+holds only *rules*. A value the law does not settle is shipped empty and labelled «to be
+confirmed», and the code refuses to compute without it, naming it — never a silent 0.
+
+**What is not in the module, on purpose.** No accounting reports, no SAF-T AO export, no invoice
+signature (RSA hash chain), no electronic invoicing with AGT, no certified numbering: those belong
+to an AGT-certified invoicing layer, a separate product with legal obligations on its producer
+(Decreto Executivo n.º 74/19, Decreto Presidencial n.º 312/18 and n.º 71/25, Decreto Executivo
+n.º 683/25). The course says where each would plug in.
+
+**How grading works — honestly.** A challenge's files are installed in a real Odoo with
+`odoo -i <modules> --test-tags <tags> --stop-after-init`, next to a PostgreSQL, in the private
+rootless Podman sandbox dxtutor creates for the Learning Track: its own storage (your Docker and
+your own Podman images are never used), no network, memory, CPU and process limits, and every
+container removed afterwards. Hidden tests (a small `dxt_check` module) check what you built, and
+the Odoo log must be free of warnings — a native module installs cleanly. Grading never pulls: the
+images below are downloaded once, pinned by digest, when you choose **Prepare course** (about
+7 GB). A grading run takes from half a minute to a few minutes, mostly Odoo installing `account`.
+The Enterprise payroll step runs only with your own Odoo Enterprise addons
+(`DXTUTOR_ODOO_ENTERPRISE_18`/`_19`, mounted read-only); dxtutor never downloads Enterprise code.
+
+**What you need.** Python and Odoo experience is not required, but reading Python is. Grading needs
+**Podman 4.4 or newer**, rootless, on **Linux** with a systemd user session, and about 3 GB of free
+memory while a step runs.
+
+The prepared images: `docker.io/library/odoo:18.0-20261124`, `odoo:19.0-20261123`,
+`odoo:20.0-20261123` and `docker.io/library/postgres:17.12` (Odoo 20 needs PostgreSQL 16 or newer).
+
+**The legal facts.** Every rate, account, code, province and holiday comes from a fact sheet that
+cites the Diário da República (Decreto n.º 82/01 — PGC; Decreto Presidencial n.º 180/19 — IVA
+accounts; Código do IVA as republished by Lei n.º 14/23; Lei n.º 14/25 — OGE 2026; Decreto
+Presidencial n.º 227/18 — INSS; Lei n.º 10/11 and n.º 11/18 — holidays; Lei n.º 14/24 and
+n.º 8/25 — provinces; Decreto Presidencial n.º 245/21 — NIF; Decreto Executivo n.º 683/25 —
+exemption codes). It is a course, not legal advice: check the law in force before using the module.
+
+Official documentation: https://www.odoo.com/documentation/18.0/developer.html,
+https://www.odoo.com/documentation/19.0/developer.html and
+https://www.odoo.com/documentation/20.0/developer.html — and, for localizations,
+`/developer/howtos/accounting_localization.html` under each.
+'''
+
+[build]
+prepare = true
+timeout_secs = 900
+dependencies = [
+  "docker.io/library/odoo:18.0-20261124@sha256:364b17dfcf0019c9e5c7e1754a56b36c748f2907b38bc2209ce0d3d88e371c35",
+  "docker.io/library/odoo:19.0-20261123@sha256:c30b26d599d06c2fe9ce5c215725f034ad7636326b4f9ce2469eabb5e59ea1a3",
+  "docker.io/library/odoo:20.0-20261123@sha256:6709a38456a588273462c83400a0b6dbe09038deefc05846a8d3d25231dbb82e",
+  "docker.io/library/postgres:17.12@sha256:97fb53376be3e4fb1a8a61421daa69dcc3bf2fa39bda3259f5245f9a455af1a9",
+]
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+[[unit]]
+id = "od-u1-anatomy"
+title = "Module anatomy"
+level = "basic"
+difficulty = 1
+intro = "A module is a Python package with a manifest; Odoo finds it on its addons path."
+concepts = '''
+An Odoo **module** (also called an *addon*) is a folder on Odoo's **addons path** with two
+mandatory files:
+
+- `__manifest__.py` — a Python dictionary literal describing the module (read with
+  `ast.literal_eval`: no code runs there);
+- `__init__.py` — the Python package; it imports the module's Python sub-packages (`models`,
+  `wizard`…).
+
+```
+l10n_ao/
+├── __init__.py
+├── __manifest__.py
+├── models/        Python classes: new models and extensions of existing ones
+├── views/         XML: screens, actions, menus
+├── security/      access rights (CSV) and groups
+├── data/          records loaded at install (XML, CSV)
+├── wizard/        transient models for dialogs
+└── tests/         the module's tests
+```
+
+**The manifest keys a native localization uses:**
+
+| Key | Meaning |
+|---|---|
+| `name` | the display name ("Angola - Accounting") |
+| `category` | a path such as `Accounting/Localizations/Account Charts`; Odoo creates the categories |
+| `countries` | ISO codes (`['ao']`): Odoo offers and auto-installs the module for companies of these countries |
+| `depends` | modules that must be installed first (`account`) |
+| `auto_install` | a list of dependencies (`['account']`): install automatically once they are installed |
+| `data` | data files loaded at install and update, in order |
+| `author`, `license` | who wrote it; native modules are `LGPL-3` |
+| `version` | the module's own version, prefixed by Odoo with the series (`1.0` → `18.0.1.0`) |
+
+**Per version.** In Odoo 18 a missing `author` is silently empty; **since Odoo 19** it logs the
+warning `Missing author key in manifest`. **Odoo 20's** native manifests dropped `version`
+altogether (the default `1.0` applies). A version written for another series (`19.0.1.0` in Odoo
+18) makes the module uninstallable.
+
+**Installing.** `odoo -d <database> -i l10n_ao` installs a module (and its dependencies) in a
+database; `-u l10n_ao` updates it after a change; `--stop-after-init` exits when done. The grader
+of this course adds `--test-tags` to run tests.
+
+Official docs: https://www.odoo.com/documentation/18.0/developer/reference/backend/module.html
+(and `/19.0/`, `/20.0/`).
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "od-c1-addons-path"
+title = "Where Odoo finds modules"
+points = 5
+difficulty = 1
+intro = '''
+The addons path, the module list and the database.
+'''
+body = '''
+Odoo looks for modules in the folders of its **addons path** (`--addons-path` or `addons_path` in
+`odoo.conf`); the official Docker image reads `/mnt/extra-addons`, which is where the grader puts
+your files. A module found there is not yet *installed*: installing writes its models into the
+database, loads its data files and records it in `ir.module.module` (state `installed`, version,
+author, licence, category, countries). The same Odoo can serve several databases, each with its
+own set of installed modules.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "od-d1-manifest"
+title = "A localization manifest"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+The keys every native localization sets.
+'''
+prompt = '''
+Type the manifest of a minimal localization module.
+'''
+target = '''
+{
+    'name': 'Angola - Accounting',
+    'category': 'Accounting/Localizations/Account Charts',
+    'author': 'dxtutor',
+    'countries': ['ao'],
+    'depends': ['account'],
+    'auto_install': ['account'],
+    'license': 'LGPL-3',
+}
+'''
+line_comments = [
+  "A dictionary literal: Odoo reads it without running it.",
+  "The name shown in the Apps list.",
+  "The category path of the native localizations.",
+  "Who wrote it (Odoo 19 and 20 warn when it is missing).",
+  "The country codes: offered to and auto-installed for Angolan companies.",
+  "Accounting must be installed first.",
+  "Install automatically once account is installed.",
+  "The licence of the native modules.",
+  "End of the dictionary.",
+]
+explanation = "No `version` here: in Odoo 18 and 19 you would add `'version': '1.0'`; Odoo 20's native manifests leave it out."
+
+#@challenge s01
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+[[unit]]
+id = "od-u2-models"
+title = "Models and fields"
+level = "basic"
+difficulty = 2
+intro = "A model is a Python class; Odoo makes the table, the columns and the constraints."
+concepts = '''
+A **model** is a Python class inheriting `models.Model`; its `_name` (`l10n_ao.tax.exemption.reason`)
+becomes a table (`l10n_ao_tax_exemption_reason`) and its **fields** become columns:
+
+```python
+from odoo import api, fields, models
+from odoo.exceptions import ValidationError
+
+class L10nAoTaxExemptionReason(models.Model):
+    _name = 'l10n_ao.tax.exemption.reason'
+    _description = "Angolan Tax Exemption Reason"
+    _order = 'code'
+
+    code = fields.Char(required=True, size=3)
+    name = fields.Char(string="Mention", required=True)
+    tax_type = fields.Selection([('iva', "IVA"), ('is', "Imposto do Selo")], default='iva')
+    active = fields.Boolean(default=True)
+```
+
+| Field | Column | Notes |
+|---|---|---|
+| `Char`, `Text`, `Html` | text | `size`, `translate=True` |
+| `Integer`, `Float`, `Monetary` | numbers | `digits`, `currency_field` |
+| `Boolean`, `Date`, `Datetime` | | `active` hides archived records |
+| `Selection` | text | a list of `(value, label)` |
+| `Many2one` | a foreign key | `ondelete='restrict'`/`'cascade'` |
+| `One2many`, `Many2many` | the inverse / a relation table | |
+
+**Extending a model.** `_inherit = 'account.tax'` (without `_name`) adds fields and methods to an
+existing model — the core of every localization. Prefix what you add with the module's
+"namespace": `l10n_ao_exemption_reason_id`.
+
+**Display name and search.** Since Odoo 17 the record's label is the computed field
+`display_name` (`@api.depends(...) def _compute_display_name(self)`), not `name_get()`;
+`_rec_names_search = ['code', 'name']` makes the quick search look in both fields.
+
+**Constraints.** `@api.constrains('field', …)` runs after create and write and raises
+`ValidationError`. SQL constraints are enforced by PostgreSQL:
+
+| Odoo 18 | Odoo 19 and 20 |
+|---|---|
+| `_sql_constraints = [('code_uniq', 'unique(code)', 'message')]` | `_code_uniq = models.Constraint('UNIQUE(code)', 'message')` |
+
+In 19 and 20 the old list is *ignored* with the warning
+`Model attribute '_sql_constraints' is no longer supported` — a silent loss of the constraint if
+you miss the log. **Messages** to the user go through `self.env._("...")` (all three versions).
+
+**The exemption codes.** An Angolan invoice that charges no IVA must print the reason and the legal
+rule (Decreto Presidencial n.º 71/25, art. 10.º, n.º 1, f)); AGT publishes the codes in Decreto
+Executivo n.º 683/25, Anexo I — Tabela 4 (IVA: M10–M24, M30–M38, M80–M86, M90–M93, M00, M02,
+M04) and Tabela 5 (Imposto do Selo: S01–S03). In SAF-T AO a line at 0% must carry both the code and
+the mention.
+
+Official docs: https://www.odoo.com/documentation/18.0/developer/reference/backend/orm.html
+(and `/19.0/`, `/20.0/`).
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "od-d2-inherit"
+title = "Extending account.tax"
+points = 10
+difficulty = 2
+placeholder_policy = "shown"
+intro = '''
+`_inherit` without `_name`: add a field to an existing model.
+'''
+prompt = '''
+Type the extension of `account.tax`.
+'''
+target = '''
+from odoo import fields, models
+
+
+class AccountTax(models.Model):
+    _inherit = 'account.tax'
+
+    l10n_ao_exemption_reason_id = fields.Many2one(
+        'l10n_ao.tax.exemption.reason',
+        ondelete='restrict',
+    )
+'''
+line_comments = [
+  "fields declares columns; models holds the base classes.",
+  "",
+  "",
+  "The Python class name does not matter to Odoo.",
+  "Extend the existing model in place.",
+  "",
+  "The new field, prefixed with the module's namespace.",
+  "The comodel: the model the field points to.",
+  "A reason in use cannot be deleted.",
+  "",
+]
+explanation = "Odoo adds the column `l10n_ao_exemption_reason_id` to `account_tax` when the module installs."
+
+#@challenge s02
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+[[unit]]
+id = "od-u3-views"
+title = "Views, actions and menus"
+level = "basic"
+difficulty = 2
+intro = "XML records describe the screens; Odoo validates them at install."
+concepts = '''
+A **view** is a record of `ir.ui.view` whose `arch` is XML: `list`, `form`, `search`, `kanban`…
+An **action** (`ir.actions.act_window`) opens a model with some views; a **menu** item points to an
+action.
+
+```xml
+<record id="l10n_ao_tax_exemption_reason_view_list" model="ir.ui.view">
+    <field name="name">l10n_ao.tax.exemption.reason.list</field>
+    <field name="model">l10n_ao.tax.exemption.reason</field>
+    <field name="arch" type="xml">
+        <list>
+            <field name="code"/>
+            <field name="name"/>
+        </list>
+    </field>
+</record>
+```
+
+**Syntax by version — read in each version's source and confirmed by installing:**
+
+| | Odoo 18 | Odoo 19 | Odoo 20 |
+|---|---|---|---|
+| list view root | `<list>` (`<tree>` fails: *Invalid view type: 'tree'*) | `<list>` | `<list>` |
+| action `view_mode` | `list,form` | `list,form` | `list,form` |
+| conditions | `invisible="amount != 0"` (Python expression) | same | same |
+| `attrs=`, `states=` | removed (since 17) | removed | removed |
+| groups on an action | `groups_id` | `group_ids` | `group_ids` |
+
+**Inheriting a view.** `inherit_id` names the parent and the arch uses positions:
+`<field name="tax_group_id" position="after">…</field>` (also `before`, `inside`, `replace`,
+`attributes`, or an `xpath`). Pick an anchor that exists in every version you support:
+`tax_group_id` is in the tax form of 18, 19 and 20.
+
+**Expressions.** `invisible`, `readonly` and `required` take Python expressions over the fields of
+the record (`country_code != 'AO' or amount != 0`). The fields they use must be in the view (the
+tax form already has `country_code`, invisible).
+
+**Search views.** `<filter name="iva" domain="[('tax_type', '=', 'iva')]"/>` adds a filter;
+`context="{'group_by': 'tax_type'}"` makes a group-by, written inside a plain `<group>`.
+
+Official docs: https://www.odoo.com/documentation/18.0/developer/reference/user_interface/view_architectures.html
+(and `/19.0/`, `/20.0/`).
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "od-d3-inherit-view"
+title = "Inheriting the tax form"
+points = 10
+difficulty = 2
+placeholder_policy = "shown"
+intro = '''
+Put a field after an anchor, visible only when it makes sense.
+'''
+prompt = '''
+Type the view extension.
+'''
+target = '''
+<record id="view_tax_form_inherit_l10n_ao" model="ir.ui.view">
+    <field name="model">account.tax</field>
+    <field name="inherit_id" ref="account.view_tax_form"/>
+    <field name="arch" type="xml">
+        <field name="tax_group_id" position="after">
+            <field name="l10n_ao_exemption_reason_id" invisible="amount != 0"/>
+        </field>
+    </field>
+</record>
+'''
+line_comments = [
+  "A view record with an external id.",
+  "The model of the parent view.",
+  "The view it extends.",
+  "The extension's own arch.",
+  "The anchor in the parent arch.",
+  "The new field, hidden unless the tax is 0%.",
+  "End of the anchor.",
+  "End of the arch.",
+  "End of the record.",
+]
+explanation = "Odoo merges the extension into the parent when it builds the form."
+
+#@challenge s03
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+[[unit]]
+id = "od-u4-security"
+title = "Security: access rights"
+level = "intermediate"
+difficulty = 3
+intro = "No access line, no access; and Odoo 20 changed the format."
+concepts = '''
+Every model must say who may **read, write, create and delete** its records; a model without access
+lines is closed to everyone but the superuser (Odoo 18 and 19 log a warning naming it, with a
+suggested line). Rights are granted to **groups** (`base.group_user` for internal users,
+`account.group_account_manager`, `hr.group_hr_manager`…) and are additive.
+
+**Odoo 18 and 19 — `ir.model.access`**, file `security/ir.model.access.csv`:
+
+```
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_reason_user,reason user,model_l10n_ao_tax_exemption_reason,base.group_user,1,0,0,0
+access_reason_manager,reason manager,model_l10n_ao_tax_exemption_reason,account.group_account_manager,1,1,1,1
+```
+
+Row-level filters are separate `ir.rule` records (XML).
+
+**Odoo 20 — `ir.access`**, file `security/ir.access.csv` (read in `base/models/ir_access.py`):
+
+```
+id,name,model_id,group_id/id,operation,domain
+access_reason_user,reason user,l10n_ao.tax.exemption.reason,base.group_user,r,
+access_reason_manager,reason manager,l10n_ao.tax.exemption.reason,account.group_account_manager,crud,
+```
+
+- `model_id` is the model **name**, not an external id;
+- `operation` is a subset of `crud` (create, read, update, delete);
+- a line **with** a group is a *permission*; a line **without** a group is a *restriction* (what a
+  global record rule was), and `domain` filters the rows. One model replaces both
+  `ir.model.access` and `ir.rule`.
+
+An `ir.model.access.csv` makes an Odoo 20 install fail with `KeyError: 'ir.model.access'`; an
+`ir.access.csv` means nothing to 18 or 19. **Odoo 19** also changed groups themselves
+(`res.groups` gained privileges; users' `groups_id` is now `group_ids`).
+
+**Transient models** (wizards) need access lines too.
+
+Official docs: https://www.odoo.com/documentation/18.0/developer/reference/backend/security.html
+(and `/19.0/`, `/20.0/`).
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "od-c4-testing-rights"
+title = "Testing rights as another user"
+points = 5
+difficulty = 2
+intro = '''
+`with_user` and `new_test_user`.
+'''
+body = '''
+Tests run as the superuser, who bypasses access rights. To check rights, create users and act as
+them:
+
+```python
+from odoo.exceptions import AccessError
+from odoo.tests.common import new_test_user
+
+user = new_test_user(self.env, 'ao_internal', groups='base.group_user')
+reason.with_user(user).read(['code'])          # allowed
+with self.assertRaises(AccessError):
+    reason.with_user(user).write({'name': 'x'})  # refused
+```
+
+`new_test_user` exists in Odoo 18, 19 and 20 and hides the `groups_id`/`group_ids` rename.
+'''
+
+#@challenge s04
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+[[unit]]
+id = "od-u5-wizards"
+title = "Wizards"
+level = "intermediate"
+difficulty = 3
+intro = "A TransientModel, a dialog and the Action menu."
+concepts = '''
+A **wizard** is a dialog backed by a `models.TransientModel`: its records are temporary and Odoo
+removes them regularly. The usual shape:
+
+```python
+class L10nAoExemptionReasonAssign(models.TransientModel):
+    _name = 'l10n_ao.exemption.reason.assign'
+    _description = "Assign an Angolan Exemption Reason to Taxes"
+
+    reason_id = fields.Many2one('l10n_ao.tax.exemption.reason', required=True)
+    tax_ids = fields.Many2many('account.tax', default=lambda self: self._default_tax_ids())
+
+    def _default_tax_ids(self):
+        if self.env.context.get('active_model') == 'account.tax':
+            return self.env['account.tax'].browse(self.env.context.get('active_ids', []))
+        return self.env['account.tax']
+
+    def action_assign(self):
+        self.ensure_one()
+        ...
+        return {'type': 'ir.actions.act_window_close'}
+```
+
+- **opened from a list**: the action's `binding_model_id` (`account.model_account_tax`) and
+  `binding_view_types` (`list`) put it in the *Action* menu; the selection arrives as
+  `active_model` / `active_ids` in the context;
+- **as a dialog**: the action's `target` is `new`; the form's `<footer>` holds the buttons —
+  `type="object"` calls a method, `special="cancel"` closes;
+- **restricted**: the action's groups (`groups_id` in 18, `group_ids` in 19 and 20) hide it from
+  others; the access lines of the transient model refuse them anyway;
+- **errors**: `UserError` for what the user did wrong, and change nothing when refusing.
+
+Official docs: https://www.odoo.com/documentation/18.0/developer/reference/backend/actions.html
+(and `/19.0/`, `/20.0/`).
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "od-d5-action"
+title = "A bound action that opens a dialog"
+points = 10
+difficulty = 2
+placeholder_policy = "shown"
+intro = '''
+The action of a wizard, in the Action menu of the tax list.
+'''
+prompt = '''
+Type the action (Odoo 19 and 20 spelling).
+'''
+target = '''
+<record id="action_l10n_ao_exemption_reason_assign" model="ir.actions.act_window">
+    <field name="name">Assign Exemption Reason (AO)</field>
+    <field name="res_model">l10n_ao.exemption.reason.assign</field>
+    <field name="view_mode">form</field>
+    <field name="target">new</field>
+    <field name="binding_model_id" ref="account.model_account_tax"/>
+    <field name="binding_view_types">list</field>
+    <field name="group_ids" eval="[(4, ref('account.group_account_manager'))]"/>
+</record>
+'''
+line_comments = [
+  "A window action.",
+  "Its title.",
+  "The wizard model.",
+  "Only the form.",
+  "In a dialog.",
+  "In the Action menu of taxes…",
+  "…of the list view.",
+  "Only account managers see it (groups_id in Odoo 18).",
+  "",
+]
+explanation = "`(4, id)` links an existing record to a many2many; in Odoo 18 the field is `groups_id`."
+
+#@challenge s05
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+[[unit]]
+id = "od-u6-data"
+title = "Data files"
+level = "intermediate"
+difficulty = 3
+intro = "Records loaded from XML and CSV, with external ids — and noupdate seeds."
+concepts = '''
+A module ships **records** in data files listed in `data` (loaded at install and update, in order)
+or `demo` (only with demo data). Two formats:
+
+- **XML** — `<record id="state_ao_cab" model="res.country.state">` with `<field>`s; `ref="…"`
+  points to another record by external id, `eval="…"` evaluates Python (a list, a date);
+- **CSV** — named after the model (`res.country.state.csv`); the header names the fields,
+  `country_id:id` means "the external id of the country".
+
+An `id` becomes an **external id** (`l10n_ao.state_ao_cab`, in `ir.model.data`): later updates and
+other modules find the record by it. A record of another module is changed by its full id
+(`<record id="base.ao" model="res.country">`).
+
+**`noupdate`.** In `<odoo noupdate="1">` the records are created once and never rewritten by an
+update: a *seed* the user owns. Without it, every update rewrites them from the file and undoes
+what the user changed. **This module's rule:** legal values the person responsible may need to
+correct (exemption mentions, rates, tables, holidays) are seeds with `noupdate="1"` and their
+source; structure that must follow the code (views, menus, access) is not.
+
+**Angola's provinces.** Odoo ships no `res.country.state` for Angola. Lei n.º 14/24, de 5 de
+Setembro, creates **21 provinces**: Cabinda, Zaire, Uíge, Bengo, Luanda, Icolo e Bengo,
+Cuanza-Norte, Cuanza-Sul, Malanje, Lunda-Norte, Lunda-Sul, Moxico, Moxico Leste, Bié, Huambo,
+Benguela, Namibe, Huíla, Cunene, Cubango and Cuando. ISO 3166-2:AO still has 18 codes: the 17
+unchanged provinces keep theirs (CAB, ZAI, UIG, BGO, LUA, CNO, CUS, MAL, LNO, LSU, MOX, BIE, HUA,
+BGU, NAM, HUI, CNN), and the four of 2024 have none — the module uses the national codes of Lei
+n.º 8/25 (IBE, MLE, CGO, CDO) rather than invent ISO codes, and never `CCU` (ISO's abolished Cuando
+Cubango) for Cubango.
+
+**The AGT exemption table** (Decreto Executivo n.º 683/25, Anexo I, Tabelas 4 and 5), mentions as
+published:
+
+| Codes | Mention |
+|---|---|
+| M10–M17, M19–M21 | Isento nos termos da alínea a) … h), j) … l) do n.º 1 do artigo 12.º do CIVA |
+| M18 | Isento nos termos da alínea i) do n.º 1 artigo 12.º do CIVA |
+| M22–M24 | Isento nos termos da alínea m) / n) / o) do artigo 12.º do CIVA |
+| M30–M38 | Isento nos termos da alínea a) … i) do artigo 15.º do CIVA |
+| M80–M84 | Isento nos termos da alínea a) … e) do n.º 1 do artigo 14.º |
+| M85, M86 | Isento nos termos da alínea a) / b) do n.º 2 do artigo 14.º |
+| M90–M93 | Isento nos termos da alínea a) … d) do n.º 1 do artigo 16.º |
+| M00 | IVA– Regime Simplificado |
+| M02 | Transmissão de bens e serviço não sujeita |
+| M04 | IVA – Regime de Exclusão |
+| S01 | Isento nos termos do CIS |
+| S02 | Isento nos termos do Artigo 28.º do CBF |
+| S03 | Isento nos termos do Artigo 40.º do CBF |
+
+M10 and M16 cite provisions that Lei n.º 14/23 revoked (food is now taxed at 5%; gambling): the
+table still lists them, so the module keeps them with a note. The annex numbers quoted inside the
+CIVA do not match the annex titles; the course follows the titles.
+
+Official docs: https://www.odoo.com/documentation/18.0/developer/reference/backend/data.html
+(and `/19.0/`, `/20.0/`).
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "od-d6-state-csv"
+title = "Provinces as CSV"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+A CSV data file: header, external ids, a reference by id.
+'''
+prompt = '''
+Type the first lines of `res.country.state.csv`.
+'''
+target = '''
+id,country_id:id,name,code
+state_ao_cab,base.ao,Cabinda,CAB
+state_ao_ibe,base.ao,Icolo e Bengo,IBE
+'''
+line_comments = [
+  "Field names; :id means an external id.",
+  "Cabinda, with its ISO 3166-2 code.",
+  "A 2024 province, with its Lei n.º 8/25 code (ISO has none yet).",
+]
+explanation = "The file name gives the model; each row's id becomes `l10n_ao.state_ao_…`."
+
+#@challenge s06
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+[[unit]]
+id = "od-u7-localization"
+title = "Localization patterns"
+level = "intermediate"
+difficulty = 3
+intro = "What a native localization contains, and what it leaves to other modules."
+concepts = '''
+Odoo's localizations share one shape (read in `l10n_mz`, `l10n_pt` and `l10n_br` of each version):
+
+| Part | Where | Notes |
+|---|---|---|
+| manifest with `countries` and `auto_install: ['account']` | `__manifest__.py` | the module installs itself for the country's companies |
+| a **chart template** | `models/template_<cc>.py` + `data/template/*.csv` | loaded per company, not at install |
+| tax groups, taxes, fiscal positions | `data/template/` CSVs | records of each company that loads the chart |
+| a tax report (`account.report`) | `data/*.xml` | tax tags on repartition lines — **not in this course** (no reports) |
+| partner identification (`check_vat_<cc>`) | `models/res_partner.py` | `base_vat` in 18/19, `base` in 20 |
+| country data (states, VAT label) | `data/` | |
+| demo company | `demo/` | |
+| HR, payroll, e-invoicing | separate modules (`l10n_<cc>_hr`, `l10n_<cc>_hr_payroll`, `l10n_<cc>_edi`) | each with its own dependencies |
+
+**Templates are data, too.** Since Odoo 17 a chart is not loaded at install: the module registers a
+*template* (`@template('ao')`) and a company loads it when it chooses its chart
+(`account.chart.template.try_loading('ao', company)`). One database can hold several companies,
+each with its own copy of the accounts and taxes; the template's records get the company id in their
+external ids.
+
+**What l10n_ao leaves out** — the AGT-certified invoicing layer (Decreto Executivo n.º 74/19,
+Decreto Presidencial n.º 312/18 and n.º 71/25, Decreto Executivo n.º 683/25): the RSA–SHA-1
+signature and hash chain of each invoice, the printed hash characters and certificate number, SAF-T
+AO 1.01_01 exports, electronic invoices sent to AGT, series created by AGT, the QR code and the
+60-day block. Those are obligations of a certified software producer; a separate module
+(`l10n_ao_edi`) would add them on top of these taxes and exemption codes.
+
+**Accounting reports and IFRS.** Non-financial companies use the PGC (Decreto n.º 82/01); banks
+apply full IFRS (Aviso BNA n.º 6/16) and insurers a new IFRS-based chart from 2027 (Norma
+Regulamentar ARSEG n.º 1/26). An IFRS adoption law for the other sectors was announced for 2027 but
+not published at the time of writing, so the module ships the PGC only and the course explains
+where an IFRS chart would be a second template (`@template('ao_ifrs', …)` with `parent`).
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "od-d7-template"
+title = "The skeleton of a chart template"
+points = 10
+difficulty = 2
+placeholder_policy = "shown"
+intro = '''
+`account.chart.template` and the `@template` decorator.
+'''
+prompt = '''
+Type the skeleton of `models/template_ao.py`.
+'''
+target = '''
+from odoo import models
+from odoo.addons.account.models.chart_template import template
+
+
+class AccountChartTemplate(models.AbstractModel):
+    _inherit = 'account.chart.template'
+
+    @template('ao')
+    def _get_ao_template_data(self):
+        return {'code_digits': '5'}
+'''
+line_comments = [
+  "models.AbstractModel: no table of its own.",
+  "The decorator that registers template data.",
+  "",
+  "",
+  "Extend the abstract chart template model.",
+  "",
+  "",
+  "Data of the 'ao' template (the code is the country).",
+  "The width account codes are padded to.",
+]
+explanation = "Other methods use `@template('ao', 'res.company')`, `@template('ao', 'account.journal')`…; the CSVs in `data/template/` are found by name."
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+[[unit]]
+id = "od-u8-chart"
+title = "The PGC chart template"
+level = "advanced"
+difficulty = 4
+intro = "The Plano Geral de Contabilidade as an Odoo chart, in three versions."
+concepts = '''
+**The PGC.** Decreto n.º 82/01, de 16 de Novembro, approves the Plano Geral de Contabilidade,
+mandatory for commercial companies and public companies (art. 2.º; banks and insurers have their
+own). Classes 1–8 are mandatory: 1 Meios fixos e investimentos, 2 Existências, 3 Terceiros,
+4 Meios monetários, 5 Capital e reservas, 6 Proveitos e ganhos por natureza, 7 Custos e perdas por
+natureza, 8 Resultados. Decreto Presidencial n.º 180/19 (arts. 20.º–22.º) added the IVA accounts:
+34.5 IVA (34.5.1 suportado, 34.5.2 dedutível, 34.5.3 liquidado, 34.5.4 regularizações, 34.5.5
+apuramento, 34.5.6 a pagar, 34.5.7 a recuperar, 34.5.8 reembolsos pedidos, 34.5.9 liquidações
+oficiosas), 34.6, 63.5 and 75.3.1.2.
+
+**PGC codes in Odoo.** Odoo pads account codes with zeros to the template's `code_digits`, so the
+module writes the PGC codes without dots and uses `code_digits = '5'`: 31.1.2.1 Clientes – Não grupo
+– Nacionais is `31121`, 51 Capital is `51000`, 34.5.3.1 IVA liquidado – Operações gerais is
+`34531`. The Odoo account types are a module decision, not law: 31.1.x receivable, 32.1.x payable,
+43/45 bank and cash, 61/62 income, 71/72/75 expense, 81 retained earnings, 88 current-year earnings.
+
+**Left out until confirmed.** Account 27 and the sub-accounts of 14 were extracted from a two-column
+PDF and must be checked against a Diário da República scan: 14 is there without sub-accounts, 27 is
+not there. There are no official PGC codes for withholdings payable; the module develops 34.9
+(Outros impostos) into 34.9.1–34.9.4 as a **convention**, documented as such.
+
+**The hierarchy, by version:**
+
+| | Odoo 18 and 19 | Odoo 20 |
+|---|---|---|
+| hierarchy | `account.group` (`account.group-ao.csv`, a prefix per group) | `parent_id` on accounts: intermediate levels are **inactive accounts** |
+| CSV header | `id,name,code,account_type,reconcile` | `id,parent_id,active,name,code,account_type,reconcile` |
+
+**The defaults, by version:**
+
+| | Odoo 18 | Odoo 19 | Odoo 20 |
+|---|---|---|---|
+| receivable / payable | template data `property_account_receivable_id` / `…payable_id` | template data | company `receivable_account_id` / `payable_account_id` |
+| product income / expense | template data `property_account_income_categ_id` / `…expense_categ_id` | company `income_account_id` / `expense_account_id` | company |
+| cash journal | created by the chart | **not created** | not created |
+
+The module points the bank journal at 43.1.1 Banco (and, in 18, the cash journal at 45.1.1 Caixa);
+Odoo creates its technical accounts (suspense, outstanding receipts and payments) from the bank
+prefix `4311`, so they become 43111, 43112… The liquidity transfer account is created in 48 (Conta
+transitória).
+
+Official docs: https://www.odoo.com/documentation/18.0/developer/howtos/accounting_localization.html
+(and `/19.0/`, `/20.0/`).
+'''
+
+#@challenge s08
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+[[unit]]
+id = "od-u9-taxes"
+title = "Taxes"
+level = "advanced"
+difficulty = 4
+intro = "IVA, cativação, Imposto do Selo and withholdings, as editable tax records."
+concepts = '''
+**IVA rates** (Código do IVA, art. 19.º, as republished by Lei n.º 14/23; Lei n.º 14/25 for 2026):
+
+| Rate | Applies to |
+|---|---|
+| 14% | the general rate |
+| 7% | hotel and restaurant services (with conditions, art. 19.º n.º 2) — and the regime simplificado, on cash received |
+| 5% | food of wide consumption and agricultural inputs (Anexos I and II); from 2026 industrial equipment supplied or imported by its manufacturer |
+| 1% | the special regime of the Província de Cabinda (AO-CAB) |
+| 0% | exempt operations, each with its AGT code (M11, M13, M30…) |
+
+**Cativação** (art. 21.º): the State, local authorities and oil investment companies withhold
+**100%** of the IVA they are charged; the BNA, commercial banks, insurers and telecom operators with
+a título global unificado withhold **50%**. The supplier records the IVA liquidated in full and the
+withheld part as IVA to recover (34.5.7.2).
+
+**Reverse charge** (art. 29.º n.º 2): on services from a non-resident without a permanent
+establishment, the Angolan buyer assesses the IVA (deductible and liquidated at once: net zero).
+
+**Imposto do Selo** (Código, DLP n.º 3/14; rates as in Decreto Executivo n.º 683/25, Tabela 3):
+verba 23.3 — 1% on the receipt of credits of commercial or industrial activity (due, after Lei
+n.º 14/23, by regime-geral taxpayers whose operations are exclusively exempt); verbas 2.1 / 2.2 —
+0.1% / 0.4% on housing / commercial leases. It is a cost of the taxpayer: the tax lines are +100% to
+the payable account and −100% to the cost account.
+
+**Withholdings at source** (negative purchase taxes):
+
+| Tax | Rate | Source |
+|---|---|---|
+| Imposto Industrial on services | 6.5%, not on services up to **Kz 20 000** | Código do II, art. 67.º |
+| IRT Grupo B (self-employed) | 6.5% | CIRT, art. 16.º n.º 2 |
+| IAC | 10% (dividends, royalties, interest on deposits…) / 15% (Secção A) | Código do IAC, art. 27.º; the 5% rate was revoked from 2026 (Lei n.º 14/25, art. 41.º) |
+| Imposto Predial on rents | 15% of the gross rent (25% of the rent minus 40%) | Código do IP, arts. 10.º, 16.º, 19.º |
+
+**In Odoo**, a tax is split by **repartition lines** (a `base` line and `tax` lines, each a
+percentage of the tax amount to an account, for invoices and refunds); the positive tax lines must
+total 100% and the negative ones −100%. A **group of taxes** (`amount_type` `group`,
+`children_tax_ids`) applies several taxes together — that is how "14% with half withheld" is built.
+`account.tax.group` groups taxes on the invoice; in Odoo 18 and 19 it also holds the IVA closing
+accounts (34.5.6.1 / 34.5.7.1), which Odoo 20 removed. The tax CSV columns are the same in the three
+versions.
+
+**Not in the module:** the SAF-T tax codes (NOR/INT/RED) — no text maps them to the rates; the 7% of
+the regime simplificado — computed on cash received, not per invoice; the rest of the Imposto do
+Selo table — banks and insurers.
+'''
+
+#@challenge s09
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+[[unit]]
+id = "od-u10-fiscal-positions"
+title = "Fiscal positions"
+level = "advanced"
+difficulty = 4
+intro = "Swap taxes by partner: regimes, cativação, Cabinda, abroad."
+concepts = '''
+A **fiscal position** replaces taxes for some partners: a customer that withholds IVA, a supplier
+outside the general regime, a foreign customer. It is set on the partner (or found automatically by
+country, with `auto_apply`), and the invoice lines get the replaced taxes.
+
+**The IVA regimes** (CIVA arts. 60.º–69.º-D): *exclusão* (turnover below Kz 25 000 000: no IVA,
+invoices say «IVA - Regime de Exclusão», code M04), *simplificado* (Kz 25 000 000 to 350 000 000:
+7% on receipts, invoices say «IVA - Regime Simplificado», code M00) and *geral* (Kz 350 000 000 or
+more, manufacturers above Kz 25 000 000, or by option). A supplier in the exclusão or simplificado
+regime charges no IVA, so its bills carry the 0% tax with the mention.
+
+**The mapping, by version** (read in each version's `account` and `l10n_mz`):
+
+| Odoo 18 | Odoo 19 and 20 |
+|---|---|
+| lines on the position: `account.fiscal.position.tax` (source → destination); CSV columns `tax_ids/tax_src_id`, `tax_ids/tax_dest_id` | on the tax: `fiscal_position_ids` (where it is valid) and `original_tax_ids` (the domestic taxes it replaces); the position CSV keeps `id,name,auto_apply,country_id,sequence` |
+
+In 19 and 20 the first position matching the company's country is the domestic one; a tax listed in
+no position is valid everywhere.
+
+**Positions of the module:** Regime geral (domestic, automatic for Angola) · Cativo 50% · Cativo
+100% · Fornecedor em regime de exclusão · Fornecedor em regime simplificado · Cabinda (by hand: an
+address alone does not prove the operation is in the Cabinda fiscal space) · Estrangeiro (automatic
+for other countries: exports to M30, services from abroad to the reverse charge).
+'''
+
+#@challenge s10
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+[[unit]]
+id = "od-u11-nif"
+title = "Partners and the NIF"
+level = "intermediate"
+difficulty = 3
+intro = "Check the tax number in the formats the law publishes, and no further."
+concepts = '''
+**The NIF** (Decreto Presidencial n.º 245/21, art. 5.º): a national's NIF **is** the number of the
+Bilhete de Identidade — 14 characters (Lei n.º 4/09, art. 9.º): a sequential number, two
+alphanumeric characters, two for the BI version and one check digit, usually written
+`000000000LA000`. Foreigners and companies receive a sequential number from AGT whose length,
+prefix and check digit are **not published**; the e-invoice allows up to 15 characters, and
+`999999999` is the generic final consumer ("Consumidor final"). No check-digit algorithm is public
+for either, and `python-stdnum` has no Angolan module.
+
+**In Odoo**, a partner's `vat` is checked by `check_vat_<country>` on `res.partner` (or a stdnum
+module): a localization adds a country with one method. The module accepts 14 alphanumeric
+characters or 1–15 digits, and refuses the rest — inventing a checksum would reject real numbers.
+The country's `vat_label` (`NIF`) changes the field's label on the partner form.
+
+| | Odoo 18 and 19 | Odoo 20 |
+|---|---|---|
+| where `check_vat_<cc>` is looked up | the `base_vat` module (depend on it) | `base` (`res.partner._check_vat_number`; `base_vat` was removed) |
+'''
+
+#@challenge s11
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+[[unit]]
+id = "od-u12-hr"
+title = "HR: the INSS number, IRT and INSS as data"
+level = "advanced"
+difficulty = 4
+intro = "A second module with versioned tables and parameters, and a pure computation."
+concepts = '''
+**`l10n_ao_hr`** depends on `hr` only — no accounting — and keeps every legal value of the payroll
+in records edited in **Employees › Configuration › Angola**:
+
+- **IRT tables** (`l10n_ao_hr.irt.table` + brackets): valid from/until, the exempt threshold and,
+  per bracket, *above*, *up to*, fixed amount, rate and *excess over*;
+- **payroll parameters** (`l10n_ao_hr.parameter`, each with dated values): the INSS rates, the
+  allowance limits, the INSS ceiling. Odoo Enterprise has `hr.rule.parameter` for this; Community
+  has no payroll, so the module brings the same pattern.
+
+**The rules** (held by the Python layer `tools/payroll.py`, which imports no Odoo and holds no
+value):
+
+- **INSS** (Decreto Presidencial n.º 227/18): employer **8%**, worker **3%** (8% for a retired
+  worker who keeps working), on the gross cash pay **minus the subsídio de férias** (art. 13.º; the
+  subsídio de Natal is included). No ceiling appears in DP 227/18; Lei n.º 7/04 was not read in full,
+  so the ceiling is shipped **empty and «to be confirmed»** (empty = no ceiling).
+- **IRT Grupo A** (CIRT, Lei n.º 18/14 as amended by Lei n.º 28/20): deduct the worker's INSS, then
+  what is not subject — subsídio de alimentação and de transporte up to **Kz 30 000** each per month,
+  abono de família up to **5%** of the base salary —, then apply the table:
+  tax = fixed + rate × (taxable − excess over).
+- **The 2026 table** (Lei n.º 14/25, art. 21.º and Anexo I): exempt up to **Kz 150 000**; above it,
+  eleven brackets from 16% to 25%. It is published with a jump: the 2.º escalão starts with a fixed
+  Kz 12 500 at Kz 150 000.01 — kept exactly as published and tested at the boundary. Whether the
+  table outlives 2026 is not confirmed, so it is valid until 2026-12-31 and a 2027 payroll is refused
+  until a 2027 table is entered.
+- **Subsídios de férias e de Natal** are fully taxable since Lei n.º 28/20, but whether IRT taxes
+  them with the month or separately is **not stated** in the texts read: the computation refuses a
+  month that has them, naming the missing rule, instead of guessing.
+
+**The INSS number** is a new employee field, `l10n_ao_inss_number`. Odoo 18 has a generic `ssnid`;
+Odoo 19 moved it to `hr.version` (employees `_inherits` the new version model, which also replaced
+`hr.contract`); Odoo 20 removed it — a dedicated field works in all three. The employee's NIF is
+the BI number, already in `identification_id`.
+'''
+
+#@challenge s12
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+[[unit]]
+id = "od-u13-holidays"
+title = "Public holidays"
+level = "intermediate"
+difficulty = 3
+intro = "Holiday rules as records; a helper that proposes the dates of a year."
+concepts = '''
+**The law** (Lei n.º 10/11, de 16 de Fevereiro, as amended by Lei n.º 11/18, de 28 de Setembro):
+twelve **feriados nacionais** — 1 January (Ano Novo), 4 February (Início da Luta Armada de
+Libertação Nacional), 8 March (Dia Internacional da Mulher), 23 March (Libertação da África Austral),
+**Carnaval**, 4 April (Paz e Reconciliação Nacional), **Sexta-Feira Santa**, 1 May (Trabalhador),
+17 September (Fundador da Nação e Herói Nacional), 2 November (Finados), 11 November (Independência)
+and 25 December (Natal e Família). The eight *datas de celebração nacional* are not days off.
+
+- **Moveable days.** The law names Carnaval and Sexta-Feira Santa but does not compute them; by
+  custom they are Easter − 47 (the Tuesday before Ash Wednesday) and Easter − 2.
+- **Ponte** (art. 6.º): a national holiday on a **Tuesday** suspends work on the Monday before it;
+  one on a **Thursday**, on the Friday after it. (The 1h30 per day of compensation in the week before
+  is not modelled: its enforcement in the private sector is not confirmed.)
+- **No weekend transfer** since 2018: a Sunday holiday stays on Sunday.
+- 2026: pontes on Friday 2 January, Monday 16 February and Friday 18 September.
+
+**In Odoo**, a public holiday is a `resource.calendar.leaves` without a resource, for a working
+schedule or the whole company, stored in UTC (midnight in Luanda is 23:00 UTC the day before). The
+module ships the **rules** (`l10n_ao_hr.holiday`: a fixed date or days from Easter, with or without
+ponte) as editable seeds, and a wizard that **proposes** the year's dates — holidays and pontes —
+which the person responsible reviews, edits and then creates. A municipal holiday or a new law is a
+new rule, not new code. (Odoo 20 renamed the leaves' `time_type` to `count_as`, which the module does
+not set, and moved the time zone from the working schedule to the company: `res.company.tz`.)
+'''
+
+#@challenge s13
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+[[unit]]
+id = "od-u14-payroll"
+title = "Enterprise payroll (gated)"
+level = "advanced"
+difficulty = 4
+intro = "Salary structures and rules — only with your own Odoo Enterprise."
+concepts = '''
+The **Payroll** app (`hr_payroll`) is part of **Odoo Enterprise** (licence OEEL-1). This unit is
+graded only when your Enterprise addons are configured for the version
+(`DXTUTOR_ODOO_ENTERPRISE_18`, `DXTUTOR_ODOO_ENTERPRISE_19`), mounted read-only into the sandbox;
+without them the step is skipped with that message, and you can still read it and its solution.
+dxtutor never downloads or copies Enterprise code, and the module written here is original code.
+
+**The pieces of a payroll localization:** a **structure type** (per country: the default working
+schedule and structure), a **structure** (a set of rules; created with `hr_payroll`'s default rules
+BASIC, GROSS, NET, deductions…) and **salary rules**: a code, a category (`BASIC`, `ALW`, `GROSS`,
+`DED`, `NET`, `COMP` for employer costs), a sequence, a condition and an amount in Python, evaluated
+with `payslip`, `employee`, `categories`, `inputs`, `worked_days` and the contract — `contract`
+(`hr.contract`) in Odoo 18, `version` (`hr.version`) in Odoo 19, where the contract became part of
+the employee's versions.
+
+**The module's rule:** the salary rules hold no rate. `l10n_ao_hr_payroll` adds three rules
+(INSS worker, IRT, INSS employer) that call a payslip method, which asks `l10n_ao_hr` for the
+computation with the table and parameters valid on the payslip date. Odoo 20 Enterprise could not
+be verified while this course was written, so there is no Odoo 20 step here.
+'''
+
+#@challenge s14
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+[[unit]]
+id = "od-u15-tests-upgrade"
+title = "Tests and upgrading between versions"
+level = "advanced"
+difficulty = 3
+intro = "Ship tests with the module; port it from 18 to 19 to 20 by reading the source."
+concepts = '''
+**Tests.** A module's `tests/` package (imported from `tests/__init__.py`) holds classes based on
+`odoo.tests.TransactionCase` (each test rolled back) or `HttpCase` (a browser), tagged with
+`@tagged('post_install', '-at_install')` to run once everything is installed. Run them with
+`odoo -d db -i l10n_ao --test-tags /l10n_ao --stop-after-init`; Odoo ends with
+`odoo.tests.result: F failed, E error(s) of N tests` (the same line in 18, 19 and 20) and exits
+with 1 when a test fails. `--test-tags` turns the test mode on in all three versions.
+
+**Upgrading l10n_ao, one version to the next** — every item below was read in the source of the
+version and confirmed by installing the module there:
+
+| From 18 to 19 | From 19 to 20 |
+|---|---|
+| `author` in the manifest (else a warning) | drop `version` from the manifest |
+| `_sql_constraints` → `models.Constraint` | `ir.model.access.csv` → `ir.access.csv` (`model_id` by name, `operation` letters) |
+| `groups_id` → `group_ids` (actions, users) | `account.group` → inactive parent accounts with `parent_id` |
+| fiscal position mapping moves to the taxes (`fiscal_position_ids`, `original_tax_ids`) | tax groups lose their payable/receivable accounts |
+| product income/expense defaults → company fields | receivable/payable defaults → company fields |
+| the chart creates no cash journal | `base_vat` removed: no dependency, `check_vat_ao` still works |
+| `hr.contract` → `hr.version` (payroll rules: `version`) | `resource.calendar.leaves.time_type` → `count_as`; `resource.calendar.tz` → `res.company.tz` |
+| demo data no longer loaded by default (`--with-demo`) | PostgreSQL 16 or newer required |
+
+**How to port safely:** read the native modules of the target version (`l10n_mz`, `l10n_pt`,
+`l10n_br`), install your module there with `--test-tags`, and treat every warning as an error —
+the warnings are where Odoo tells you what changed. An upgrade of an installed database also needs
+migration scripts (`migrations/<version>/pre-*.py`, `post-*.py`) when data must move; a chart
+template's records are updated per company with `account.chart.template` `try_loading` again.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "od-d15-tagged"
+title = "A post-install test"
+points = 10
+difficulty = 2
+placeholder_policy = "shown"
+intro = '''
+The skeleton of a localization test.
+'''
+prompt = '''
+Type the test class.
+'''
+target = '''
+from odoo.tests import TransactionCase, tagged
+
+
+@tagged('post_install', '-at_install')
+class TestL10nAo(TransactionCase):
+
+    def test_nif(self):
+        self.assertTrue(self.env['res.partner'].check_vat_ao('999999999'))
+'''
+line_comments = [
+  "The test case and the tag decorator.",
+  "",
+  "",
+  "Run after every module is installed, not during the install.",
+  "Each test runs in a transaction that is rolled back.",
+  "",
+  "A test method starts with test_.",
+  "The generic final-consumer NIF is valid.",
+]
+explanation = "`--test-tags /l10n_ao:TestL10nAo.test_nif` would run only this test."
+
+#@challenge s15

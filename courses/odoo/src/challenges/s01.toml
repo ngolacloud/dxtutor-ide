@@ -1,0 +1,44 @@
+id = "manifest"
+title = "The l10n_ao manifest"
+points = 40
+difficulty = 2
+main = "l10n_ao/__manifest__.py"
+install = ["l10n_ao", "dxt_check"]
+test_tags = ["/dxt_check"]
+min_tests = 8
+message = "l10n_ao must install from its manifest the way a native localization does."
+intro = "Turn an empty folder into an installable localization module."
+instructions = '''
+`l10n_ao/` is the module this course builds, step by step: the Angolan localization. Right now
+its manifest only has a name. Complete `l10n_ao/__manifest__.py` the way the native
+localizations of Odoo {series} (`l10n_mz`, `l10n_pt`) write theirs:
+
+- `category` is `Accounting/Localizations/Account Charts`;
+- `countries` is `['ao']` — Odoo installs the module automatically for Angolan companies;
+- it depends on `account` and auto-installs with it: `auto_install` is `['account']`;
+- `author` is set (use `dxtutor` or your own name) and `license` is `LGPL-3`;
+- {version_rule}
+
+The grader installs `l10n_ao` in Odoo {series} and reads what Odoo recorded about it
+(`ir.module.module`): its licence, category, countries, dependencies, author and version. The
+Odoo log must stay free of warnings.
+'''
+explanation = '''
+Odoo reads `__manifest__.py` as a Python literal (`ast.literal_eval`): no code runs there. The
+category is a path, created on the fly (`Accounting` → `Localizations` → `Account Charts`);
+`countries` fills `ir.module.module.country_ids`, which Odoo uses to offer the module to companies
+of that country; `auto_install: ['account']` must name a dependency, or Odoo refuses the manifest.
+{version_explanation}
+'''
+
+[vars."18.0"]
+version_rule = "`version` is `'1.0'`: Odoo prefixes it with the series, so the installed version reads `18.0.1.0`."
+version_explanation = "In Odoo 18 a missing `author` is silently empty; Odoo 19 and 20 log a warning for it. The `version` `'1.0'` becomes `18.0.1.0`; writing `'19.0.1.0'` here would make the module uninstallable in 18."
+
+[vars."19.0"]
+version_rule = "`version` is `'1.0'`: Odoo prefixes it with the series, so the installed version reads `19.0.1.0`. Since Odoo 19 a manifest without `author` logs a warning."
+version_explanation = "Since Odoo 19, a manifest without `author` logs `Missing author key in manifest` — the native modules all say `'author': 'Odoo S.A.'`. The `version` `'1.0'` becomes `19.0.1.0`."
+
+[vars."20.0"]
+version_rule = "there is **no** `version` key: the native manifests of Odoo 20 dropped it, and Odoo still records the module as `20.0.1.0` (the default `1.0` with the series prefix). Since Odoo 19 a manifest without `author` logs a warning."
+version_explanation = "Odoo 20's native localizations removed the `version` key from their manifests; the default is `1.0`, so the installed version is `20.0.1.0`. A missing `author` logs a warning, as in 19."

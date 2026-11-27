@@ -108,8 +108,23 @@ impl<'a> PodSession<'a> {
         })
     }
 
-    fn container(&self, name: &str) -> String {
+    pub(crate) fn container(&self, name: &str) -> String {
         format!("dx-{}-{name}", self.run.id)
+    }
+
+    /// O sandbox da corrida (o curso de Odoo corre os seus contentores por ele).
+    pub(crate) fn sandbox(&self) -> &Sandbox {
+        self.run.sandbox
+    }
+
+    /// O id da corrida.
+    pub(crate) fn run_id(&self) -> &str {
+        &self.run.id
+    }
+
+    /// As etiquetas de tudo o que a corrida cria.
+    pub(crate) fn labels(&self) -> Vec<(String, String)> {
+        self.run.labels()
     }
 
     fn image_of_tag(&self, tag: &str) -> String {
