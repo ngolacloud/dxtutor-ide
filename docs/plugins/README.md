@@ -556,6 +556,34 @@ container with `--network container:<name>`) and creates no user-defined network
 share one namespace per user). Healthcheck timers are disabled; run `healthcheck run` yourself. A
 missing Podman is an error that says what to install; the sandbox is Linux-only.
 
+### Odoo modules (`odoo-module`)
+
+A course in the evaluation language `odoo-module` grades Odoo modules: each challenge's hidden
+`checks.toml` has an `[odoo]` table instead of commands, and the evaluator builds the commands itself
+— a PostgreSQL and an Odoo of the chosen series from the course's prepared images, in the same
+sandbox, the step's files read-only on Odoo's addons path:
+
+```toml
+[odoo]
+version = "19.0"                         # a prepared docker.io/library/odoo:19.0-… image
+install = ["l10n_ao", "dxt_check"]       # folders of the step with a __manifest__.py
+test_tags = ["/dxt_check", "/l10n_ao"]   # default: /<module> of each installed module
+min_tests = 3                            # "no tests ran" fails too
+timeout_secs = 900                       # optional; default: the course's [build] timeout_secs
+enterprise = false                       # true: needs the user's Enterprise addons
+enterprise_modules = []                  # with enterprise = true: e.g. ["hr_payroll"]
+message = "What the learner must fix."
+```
+
+The step passes when every module loads, Odoo's `odoo.tests.result` line reports at least
+`min_tests` tests with no failure or error, and the Odoo log has **no warning or error** at all (a
+native module installs cleanly). Put the checks in a hidden test-only module (`dxt_check`, depending
+on the learner's) so the learner's own `tests/` stays theirs. `[build] dependencies` lists the Odoo
+images (one per series) and a `docker.io/library/postgres` image. An Enterprise step runs only when
+`DXTUTOR_ODOO_ENTERPRISE_<major>` points at the user's Enterprise addons for that series (mounted
+read-only); otherwise it is skipped with the reason. The official course (`courses/odoo/`) is
+generated from real module files by `scripts/build-odoo-course.py`.
+
 ### Ids
 
 Step ids must be unique across **all** installed courses, including the ones built into
