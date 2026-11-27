@@ -104,8 +104,8 @@ export function makeHarness(deps: HarnessDeps) {
         err(e);
       }
     },
-    async trust(kind: "hooks" | "mcp" | "sandbox"): Promise<void> {
-      if (!deps.confirm(copy(kind === "hooks" ? "trustHooksConfirm" : kind === "mcp" ? "trustMcpConfirm" : "trustSandboxConfirm"))) return;
+    async trust(kind: "hooks" | "mcp" | "sandbox" | "llm"): Promise<void> {
+      if (!deps.confirm(copy(kind === "hooks" ? "trustHooksConfirm" : kind === "mcp" ? "trustMcpConfirm" : kind === "llm" ? "trustLlmConfirm" : "trustSandboxConfirm"))) return;
       try {
         await deps.gateway.trust(deps.root(), kind);
         set({ extensions: await deps.gateway.extensions(deps.root()) });

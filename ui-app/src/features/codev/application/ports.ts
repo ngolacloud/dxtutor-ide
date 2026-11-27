@@ -298,7 +298,7 @@ export interface AgentGateway {
   permissions(root: string): Promise<Permissions>;
   savePermissions(root: string, rules: { allow: string[]; deny: string[] }): Promise<void>;
   extensions(root: string): Promise<ExtensionsStatus>;
-  trust(root: string, kind: "hooks" | "mcp" | "sandbox"): Promise<void>;
+  trust(root: string, kind: "hooks" | "mcp" | "sandbox" | "llm"): Promise<void>;
   /** `origin`: the human request (RF-G01); `text: null` («try again») keeps the last one; `images` (H5c) go with the
    *  message. */
   send(session: string, text: string | null, origin?: AgentOrigin, images?: AgentImage[]): Promise<void>;

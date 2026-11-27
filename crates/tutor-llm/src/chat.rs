@@ -27,6 +27,13 @@ pub struct ProvidersConfig {
     pub ollama_host: String,
     pub ollama_model: String,
     pub assistant_model: String,
+    /// The organisation's AI gateway (its base URL), when the person sets their own; a
+    /// system or trusted project policy may set it instead ([`crate::gateway`]).
+    pub gateway_url: String,
+    /// `anthropic` (default) or `openai`: the API the gateway speaks.
+    pub gateway_api: String,
+    /// The gateway key (never a provider key); kept in the keychain like the others.
+    pub gateway_key: String,
 }
 
 fn config_path() -> Option<PathBuf> {
@@ -36,11 +43,12 @@ fn config_path() -> Option<PathBuf> {
 
 /// The API keys of the config and the keychain account each lives under (the same accounts the IDE's
 /// `keys.rs` uses, so the assistant, the TUI and the IDE share one place).
-fn key_fields(cfg: &mut ProvidersConfig) -> [(&'static str, &mut String); 3] {
+fn key_fields(cfg: &mut ProvidersConfig) -> [(&'static str, &mut String); 4] {
     [
         ("llm:claude", &mut cfg.anthropic_key),
         ("llm:codex", &mut cfg.openai_key),
         ("llm:gemini", &mut cfg.gemini_key),
+        ("llm:gateway", &mut cfg.gateway_key),
     ]
 }
 
@@ -165,6 +173,7 @@ impl ProvidersConfig {
             anthropic_key: m(&self.anthropic_key),
             openai_key: m(&self.openai_key),
             gemini_key: m(&self.gemini_key),
+            gateway_key: m(&self.gateway_key),
             ..self.clone()
         }
     }
@@ -181,7 +190,26 @@ impl ProvidersConfig {
         keep(&mut self.anthropic_key, &stored.anthropic_key);
         keep(&mut self.openai_key, &stored.openai_key);
         keep(&mut self.gemini_key, &stored.gemini_key);
+        keep(&mut self.gateway_key, &stored.gateway_key);
         self
+    }
+
+    /// The person's own gateway, if they set a URL (the API defaults to Anthropic's).
+    pub fn user_gateway(&self) -> Option<crate::gateway::GatewaySpec> {
+        let url = clean(&self.gateway_url);
+        if url.is_empty() {
+            return None;
+        }
+        Some(crate::gateway::GatewaySpec {
+            url,
+            api: crate::gateway::GatewayApi::parse(&self.gateway_api)
+                .unwrap_or(crate::gateway::GatewayApi::Anthropic),
+        })
+    }
+
+    /// The gateway key: the saved one, else `DXTUTOR_GATEWAY_KEY`.
+    pub fn gateway_key(&self) -> Option<String> {
+        cfg_or_env(&self.gateway_key, &["DXTUTOR_GATEWAY_KEY"])
     }
 }
 
@@ -652,6 +680,27 @@ pub fn claude_chat_stream(
     model: &str,
     api_key: &str,
     workspace_id: Option<&str>,
+    on_delta: impl FnMut(&str) -> bool,
+) -> Result<ChatReply> {
+    claude_chat_stream_at(
+        ANTHROPIC_ENDPOINT,
+        "Anthropic",
+        messages,
+        model,
+        api_key,
+        workspace_id,
+        on_delta,
+    )
+}
+
+/// [`claude_chat_stream`] against another Messages-API endpoint (the organisation's gateway).
+pub fn claude_chat_stream_at(
+    endpoint: &str,
+    who: &str,
+    messages: &[ChatMsg],
+    model: &str,
+    api_key: &str,
+    workspace_id: Option<&str>,
     mut on_delta: impl FnMut(&str) -> bool,
 ) -> Result<ChatReply> {
     let system = messages
@@ -680,7 +729,7 @@ pub fn claude_chat_stream(
         body["system"] = serde_json::Value::String(system.clone());
     }
 
-    let mut req = ureq::post(ANTHROPIC_ENDPOINT)
+    let mut req = ureq::post(endpoint)
         .set("x-api-key", api_key)
         .set("anthropic-version", ANTHROPIC_VERSION)
         .set("content-type", "application/json")
@@ -692,9 +741,9 @@ pub fn claude_chat_stream(
         Ok(r) => r,
         Err(ureq::Error::Status(code, r)) => {
             let detail = r.into_string().unwrap_or_default();
-            anyhow::bail!("Anthropic returned {code}: {detail}");
+            anyhow::bail!("{who} returned {code}: {detail}");
         }
-        Err(ureq::Error::Transport(t)) => anyhow::bail!("Could not reach Anthropic: {t}"),
+        Err(ureq::Error::Transport(t)) => anyhow::bail!("Could not reach {who}: {t}"),
     };
 
     let reader = BufReader::new(resp.into_reader());
@@ -783,6 +832,25 @@ pub fn openai_chat_stream(
     messages: &[ChatMsg],
     model: &str,
     api_key: &str,
+    on_delta: impl FnMut(&str) -> bool,
+) -> Result<ChatReply> {
+    openai_chat_stream_at(
+        OPENAI_ENDPOINT,
+        "OpenAI",
+        messages,
+        model,
+        api_key,
+        on_delta,
+    )
+}
+
+/// [`openai_chat_stream`] against another Chat-Completions endpoint (the organisation's gateway).
+pub fn openai_chat_stream_at(
+    endpoint: &str,
+    who: &str,
+    messages: &[ChatMsg],
+    model: &str,
+    api_key: &str,
     mut on_delta: impl FnMut(&str) -> bool,
 ) -> Result<ChatReply> {
     let msgs: Vec<serde_json::Value> = messages
@@ -796,7 +864,7 @@ pub fn openai_chat_stream(
         "messages": msgs,
     });
 
-    let resp = match ureq::post(OPENAI_ENDPOINT)
+    let resp = match ureq::post(endpoint)
         .set("authorization", &format!("Bearer {api_key}"))
         .set("content-type", "application/json")
         .timeout(Duration::from_secs(300))
@@ -805,9 +873,9 @@ pub fn openai_chat_stream(
         Ok(r) => r,
         Err(ureq::Error::Status(code, r)) => {
             let detail = r.into_string().unwrap_or_default();
-            anyhow::bail!("OpenAI returned {code}: {detail}");
+            anyhow::bail!("{who} returned {code}: {detail}");
         }
-        Err(ureq::Error::Transport(t)) => anyhow::bail!("Could not reach OpenAI: {t}"),
+        Err(ureq::Error::Transport(t)) => anyhow::bail!("Could not reach {who}: {t}"),
     };
 
     let reader = BufReader::new(resp.into_reader());
@@ -853,6 +921,32 @@ pub fn openai_chat_stream(
 }
 
 // ── Gemini (Google Generative Language) streaming ─────────────────────────────────
+
+/// Stream a chat through the organisation's gateway, in the API it speaks. `route` is the
+/// gateway route the client names where a model would go.
+pub fn gateway_chat_stream(
+    gateway: &crate::gateway::GatewaySpec,
+    key: &str,
+    messages: &[ChatMsg],
+    route: &str,
+    on_delta: impl FnMut(&str) -> bool,
+) -> Result<ChatReply> {
+    let endpoint = gateway.chat_endpoint();
+    match gateway.api {
+        crate::gateway::GatewayApi::Anthropic => claude_chat_stream_at(
+            &endpoint,
+            "the gateway",
+            messages,
+            route,
+            key,
+            None,
+            on_delta,
+        ),
+        crate::gateway::GatewayApi::Openai => {
+            openai_chat_stream_at(&endpoint, "the gateway", messages, route, key, on_delta)
+        }
+    }
+}
 
 const GEMINI_DEFAULT_MODEL: &str = "gemini-2.0-flash";
 
@@ -1414,6 +1508,134 @@ mod tests {
             "Gemini replied ({}): {:?}",
             reply.model,
             reply.content.trim()
+        );
+    }
+}
+
+#[cfg(test)]
+mod gateway_tests {
+    use super::*;
+    use crate::gateway::{GatewayApi, GatewaySpec};
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use tutor_protect::keychain::{MemStore, Store};
+
+    #[test]
+    fn the_gateway_key_lives_in_the_keychain_and_never_reaches_the_ui() {
+        let dir = std::env::temp_dir().join(format!("dxt-gwcfg-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("providers.json");
+        let store = MemStore::default();
+        let cfg = ProvidersConfig {
+            gateway_url: "https://ai.example.org".into(),
+            gateway_api: "openai".into(),
+            gateway_key: "sk-gw-123".into(),
+            ..ProvidersConfig::default()
+        };
+        save_config_in(&store, &path, &cfg).unwrap();
+        assert_eq!(
+            store.get("llm:gateway").unwrap().as_deref(),
+            Some("sk-gw-123")
+        );
+        assert!(!std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("sk-gw-123"));
+        let back = load_config_in(&store, Some(&path));
+        assert_eq!(back.gateway_key, "sk-gw-123");
+        assert_eq!(
+            back.user_gateway(),
+            Some(GatewaySpec {
+                url: "https://ai.example.org".into(),
+                api: GatewayApi::Openai
+            })
+        );
+        let shown = back.redacted();
+        assert_eq!(shown.gateway_key, KEY_MASK);
+        assert_eq!(shown.merged_over(&back).gateway_key, "sk-gw-123");
+        assert_eq!(ProvidersConfig::default().user_gateway(), None);
+    }
+
+    /// One HTTP request served from a local socket: returns what was asked
+    /// (request line + headers + body) and answers with `body` as server-sent events.
+    fn serve_once(sse: &'static str) -> (String, std::thread::JoinHandle<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let handle = std::thread::spawn(move || {
+            let (mut sock, _) = listener.accept().unwrap();
+            let mut buf = Vec::new();
+            let mut chunk = [0u8; 4096];
+            loop {
+                let n = sock.read(&mut chunk).unwrap();
+                buf.extend_from_slice(&chunk[..n]);
+                let text = String::from_utf8_lossy(&buf).to_string();
+                if let Some(head_end) = text.find("\r\n\r\n") {
+                    let len = text[..head_end]
+                        .lines()
+                        .find_map(|l| {
+                            l.to_ascii_lowercase()
+                                .strip_prefix("content-length:")
+                                .map(|v| v.trim().parse::<usize>().unwrap_or(0))
+                        })
+                        .unwrap_or(0);
+                    if buf.len() >= head_end + 4 + len {
+                        break;
+                    }
+                }
+                if n == 0 {
+                    break;
+                }
+            }
+            let reply = format!("HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{sse}", sse.len());
+            sock.write_all(reply.as_bytes()).unwrap();
+            String::from_utf8_lossy(&buf).to_string()
+        });
+        (url, handle)
+    }
+
+    #[test]
+    fn an_anthropic_gateway_is_called_with_the_gateway_key_and_the_route() {
+        let sse = "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"Olá\"}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n";
+        let (url, server) = serve_once(sse);
+        let gw = GatewaySpec {
+            url,
+            api: GatewayApi::Anthropic,
+        };
+        let msgs = [ChatMsg {
+            role: "user".into(),
+            content: "oi".into(),
+        }];
+        let reply = gateway_chat_stream(&gw, "sk-gw-key", &msgs, "support-chat", |_| true).unwrap();
+        assert_eq!(reply.content, "Olá");
+        let asked = server.join().unwrap();
+        assert!(asked.starts_with("POST /v1/messages "), "{asked}");
+        assert!(
+            asked.to_ascii_lowercase().contains("x-api-key: sk-gw-key"),
+            "{asked}"
+        );
+        assert!(asked.contains("\"model\":\"support-chat\""), "{asked}");
+    }
+
+    #[test]
+    fn an_openai_gateway_is_called_with_a_bearer_and_the_route() {
+        let sse = "data: {\"choices\":[{\"delta\":{\"content\":\"Olá\"}}]}\n\ndata: [DONE]\n\n";
+        let (url, server) = serve_once(sse);
+        let gw = GatewaySpec {
+            url,
+            api: GatewayApi::Openai,
+        };
+        let msgs = [ChatMsg {
+            role: "user".into(),
+            content: "oi".into(),
+        }];
+        let reply = gateway_chat_stream(&gw, "sk-gw-key", &msgs, "support-chat", |_| true).unwrap();
+        assert_eq!(reply.content, "Olá");
+        let asked = server.join().unwrap();
+        assert!(asked.starts_with("POST /v1/chat/completions "), "{asked}");
+        assert!(
+            asked
+                .to_ascii_lowercase()
+                .contains("authorization: bearer sk-gw-key"),
+            "{asked}"
         );
     }
 }

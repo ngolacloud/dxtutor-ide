@@ -53,6 +53,7 @@ pub fn install(app: &tauri::AppHandle) -> Result<(), String> {
         reviewer: std::sync::Arc::new(move |provider, model| {
             super::codev_review::reviewer_for(
                 config.clone(),
+                None, // the open folder's policy (the delegation runs in it)
                 provider.to_string(),
                 model.map(str::to_string),
             )

@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 351 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 352 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -1439,6 +1439,30 @@ O separador IaC do Ops tem Pipeline · Plano · Segurança e política · Drift 
 - Testes: `cargo test -p tutor-eval iac::` (parsers dos scanners, raio de impacto, e um pipeline real com o `tofu`:
   apply do ficheiro revisto, bloqueio, aceitação, segredo no estado), `cargo test -p tutor-board accepted_risks`,
   `tests/ops.test.ts` e o passo `iac` do auto-teste.
+
+## O gateway de IA da organização (fase A, `tutor_llm::gateway`, `src-tauri/src/llm_policy.rs`)
+
+O dxtutor pode ser cliente do gateway de IA da organização (a ideia do LiteLLM, sem ele: um serviço na rede, como o
+`seiva-ai-gateway`). A política decide-se e aplica-se no Rust, em CADA caminho que chama um modelo — o Co-Dev e o seu
+revisor (`codev_agent::make_provider`, `codev_review::reviewer_for`, a autonomia), o `llm_chat`, o
+`assistant_chat_stream` e o estudo (`request_hint`/`plan`/`fix` caem no `OfflineProvider`). Uma chamada recusada nunca
+chega à rede. Regras (`Policy::load`/`check`, com testes):
+- **O ficheiro da organização manda:** `/etc/dxtutor/llm.json` (macOS `/Library/Application Support/dxtutor/`, Windows
+  `%ProgramData%\dxtutor\`), `{require_gateway, allow_local, gateway: {url, api}}`. Um ficheiro estragado recusa tudo
+  (gateway exigido, sem gateway, sem locais).
+- **O `.dxtutor/llm.json` do projecto só aperta;** o URL dele só vale depois de confiado (`/comandos`, tipo `llm`) — um
+  repositório não pode desviar o código para um gateway seu. Gateway: sistema > projecto confiado > o da pessoa
+  (`gatewayUrl`/`gatewayApi` do `providers.json`).
+- **Com o gateway exigido**, só passa o fornecedor `gateway` e, se `allow_local` (omissão: sim), o Ollama num
+  endereço desta máquina. URL: `https`, ou `http` só para loopback; sem credenciais, query nem fragmento.
+- **O fornecedor `gateway`** fala a API Anthropic (`/v1/messages`, `x-api-key`) ou OpenAI (`/v1/chat/completions`,
+  Bearer, `max_tokens`); o modelo é a ROTA do gateway (obrigatória, nunca adivinhada); sem betas, sem fallbacks do
+  servidor, sem o workspace da Anthropic. A chave é `llm:gateway` no keychain, ou `DXTUTOR_GATEWAY_KEY`.
+- `llm_policy_status(root)` (só leitura) devolve a política e lembra a pasta aberta para os caminhos que não recebem
+  uma; a UI chama-o no `dx:workspace` (`platform/desktop/llm.ts`). A fase B é a UI (cartão nas Definições, rotas,
+  aviso da política).
+- Testes: `cargo test -p tutor-llm gateway`, `cargo test -p dxtutor-ide llm_policy gateway keys::` (servidores locais
+  verificam o caminho, os cabeçalhos e a rota em cada API).
 
 ## Keychain e Vault (r23 F4c1, `crates/tutor-platform`, `ui-app/src/features/vault/`)
 

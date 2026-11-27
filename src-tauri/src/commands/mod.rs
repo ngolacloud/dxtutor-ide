@@ -23,6 +23,7 @@ pub mod dictation;
 pub mod git;
 pub mod hood;
 pub mod iac;
+pub mod llm_policy;
 pub mod lsp_install;
 pub mod metrics;
 pub mod missions;

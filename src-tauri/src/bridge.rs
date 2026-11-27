@@ -136,7 +136,7 @@ pub fn kill_shell(procs_state: State<'_, procs::Procs>, id: String) -> bool {
 pub async fn keys_status(app: AppHandle) -> Result<HashMap<String, bool>, String> {
     let dir = config_dir(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
-        ["claude", "codex", "gemini", "ollama"]
+        ["claude", "codex", "gemini", "ollama", "gateway"]
             .iter()
             .map(|p| (p.to_string(), keys::resolve(&dir, p).is_some()))
             .collect()
@@ -163,10 +163,30 @@ pub async fn llm_chat(
     req: llm::ChatReq,
     mode: Option<String>,
 ) -> Result<llm::ChatResp, String> {
-    let key = keys::resolve(&config_dir(&app)?, &req.provider);
+    let dir = config_dir(&app)?;
+    // The model-call policy decides first (organisation's file, the person's gateway, the open
+    // project); the gateway's URL comes from the policy, never from the UI.
+    let (req, key) = {
+        let dir = dir.clone();
+        tauri::async_runtime::spawn_blocking(
+            move || -> Result<(llm::ChatReq, Option<String>), String> {
+                let mut req = req;
+                if req.provider == "gateway" {
+                    let (gateway, key) = crate::llm_policy::gateway_with_key(&dir, None)?;
+                    llm::route_to_gateway(&mut req, &gateway);
+                    return Ok((req, Some(key)));
+                }
+                crate::llm_policy::check(&req.provider, Some(&req.endpoint), None)?;
+                let key = keys::resolve(&dir, &req.provider);
+                Ok((req, key))
+            },
+        )
+        .await
+        .map_err(|e| format!("policy task failed: {e}"))??
+    };
     // Anthropic org-scoped keys carry a workspace id (from the legacy providers.json or
-    // ANTHROPIC_WORKSPACE_ID); other providers ignore it.
-    let workspace_id = if llm::is_anthropic(&req.provider) {
+    // ANTHROPIC_WORKSPACE_ID); other providers — the gateway included — never get it.
+    let workspace_id = if req.provider == "claude" {
         keys::anthropic_workspace_id()
     } else {
         None

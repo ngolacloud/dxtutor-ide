@@ -295,6 +295,11 @@ Object.assign((desktopPorts.codev ??= {}), codevLlm);
 if (PROV.gemini.model === "gemini-pro") PROV.gemini.model = "gemini-2.5-flash";
 if (PROV.codex.model === "gpt-codex") PROV.codex.model = "gpt-4.1";
 ctx.loadKeys = loadKeys; ctx.desktopSample = desktopSample; ctx.provCaps = () => PROVCAPS;
+/* a política de chamadas a modelos (gateway da organização) é do Rust: ao abrir uma pasta, o
+   backend fica a saber qual é, para o chat, o streaming e o estudo aplicarem a do projecto */
+document.addEventListener("dx:workspace", () => {
+  void providers.policyStatus(R.root || null).catch(() => undefined);
+});
 }
 
 const DX = (): Desktop => window.DXR as unknown as Desktop;

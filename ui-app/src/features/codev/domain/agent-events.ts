@@ -375,6 +375,9 @@ export interface ExtensionsStatus {
   mcp: { present: boolean; trusted: boolean };
   /** H1: `.dxtutor/sandbox.json` (what loosens the OS sandbox counts only when trusted). */
   sandbox: { present: boolean; trusted: boolean };
+  /** `.dxtutor/llm.json`: the project's model-call policy (it may only tighten; its gateway URL counts only when
+   *  trusted). Optional: an older backend does not send it. */
+  llm?: { present: boolean; trusted: boolean };
   mcpServers: string[];
 }
 

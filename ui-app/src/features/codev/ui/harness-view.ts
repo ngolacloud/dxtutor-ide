@@ -96,13 +96,14 @@ function permissionsSection(st: HarnessState): string {
 function extensionsSection(st: HarnessState): string {
   const x = st.extensions;
   if (!x) return sec("MCP and hooks", empty("Loading…"));
-  const trust = (f: { present: boolean; trusted: boolean }, kind: "hooks" | "mcp" | "sandbox") =>
+  const trust = (f: { present: boolean; trusted: boolean }, kind: "hooks" | "mcp" | "sandbox" | "llm") =>
     !f.present ? `<span class="hx-dim">not defined</span>` : f.trusted ? `<span class="hx-ok">trusted ✓</span>` : `<button class="hx-btn" data-action="hx-trust" data-on="${kind}"><span>Trust</span></button>`;
   return sec(
     "MCP and hooks",
     `<div class="hx-row"><b>Hooks</b> <code>.dxtutor/hooks.json</code> ${trust(x.hooks, "hooks")}</div>
      <div class="hx-row"><b>MCP servers</b> ${x.mcpServers.length ? x.mcpServers.map((s) => `<code>${esc(s)}</code>`).join(" ") : `<span class="hx-dim">none</span>`} · project <code>.dxtutor/mcp.json</code> ${trust(x.mcp, "mcp")}</div>
      ${x.sandbox?.present ? `<div class="hx-row"><b>Sandbox</b> <code>.dxtutor/sandbox.json</code> ${trust(x.sandbox, "sandbox")}</div>` : ""}
+     ${x.llm?.present ? `<div class="hx-row"><b>AI gateway</b> <code>.dxtutor/llm.json</code> ${trust(x.llm, "llm")}</div>` : ""}
      <div class="hx-row"><b>Commands</b> ${x.commands.length ? x.commands.map((c) => `<code title="${esc(c.description)}">/${esc(c.name)}</code>`).join(" ") : `<span class="hx-dim">none — add <code>.dxtutor/commands/&lt;name&gt;.md</code></span>`}</div>
      <div class="hx-row"><b>Skills</b> ${x.skills.length ? x.skills.map((k) => `<code title="${esc(k.description)}">${esc(k.name)}</code>`).join(" ") : `<span class="hx-dim">none</span>`}</div>
      <div class="hx-dim">Hooks and MCP servers run commands defined by the repository: trust them only if you know the project. Trust stops counting if the file changes.</div>`,

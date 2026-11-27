@@ -82,7 +82,24 @@ pub struct ChatResp {
 }
 
 pub fn is_anthropic(provider: &str) -> bool {
-    provider == "claude"
+    provider == "claude" || provider == GATEWAY_ANTHROPIC
+}
+
+/// The organisation's gateway, as `llm_chat` addresses it once the policy resolved it:
+/// the provider id carries the API the gateway speaks.
+pub const GATEWAY_ANTHROPIC: &str = "gateway:anthropic";
+/// See [`GATEWAY_ANTHROPIC`].
+pub const GATEWAY_OPENAI: &str = "gateway:openai";
+
+/// Point a chat request at the organisation's gateway: its URL (never the one the UI sent)
+/// and the API it speaks. `req.model` stays the route the UI picked.
+pub fn route_to_gateway(req: &mut ChatReq, gateway: &tutor_llm::gateway::GatewaySpec) {
+    req.endpoint = gateway.url.trim().trim_end_matches('/').to_string();
+    req.provider = match gateway.api {
+        tutor_llm::gateway::GatewayApi::Anthropic => GATEWAY_ANTHROPIC,
+        tutor_llm::gateway::GatewayApi::Openai => GATEWAY_OPENAI,
+    }
+    .to_string();
 }
 
 pub fn url_for(req: &ChatReq) -> String {
@@ -107,6 +124,7 @@ pub fn env_key(provider: &str) -> Option<&'static str> {
         "claude" => Some("ANTHROPIC_API_KEY"),
         "codex" => Some("OPENAI_API_KEY"),
         "gemini" => Some("GEMINI_API_KEY"),
+        "gateway" => Some("DXTUTOR_GATEWAY_KEY"),
         _ => None,
     }
 }
@@ -473,5 +491,34 @@ mod tests {
         assert_eq!(o.tool_calls[0].name, "read_file");
         assert_eq!(o.tool_calls[0].input["path"], "a");
         assert_eq!(o.stop, "tool_calls");
+    }
+
+    #[test]
+    fn a_chat_to_the_gateway_uses_its_url_and_its_api() {
+        let mut req: ChatReq = serde_json::from_value(serde_json::json!({
+            "provider": "gateway", "endpoint": "https://evil.example", "model": "support-chat",
+            "messages": [{"role": "user", "content": "oi"}]
+        }))
+        .unwrap();
+        let gw = tutor_llm::gateway::GatewaySpec {
+            url: "https://ai.example.org/".into(),
+            api: tutor_llm::gateway::GatewayApi::Anthropic,
+        };
+        route_to_gateway(&mut req, &gw);
+        assert_eq!(
+            url_for(&req),
+            "https://ai.example.org/v1/messages",
+            "the UI's endpoint is ignored"
+        );
+        assert!(is_anthropic(&req.provider));
+        assert_eq!(req.model, "support-chat");
+        let gw = tutor_llm::gateway::GatewaySpec {
+            url: "https://ai.example.org".into(),
+            api: tutor_llm::gateway::GatewayApi::Openai,
+        };
+        route_to_gateway(&mut req, &gw);
+        assert_eq!(url_for(&req), "https://ai.example.org/v1/chat/completions");
+        assert!(!is_anthropic(&req.provider));
+        assert_eq!(env_key("gateway"), Some("DXTUTOR_GATEWAY_KEY"));
     }
 }

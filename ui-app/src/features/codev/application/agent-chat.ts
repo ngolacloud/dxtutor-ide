@@ -469,19 +469,21 @@ export function makeAgentChat(deps: AgentChatDeps) {
       lines.push(`**Hooks** (\`.dxtutor/hooks.json\`): ${state(x.hooks)}`);
       lines.push(copy("mcpLine", { servers: x.mcpServers.length ? x.mcpServers.join(", ") : copy("none"), state: state(x.mcp) }));
       if (x.sandbox?.present) lines.push(copy("sandboxLine", { state: state(x.sandbox) }));
+      if (x.llm?.present) lines.push(copy("llmLine", { state: state(x.llm) }));
       lines.push("`/plano <pedido>` · `/reverter` · `/retomar` · `/comandos`");
       presenter.assistantText(card, lines.join("\n\n"));
-      const pending: Array<{ l: string; v: "hooks" | "mcp" | "sandbox" | "" }> = [];
+      const pending: Array<{ l: string; v: "hooks" | "mcp" | "sandbox" | "llm" | "" }> = [];
       if (x.hooks.present && !x.hooks.trusted) pending.push({ l: copy("trustHooks"), v: "hooks" });
       if (x.mcp.present && !x.mcp.trusted) pending.push({ l: copy("trustMcp"), v: "mcp" });
       if (x.sandbox?.present && !x.sandbox.trusted) pending.push({ l: copy("trustSandbox"), v: "sandbox" });
+      if (x.llm?.present && !x.llm.trusted) pending.push({ l: copy("trustLlm"), v: "llm" });
       if (!pending.length) return;
       presenter.agentNote?.(card, "trust", copy("trustWarn"));
-      const pick = await gate.ask<"hooks" | "mcp" | "sandbox" | "">(card.tools, [...pending, { l: copy("notNow"), v: "" }]).catch(() => "" as const);
+      const pick = await gate.ask<"hooks" | "mcp" | "sandbox" | "llm" | "">(card.tools, [...pending, { l: copy("notNow"), v: "" }]).catch(() => "" as const);
       if (!pick) return;
       await gateway.trust(root, pick);
       reset(); // a próxima mensagem abre uma sessão nova, já com eles ligados
-      presenter.agentNote?.(card, "trusted", copy(pick === "hooks" ? "trustedHooks" : pick === "mcp" ? "trustedMcp" : "trustedSandbox"));
+      presenter.agentNote?.(card, "trusted", copy(pick === "hooks" ? "trustedHooks" : pick === "mcp" ? "trustedMcp" : pick === "llm" ? "trustedLlm" : "trustedSandbox"));
     } catch (e: unknown) {
       presenter.liveError(card, false, undefined, e instanceof Error ? e.message : String(e));
     } finally {

@@ -96,10 +96,11 @@ pub fn resolve_in(store: &dyn Store, dir: &Path, provider: &str) -> Option<Strin
 
 /// The matching key from the pre-v7 `~/.config/dxtutor/providers.json`, which the old
 /// (still-shipped) UI writes. Reuses `tutor_llm::chat::load_config` so the two UIs read
-/// one source of truth; Ollama needs no key, so only the three hosted providers map.
+/// one source of truth; Ollama needs no key, so only the hosted providers (and the
+/// organisation's gateway) map.
 fn legacy_key(provider: &str) -> Option<String> {
     // only the hosted providers have a field there: reading it costs a file and three keychain reads
-    if !matches!(provider, "claude" | "codex" | "gemini") {
+    if !matches!(provider, "claude" | "codex" | "gemini" | "gateway") {
         return None;
     }
     legacy_key_from(&tutor_llm::chat::load_config(), provider)
@@ -112,6 +113,7 @@ fn legacy_key_from(cfg: &tutor_llm::chat::ProvidersConfig, provider: &str) -> Op
         "claude" => &cfg.anthropic_key,
         "codex" => &cfg.openai_key,
         "gemini" => &cfg.gemini_key,
+        "gateway" => &cfg.gateway_key,
         _ => return None,
     };
     let k = raw.trim();
@@ -149,6 +151,10 @@ mod tests {
         assert_eq!(legacy_key_from(&cfg, "gemini").as_deref(), Some("gm-123"));
         // Ollama needs no key: never mapped.
         assert_eq!(legacy_key_from(&cfg, "ollama"), None);
+        // the organisation's gateway key lives next to them (`llm:gateway` in the keychain)
+        assert_eq!(legacy_key_from(&cfg, "gateway"), None);
+        cfg.gateway_key = "sk-gw-1".into();
+        assert_eq!(legacy_key_from(&cfg, "gateway").as_deref(), Some("sk-gw-1"));
     }
 
     #[test]

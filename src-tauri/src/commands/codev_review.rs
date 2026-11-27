@@ -68,7 +68,7 @@ pub async fn codev_review_request(
         .map(|p| p.trim().to_string())
         .filter(|p| !p.is_empty())
         .unwrap_or_else(|| "claude".into());
-    let reviewer = reviewer_for(config, provider, model);
+    let reviewer = reviewer_for(config, Some(PathBuf::from(root.trim())), provider, model);
     let lang = tutor_agent::context::ReplyLang::from_ui(language.as_deref());
     let env = Some(crate::shellenv::get().clone());
     let root_key = (root.trim().to_string(), key.trim().to_string());
@@ -104,6 +104,7 @@ pub async fn codev_review_request(
 /// checks passed). Also the autonomy's (phase 5), with the delegation's provider and model.
 pub(crate) fn reviewer_for(
     config: PathBuf,
+    root: Option<PathBuf>,
     provider: String,
     model: Option<String>,
 ) -> uc::MakeReviewer {
@@ -111,11 +112,15 @@ pub(crate) fn reviewer_for(
         let model = crate::codev_agent::resolve_model(&provider, model.as_deref());
         let key = crate::keys::resolve(&config, &provider);
         let host = tutor_llm::chat::ollama_host();
+        // the reviewer obeys the model-call policy like the Co-Dev it reviews
+        let policy = crate::llm_policy::current(root.as_deref());
+        policy.check(&provider, Some(&host))?;
         let p = crate::codev_agent::make_provider(
             &provider,
             key,
             Some(&host),
             crate::keys::anthropic_workspace_id(),
+            policy.gateway.as_ref(),
         )?;
         Ok((p, model))
     })

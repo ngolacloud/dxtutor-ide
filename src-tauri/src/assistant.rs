@@ -105,7 +105,7 @@ pub fn diagnostics(language: &str, code: &str) -> Result<Vec<Diagnostic>, String
 
 /// Os providers com adaptador de streaming SSE. Qualquer outro id falha honestamente em
 /// vez de ficar calado.
-const STREAMING_PROVIDERS: [&str; 4] = ["ollama", "claude", "openai", "gemini"];
+const STREAMING_PROVIDERS: [&str; 5] = ["ollama", "claude", "openai", "gemini", "gateway"];
 
 /// Erro tipado da preparação do stream. O `Display` reproduz **exactamente** a mensagem
 /// histórica que o `#[tauri::command]` emitia no evento `llm://error`.
@@ -175,8 +175,18 @@ pub fn run_stream(
     provider: &str,
     messages: &[ChatMsg],
     model: Option<&str>,
+    gateway: Option<(&tutor_llm::gateway::GatewaySpec, &str)>,
     on_delta: impl FnMut(&str) -> bool,
 ) -> Result<ChatReply, String> {
+    if provider == "gateway" {
+        let (gw, key) = gateway.ok_or("no organisation gateway configured")?;
+        let route = model
+            .map(str::trim)
+            .filter(|m| !m.is_empty())
+            .ok_or("choose the gateway route")?;
+        return tutor_llm::chat::gateway_chat_stream(gw, key, messages, route, on_delta)
+            .map_err(|e| format!("{e}"));
+    }
     let res = match provider {
         "claude" => tutor_llm::chat::claude_chat_stream_env(messages, model, on_delta),
         "openai" => tutor_llm::chat::openai_chat_stream_env(messages, model, on_delta),
