@@ -184,6 +184,18 @@ pub struct PendingCall {
     /// ([`Agent::hunks`]); the host may decide them one by one ([`Decision::Hunks`]).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hunks: Vec<String>,
+    /// H5d: what the project's `pre_tool` hooks said before the human is asked (`None`: nothing).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hook: Option<HookAdvice>,
+}
+
+/// H5d: a `pre_tool` hook's advice on a call: ask the human (every mode), or no need to ask (never over a
+/// dangerous ask or a refusal — the policy keeps those).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "decision", rename_all = "lowercase")]
+pub enum HookAdvice {
+    Ask { reason: String },
+    Allow { reason: String },
 }
 
 /// A decisão sobre uma chamada (modo de aprovação: F3; aqui é o anfitrião que decide).
@@ -898,6 +910,32 @@ impl Agent {
                 Some(Ok(p)) => Some(p),
                 None => None,
             };
+            // H5d: the project's pre_tool hooks decide before the human is asked — a block stops the call here
+            let mut hook = None;
+            if let Some(h) = &self.hooks {
+                let (outcome, notes) = h.pre_tool(&c.name, &c.input);
+                for text in notes {
+                    events(AgentEvent::Notice { text });
+                }
+                match outcome {
+                    crate::hooks::PreOutcome::Block(why) => {
+                        if let (Some(p), Some(t)) = (&plan, tracker.as_deref_mut()) {
+                            t.reject(p, RejectedBy::Validation, &why, events);
+                        }
+                        out[i] = Some(ToolOutput::err(format!(
+                            "bloqueado por um hook do projecto: {why}"
+                        )));
+                        continue;
+                    }
+                    crate::hooks::PreOutcome::Ask(reason) => {
+                        hook = Some(HookAdvice::Ask { reason })
+                    }
+                    crate::hooks::PreOutcome::Approve(reason) => {
+                        hook = Some(HookAdvice::Allow { reason })
+                    }
+                    crate::hooks::PreOutcome::Allow => {}
+                }
+            }
             let pending = PendingCall {
                 id: c.id.clone(),
                 name: c.name.clone(),
@@ -905,6 +943,7 @@ impl Agent {
                 read_only: tool.read_only_for(&c.input),
                 command: tool.command_preview(&c.input),
                 hunks: plan.as_ref().map(|p| p.ids()).unwrap_or_default(),
+                hook,
             };
             let allowed: Result<(), String> = match (approve(&pending), plan) {
                 (Decision::Deny(why), plan) => {
@@ -970,35 +1009,7 @@ impl Agent {
                 }
             };
             match allowed {
-                Ok(()) => {
-                    // hooks pre_tool do projecto: podem bloquear (exit 2)
-                    let blocked = match &self.hooks {
-                        Some(h) => {
-                            let (outcome, notes) = h.pre_tool(&c.name, &c.input);
-                            for text in notes {
-                                events(AgentEvent::Notice { text });
-                            }
-                            match outcome {
-                                crate::hooks::PreOutcome::Block(why) => Some(why),
-                                crate::hooks::PreOutcome::Allow => None,
-                            }
-                        }
-                        None => None,
-                    };
-                    match blocked {
-                        Some(why) => {
-                            if let (Some(job), Some(t)) =
-                                (hunk_jobs.remove(&i), tracker.as_deref_mut())
-                            {
-                                t.reject(&job.plan, RejectedBy::Validation, &why, events);
-                            }
-                            out[i] = Some(ToolOutput::err(format!(
-                                "bloqueado por um hook do projecto: {why}"
-                            )));
-                        }
-                        None => runnable.push((i, Arc::clone(tool))),
-                    }
-                }
+                Ok(()) => runnable.push((i, Arc::clone(tool))),
                 Err(why) => {
                     out[i] = Some(ToolOutput::err(format!(
                         "o humano não autorizou esta chamada: {why}"

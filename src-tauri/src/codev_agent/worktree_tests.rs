@@ -97,6 +97,7 @@ fn write_call(path: &str) -> PendingCall {
         read_only: false,
         command: None,
         hunks: vec![],
+        hook: None,
     }
 }
 

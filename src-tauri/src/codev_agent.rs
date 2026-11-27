@@ -1030,6 +1030,15 @@ pub fn start(
     if let Some(n) = features_notice(&meta.provider, &meta.model) {
         notes.insert(0, n);
     }
+    // H5d: the project's session_start hooks — their output goes to the model with the first request
+    let mut first_notes = vec![];
+    if let Some(h) = &agent.hooks {
+        let (context, failed) = h.session_start(if new_session { "new" } else { "resume" });
+        notes.extend(failed);
+        if let Some(c) = context {
+            first_notes.push(format!("[hook session_start do projecto]\n{c}"));
+        }
+    }
     let id = meta.id.clone();
     let s = Session {
         id: id.clone(),
@@ -1044,7 +1053,7 @@ pub fn start(
         log: Mutex::new(log),
         announced: Mutex::new(None),
         flow,
-        notes: Mutex::new(vec![]),
+        notes: Mutex::new(first_notes),
         startup_notices: notes,
         _net_proxy: net_proxy,
         review_edits: spec.review_edits,
@@ -1170,6 +1179,31 @@ pub fn send_with_images(
     let s = get(id)?;
     if s.busy.swap(true, Ordering::SeqCst) {
         return Err("a sessão já está a correr um turno".into());
+    }
+    // H5d: the project's prompt_submit hooks see the request before anything else (an issue is not started, the
+    // model is not asked): exit 2 refuses it; their output goes with it as an operator note
+    let mut hook_note = None;
+    if let (Some(q), Some(h)) = (text.as_deref(), s.agent.hooks.as_ref()) {
+        if q.trim() != extensions::COMPACT_COMMAND_LINE {
+            let (outcome, failed) = h.prompt_submit(q);
+            for text in failed {
+                (*on_event)(AgentEvent::Notice { text });
+            }
+            match outcome {
+                tutor_agent::hooks::PromptOutcome::Block(why) => {
+                    (*on_event)(AgentEvent::Notice {
+                        text: format!("um hook do projecto recusou este pedido: {why}"),
+                    });
+                    let outcome = TurnOutcome::Done { truncated: false };
+                    (*on_event)(AgentEvent::Done {
+                        outcome: outcome.clone(),
+                    });
+                    s.busy.store(false, Ordering::SeqCst);
+                    return Ok(outcome);
+                }
+                tutor_agent::hooks::PromptOutcome::Allow(note) => hook_note = note,
+            }
+        }
     }
     // RF-G01: the turn's human request. A new message brings its own (none → its actions are
     // blocked); «try again» (`text: None`) answers the same request as before.
@@ -1617,6 +1651,11 @@ pub fn send_with_images(
             let mut m = Message::user_text(q);
             m.content.extend(images.iter().map(|i| i.block()));
             t.push(m);
+            if let Some(n) = hook_note.take() {
+                t.push(Message::system(format!(
+                    "[hook prompt_submit do projecto]\n{n}"
+                )));
+            }
             // anuncia o modo no primeiro turno e quando muda (mensagem system a meio)
             let mode = s.policy.lock().unwrap().mode;
             let mut announced = s.announced.lock().unwrap();
@@ -3443,6 +3482,7 @@ mod tests {
             read_only: false,
             command: Some(cmd.into()),
             hunks: vec![],
+            hook: None,
         };
         assert!(matches!(
             s.policy.lock().unwrap().decide(&bash("cargo build")),
@@ -3919,6 +3959,7 @@ mod tests {
             read_only: false,
             command: None,
             hunks: vec![],
+            hook: None,
         };
         assert_eq!(s.policy.lock().unwrap().decide(&edit), Verdict::Allow);
         set_plan(&id, true).unwrap();
@@ -3992,6 +4033,56 @@ mod tests {
             .startup_notices
             .iter()
             .any(|n| n.contains("servidores MCP")));
+        close(&id);
+    }
+
+    /// H5d: the trusted project's session_start output reaches the first request as an operator note, and a
+    /// prompt_submit hook refuses a request before anything runs (no request to the model, no issue started).
+    #[cfg(unix)]
+    #[test]
+    fn session_start_and_prompt_submit_hooks() {
+        let proj = tempfile::tempdir().unwrap();
+        let cfg = tempfile::tempdir().unwrap();
+        let store = cfg.path().join("trusted.json");
+        let root = proj.path();
+        std::fs::create_dir_all(root.join(".dxtutor")).unwrap();
+        std::fs::write(
+            root.join(".dxtutor/hooks.json"),
+            r#"{"session_start":[{"command":"echo 'deploy congelado até sexta'"}],
+                "prompt_submit":[{"command":"grep -q 'produção' && { echo 'pedidos sobre produção vão pelo deploy guiado' >&2; exit 2; } || exit 0"}]}"#,
+        )
+        .unwrap();
+        let r = root.display().to_string();
+        trust_project_file(&r, "hooks", Some(&store)).unwrap();
+        let spec = StartSpec {
+            root: r.clone(),
+            sessions_base: Some(cfg.path().join("s")),
+            trust_store: Some(store.clone()),
+            sandbox: Some(false),
+            ..Default::default()
+        };
+        let id = start(spec, &key("sk"), None).unwrap();
+        let s = get(&id).unwrap();
+        assert_eq!(
+            *s.notes.lock().unwrap(),
+            ["[hook session_start do projecto]\ndeploy congelado até sexta"]
+        );
+        let mut events = vec![];
+        let r = send(
+            &id,
+            Some("muda a produção".into()),
+            None,
+            &mut |e| events.push(e),
+            &mut |_| panic!("nothing is asked"),
+        );
+        assert_eq!(r.unwrap(), TurnOutcome::Done { truncated: false });
+        assert!(events.iter().any(|e| matches!(e, AgentEvent::Notice { text }
+            if text == "um hook do projecto recusou este pedido: pedidos sobre produção vão pelo deploy guiado")));
+        assert!(
+            s.transcript.lock().unwrap().is_empty(),
+            "nothing reached the conversation"
+        );
+        assert!(!s.busy.load(Ordering::SeqCst));
         close(&id);
     }
 
@@ -4911,6 +5002,7 @@ mod tests {
             read_only: false,
             command: None,
             hunks: hunks.iter().map(|h| h.to_string()).collect(),
+            hook: None,
         };
         let meta = |removed: u32| HunkMeta {
             removed,
@@ -4968,6 +5060,7 @@ mod tests {
             read_only: false,
             command: None,
             hunks: vec!["e:1".into()],
+            hook: None,
         };
         let metas: HashMap<String, HunkMeta> = [(
             "e:1".to_string(),
@@ -5140,6 +5233,7 @@ mod tests {
             read_only: false,
             command: None,
             hunks: vec![],
+            hook: None,
         };
         // no people defined: an ADR change still asks (never accepted by Auto alone)
         assert!(matches!(
