@@ -1,7 +1,11 @@
-//! The GitHub CLI, read-only (r23 F3, UI-SCM-14 and the commit lifecycle): whether `gh` is installed and
-//! signed in, the open pull requests that need the person (theirs, review requested, all), the CI runs of a
-//! commit and the pull request that contains it. Always `--json`; nothing is written to GitHub. Without `gh`
-//! every call says so («not installed», with how to install it) — the UI never invents a value.
+//! The GitHub CLI (r23 F3, UI-SCM-14 and the commit lifecycle): whether `gh` is installed and signed in,
+//! the open pull requests that need the person (theirs, review requested, all), the CI runs of a commit
+//! and the pull request that contains it. Always `--json`. Without `gh` every call says so («not
+//! installed», with how to install it) — the UI never invents a value.
+//!
+//! One call writes to GitHub: [`create_pr_with`] (Multi Co-Dev, phase 5 — the caller approved and audited
+//! it first). Nothing here merges a pull request, and nothing ever runs `gh auth login`: a `gh` that is not
+//! signed in is reported, never fixed on the owner's behalf.
 
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -37,6 +41,45 @@ fn run(
         }
         Err(e) => Err(format!("could not start gh: {e}")),
     }
+}
+
+/// [`run`] with `input` on stdin (the body of a pull request: `--body-file -`).
+fn run_with_input(
+    program: &str,
+    root: &Path,
+    args: &[&str],
+    input: &str,
+) -> Result<(bool, String, String), String> {
+    use std::io::Write;
+    let mut cmd = Command::new(program);
+    cmd.current_dir(root)
+        .args(args)
+        .env("GH_PROMPT_DISABLED", "1")
+        .env("NO_COLOR", "1")
+        .env("GH_NO_UPDATE_NOTIFIER", "1")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(format!("gh is not installed. {INSTALL_HINT}"))
+        }
+        Err(e) => return Err(format!("could not start gh: {e}")),
+    };
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(input.as_bytes())
+            .map_err(|e| format!("could not write to gh: {e}"))?;
+    }
+    let o = child
+        .wait_with_output()
+        .map_err(|e| format!("gh failed: {e}"))?;
+    Ok((
+        o.status.success(),
+        String::from_utf8_lossy(&o.stdout).to_string(),
+        String::from_utf8_lossy(&o.stderr).trim().to_string(),
+    ))
 }
 
 fn json(program: &str, root: &Path, args: &[&str]) -> Result<Value, String> {
@@ -286,6 +329,159 @@ pub fn prs_for(root: &Path, sha: &str) -> Result<Vec<Pr>, String> {
     prs_for_with("gh", root, sha)
 }
 
+/* ───── Multi Co-Dev, phase 5: the pull request of an issue ───── */
+
+/// A pull request just opened.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Created {
+    pub number: u64,
+    pub url: String,
+}
+
+/// The number of a pull request from its URL (`…/pull/42`).
+pub fn number_of(url: &str) -> Option<u64> {
+    url.trim()
+        .trim_end_matches('/')
+        .rsplit_once("/pull/")
+        .and_then(|(_, n)| n.parse().ok())
+}
+
+fn check_branch_name(b: &str) -> Result<&str, String> {
+    let b = b.trim();
+    if b.is_empty() || b.starts_with('-') || b.chars().any(|c| c.is_whitespace() || c.is_control())
+    {
+        return Err(format!("not a branch name: {b:?}"));
+    }
+    Ok(b)
+}
+
+/// The exact `gh` command that opens the pull request (for the approval dialog and the audit log;
+/// the body goes on stdin).
+pub fn create_pr_command(program: &str, base: &str, head: &str, title: &str) -> String {
+    let q = |s: &str| format!("'{}'", s.replace('\'', "'\\''"));
+    format!(
+        "{program} pr create --base {} --head {} --title {} --body-file -   # the body: the gate's evidence",
+        q(base),
+        q(head),
+        q(title)
+    )
+}
+
+/// Opens a pull request of `head` into `base` with `title` and `body` (Markdown). Asks `gh` only
+/// when it is installed and signed in — it never logs in. The caller pushed `head` first and
+/// audited both.
+pub fn create_pr_with(
+    program: &str,
+    root: &Path,
+    base: &str,
+    head: &str,
+    title: &str,
+    body: &str,
+) -> Result<Created, String> {
+    let base = check_branch_name(base)?;
+    let head = check_branch_name(head)?;
+    let st = status_with(program);
+    if !st.installed {
+        return Err(st.notes);
+    }
+    if !st.signed_in {
+        return Err(
+            "gh is not signed in: run `gh auth login` yourself (dxtutor never logs in for you)"
+                .into(),
+        );
+    }
+    let title: String = title.trim().chars().take(240).collect();
+    let (ok, out, err) = run_with_input(
+        program,
+        root,
+        &[
+            "pr",
+            "create",
+            "--base",
+            base,
+            "--head",
+            head,
+            "--title",
+            &title,
+            "--body-file",
+            "-",
+        ],
+        body,
+    )?;
+    if !ok {
+        return Err(if err.is_empty() {
+            "gh pr create failed".into()
+        } else {
+            format!("gh pr create: {err}")
+        });
+    }
+    let url = out
+        .lines()
+        .map(str::trim)
+        .rfind(|l| l.contains("/pull/"))
+        .unwrap_or("")
+        .to_string();
+    let number = number_of(&url).ok_or_else(|| {
+        format!(
+            "gh pr create did not say which pull request it opened: {}",
+            out.trim()
+        )
+    })?;
+    Ok(Created { number, url })
+}
+
+/// A pull request as GitHub has it now (read-only).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrLive {
+    pub number: u64,
+    pub url: String,
+    /// `OPEN`, `CLOSED`, `MERGED`
+    pub state: String,
+    pub draft: bool,
+    /// `APPROVED`, `CHANGES_REQUESTED`, `REVIEW_REQUIRED` or empty
+    pub review: String,
+    pub checks: Checks,
+    pub head: String,
+    pub head_oid: String,
+    pub base: String,
+    pub merged_at: String,
+}
+
+pub fn parse_pr_live(v: &Value) -> Option<PrLive> {
+    let s = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+    Some(PrLive {
+        number: v.get("number").and_then(Value::as_u64)?,
+        url: s("url"),
+        state: s("state"),
+        draft: v.get("isDraft").and_then(Value::as_bool).unwrap_or(false),
+        review: s("reviewDecision"),
+        checks: checks_of(v.get("statusCheckRollup").unwrap_or(&Value::Null)),
+        head: s("headRefName"),
+        head_oid: s("headRefOid"),
+        base: s("baseRefName"),
+        merged_at: s("mergedAt"),
+    })
+}
+
+/// Pull request `number` now (read-only: `gh pr view --json`).
+pub fn pr_view_with(program: &str, root: &Path, number: u64) -> Result<PrLive, String> {
+    let n = number.to_string();
+    let v = json(
+        program,
+        root,
+        &[
+            "pr",
+            "view",
+            &n,
+            "--json",
+            "number,url,state,isDraft,reviewDecision,statusCheckRollup,headRefName,headRefOid,baseRefName,mergedAt",
+        ],
+    )?;
+    parse_pr_live(&v).ok_or_else(|| "gh pr view returned no pull request".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -402,5 +598,78 @@ mod tests {
         runs_for_with(&gh, &repo, &full[..7]).unwrap();
         let args = std::fs::read_to_string(d.path().join("args")).unwrap();
         assert!(args.contains(&format!("--commit {full}")), "{args}");
+    }
+    #[test]
+    fn a_pull_request_is_opened_with_the_body_on_stdin_and_never_a_login() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("gh");
+        std::fs::write(
+            &p,
+            format!(
+                "#!/bin/sh\necho \"$@\" >> \"{0}/args\"\ncase \"$1 $2\" in\n  \"--version \") echo 'gh version 2.0.0 (fake)';;\n  \"auth status\") exit 0;;\n  \"pr create\") cat > \"{0}/body\"; echo 'https://github.com/o/r/pull/42';;\n  \"pr view\") echo '{{\"number\":42,\"url\":\"https://github.com/o/r/pull/42\",\"state\":\"OPEN\",\"isDraft\":false,\"reviewDecision\":\"\",\"statusCheckRollup\":[{{\"conclusion\":\"SUCCESS\"}}],\"headRefName\":\"feature/x\",\"headRefOid\":\"abc\",\"baseRefName\":\"main\",\"mergedAt\":\"\"}}';;\nesac\n",
+                d.path().display()
+            ),
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let gh = p.display().to_string();
+        let c = create_pr_with(
+            &gh,
+            d.path(),
+            "main",
+            "feature/x",
+            "DX-1: pay",
+            "## evidence\n",
+        )
+        .unwrap();
+        assert_eq!(
+            c,
+            Created {
+                number: 42,
+                url: "https://github.com/o/r/pull/42".into()
+            }
+        );
+        assert_eq!(
+            std::fs::read_to_string(d.path().join("body")).unwrap(),
+            "## evidence\n"
+        );
+        let args = std::fs::read_to_string(d.path().join("args")).unwrap();
+        assert!(
+            args.contains("pr create --base main --head feature/x --title DX-1: pay --body-file -"),
+            "{args}"
+        );
+        assert!(
+            !args.contains("auth login") && !args.contains("merge"),
+            "{args}"
+        );
+        let live = pr_view_with(&gh, d.path(), 42).unwrap();
+        assert_eq!(
+            (live.state.as_str(), live.checks.passed, live.base.as_str()),
+            ("OPEN", 1, "main")
+        );
+        // option-looking branches are refused before gh runs
+        assert!(create_pr_with(&gh, d.path(), "--repo=x", "feature/x", "t", "b").is_err());
+        assert_eq!(number_of("https://github.com/o/r/pull/7/"), Some(7));
+        assert!(create_pr_command("gh", "main", "feature/x", "it's").contains("--title 'it'\\''s'"));
+    }
+
+    #[test]
+    fn not_installed_or_not_signed_in_is_said_and_nothing_is_created() {
+        let d = tempfile::tempdir().unwrap();
+        let e = create_pr_with("/nonexistent/gh-xyz", d.path(), "main", "f", "t", "b").unwrap_err();
+        assert!(e.contains("not installed"), "{e}");
+        // signed out: `auth status` fails, and `pr create` is never run
+        let gh = fake(d.path(), "", 1);
+        let e = create_pr_with(&gh, d.path(), "main", "f", "t", "b").unwrap_err();
+        assert!(e.contains("not signed in"), "{e}");
+        let args = std::fs::read_to_string(d.path().join("args")).unwrap();
+        assert!(
+            !args.contains("pr create") && !args.contains("login"),
+            "{args}"
+        );
     }
 }
