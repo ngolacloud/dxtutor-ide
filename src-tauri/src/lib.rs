@@ -24,6 +24,7 @@ mod commands;
 pub mod debug;
 pub mod devcontainer;
 pub mod dictation;
+pub mod eval;
 mod fsops;
 pub mod gitops;
 mod keys;

@@ -1,0 +1,9 @@
+{
+  "id": "rust-rate-limiter",
+  "title": "A token-bucket rate limiter",
+  "language": "rust",
+  "category": "feature",
+  "prompt": "Implement `TokenBucket` in src/lib.rs for our API gateway: `TokenBucket::new(capacity, refill_per_sec)` starts full;\n`allow(now_ms)` takes one token and returns true, or returns false when there is none. Tokens refill continuously at\n`refill_per_sec` (fractions accumulate) up to `capacity`. `now_ms` never goes backwards; a call with the same time\nrefills nothing.",
+  "check": "cargo test --quiet --offline 2>&1",
+  "test": "cargo test --quiet --offline"
+}

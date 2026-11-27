@@ -1,0 +1,8 @@
+{
+  "id": "devops-strict-shell",
+  "title": "The backup script breaks on spaces and hides failures",
+  "language": "shell",
+  "category": "devops",
+  "prompt": "`scripts/backup.sh SRC DEST` copies a folder into a timestamped `.tar.gz` under DEST, but it breaks when a path has\nspaces and it reports success even when tar fails. Make it robust: `set -euo pipefail`, quote every expansion, refuse\nwith exit code 2 and a message on stderr when SRC is not a directory or arguments are missing, create DEST if needed,\nand print only the path of the archive it created on stdout. Keep the archive name `backup-<UTC yyyymmddTHHMMSSZ>.tar.gz`.",
+  "check": "python3 check_backup.py 2>&1"
+}

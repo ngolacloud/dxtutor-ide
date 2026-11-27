@@ -1404,6 +1404,16 @@ Dockerfile, compose, CI, ADRs, runbooks, dotfiles).
 - Testes: `cargo test -p tutor-scaffold` (nenhum token sobra em nenhum template, segredos, modos, git), `cargo test -p
   dxtutor-ide scaffold`, `tests/newproject.test.ts`.
 
+## Medir o harness do Co-Dev (H0, `src-tauri/src/eval.rs`, `evals/`)
+
+`cargo run -p dxtutor-ide --example codev-eval -- run` corre o conjunto de tarefas reais (`evals/tasks/`, ≥ 30, Rust,
+Python, JavaScript, Go e DevOps/Platform, só com a biblioteca padrão) com o MESMO harness do IDE (`codev_agent::start`/
+`send`, modo Auto, sem humano: o plano é aprovado, o resto que a política pergunte é recusado, uma pergunta é respondida
+uma vez com «decide tu»), e escreve em `evals/results/` a taxa de resolvidas, tokens, custo e tempo por tarefa. Cada
+fase do `docs/v2/AUDIT-harness.md` mede-se contra a última linha de base. `verify` (sem modelo) prova cada tarefa: por
+resolver falha a verificação, com a solução de referência passa — uma tarefa nova só entra com o `verify` verde. Ver
+`evals/README.md`.
+
 ## Boas-vindas e walkthroughs (`ui-app/src/features/welcome/`, r23 F6)
 
 Feature tipada e em camadas (governada por A7/A8), no lugar do antigo `features/welcome.ts`: Start (New File,

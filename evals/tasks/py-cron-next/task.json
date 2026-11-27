@@ -1,0 +1,9 @@
+{
+  "id": "py-cron-next",
+  "title": "Next run of a cron schedule",
+  "language": "python",
+  "category": "feature",
+  "prompt": "The job scheduler needs `next_run(expr, after)` in app/cron.py for the minute and hour fields of a cron expression\n(`\"M H * * *\"`; the other three fields are always `*`). Each field accepts `*`, `*/n`, a number, a range `a-b` and\ncomma lists of those. Return the first `datetime` strictly after `after` (seconds and microseconds zeroed) that\nmatches. Invalid expressions raise `ValueError`.",
+  "check": "python3 -m unittest discover -s tests -q 2>&1",
+  "test": "python3 -m unittest discover -s tests -q"
+}

@@ -1,0 +1,9 @@
+{
+  "id": "js-emitter-once",
+  "title": "once() and safe removal in the event emitter",
+  "language": "javascript",
+  "category": "feature",
+  "prompt": "Add `once(event, fn)` to the `Emitter` in src/emitter.js (the listener runs on the next emit only) and make `off`\nwork for listeners added with `once` (pass the original function). Removing or adding listeners while an event is\nbeing emitted must not skip or double-call the other listeners of that emit: each emit calls exactly the listeners\nthat were registered when it started (minus those removed during it).",
+  "check": "node --test 2>&1",
+  "test": "node --test"
+}

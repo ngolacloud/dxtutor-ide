@@ -1,0 +1,9 @@
+{
+  "id": "py-roman",
+  "title": "Roman numerals both ways",
+  "language": "python",
+  "category": "feature",
+  "prompt": "Implement `to_roman(n)` and `from_roman(s)` in app/roman.py for 1..3999 (standard subtractive form: IV, IX, XL,\nXC, CD, CM). Out-of-range numbers raise `ValueError`; `from_roman` accepts lowercase but raises `ValueError` for\nanything that is not the canonical form (e.g. \"IIII\", \"VX\", \"IC\", \"MMMM\", \"\").",
+  "check": "python3 -m unittest discover -s tests -q 2>&1",
+  "test": "python3 -m unittest discover -s tests -q"
+}

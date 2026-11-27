@@ -1,0 +1,9 @@
+{
+  "id": "py-merge-intervals",
+  "title": "Merging maintenance windows",
+  "language": "python",
+  "category": "bugfix",
+  "prompt": "The maintenance planner shows overlapping windows: `merge_intervals` in app/windows.py only merges neighbours that\nare already sorted and misses windows that touch (end == start). Fix it: the input may come in any order, overlapping\nor touching windows become one, the result is sorted by start, and the input list is not modified.",
+  "check": "python3 -m unittest discover -s tests -q 2>&1",
+  "test": "python3 -m unittest discover -s tests -q"
+}

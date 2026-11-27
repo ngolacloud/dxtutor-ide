@@ -1,0 +1,9 @@
+{
+  "id": "rust-env-config",
+  "title": "Environment overrides for the config",
+  "language": "rust",
+  "category": "feature",
+  "prompt": "Ops want to override the service config from the environment. Add `Config::apply_env(&mut self, vars: &[(&str, &str)])`\nin src/lib.rs: `APP_PORT` (a u16), `APP_HOST`, `APP_DEBUG` (`true`/`false`/`1`/`0`) and `APP_WORKERS` (1..=64) override\nthe fields; other variables are ignored. Invalid values must not change anything: return\n`Err(ConfigError { var, value })` for the first invalid one and leave the config as it was (all or nothing).",
+  "check": "cargo test --quiet --offline 2>&1",
+  "test": "cargo test --quiet --offline"
+}
