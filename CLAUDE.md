@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 334 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 337 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -1349,6 +1349,29 @@ O Prometheus do projecto, só lido (`GET /api/v1/…`). Desbloqueia o portão `s
   API são os erros), `deploy::tests::the_slo_gate_and_its_waiver`, `review::…capacity_and_error_budget_from_metrics`,
   `tests/ops.test.ts`, `tests/platform.test.ts` e o passo `metrics` do auto-teste (Prometheus e Vault dev do runner).
 
+## Novo projecto: os templates do Delonix (`crates/tutor-scaffold`, `ui-app/src/features/newproject/`)
+
+O mesmo princípio do `delonix init -t`, com os mesmos templates: **13** (Rust, Go, Node.js, FastAPI, Django, NestJS,
+Next.js, Laravel, nginx, Apache httpd, HAProxy, Odoo, WordPress), cada um um projecto completo (código, testes,
+Dockerfile, compose, CI, ADRs, runbooks, dotfiles).
+- **Fonte:** `templates/projects/` é uma CÓPIA de `bins/delonix/templates` do Delonix, feita por
+  `scripts/sync-delonix-templates.sh` (lê o `origin/develop` do checkout do Delonix com `git archive`; o commit fica em
+  `templates/projects/SOURCE`). Não se editam aqui: muda-se no Delonix e corre-se o script.
+- **Regras no Rust** (`tutor-scaffold`, as do `scaffold.rs` do Delonix): nome = etiqueta DNS; versão simples dentro do
+  `versions=` do `template.meta`; tokens `__NAME__`/`__MODULE__`/`__PORT__`/`__TLS_PORT__`/`__TEMPLATE_VERSION__`/
+  `__DISTROLESS_REGISTRY__` nos conteúdos e nos caminhos; `.env.tmpl` → `.env` 0600 com `__SECRET_<NOME>__` aleatório
+  (o mesmo nome, o mesmo valor) e `{random32}`; pasta nova ou vazia; lockfile pelo gestor de pacotes se existir;
+  `git init` em `main` e commit `chore: scaffold`. O `build.rs` embute os ficheiros (com o bit de execução). Um template
+  novo vindo do Delonix precisa de uma linha no `CATALOG` (o teste `every_template_has_a_catalog_row…` reprova-o).
+- **Comandos** (`commands/scaffold.rs`): `project_templates`, `project_new_plan` (o que vai acontecer; não escreve) e
+  `project_new` (cria, auditado no projecto novo antes e com o resultado). O certificado local (`tls/`) dos templates
+  com HTTPS não é gerado: o resumo diz como.
+- **UI** (`features/newproject`, governada por A7/A8): um modal como o do Learning Track (Linguagens, Frameworks,
+  Servidores web, Aplicações), o formulário (nome, pasta, versão), o diálogo de aprovação partilhado e a pasta aberta
+  logo como workspace. Entradas: Boas-vindas › Começar › «Novo projecto…», File › New Project…, paleta «File: New Project…».
+- Testes: `cargo test -p tutor-scaffold` (nenhum token sobra em nenhum template, segredos, modos, git), `cargo test -p
+  dxtutor-ide scaffold`, `tests/newproject.test.ts`.
+
 ## Boas-vindas e walkthroughs (`ui-app/src/features/welcome/`, r23 F6)
 
 Feature tipada e em camadas (governada por A7/A8), no lugar do antigo `features/welcome.ts`: Start (New File,
@@ -1411,7 +1434,12 @@ O IDE tem de ser leve e nunca travar a máquina. Regras medidas (amostragem da t
   o git ignora por inteiro (`git ls-files --others --ignored --directory`; um `.env` ignorado e um ficheiro versionado
   ficam) e pára aos 48 MB (`LoadPolicy::max_total`), além dos 4000 ficheiros de 768 KB. O HEAD dos alterados vem de um só
   `git cat-file --batch` (`platform/desktop/git-batch.ts`). O auto-teste é um chunk à parte (`import()` no `bridge.ts`).
-- Medidas e método em `docs/v2/NOTAS-desempenho.md`; fica para a P3 o passo de desempenho no auto-teste.
+- **Vigilância (P3):** o passo `perf` do auto-teste (último antes do `csp`) lê a app e a página pelo `/proc` e falha
+  acima dos limites (`LIMIT` no `perfProbe`): a thread da UI da app responde ao `app_info` (síncrono) enquanto a pasta é
+  relida, a página não pára, uma `perf-out/` de 80 MB ignorada pelo `.git/info/exclude` não entra nem a faz crescer, CPU
+  em repouso e memória privada no fim. Um limite só sobe com a medição que o justifica, nas notas. O `lsp-java`/`lsp-kotlin`
+  falham sem diagnósticos (antes registavam `null` e passavam).
+- Medidas e método em `docs/v2/NOTAS-desempenho.md`.
 
 ## Regras ao mexer aqui
 

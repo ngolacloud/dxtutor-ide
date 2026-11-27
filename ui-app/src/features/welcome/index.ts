@@ -6,6 +6,7 @@
    a função que abre (sem código em texto). Sem `window` aqui.
    O Project avalia DEPOIS desta feature (importado pelo boot-steps): lê-se pelo registo `services`, no acto. */
 
+import { openNewProject } from "../newproject/index";
 import { svg, toast } from "../../core";
 import { VIEW } from "../../app/store/registry";
 import { LS } from "../../app/store/storage";
@@ -120,6 +121,7 @@ export function pickWalkthrough(): void {
 const pair2 = (on: string): [string, string] => { const i = on.indexOf("|"); return [on.slice(0, i), on.slice(i + 1)]; };
 
 registerActions({
+  "welcome:newProject": { click: () => openNewProject() },
   "welcome:newFile": { click: () => newFile() },
   "welcome:openFile": { click: () => B.palette("") },
   "welcome:openFolder": { click: () => { void welcome.openFolder(); } },

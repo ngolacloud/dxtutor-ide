@@ -129,6 +129,7 @@ use commands::runbook::{
     runbook_decide, runbook_list, runbook_parse, runbook_step, sources_status,
 };
 use commands::sandbox::{compose_ps, get_sandbox_engine, set_sandbox_engine};
+use commands::scaffold::{project_new, project_new_plan, project_templates};
 use commands::search::{detect_projects, list_files, read_folder_sources, search_project};
 use commands::study::{
     course_prepare, course_prepare_status, get_course, get_glossary, get_study_guide, list_courses,
@@ -1256,6 +1257,9 @@ pub fn run() {
             board::audit_export_evidence,
             board::project_issue_prompt,
             board::project_create_from_backlog,
+            project_templates,
+            project_new_plan,
+            project_new,
             board::project_sprint_plan,
             board::project_scope_overlap,
             board::project_checks,

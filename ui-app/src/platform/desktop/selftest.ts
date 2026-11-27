@@ -1529,6 +1529,8 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     // novo, «Restart» troca o processo, e com `idleMinutes: 1` no lsp.json do utilizador o reaper pára-o sozinho.
     await step("lspResources", () => lspResourcesProbe());
   }
+  /* P3 (NOTAS-desempenho): o IDE não trava a máquina — limites medidos no fim do auto-teste (binário debug, Xvfb) */
+  await step("perf", () => perfProbe());
   /* sem handlers inline em lado nenhum do DOM vivo (depois de o auto-teste ter aberto as vistas) e sem violações do CSP */
   await step("csp", async () => {
     const inlineHandlers = [...document.querySelectorAll("*")].filter((el) => [...el.attributes].some((a) => /^on/i.test(a.name))).map((el) => el.tagName.toLowerCase() + (el.id ? "#" + el.id : "")).slice(0, 20);
@@ -1543,6 +1545,75 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
   });
   rep.errors = R.errors;
   await app.selftestReport(rep);
+
+  /* A app e a página medidas pelo /proc (o `$PPID` do `sh` é a app; a página é o filho WebKitWebProcess): a janela
+     responde enquanto a pasta é relida, uma pasta pesada que o git ignora não entra na página, e em repouso o CPU fica
+     parado. Os limites são para o binário debug numa máquina com outras sessões a compilar; um passo vermelho diz qual
+     passou e por quanto. */
+  async function perfProbe(): Promise<unknown> {
+    if (R.info.os !== "linux" || !R.root) return { skipped: "Linux with a folder open only (/proc)" };
+    const LIMIT = { appPingMs: 1000, pageLagMs: 4000, heavyDeltaMB: 30, idleCpuPct: 5, appMB: 800, webMB: 1200 };
+    const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+    const PROCS = 'p=$PPID; for pid in $p $(pgrep -P $p); do n=$(cat /proc/$pid/comm); case "$pid:$n" in "$p":*|*:WebKitWebProces*) ;; *) continue;; esac; ' +
+      'm=$(awk \'/^Private_(Clean|Dirty):/{s+=$2}END{print s+0}\' /proc/$pid/smaps_rollup); c=$(awk \'{print $14+$15}\' /proc/$pid/stat); echo "$pid $n $m $c"; done; getconf CLK_TCK';
+    const procs = async () => {
+      const lines = (await sh("sh", ["-c", PROCS])).stdout.trim().split("\n");
+      const hz = Number(lines.pop()) || 100;
+      const row = (web: boolean) => lines.map(l => l.split(" ")).find(f => web ? f[1].startsWith("WebKitWebProces") : !f[1].startsWith("WebKit"));
+      const of = (f?: string[]) => f ? { mb: Math.round(Number(f[2]) / 1024), cpuS: Number(f[3]) / hz } : null;
+      return { app: of(row(false)), web: of(row(true)) };
+    };
+    const pct = (xs: number[], q: number) => { const a = [...xs].sort((x, y) => x - y); return a.length ? Math.round(a[Math.min(a.length - 1, Math.floor(q * a.length))]) : 0; };
+    // 1) uma pasta pesada que o git ignora (80 MB em `perf-out/`, pelo .git/info/exclude: nenhum ficheiro versionado muda)
+    const exclude = (await git("rev-parse", "--git-path", "info/exclude")).stdout.trim();
+    await sh("sh", ["-c", 'set -e; mkdir -p perf-out; head -c 204800 /dev/zero | tr "\\0" x > perf-out/f0.txt; i=1; while [ $i -lt 400 ]; do cp perf-out/f0.txt perf-out/f$i.txt; i=$((i+1)); done; printf "perf-out/\\n" >> "$1"', "_", exclude]);
+    const before = await procs();
+    // 2) durante ≥ 3 s — a pasta relida e os comandos que tocam no disco, no keychain e na base (eram síncronos antes
+    //    da P1) — a thread da UI da app (o `app_info` é síncrono: espera por ela) e a da página respondem
+    const ping: number[] = [], lag: number[] = [];
+    let on = true, last = performance.now();
+    const iv = setInterval(() => { const n = performance.now(); lag.push(n - last - 50); last = n; }, 50);
+    const pinger = (async () => { while (on) { const t = performance.now(); await invoke("app_info"); ping.push(performance.now() - t); await sleep(50); } })();
+    const t0 = Date.now();
+    await ctx.reloadDisk(); await idle();
+    const reloadMs = Date.now() - t0;
+    const root = R.root;
+    await Promise.all([
+      invoke("keys_status"),
+      invoke("workspace_tree", { root, maxDepth: 6, maxEntries: 2000 }),
+      invoke("list_dir", { path: root + "/perf-out" }),
+      invoke("board_load", { root }),
+    ].map(p => p.catch(() => null)));
+    while (Date.now() - t0 < 3000) await sleep(100);
+    on = false; await pinger; clearInterval(iv);
+    const loaded = Object.keys(FS).filter(k => k.startsWith(ROOT + "perf-out/")).length;
+    await sleep(2000);
+    const after = await procs();
+    await sh("sh", ["-c", 'rm -rf perf-out; grep -vx "perf-out/" "$1" > "$1.tmp" || true; mv "$1.tmp" "$1"', "_", exclude]);
+    // 3) em repouso: 10 s sem fazer nada
+    const c0 = await procs(); await sleep(10_000); const c1 = await procs();
+    const cpu = (k: "app" | "web") => c0[k] && c1[k] ? Math.round((c1[k]!.cpuS - c0[k]!.cpuS) / 10 * 1000) / 10 : null;
+    const r = {
+      appPingMs: { p50: pct(ping, 0.5), p95: pct(ping, 0.95), max: pct(ping, 1), n: ping.length },
+      pageLagMs: { p95: pct(lag, 0.95), max: pct(lag, 1) },
+      reloadMs,
+      heavyIgnored: { files: 400, mb: 80, loaded, webDeltaMB: before.web && after.web ? after.web.mb - before.web.mb : null },
+      idleCpuPct: { app: cpu("app"), web: cpu("web") },
+      privateMB: { app: c1.app?.mb ?? null, web: c1.web?.mb ?? null },
+      limits: LIMIT,
+    };
+    const over: string[] = [];
+    if (r.appPingMs.max > LIMIT.appPingMs) over.push(`app UI thread answered in ${r.appPingMs.max} ms (> ${LIMIT.appPingMs})`);
+    if (r.pageLagMs.max > LIMIT.pageLagMs) over.push(`page blocked ${r.pageLagMs.max} ms (> ${LIMIT.pageLagMs})`);
+    if (loaded) over.push(`${loaded} files of an ignored folder were loaded`);
+    if ((r.heavyIgnored.webDeltaMB ?? 0) > LIMIT.heavyDeltaMB) over.push(`the page grew ${r.heavyIgnored.webDeltaMB} MB (> ${LIMIT.heavyDeltaMB})`);
+    for (const k of ["app", "web"] as const) if ((r.idleCpuPct[k] ?? 0) > LIMIT.idleCpuPct) over.push(`${k} idle CPU ${r.idleCpuPct[k]}% (> ${LIMIT.idleCpuPct})`);
+    if ((r.privateMB.app ?? 0) > LIMIT.appMB) over.push(`app private ${r.privateMB.app} MB (> ${LIMIT.appMB})`);
+    if ((r.privateMB.web ?? 0) > LIMIT.webMB) over.push(`page private ${r.privateMB.web} MB (> ${LIMIT.webMB})`);
+    if (!r.privateMB.app || !r.privateMB.web) over.push("could not read the app or the page in /proc");
+    if (over.length) throw new Error(over.join("; ") + " — " + JSON.stringify(r));
+    return r;
+  }
 
   async function lspResourcesProbe(): Promise<unknown> {
     type Info = { key: string; label: string; pid: number | null; documents: string[]; state: string };
@@ -1703,6 +1774,9 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     const diag = await until(() => diagnostics().find(d => d.p === main && d.sev === "e"), 180_000, 500);
     const gutterErr = !!document.querySelector("#ed-gut .g-e");
     const diagMs = Date.now() - t0;
+    /* P3: sem diagnósticos o servidor não está a servir o ficheiro aberto — o resto do passo só esgotaria os tempos
+       (17 min numa corrida de 2026-11-26, o jdtls parado sem CPU e as respostas a chegar no passo seguinte) */
+    if (!diag) throw new Error(`${server}: no diagnostics for ${main.slice(ROOT.length)} in ${Math.round(diagMs / 1000)} s — the server is not serving the open file`);
     // 2) hover: rato parado sobre a chamada (coordenadas reais da textarea)
     const offsetOf = (line: number, word: string) => { const ls = ta()!.value.split("\n"); let o = 0; for (let i = 0; i < line; i++) o += ls[i].length + 1; return o + ls[line].indexOf(word) + 1; };
     const pointOf = (line: number, word: string) => {
