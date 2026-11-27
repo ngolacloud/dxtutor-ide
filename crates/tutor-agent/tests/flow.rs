@@ -710,7 +710,12 @@ fn toolset_9_offers_finish_issue_only_to_issue_sessions_and_keeps_8_as_it_was() 
     // toolset 14 (H4): only the host's `ide` grows — the core tools and schemas stay as in 13
     assert_eq!(names(&tools(14, true)), n9i);
     assert_eq!(bash(14), bash(13));
-    assert_eq!(tutor_agent::tools::TOOLSET_VERSION, 14);
+    // toolset 15 (H5a): + `web_fetch` at the very end — 14's prefix stays byte for byte
+    let mut n15 = n9i.clone();
+    n15.push("web_fetch".to_string());
+    assert_eq!(names(&tools(15, true)), n15);
+    assert_eq!(bash(15), bash(14));
+    assert_eq!(tutor_agent::tools::TOOLSET_VERSION, 15);
 }
 
 #[test]

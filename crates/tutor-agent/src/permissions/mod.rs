@@ -258,6 +258,9 @@ pub struct Policy {
     /// Toolset 6 sessions: a question waits for the human, and Manual/Assist need an
     /// approved plan before changing files. `None`: older sessions, TUI, CLI.
     pub gates: Option<Gates>,
+    /// H5a: the domains `web_fetch` reads without asking — the project's trusted list (`.dxtutor/sandbox.json`
+    /// `allowDomains`); the person's `web_fetch:<domain>` rules add to it.
+    pub web_domains: Vec<String>,
 }
 
 impl Policy {
@@ -270,6 +273,7 @@ impl Policy {
             require_origin: false,
             origin: None,
             gates: None,
+            web_domains: vec![],
         }
     }
 
@@ -342,6 +346,53 @@ impl Policy {
         }
     }
 
+    /// `web_fetch`: this machine or the internal network always asks (no «always»); a listed or allowed domain is
+    /// read; another asks, offering «always» for that domain; a `web_fetch:<domain>` deny rule refuses it.
+    fn web_verdict(&self, call: &PendingCall) -> Verdict {
+        use crate::tools::web;
+        let url = call.input["url"].as_str().unwrap_or_default().trim();
+        let Some(host) = web::host_of(url) else {
+            return Verdict::Deny {
+                reason: "web_fetch lê só URLs http(s), sem credenciais no endereço".into(),
+            };
+        };
+        let rule_domains = |list: &[String]| -> Vec<String> {
+            list.iter()
+                .filter_map(|r| match split_rule(r) {
+                    (t, Some(d)) if t == web::NAME => Some(d.to_string()),
+                    _ => None,
+                })
+                .collect()
+        };
+        if web::domain_listed(&rule_domains(&self.rules.deny), &host) {
+            return Verdict::Deny {
+                reason: format!("regra deny: {}:{host}", web::NAME),
+            };
+        }
+        if web::is_private(&host) {
+            return Verdict::Ask {
+                reason: format!("ler {url}: um endereço desta máquina ou da rede interna"),
+                dangerous: true,
+                suggested_rule: None,
+            };
+        }
+        let everything = self
+            .rules
+            .allow
+            .iter()
+            .any(|r| split_rule(r) == (web::NAME, None));
+        if everything
+            || web::domain_listed(&self.web_domains, &host)
+            || web::domain_listed(&rule_domains(&self.rules.allow), &host)
+        {
+            return Verdict::Allow;
+        }
+        Self::ask(
+            format!("ler {url} — {host} não está na lista de domínios do projecto"),
+            Some(format!("{}:{host}", web::NAME)),
+        )
+    }
+
     fn ask(reason: impl Into<String>, suggested_rule: Option<String>) -> Verdict {
         Verdict::Ask {
             reason: reason.into(),
@@ -354,6 +405,10 @@ impl Policy {
         let a = call.command.as_deref().map(|c| assess(c, &self.root));
         if let Some(reason) = self.denied(call, a.as_ref()) {
             return Verdict::Deny { reason };
+        }
+        // H5a: reading a page is research (plan mode too, no request needed): the domain decides
+        if call.name == crate::tools::web::NAME {
+            return self.web_verdict(call);
         }
         if call.read_only {
             return Verdict::Allow;
@@ -605,6 +660,51 @@ mod tests {
         // a long argument is cut in the reason
         let long = json!({"action": "incident.add", "args": {"text": "x".repeat(2000)}});
         assert!(ide_action_reason(&long).chars().count() < 400);
+    }
+
+    #[test]
+    fn a_web_page_is_read_by_its_domain() {
+        let get = |url: &str| call("web_fetch", false, json!({ "url": url }), None);
+        let mut p = pol(Mode::Manual, Rules::default());
+        p.web_domains = vec!["docs.rs".into(), "*.python.org".into()];
+        // the project's list: read at once, in every mode and in plan mode
+        p.plan.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(kind(&p.decide(&get("https://docs.rs/serde"))), "allow");
+        assert_eq!(kind(&p.decide(&get("https://docs.python.org/3/"))), "allow");
+        // another domain asks, offering «always» for that domain
+        let v = p.decide(&get("https://example.org/a?b=1"));
+        let Verdict::Ask {
+            suggested_rule,
+            dangerous,
+            ..
+        } = v
+        else {
+            panic!("{v:?}")
+        };
+        assert_eq!(suggested_rule.as_deref(), Some("web_fetch:example.org"));
+        assert!(!dangerous);
+        // this machine and the internal network: always, dangerous, no «always» — even with web_fetch allowed
+        let mut rules = Rules::default();
+        rules.allow.push("web_fetch".into());
+        rules.allow.push("web_fetch:example.org".into());
+        rules.deny.push("web_fetch:*.evil.test".into());
+        let q = pol(Mode::Auto, rules);
+        for u in [
+            "http://localhost:3000/",
+            "http://169.254.169.254/latest/meta-data",
+            "http://[::1]/",
+        ] {
+            assert_eq!(kind(&q.decide(&get(u))), "ask!", "{u}");
+        }
+        assert_eq!(kind(&q.decide(&get("https://example.org/"))), "allow");
+        assert_eq!(
+            kind(&q.decide(&get("https://any.where/"))),
+            "allow",
+            "web_fetch alone allows every public domain"
+        );
+        assert_eq!(kind(&q.decide(&get("https://a.evil.test/"))), "deny");
+        assert_eq!(kind(&q.decide(&get("file:///etc/passwd"))), "deny");
+        assert_eq!(kind(&q.decide(&get("https://u:p@example.org/"))), "deny");
     }
 
     #[test]
