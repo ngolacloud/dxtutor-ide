@@ -1,0 +1,20 @@
+/* New Project (features/newproject): o modal, como o do Learning Track (#onb). */
+#np{position:fixed;inset:0;z-index:450;background:rgba(0,0,0,.72);display:none;place-items:center;padding:16px}
+#np.show{display:grid}
+.np-box{background:var(--bg-panel);border:1px solid var(--border);border-radius:12px;padding:20px 22px;width:min(920px,100%);max-height:90vh;overflow:auto}
+.np-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.np-head h2{margin:0}
+.np-dim{color:var(--fg-muted);font-size:12px}
+.np-sec{margin:16px 0 8px;font-size:13px;color:var(--fg-bright)}
+.np-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
+.np-card{display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;border:1px solid var(--border);border-radius:9px;padding:14px 12px;background:var(--bg-editor);cursor:pointer}
+.np-card:hover{border-color:var(--accent)}
+.np-card .g,.np-chosen .g{font-size:28px;line-height:1.2}.np-card b{font-size:14px}.np-card small{color:var(--fg-muted);font-size:11px;line-height:1.4}
+.np-meta{font-size:10.5px;color:var(--fg-dim)}
+.np-chosen{display:flex;gap:12px;align-items:center;margin:12px 0}.np-chosen small{display:block;color:var(--fg-muted);font-size:11.5px}
+.np-f{display:flex;flex-direction:column;gap:4px;margin:10px 0;font-size:12px}.np-f > span{color:var(--fg-bright);font-weight:600}
+.np-f input,.np-f select{background:var(--bg-input);border:1px solid var(--border-strong);border-radius:6px;color:var(--fg);font:12.5px var(--font-mono);padding:6px 8px}
+.np-row{display:flex;gap:6px}.np-row input{flex:1;min-width:0}
+.np-err{color:var(--err,#f14c4c);font-size:12px;margin:4px 0}.np-err:empty{display:none}
+.np-ok{color:var(--fg-bright);font-weight:600}
+.np-notes{margin:8px 0 0 18px;font-size:12.5px;color:var(--fg)}
+.np-foot{display:flex;justify-content:space-between;align-items:center;margin-top:14px}

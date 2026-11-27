@@ -1,0 +1,16 @@
+[package]
+name = "tutor-scaffold"
+description = "New Project: the Delonix project templates (`delonix init -t`) embedded, and the rules that instantiate them"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+build = "build.rs"
+
+[dependencies]
+serde = { workspace = true }
+base64 = "0.22"
+getrandom = "0.2"
+
+[dev-dependencies]
+tempfile = { workspace = true }

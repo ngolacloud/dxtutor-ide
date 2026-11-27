@@ -32,6 +32,7 @@ function startItem(ic: Icon, icon: string, label: string, action: string, disabl
 export function renderWelcome(t: T, ic: Icon, m: WelcomeModel): string {
   const off = m.desktop ? undefined : t("desktopOnly");
   const start = [
+    startItem(ic, "folder", t("newProject"), "newProject", off),
     startItem(ic, "file", t("newFile"), "newFile"),
     startItem(ic, "search", t("openFile"), "openFile"),
     startItem(ic, "folder", t("openFolder"), "openFolder", off),

@@ -1,0 +1,5 @@
+/server
+coverage.out
+*.log
+.env
+.DS_Store

@@ -5,6 +5,7 @@
    o Ctrl+O e os botões da página de boas-vindas. Eram as secções «folders and autosave» e
    «menus, palette, welcome» do bridge.ts, verbatim. */
 
+import { openNewProject } from "../../features/newproject/index";
 import { bus } from "../../app/bus";
 import { editorStore } from "../../app/store/editor";
 import { loadWorkspace } from "../tauri/workspace";
@@ -164,6 +165,7 @@ R.close = closeFolder;
 function fileItems(): any[] {
   const rec = LS.get("dx-recent", []) as string[];
   return [
+    { l: "New Project…", act: () => openNewProject() },
     { l: "Open Folder…", k: "Ctrl+O", act: () => openFolder() },
     { l: "Open Recent Folder", sub: rec.length ? rec.map(p => ({ l: p, act: () => openFolder(p) })) : [{ l: "(none yet)" }] },
     { l: "Close Folder", act: closeFolder },
@@ -176,7 +178,7 @@ if (fm) {
   Object.defineProperty(fm, "items", { configurable: true, get: () => fileItems().concat(g()) });
   try { $("#menubar")!.innerHTML = ""; buildMenubar(); } catch { /* menubar ainda não montada */ }
 }
-CMD.unshift(["File: Open Folder…", "Ctrl+O", () => openFolder()], ["File: Close Folder", "", closeFolder]);
+CMD.unshift(["File: New Project…", "", () => openNewProject()], ["File: Open Folder…", "Ctrl+O", () => openFolder()], ["File: Close Folder", "", closeFolder]);
 document.addEventListener("keydown", e => {
   if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === "o" || e.key === "O")) { e.preventDefault(); void openFolder(); }
 }, true);

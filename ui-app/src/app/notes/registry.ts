@@ -17,12 +17,14 @@ import { VAULT_NOTES } from "../../features/vault/notes";
 import { DEPLOY_NOTES } from "../../features/deploy/notes";
 import { PROTECT_NOTES } from "../../features/protect/notes";
 import { LEARN_NOTES } from "../../features/learn/notes";
+import { NEWPROJECT_NOTES } from "../../features/newproject/notes";
 
 export const NOTES: FeatureNotes[] = [
   CODEV_NOTES, CODEREVIEW_NOTES, BOARD_NOTES, PROJECT_NOTES, TESTING_NOTES, LSP_NOTES,
   /* r23 F4–F5 */
   PROTECT_NOTES, OPS_NOTES, PLATFORM_NOTES, VAULT_NOTES, DEPLOY_NOTES,
   LEARN_NOTES,
+  NEWPROJECT_NOTES,
 ];
 
 export const PENDING: string[] = ["tabs:startDebug", "tabs:dxRun"];
