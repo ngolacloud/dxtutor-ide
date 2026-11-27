@@ -22,6 +22,10 @@ fn arg(args: &[String], name: &str) -> Option<String> {
 }
 
 fn main() {
+    // the sandbox's network bridge (H1b) is this same binary when an allowlist is in use
+    if let Some(code) = tutor_agent::net_proxy::bridge_main() {
+        std::process::exit(code);
+    }
     let args: Vec<String> = std::env::args().skip(1).collect();
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
     let tasks_dir = arg(&args, "--tasks")

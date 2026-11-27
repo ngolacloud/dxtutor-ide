@@ -300,10 +300,20 @@ impl Tool for Bash {
             _ => shell(command),
         };
         let r = run_process(cmd, &ctx.root, timeout, ctx);
-        with_hint(ToolOutput {
+        let mut out = with_hint(ToolOutput {
             is_error: !r.ok(),
             content: r.render(),
-        })
+        });
+        if let Some(sb) = &self.sandbox {
+            let refused = sb.take_denied();
+            if !refused.is_empty() {
+                out.content.push_str(&format!(
+                    "\n[sandbox] the project's allowlist refused: {} — ask the human to add them to allowDomains in .dxtutor/sandbox.json, or run this one command with `unsandboxed: true`",
+                    refused.join(", ")
+                ));
+            }
+        }
+        out
     }
 }
 
