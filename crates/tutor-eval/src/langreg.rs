@@ -18,6 +18,9 @@
 //! - `firstLine` — a regex for the first line (a shebang), tried only when neither the name nor
 //!   the extension matched.
 //! - `lineComment` — the Ctrl+/ marker when no installed extension declares one.
+//! - `blockComment` — `[open, close]` (`["/*", "*/"]`): Toggle Block Comment (Ctrl+Shift+A), and
+//!   Ctrl+/ in a language without `lineComment`, when no installed extension declares one. Two
+//!   non-empty tokens without whitespace (the editor adds the space around the commented text).
 //! - `outline` — the language the syntactic outline/codemap speaks (`file_outline`, the agent's
 //!   `outline` tool). The explorer asks `file_outline` only when the server is `oneShot`.
 //! - `server` — the id of the entry in `servers[]` that serves this language (optional).
@@ -370,6 +373,9 @@ pub struct Language {
     pub first_line: Option<String>,
     #[serde(default)]
     pub line_comment: Option<String>,
+    /// `[open, close]`, checked by [`validate`] (exactly two tokens).
+    #[serde(default)]
+    pub block_comment: Option<Vec<String>>,
     #[serde(default)]
     pub outline: Option<String>,
     #[serde(default)]
@@ -618,6 +624,21 @@ pub fn validate(r: &Registry) -> Vec<String> {
             .is_some_and(|c| c.trim().is_empty())
         {
             errs.push(format!("{at}: empty lineComment"));
+        }
+        if let Some(b) = &l.block_comment {
+            if b.len() != 2 {
+                errs.push(format!(
+                    "{at}: blockComment must be [open, close] (two tokens, not {})",
+                    b.len()
+                ));
+            } else if b
+                .iter()
+                .any(|t| t.is_empty() || t.chars().any(char::is_whitespace))
+            {
+                errs.push(format!(
+                    "{at}: blockComment tokens must be non-empty and without whitespace"
+                ));
+            }
         }
         if l.outline.as_deref().is_some_and(|o| !ident(o)) {
             errs.push(format!("{at}: outline must be a lowercase id"));
@@ -1090,6 +1111,49 @@ mod tests {
         // a field nobody reads is a typo, not data
         assert!(parse(
             r#"{"version":1,"languages":[{"id":"a","name":"A","extension":["x"]}],"servers":[]}"#
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn block_comments_are_two_tokens_without_whitespace() {
+        let r = parse(REGISTRY_JSON).unwrap();
+        let tokens = |id: &str| {
+            r.languages
+                .iter()
+                .find(|l| l.id == id)
+                .and_then(|l| l.block_comment.clone())
+        };
+        assert_eq!(tokens("rust"), Some(vec!["/*".into(), "*/".into()]));
+        assert_eq!(tokens("html"), Some(vec!["<!--".into(), "-->".into()]));
+        assert_eq!(tokens("lua"), Some(vec!["--[[".into(), "]]".into()]));
+        // a docstring is a string, and `=begin` only works at the start of a line: none
+        assert_eq!(tokens("python"), None);
+        assert_eq!(tokens("ruby"), None);
+        let bad = r#"{
+          "version": 1,
+          "languages": [
+            { "id": "a", "name": "A", "extensions": ["a"], "blockComment": ["/*"] },
+            { "id": "b", "name": "B", "extensions": ["b"], "blockComment": ["/*", "*/", "x"] },
+            { "id": "c", "name": "C", "extensions": ["c"], "blockComment": ["", "*/"] },
+            { "id": "d", "name": "D", "extensions": ["d"], "blockComment": ["/* ", "*/"] },
+            { "id": "e", "name": "E", "extensions": ["e"], "blockComment": ["{-", "-}"] }
+          ],
+          "servers": []
+        }"#;
+        let errs = validate(&parse(bad).unwrap()).join("\n");
+        for want in [
+            "language `a`: blockComment must be [open, close] (two tokens, not 1)",
+            "language `b`: blockComment must be [open, close] (two tokens, not 3)",
+            "language `c`: blockComment tokens must be non-empty",
+            "language `d`: blockComment tokens must be non-empty",
+        ] {
+            assert!(errs.contains(want), "missing «{want}» in:\n{errs}");
+        }
+        assert!(!errs.contains("language `e`"), "{errs}");
+        // a string where the list goes is not a block comment
+        assert!(parse(
+            r#"{"version":1,"languages":[{"id":"a","name":"A","extensions":["a"],"blockComment":"/* */"}],"servers":[]}"#
         )
         .is_err());
     }

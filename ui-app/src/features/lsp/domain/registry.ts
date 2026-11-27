@@ -23,6 +23,9 @@ export interface RegLanguage {
   /** expressão regular para a primeira linha (um shebang) */
   firstLine?: string;
   lineComment?: string;
+  /** `[abre, fecha]` (`["<!--", "-->"]`, a barra-asterisco do C…): o Toggle Block Comment, e o Ctrl+/ de uma
+   *  linguagem sem `lineComment` (LSP P5) */
+  blockComment?: [string, string];
   /** a linguagem do outline sintáctico (`file_outline`) */
   outline?: string;
   /** o `id` do servidor em `servers` */

@@ -55,6 +55,7 @@ Each entry names the `id` it changes or adds.
 | `filenames` | whole file names (`Dockerfile`, `Makefile`); they win over the extension |
 | `firstLine` | a regular expression for the first line (a shebang), tried only when the name says nothing |
 | `lineComment` | the Ctrl+/ comment marker |
+| `blockComment` | `[open, close]`, e.g. `["/*", "*/"]`: Toggle Block Comment (Ctrl+Shift+A), and Ctrl+/ in a language without `lineComment`; two tokens without spaces |
 | `outline` | the language the syntactic outline speaks |
 | `server` | the `id` of the server in `servers[]`; `null` turns the language server off for this language |
 
