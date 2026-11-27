@@ -20,6 +20,7 @@
 //!   [`integration`]); an integration is recorded by [`ProjectStore::record_integration`], never
 //!   by an [`Op`] (the interface cannot claim one).
 
+pub mod autonomy;
 pub mod backlog;
 pub mod branches;
 pub mod breakpoints;
@@ -1271,17 +1272,13 @@ impl ProjectStore {
 
     /// Appends one row to the audit log (the caller masks secrets first).
     pub fn record_audit(&mut self, root: &str, e: &AuditEntry) -> Result<(), ProjectError> {
-        self.conn.execute(
-            "INSERT INTO audit (root, at, session, event, origin, issue_key, actor, mode, tool, call, path, lines, command,
-                                verdict, outcome, decided_by, decided_at, reason, model, tokens_in, tokens_out, driver, cost_usd)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
-            params![
-                root, e.at, e.session, e.event, e.origin, e.issue_key, e.actor, e.mode, e.tool, e.call, e.path,
-                e.lines, e.command, e.verdict, e.outcome, e.decided_by, e.decided_at, e.reason, e.model,
-                e.tokens_in, e.tokens_out, e.driver, e.cost_usd
-            ],
-        )?;
-        Ok(())
+        audit_insert(&self.conn, root, e).map(|_| ())
+    }
+
+    /// [`Self::record_audit`], returning the row's id (Multi Co-Dev phase 5: the autonomy's log
+    /// links each of its steps to the audit rows it wrote).
+    pub fn record_audit_id(&mut self, root: &str, e: &AuditEntry) -> Result<i64, ProjectError> {
+        audit_insert(&self.conn, root, e)
     }
 
     /// Records one test run on a commit (r23 F3, UI-SCM-09).
@@ -1497,6 +1494,25 @@ impl ProjectStore {
         Self::ensure(&self.conn, root, now)?;
         reports::compute(&self.conn, root, now)
     }
+}
+
+/// One row of the audit log; returns its id.
+pub(crate) fn audit_insert(
+    c: &Connection,
+    root: &str,
+    e: &AuditEntry,
+) -> Result<i64, ProjectError> {
+    c.execute(
+        "INSERT INTO audit (root, at, session, event, origin, issue_key, actor, mode, tool, call, path, lines, command,
+                            verdict, outcome, decided_by, decided_at, reason, model, tokens_in, tokens_out, driver, cost_usd)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
+        params![
+            root, e.at, e.session, e.event, e.origin, e.issue_key, e.actor, e.mode, e.tool, e.call, e.path,
+            e.lines, e.command, e.verdict, e.outcome, e.decided_by, e.decided_at, e.reason, e.model,
+            e.tokens_in, e.tokens_out, e.driver, e.cost_usd
+        ],
+    )?;
+    Ok(c.last_insert_rowid())
 }
 
 #[allow(clippy::too_many_arguments)]

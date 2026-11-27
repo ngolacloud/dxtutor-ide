@@ -19,6 +19,8 @@ mod bridge;
 pub mod codeintel;
 pub mod codev;
 pub mod codev_agent;
+mod codev_autonomy;
+mod codev_pr;
 mod codev_review;
 mod codev_worktree;
 mod commands;
@@ -76,6 +78,10 @@ use commands::codev_agent::{
     codev_agent_permissions, codev_agent_review, codev_agent_rewind, codev_agent_save_permissions,
     codev_agent_send, codev_agent_sessions, codev_agent_set_mode, codev_agent_set_plan,
     codev_agent_start, codev_agent_trust,
+};
+use commands::codev_autonomy::{
+    codev_autonomy_grant, codev_autonomy_pause, codev_autonomy_revoke, codev_autonomy_state,
+    codev_pr_open, codev_pr_state,
 };
 use commands::codev_review::{
     codev_review_cancel, codev_review_integrate, codev_review_request, codev_review_state,
@@ -891,6 +897,20 @@ fn enable_media(app: &tauri::App) {
     }
 }
 
+/// Gives the memory freed since the last call back to the system, a few seconds from now (after the answer that
+/// held it was serialized and sent). glibc keeps what a thread frees in that thread's arena; measured 2026-11-27:
+/// opening this repository (1113 files, 16 MB) left the app ~27 MB bigger for good.
+pub fn trim_soon() {
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        // SAFETY: malloc_trim only releases free memory held by the allocator
+        unsafe {
+            libc::malloc_trim(0);
+        }
+    });
+}
+
 pub fn run() {
     // Default the desktop to running student/user code inside Delonix containers
     // (real isolation + package caches). The user can switch at runtime via
@@ -920,6 +940,10 @@ pub fn run() {
             lsp::init(_app.handle());
             // Learn P3b: practice clusters idle for 20 min (or left by an earlier run) are deleted
             study::start_cluster_reaper();
+            // Multi Co-Dev, phase 5: what the backend needs to act on what a human delegated
+            if let Err(e) = commands::codev_autonomy::install(_app.handle()) {
+                eprintln!("autonomy: not installed ({e})");
+            }
             // r23 F4a (X02): each request that lost secrets is shown (and audited) by the UI
             let handle = _app.handle().clone();
             tutor_protect::redact::on_redact(move |origin, count| {
@@ -1076,6 +1100,13 @@ pub fn run() {
             codev_review_request,
             codev_review_cancel,
             codev_review_integrate,
+            // Multi Co-Dev, fase 5 — a autonomia delegada e os pull requests (commands/codev_autonomy.rs)
+            codev_autonomy_state,
+            codev_autonomy_grant,
+            codev_autonomy_revoke,
+            codev_autonomy_pause,
+            codev_pr_state,
+            codev_pr_open,
             dictation_status,
             dictation_start,
             dictation_stop,

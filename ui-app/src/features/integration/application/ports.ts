@@ -6,6 +6,8 @@
 
 import type { Check, Integrated, ReviewEvent, ReviewState } from "../domain/types";
 import type { IntegrationKey } from "./messages";
+import type { Action, AutonomyNotice, Delegation, Opened, Overview, PrState, Switch } from "../domain/autonomy";
+import type { AutonomyKey } from "./autonomy-messages";
 
 export interface ReviewGateway {
   state(root: string, key: string): Promise<ReviewState>;
@@ -45,4 +47,59 @@ export interface ReviewDeps {
   projectChanged(): void;
   notify(message: string): void;
   copy(key: IntegrationKey, params?: Record<string, string | number>): string;
+}
+
+/* ───── Multi Co-Dev, fase 5: a autonomia delegada e os pull requests ───── */
+
+/** O que um humano pede para delegar (o Rust valida, verifica o papel e audita). */
+export interface GrantInput {
+  scope: "issue" | "sprint";
+  target: string;
+  actions: Action[];
+  hours: number;
+  provider?: string;
+  model?: string;
+  language?: string;
+}
+
+export interface AutonomyGateway {
+  overview(root: string, key: string | null): Promise<Overview>;
+  grant(root: string, g: GrantInput): Promise<Delegation>;
+  revoke(root: string, id: number): Promise<Delegation>;
+  pause(root: string, paused: boolean, reason: string): Promise<Switch>;
+  prState(root: string, key: string): Promise<PrState>;
+  prOpen(root: string, key: string, command: string, decidedAt: number): Promise<Opened>;
+  /** As linhas do registo de auditoria de uma issue (para mostrar as que um passo escreveu). */
+  auditRows(root: string, key: string): Promise<AuditRow[]>;
+  /** Os passos da autonomia; devolve como deixar de ouvir. */
+  onNotice(f: (n: AutonomyNotice) => void): Promise<() => void>;
+}
+
+/** Uma linha do registo de auditoria, como o painel a mostra. */
+export interface AuditRow {
+  id: number;
+  at: number;
+  call: string;
+  outcome: string;
+  decidedBy: string;
+  command: string;
+  reason: string;
+}
+
+export interface AutonomyDeps {
+  gateway: AutonomyGateway;
+  root(): string | null;
+  approve(req: ReviewApproval & { list?: { heading: string; items: string[]; note?: string } }): Promise<{ approved: boolean; reason: string; decidedAt: number }>;
+  audit: ReviewDeps["audit"];
+  /** Um pull request que o secret scan bloqueou pede um motivo ao humano (`services.protect.guard`). */
+  guard<T>(f: () => Promise<T>): Promise<T>;
+  /** O provedor e o modelo do Co-Dev e a língua: o revisor de uma revisão autónoma. */
+  reviewer(): { provider?: string; model?: string; language?: string };
+  /** O painel de revisão relê a porta da issue (a autonomia mexeu nela). */
+  reviewChanged(key: string): void;
+  /** Fecha a sessão Co-Dev aberta da issue integrada (fase 3). */
+  closeSession(session: string): boolean;
+  projectChanged(): void;
+  notify(message: string): void;
+  copy(key: AutonomyKey, params?: Record<string, string | number>): string;
 }

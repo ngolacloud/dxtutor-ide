@@ -775,14 +775,28 @@ fn session_notify(
     write_msg(si, &msg).map_err(|e| e.to_string())
 }
 
-/// Quanto esperar que outra thread acabe o `initialize` de uma sessão que já está no mapa.
-const INIT_BUDGET: Duration = Duration::from_secs(60);
+/// Quanto tempo um servidor tem para responder ao `initialize`, a contar do arranque. Uma JVM sob carga é lenta
+/// (medido a 2026-11-26, carga ~40: o jdtls levou 27 s até à primeira linha do registo e mais 12 s a responder — os
+/// 30 s de então passaram, o `initialized` nunca foi enviado e o projecto nunca se importou). Um servidor que morre
+/// falha logo (o leitor larga o pedido pendente): este tecto só limita um servidor vivo que nunca responde.
+const INIT_BUDGET: Duration = Duration::from_secs(180);
 
-/// Espera (limitada) que a sessão tenha feito o `initialize`/`initialized` (ver `Session::initialized`).
-fn wait_initialized(session: &Arc<Mutex<Session>>, budget: Duration) {
+/// Espera (limitada) que a sessão acabe o `initialize`/`initialized` (ver `Session::initialized`), mais uma margem
+/// para quem chegou depois de quem a arrancou. Uma sessão que falhou, foi parada ou ainda não acabou é um erro —
+/// nunca se usa a meio: um `didOpen` antes do `initialized` deixou o jdtls sem projecto (sem diagnósticos).
+fn wait_initialized(session: &Arc<Mutex<Session>>, budget: Duration) -> Result<(), String> {
     let start = Instant::now();
+    let budget = budget + Duration::from_secs(10);
     while !session.lock().map(|g| g.initialized).unwrap_or(true) && start.elapsed() < budget {
         thread::sleep(Duration::from_millis(50));
+    }
+    let g = session.lock().map_err(|_| "lsp lock")?;
+    if g.initialized && g.handshaken && !g.stopping {
+        Ok(())
+    } else if g.initialized {
+        Err(format!("{} did not start", g.label))
+    } else {
+        Err(format!("{} is still starting", g.label))
     }
 }
 
@@ -952,7 +966,7 @@ fn get_or_start(
             if same {
                 drop(m);
                 drop(starting);
-                wait_initialized(&s, INIT_BUDGET);
+                wait_initialized(&s, INIT_BUDGET)?;
                 // the same start-up, maybe newer settings (an approval, or a reload not seen yet)
                 sync_settings(&s, &lang.server.settings);
                 return Ok(s);
@@ -1029,7 +1043,7 @@ fn get_or_start(
             let ours = session.clone();
             thread::spawn(move || lifecycle::shutdown(&ours, Reason::Replaced));
             drop(starting);
-            wait_initialized(&existing, INIT_BUDGET);
+            wait_initialized(&existing, INIT_BUDGET)?;
             return Ok(existing);
         }
         m.insert(key.to_string(), session.clone());

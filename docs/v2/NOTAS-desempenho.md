@@ -86,7 +86,26 @@ O `lsp-java`/`lsp-kotlin` passaram a falhar sem diagnósticos. Antes registavam 
 ficou 17 min no `lsp-java` (o jdtls parado, sem CPU, e as respostas a chegar no passo do Kotlin) sem nenhum `FAIL`.
 Intermitente (a repetição passou, com e sem a P2, e na `develop`); a causa está por encontrar no LSP.
 
-## Por medir
+## A memória da app ao abrir uma pasta, e o jdtls parado (2026-11-27)
 
-- A app cresce ~40 MB privados ao abrir este repositório (não é o `load_workspace`: a pasta de 150 MB só junta ~9 MB).
-- O bloqueio intermitente do jdtls acima.
+**A app crescia ~40 MB ao abrir este repositório, e ficava assim.** Linha temporal da memória privada de 0,5 em 0,5 s: o
+salto (120 → 150 MB) é o `load_workspace` (1113 `String`, 16 MB, e o JSON da resposta), antes do scan do Problems. É
+memória já libertada que o glibc guarda na arena de cada thread (a P1 pôs o trabalho em threads do `spawn_blocking`):
+
+| App, 45 s depois de abrir o repositório | Memória privada |
+|---|---|
+| Por omissão | 152 MB |
+| `MALLOC_ARENA_MAX=2` / `=1` | 140 / 125 MB |
+| **`malloc_trim(0)` 3 s depois do `load_workspace`** (`crate::trim_soon`) | **108–110 MB** |
+
+O trim é dirigido (não muda a disputa entre threads pelo `malloc`, como limitar as arenas) e devolve mais.
+
+**O jdtls parado** (o `lsp-java` de 2026-11-26): o registo do próprio jdtls mostra que o `initialized` nunca chegou. A
+JVM, com a máquina em carga ~40, levou 27 s até à primeira linha e mais 12 s a responder ao `initialize`; o cliente
+desistiu aos 30 s (60 s desde a LSP P6), não mandou o `initialized`, e os pedidos que esperavam pela sessão usaram-na
+assim mesmo — o `didOpen` chegou a um servidor sem projecto: sem diagnósticos, hover nem completion. Correcção
+(`lsp.rs`): o `initialize` tem 180 s (um servidor que morre falha logo: o leitor larga o pedido pendente) e quem espera
+recebe um erro, nunca uma sessão a meio do handshake. Prova na app real, com um `jdtls` que espera 70 s antes de
+arrancar o verdadeiro: na `develop` (`23d016f`) «no diagnostics … in 180 s»; com a correcção, diagnósticos aos 92 s e
+o resto do passo verde. Testes: `lsp::lifecycle::tests::a_server_that_dies_while_starting_…` (falhava antes) e
+`…a_slow_server_is_handed_out_only_after_its_handshake`.

@@ -104,7 +104,11 @@ pub async fn codev_worktree_commit(
     message: String,
 ) -> Result<String, String> {
     let (db, base) = (db(&app)?, base(&app)?);
-    blocking(move || uc::commit(&db, &base, root.trim(), key.trim(), &message)).await
+    let (r, k) = (root.trim().to_string(), key.trim().to_string());
+    let sha = blocking(move || uc::commit(&db, &base, root.trim(), key.trim(), &message)).await?;
+    // Multi Co-Dev, phase 5: the autonomy that stopped only for uncommitted work asks again (once)
+    crate::codev_autonomy::committed(&r, &k);
+    Ok(sha)
 }
 
 /// As reservas de ficheiros do projecto (as abandonadas saem). SÓ LEITURA para a interface.

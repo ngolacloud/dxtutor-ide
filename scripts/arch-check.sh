@@ -41,7 +41,7 @@ strip_comments() {
 }
 
 # Baseline esperada (Etapa 0 — MIGRATION §2/§3). Actualizar DELIBERADAMENTE.
-EXPECT_TOTAL=345
+EXPECT_TOTAL=351
 # @ts-nocheck: contamos a DIRECTIVA real (linha-comentário `// @ts-nocheck`), não
 # a palavra por substring (A6 antigo contava 24 com `grep -rl`, inflado por 13
 # ficheiros que só a mencionam em prosa/JSDoc). Baseline = 0 desde a U4j5b do ADR-0004
@@ -162,9 +162,11 @@ EXPECT_TSNOCHECK=0
 # Multi Co-Dev fase 4 (o revisor Co-Dev assistido e a porta de integração): commands/codev_review.rs (novo) com
 # codev_review_state, codev_review_request, codev_review_cancel e codev_review_integrate: 337 + 4 = 341.
 # H2 (workspace com projectos): commands/search.rs ganha workspace_projects (4→5): 341 + 1 = 342.
+# Multi Co-Dev fase 5 (autonomia delegada e pull requests): commands/codev_autonomy.rs (novo) com
+# codev_autonomy_state/grant/revoke/pause e codev_pr_state/open: 342 + 6 = 348.
 # Learn P3b (o cluster de prática kind dos cursos de Kubernetes): commands/study.rs ganha learn_cluster_status,
-# learn_cluster_start e learn_cluster_delete (13→16): 342 + 3 = 345.
-declare -A EXPECT_PER_FILE=( [lib.rs]=0 [commands/review.rs]=3 [commands/codeintel.rs]=10 [commands/tests.rs]=8 [commands/git.rs]=41 [commands/codev.rs]=5 [commands/codev_agent.rs]=18 [commands/codev_worktree.rs]=7 [commands/codev_review.rs]=4 [commands/dictation.rs]=4 [commands/search.rs]=5 [commands/agent.rs]=16 [commands/assistant.rs]=8 [commands/debug_cmds.rs]=34 [commands/hood.rs]=3 [commands/ops.rs]=6 [commands/codebase.rs]=2 [commands/devcontainer.rs]=8 [commands/sandbox.rs]=3 [commands/scaffold.rs]=3 [commands/pair.rs]=4 [commands/plugins.rs]=3 [commands/study.rs]=16 [commands/missions.rs]=4 [bridge.rs]=16 [fsops.rs]=10 [lsp.rs]=29 [pty.rs]=7 [commands/panel.rs]=2 [commands/protect.rs]=5 [commands/iac.rs]=3 [commands/vault.rs]=10 [commands/deploy.rs]=2 [commands/runbook.rs]=5 [commands/platform.rs]=11 [commands/metrics.rs]=4 [commands/lsp_install.rs]=2 [board.rs]=24 )
+# learn_cluster_start e learn_cluster_delete (13→16): 348 + 3 = 351.
+declare -A EXPECT_PER_FILE=( [lib.rs]=0 [commands/review.rs]=3 [commands/codeintel.rs]=10 [commands/tests.rs]=8 [commands/git.rs]=41 [commands/codev.rs]=5 [commands/codev_agent.rs]=18 [commands/codev_worktree.rs]=7 [commands/codev_review.rs]=4 [commands/codev_autonomy.rs]=6 [commands/dictation.rs]=4 [commands/search.rs]=5 [commands/agent.rs]=16 [commands/assistant.rs]=8 [commands/debug_cmds.rs]=34 [commands/hood.rs]=3 [commands/ops.rs]=6 [commands/codebase.rs]=2 [commands/devcontainer.rs]=8 [commands/sandbox.rs]=3 [commands/scaffold.rs]=3 [commands/pair.rs]=4 [commands/plugins.rs]=3 [commands/study.rs]=16 [commands/missions.rs]=4 [bridge.rs]=16 [fsops.rs]=10 [lsp.rs]=29 [pty.rs]=7 [commands/panel.rs]=2 [commands/protect.rs]=5 [commands/iac.rs]=3 [commands/vault.rs]=10 [commands/deploy.rs]=2 [commands/runbook.rs]=5 [commands/platform.rs]=11 [commands/metrics.rs]=4 [commands/lsp_install.rs]=2 [board.rs]=24 )
 
 echo "== A1 · comandos registados em generate_handler! =="
 # Extrai o bloco generate_handler!, remove comentários //, apanha os identificadores
@@ -183,7 +185,7 @@ fi
 
 echo "== A2 · #[tauri::command] por ficheiro =="
 sum=0
-for f in lib.rs commands/review.rs commands/codeintel.rs commands/tests.rs commands/git.rs commands/codev.rs commands/codev_agent.rs commands/codev_worktree.rs commands/codev_review.rs commands/dictation.rs commands/search.rs commands/agent.rs commands/assistant.rs commands/debug_cmds.rs commands/hood.rs commands/ops.rs commands/codebase.rs commands/devcontainer.rs commands/sandbox.rs commands/scaffold.rs commands/pair.rs commands/plugins.rs commands/study.rs commands/missions.rs bridge.rs fsops.rs lsp.rs pty.rs commands/panel.rs commands/protect.rs commands/iac.rs commands/vault.rs commands/deploy.rs commands/runbook.rs commands/platform.rs commands/metrics.rs commands/lsp_install.rs board.rs; do
+for f in lib.rs commands/review.rs commands/codeintel.rs commands/tests.rs commands/git.rs commands/codev.rs commands/codev_agent.rs commands/codev_worktree.rs commands/codev_review.rs commands/codev_autonomy.rs commands/dictation.rs commands/search.rs commands/agent.rs commands/assistant.rs commands/debug_cmds.rs commands/hood.rs commands/ops.rs commands/codebase.rs commands/devcontainer.rs commands/sandbox.rs commands/scaffold.rs commands/pair.rs commands/plugins.rs commands/study.rs commands/missions.rs bridge.rs fsops.rs lsp.rs pty.rs commands/panel.rs commands/protect.rs commands/iac.rs commands/vault.rs commands/deploy.rs commands/runbook.rs commands/platform.rs commands/metrics.rs commands/lsp_install.rs board.rs; do
   # `grep -c` imprime 0 E sai com status 1 quando não há matches (ex. lib.rs após o 13º
   # grupo sair), por isso NÃO encadeamos `|| echo 0` (duplicaria para "0\n0" e partia a
   # aritmética); normalizamos o vazio para 0 à parte.

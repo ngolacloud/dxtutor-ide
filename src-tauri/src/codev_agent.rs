@@ -2361,6 +2361,11 @@ fn settle_flow(s: &Session, emit: &dyn Fn(AgentEvent)) {
                 text: format!("{k}: critérios respondidos — {place} (sem testes detectados no projecto); o Done é teu."),
             });
         }
+        // Multi Co-Dev, phase 5: with `review` delegated, the backend requests the review of the
+        // issue now in Review (nothing happens without a delegation)
+        if held.is_none() && s.change_log.is_some() {
+            crate::codev_autonomy::session_finished(&root, k);
+        }
     }
     let suggestions = std::mem::take(&mut *s.flow.suggestions.lock().unwrap());
     let n = suggestions.len();

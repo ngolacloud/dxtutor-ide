@@ -1411,6 +1411,84 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
         await sh("git", ["-C", dir, "worktree", "remove", "--force", "--", w.dir], { cwd: dir }).catch(() => undefined);
       }
     });
+    // Multi Co-Dev, fase 5: a autonomia delegada contra o git real e um remoto local (bare), sem modelo e sem o GitHub
+    // — delegar (o papel e os limites no Rust, auditado), pausar, o gatilho da aprovação funcional que o backend segue
+    // sozinho (parado pela pausa; depois pela porta, que sem veredicto do revisor não abre), o pull request recusado no
+    // Rust antes de enviar seja o que for (o remoto fica sem o ramo, e o `gh` falso do runner — `DXTUTOR_GH` — nunca é
+    // chamado), revogar e retomar.
+    await step("autonomy", async () => {
+      const raw = window.__TAURI__!.core.invoke as (c: string, a?: Record<string, unknown>) => Promise<unknown>;
+      const inv = (c: string, a?: Record<string, unknown>) => raw(c, a).catch((e) => { throw new Error(`${c}: ${String((e as { message?: string })?.message ?? e)}`); });
+      const root = R.root as string, dir = root.replace(/\/$/, "");
+      type Ev = { action: string; trigger: string; outcome: string; code: string; audit: number[] };
+      type Ov = { switch: { paused: boolean }; delegations: Array<{ id: number; actions: string[]; revokedAt: number | null }>; events: Ev[]; mode: string | null };
+      const pc = projectClient(inv as <T>(c: string, a?: Record<string, unknown>) => Promise<T>);
+      const p = (await pc.apply(root, { op: "create_issue", title: "Selftest autonomy" })) as { issues: Array<{ key: string; title: string }> };
+      const key = p.issues.filter((i) => i.title === "Selftest autonomy").slice(-1)[0].key;
+      await pc.apply(root, { op: "set_acceptance", key, items: [{ text: "Given the selftest When it runs Then SELFTEST-AU.txt exists", done: false }] });
+      const savedChecks = await inv("project_checks", { root });
+      const plan = await inv("codev_worktree_plan", { root, key }) as { command: string };
+      const w = await inv("codev_worktree_create", { root, key, command: plan.command, decidedAt: 1 }) as { dir: string; branch: string };
+      const remoteDir = (await sh("mktemp", ["-d"], { cwd: R.info.home })).stdout.trim() + "/remote.git";
+      const ghBin = (await sh("printenv", ["DXTUTOR_GH"]).catch(() => ({ stdout: "" })) as { stdout: string }).stdout.trim();
+      const ghCalls = ghBin ? ghBin.replace(/\/[^/]+$/, "/calls") : "";
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+      const overview = () => inv("codev_autonomy_state", { root, key }) as Promise<Ov>;
+      const nextEvent = async (n: number): Promise<Ev | null> => {
+        for (let i = 0; i < 80; i++) { const o = await overview(); if (o.events.length > n) return o.events[0]; await wait(250); }
+        return null;
+      };
+      const state = () => inv("codev_review_state", { root, key }) as Promise<{ running: boolean; request: string | null }>;
+      try {
+        await sh("git", ["init", "-q", "--bare", remoteDir], { cwd: R.info.home });
+        await sh("git", ["-C", dir, "remote", "add", "selftest-pr", remoteDir], { cwd: dir });
+        await sh("sh", ["-c", `printf 'selftest\n' > "${w.dir}/SELFTEST-AU.txt"`], { cwd: dir });
+        await inv("codev_worktree_commit", { root, key, message: `${key}: selftest autonomy` });
+        await pc.apply(root, { op: "settings", checks: [{ name: "selftest", command: "test -f SELFTEST-AU.txt" }] });
+        // the rules of a grant are Rust's: never integrate and pr together, never longer than 7 days
+        const both = await inv("codev_autonomy_grant", { root, grant: { scope: "issue", target: key, actions: ["integrate", "pr"], hours: 1 } }).then(() => "accepted", () => "refused");
+        const long = await inv("codev_autonomy_grant", { root, grant: { scope: "issue", target: key, actions: ["pr"], hours: 500 } }).then(() => "accepted", () => "refused");
+        const d = await inv("codev_autonomy_grant", { root, grant: { scope: "issue", target: key, actions: ["review", "pr"], hours: 1, provider: "selftest-none", language: "en" } }) as { id: number; actions: string[] };
+        const granted = await overview();
+        // a review by hand, without a model: no verdict (as the «integration» step)
+        const s = await state();
+        await inv("codev_review_request", { root, key, command: s.request, decidedAt: 1, provider: "selftest-none", model: null, language: "en" });
+        for (let i = 0; i < 240 && (await state()).running; i++) await wait(250);
+        // paused: the functional approval's trigger is followed by the backend, and stops at the switch
+        await inv("codev_autonomy_pause", { root, paused: true, reason: "selftest" });
+        const n0 = (await overview()).events.length;
+        await pc.apply(root, { op: "approve_functional", key, note: "selftest" });
+        const paused = await nextEvent(n0);
+        // resumed: the same trigger stops at the gate (the reviewer gave no verdict)
+        await inv("codev_autonomy_pause", { root, paused: false, reason: null });
+        const n1 = (await overview()).events.length;
+        await pc.apply(root, { op: "revoke_functional", key, reason: "selftest again" });
+        await pc.apply(root, { op: "approve_functional", key, note: "selftest" });
+        const gated = await nextEvent(n1);
+        const pr = await inv("codev_pr_state", { root, key }) as { plan: string | null; blocked: string | null; gh: unknown };
+        const forced = await inv("codev_pr_open", { root, key, command: `git -C ${dir} push --force selftest-pr ${w.branch}`, decidedAt: 1 }).then(() => "opened", (e) => String(e));
+        const onRemote = (await sh("git", ["--git-dir", remoteDir, "for-each-ref", "--format=%(refname)"], { cwd: R.info.home })).stdout.trim();
+        const ghCalled = ghCalls ? (await sh("sh", ["-c", `[ -e "${ghCalls}" ] && echo yes || echo no`], { cwd: R.info.home })).stdout.trim() : "no DXTUTOR_GH";
+        await inv("codev_autonomy_revoke", { root, id: d.id, reason: "selftest done" });
+        const after = await overview();
+        const calls = ((await projectClient().audit(root, null)) as Array<{ tool: string | null; call: string | null }>).filter((r) => r.tool === "codev").map((r) => r.call ?? "");
+        return {
+          both, long, actions: d.actions.join(","), listed: granted.delegations.some((x) => x.id === d.id), mode: granted.mode,
+          paused: paused ? `${paused.trigger}:${paused.outcome}:${paused.code}` : "no event",
+          gated: gated ? `${gated.trigger}:${gated.outcome}:${gated.code}` : "no event",
+          prBlocked: pr.plan === null && (pr.blocked ?? "").includes("the gate does not hold"), ghAskedForPr: pr.gh !== null,
+          prRefusedInRust: forced.includes("the gate does not hold"), remoteEmpty: onRemote === "", ghCalled,
+          revoked: after.delegations.every((x) => x.id !== d.id || x.revokedAt !== null), resumed: after.switch.paused === false,
+          audited: ["autonomy.grant", "autonomy.pause", "autonomy.resume", "autonomy.revoke"].every((c) => calls.includes(c)),
+        };
+      } finally {
+        await inv("codev_autonomy_pause", { root, paused: false, reason: null }).catch(() => undefined);
+        await pc.apply(root, { op: "settings", checks: Array.isArray(savedChecks) ? savedChecks : [] }).catch(() => undefined);
+        await sh("git", ["-C", dir, "remote", "remove", "selftest-pr"], { cwd: dir }).catch(() => undefined);
+        await sh("rm", ["-rf", remoteDir.replace(/\/remote\.git$/, "")], { cwd: R.info.home }).catch(() => undefined);
+        await sh("git", ["-C", dir, "worktree", "remove", "--force", "--", w.dir], { cwd: dir }).catch(() => undefined);
+      }
+    });
     // A10: as lacunas aprovadas, contra o repositório temporário e esta máquina — o mapa de onboarding,
     // o diff de um ramo contra outro (git_diff_range), o relatório de dependências (sem rede), e onde
     // anexar o depurador (os processos locais e o adaptador; a lista de contentores, só de leitura).

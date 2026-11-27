@@ -6,7 +6,7 @@ use std::collections::VecDeque;
 use std::process::Command;
 use tutor_agent::{ProviderError, Request, Response, StopReason, StreamEvent, Usage};
 
-fn g(d: &Path, a: &[&str]) -> String {
+pub(crate) fn g(d: &Path, a: &[&str]) -> String {
     let o = Command::new("git")
         .arg("-C")
         .arg(d)
@@ -23,9 +23,9 @@ fn g(d: &Path, a: &[&str]) -> String {
 
 /* ───── a model that follows a script ───── */
 
-struct Scripted {
-    replies: Mutex<VecDeque<Response>>,
-    seen: Mutex<Vec<Request>>,
+pub(crate) struct Scripted {
+    pub(crate) replies: Mutex<VecDeque<Response>>,
+    pub(crate) seen: Mutex<Vec<Request>>,
 }
 
 impl Provider for Scripted {
@@ -44,7 +44,7 @@ impl Provider for Scripted {
     }
 }
 
-fn reply(stop: StopReason, content: Vec<Value>) -> Response {
+pub(crate) fn reply(stop: StopReason, content: Vec<Value>) -> Response {
     Response {
         id: "m".into(),
         model: "fake-model".into(),
@@ -60,44 +60,44 @@ fn reply(stop: StopReason, content: Vec<Value>) -> Response {
     }
 }
 
-fn say(text: &str) -> Response {
+pub(crate) fn say(text: &str) -> Response {
     reply(
         StopReason::EndTurn,
         vec![json!({"type": "text", "text": text})],
     )
 }
 
-fn verdict_call(id: &str, input: Value) -> Response {
+pub(crate) fn verdict_call(id: &str, input: Value) -> Response {
     reply(
         StopReason::ToolUse,
         vec![json!({"type": "tool_use", "id": id, "name": "review_verdict", "input": input})],
     )
 }
 
-fn tool_call(id: &str, name: &str, input: Value) -> Response {
+pub(crate) fn tool_call(id: &str, name: &str, input: Value) -> Response {
     reply(
         StopReason::ToolUse,
         vec![json!({"type": "tool_use", "id": id, "name": name, "input": input})],
     )
 }
 
-fn scripted(replies: Vec<Response>) -> Arc<Scripted> {
+pub(crate) fn scripted(replies: Vec<Response>) -> Arc<Scripted> {
     Arc::new(Scripted {
         replies: Mutex::new(replies.into()),
         seen: Mutex::new(vec![]),
     })
 }
 
-fn reviewer(p: Arc<Scripted>) -> MakeReviewer {
+pub(crate) fn reviewer(p: Arc<Scripted>) -> MakeReviewer {
     Box::new(move || Ok((p as Arc<dyn Provider>, "fake-model".to_string())))
 }
 
 /// A reviewer that must never be asked (the checks failed, or there was a conflict).
-fn never() -> MakeReviewer {
+pub(crate) fn never() -> MakeReviewer {
     Box::new(|| panic!("the reviewer must not run"))
 }
 
-fn all_met() -> Value {
+pub(crate) fn all_met() -> Value {
     json!({
         "overall": "met",
         "summary": "Paying works and is tested.",
@@ -110,27 +110,27 @@ fn all_met() -> Value {
 
 /* ───── the world: a repository, a project, an issue on a branch ───── */
 
-const CRITERIA: [&str; 2] = [
+pub(crate) const CRITERIA: [&str; 2] = [
     "Dado um carrinho, quando pago, então fica pago",
     "Dado um pagamento, quando corre o teste, então passa",
 ];
 
-struct World {
-    repo: tempfile::TempDir,
-    _data: tempfile::TempDir,
-    db: PathBuf,
-    ibase: PathBuf,
-    wbase: PathBuf,
-    root: String,
-    key: String,
-    branch: String,
+pub(crate) struct World {
+    pub(crate) repo: tempfile::TempDir,
+    pub(crate) _data: tempfile::TempDir,
+    pub(crate) db: PathBuf,
+    pub(crate) ibase: PathBuf,
+    pub(crate) wbase: PathBuf,
+    pub(crate) root: String,
+    pub(crate) key: String,
+    pub(crate) branch: String,
 }
 
 impl World {
     /// `main` with `src/cart.rs`; the issue (two criteria, Ready, in Review) works in its Co-Dev
     /// worktree and commits `src/pay.rs` (with a test named `pays`) on its branch. The mandatory
     /// check: `tests: test -f src/pay.rs`.
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let repo = tempfile::tempdir().unwrap();
         let p = repo.path();
         g(p, &["init", "-q", "-b", "main"]);
@@ -209,16 +209,16 @@ impl World {
         }
     }
 
-    fn p(&self) -> &Path {
+    pub(crate) fn p(&self) -> &Path {
         self.repo.path()
     }
 
-    fn state(&self) -> ReviewState {
+    pub(crate) fn state(&self) -> ReviewState {
         state(&self.db, &self.ibase, &self.wbase, &self.root, &self.key).unwrap()
     }
 
     /// «Request review» with the command the panel shows, run to the end.
-    fn review(&self, rv: MakeReviewer) -> Review {
+    pub(crate) fn review(&self, rv: MakeReviewer) -> Review {
         let cmd = self.state().request.expect("a review can be requested");
         let s = request(
             &self.db,
@@ -238,7 +238,7 @@ impl World {
         self.state().review.unwrap()
     }
 
-    fn approve(&self) {
+    pub(crate) fn approve(&self) {
         let mut st = ProjectStore::open(&self.db).unwrap();
         st.apply(
             &self.root,
@@ -252,7 +252,7 @@ impl World {
         .unwrap();
     }
 
-    fn integrate(&self, command: &str) -> Result<Integrated, String> {
+    pub(crate) fn integrate(&self, command: &str) -> Result<Integrated, String> {
         integrate(
             &self.db,
             &self.wbase,
@@ -264,20 +264,20 @@ impl World {
     }
 
     /// One more commit on the issue's branch (in its worktree).
-    fn branch_moves(&self) {
+    pub(crate) fn branch_moves(&self) {
         let w = wt::find(self.p(), &self.wbase, &self.key).unwrap().unwrap();
         std::fs::write(Path::new(&w.dir).join("src/more.rs"), "\n").unwrap();
         wt::commit(self.p(), &self.wbase, &self.key, "more").unwrap();
     }
 
     /// One more commit on the default branch (in the project folder).
-    fn main_moves(&self) {
+    pub(crate) fn main_moves(&self) {
         std::fs::write(self.p().join("NEWS"), "x\n").unwrap();
         g(self.p(), &["add", "NEWS"]);
         g(self.p(), &["commit", "-q", "-m", "news"]);
     }
 
-    fn audit(&self) -> Vec<(String, String)> {
+    pub(crate) fn audit(&self) -> Vec<(String, String)> {
         let st = ProjectStore::open(&self.db).unwrap();
         let mut q = st
             .conn()
@@ -291,7 +291,7 @@ impl World {
             .collect()
     }
 
-    fn issue_state(&self) -> String {
+    pub(crate) fn issue_state(&self) -> String {
         let st = ProjectStore::open(&self.db).unwrap();
         let p = st.load(&self.root, 10).unwrap();
         p.issues

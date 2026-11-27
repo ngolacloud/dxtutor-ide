@@ -7,7 +7,7 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 ## Índice
 
 - [Co-Dev: o assistente escreve no editor e mostra quem está a trabalhar](#co-dev-o-assistente-escreve-no-editor-e-mostra-quem-esta-a-trabalhar) — 5 acções
-- [Rever e integrar (a porta de integração do Multi Co-Dev)](#rever-e-integrar-a-porta-de-integracao-do-multi-co-dev) — 3 acções
+- [Rever e integrar (a porta de integração do Multi Co-Dev)](#rever-e-integrar-a-porta-de-integracao-do-multi-co-dev) — 6 acções
 - [Explain · Code review · Under the hood](#explain-code-review-under-the-hood) — 9 acções
 - [Quadro (backlog, sprints e kanban)](#quadro-backlog-sprints-e-kanban) — 2 acções
 - [Project](#project) — 11 acções
@@ -202,13 +202,16 @@ Quando já há um Co-Dev aberto, a issue seguinte trabalha numa worktree git pr�
 
 O trabalho de um Co-Dev só entra no ramo por omissão quando três condições valem ao mesmo tempo, para o código tal como está agora: as verificações obrigatórias do projecto passaram exactamente na árvore que ia entrar, o revisor Co-Dev confirmou cada critério de aceitação com evidência, e o responsável registou a aprovação funcional para os critérios actuais. O painel mostra as três com a sua evidência e só deixa integrar quando todas valem — e quem decide é o backend, outra vez, no momento do clique.
 
-<sub>Código: `ui-app/src/features/integration/`, `src-tauri/src/codev_review.rs`, `src-tauri/src/commands/codev_review.rs`, `crates/tutor-board/src/project/integration.rs`, `crates/tutor-eval/src/gitwork/integrate.rs` · revisto em 2026-11-27</sub>
+<sub>Código: `ui-app/src/features/integration/`, `src-tauri/src/codev_review.rs`, `src-tauri/src/commands/codev_review.rs`, `crates/tutor-board/src/project/integration.rs`, `crates/tutor-eval/src/gitwork/integrate.rs`, `src-tauri/src/codev_autonomy.rs`, `src-tauri/src/codev_pr.rs`, `src-tauri/src/commands/codev_autonomy.rs`, `crates/tutor-board/src/project/autonomy.rs`, `crates/tutor-eval/src/gitwork/publish.rs` · revisto em 2026-11-27</sub>
 
 | Acção | Onde |
 |---|---|
 | [Abrir o painel «Rever e integrar»](#abrir-o-painel-rever-e-integrar) | Faixa «Co-Devs» › botão ⇥ de uma issue com ramo · Project › painel da issue › secção «Integration» › «Review & integrate…» |
 | [Pedir revisão](#pedir-revisao) | Painel «Rever e integrar» › «Request review» |
 | [Integrar](#integrar) | Painel «Rever e integrar» › «Integrate» |
+| [Abrir um pull request (em vez do merge local)](#abrir-um-pull-request-em-vez-do-merge-local) | Painel «Rever e integrar» › secção «Autonomy and pull request» › «Open a pull request» |
+| [Delegar no Co-Dev (autonomia)](#delegar-no-co-dev-autonomia) | Painel «Rever e integrar» › secção «Autonomy and pull request» › «Delegations» › «Delegate» |
+| [Pausar a autonomia](#pausar-a-autonomia) | Painel «Rever e integrar» › secção «Autonomy and pull request» › «Pause autonomy» / «Resume autonomy» |
 
 ### Abrir o painel «Rever e integrar»
 
@@ -288,6 +291,79 @@ Avança o ramo por omissão para exactamente o commit revisto (fast-forward), s�
 - Se o ramo da issue, o ramo por omissão, as verificações ou os critérios mudarem depois da revisão, ela deixa de valer: pede outra. Uma aprovação funcional dada para outros critérios também não vale.
 
 <sub>Cobre: `integration:integrate`</sub>
+
+### Abrir um pull request (em vez do merge local)
+
+**Onde:** Painel «Rever e integrar» › secção «Autonomy and pull request» › «Open a pull request»
+
+Com a porta aberta (as três condições a valer para as pontas de agora), envia o ramo da issue para o remoto e abre um pull request no GitHub cujo texto leva a evidência da porta: cada verificação com o commit candidato, o veredicto do revisor critério a critério com a evidência, e quem deu a aprovação funcional e quando. O merge fica com o GitHub e os revisores de lá: o dxtutor não faz merge de pull requests.
+
+**Como usar**
+
+1. Abre o painel da issue; com os três ✓, a secção «Autonomy and pull request» mostra «Open a pull request» e o estado do `gh` (instalado, com sessão iniciada).
+2. Carrega no botão: o diálogo de aprovação mostra o push exacto (o remoto, o commit revisto e o ramo) e o `gh pr create` que se segue. Aprova.
+3. Se o secret scan encontrar algo no que o ramo traz, pede um motivo (fica registado) antes de enviar.
+4. Depois, o painel mostra o pull request aberto e o estado dele no GitHub (aberto, merged, revisão, verificações), só de leitura.
+
+**Fluxo (por dentro)**
+
+1. `codev_pr_state` (só leitura) pergunta a porta, o remoto (`git ls-remote`) e o `gh` (`gh --version`, `gh auth status`; com um pull request aberto, `gh pr view`).
+2. `codev_pr_open` pergunta a porta outra vez, confirma que o texto é o aprovado, confirma que o `gh` está instalado e com sessão ANTES de enviar nada, regista `review.pr` no registo de auditoria antes (sem auditoria não corre) e com o resultado, corre o secret scan e faz `git push --porcelain -- <remoto> <commit revisto>:refs/heads/<ramo da issue>`.
+3. Regras do push (no Rust, `tutor_eval::gitwork::publish`): nunca o ramo por omissão nem o ramo por omissão do remoto (nem `main`/`master`/`trunk`), nunca forçado (nada de `--force` nem `+`; um push que não seria fast-forward é recusado), nunca para um ramo remoto que o dxtutor não criou, e nunca pede credenciais (um remoto que precise de login falha e diz porquê).
+4. O texto do pull request (`tutor_board::project::autonomy::pr_body`) é mascarado antes de sair da máquina; o pull request fica na base do Project (`integration_prs`, migração 20) e na actividade da issue.
+
+**Limites**
+
+- Sem o `gh` instalado, ou sem sessão iniciada, o painel diz-o e nada é enviado: inicia tu a sessão (`gh auth login`); o dxtutor nunca o faz por ti.
+- Um pull request por revisão: para abrir outro, pede uma revisão nova.
+- A issue não anda no Project com o pull request: anda quando o trabalho for integrado.
+
+<sub>Cobre: `integration:pr-open`</sub>
+
+### Delegar no Co-Dev (autonomia)
+
+**Onde:** Painel «Rever e integrar» › secção «Autonomy and pull request» › «Delegations» › «Delegate»
+
+Deixa o Co-Dev fazer sozinho, numa issue ou em toda a sprint dela e por um tempo (no máximo 7 dias), uma ou mais destas acções: pedir a revisão quando a sessão Co-Dev acaba a issue; integrar localmente quando a porta está aberta; ou enviar o ramo e abrir um pull request quando a porta está aberta (estas duas excluem-se). A autonomia nunca salta a porta e nunca dá a aprovação funcional: essa é sempre de uma pessoa.
+
+**Como usar**
+
+1. Escolhe as acções, o âmbito (esta issue, ou a sprint dela) e a validade (8 h, 24 h, 3 dias ou 7 dias) e carrega em «Delegate».
+2. O diálogo de aprovação mostra o que fica delegado; aprova. A delegação aparece na lista, com quem a deu e quando expira.
+3. «Revoke» retira uma delegação já.
+4. Por baixo, «What the autonomy did» mostra cada passo — feito, ou parado e porquê — com as linhas do registo de auditoria que escreveu («audit #N» mostra a linha).
+
+**Fluxo (por dentro)**
+
+1. Quem pode delegar decide o backend (`roles::delegation_check`, com o `.dxtutor/team.json`): numa issue, o responsável dela ou um Product Owner / Tech Lead; numa sprint, um Product Owner / Tech Lead. Sem pessoas no `team.json` nada é imposto (como nos outros papéis). O papel de quem delegou é verificado outra vez antes de cada uso.
+2. `codev_autonomy_grant` grava a delegação e a linha de auditoria na mesma transacção (`autonomy_delegations`, migração 20); `codev_autonomy_revoke` igual.
+3. O ciclo vive no backend: quando a sessão Co-Dev da issue a acaba (`finish_issue`, a issue em Review), pede a revisão com o mesmo plano que uma pessoa aprovaria; quando uma revisão acaba com todos os critérios cumpridos, ou quando uma pessoa regista a aprovação funcional, integra pelo mesmo caminho do clique (undo snapshot, secret scan, auditoria antes e com o resultado, as regras de movimento do Project sem excepções) — ou abre o pull request.
+4. Antes de cada acção o backend lê o interruptor geral, o papel de quem delegou e o limite (6 acções autónomas por hora e por projecto). Cada falha — ponta que andou, conflito, critério não cumprido ou por esclarecer, verificação que falhou, secret scan, `gh` sem sessão — pára e avisa, uma vez: nunca tenta outra vez sozinho.
+5. As linhas de auditoria de um passo autónomo dizem-no: modo `autonomous`, decidido por `delegation:<n>:<quem delegou>`.
+
+**Dicas**
+
+- Se a sessão acabou mas o trabalho não está commitado na worktree, a autonomia pára («commita-o»); quando o commitares na faixa «Co-Devs», ela pede a revisão.
+- Um achado do secret scan nunca é ultrapassado pela autonomia: integra tu, à mão, e dá o motivo.
+
+<sub>Cobre: `integration:delegate`, `integration:revoke`, `integration:audit`</sub>
+
+### Pausar a autonomia
+
+**Onde:** Painel «Rever e integrar» › secção «Autonomy and pull request» › «Pause autonomy» / «Resume autonomy»
+
+O travão de toda a app: com a autonomia em pausa, nenhuma acção autónoma corre em nenhum projecto (o backend verifica-o antes de cada uma), e as revisões autónomas a correr param.
+
+**Como usar**
+
+1. Carrega em «Pause autonomy»: pára logo, sem diálogo.
+2. Para voltar, carrega em «Resume autonomy» e aprova no diálogo: o que está delegado volta a poder agir.
+
+**Fluxo (por dentro)**
+
+1. `codev_autonomy_pause` grava o interruptor (uma linha para toda a app, `autonomy_switch`) e a linha de auditoria (`autonomy.pause` / `autonomy.resume`) na mesma transacção.
+
+<sub>Cobre: `integration:pause`, `integration:resume`</sub>
 
 ---
 
