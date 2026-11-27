@@ -131,22 +131,58 @@ pub async fn codev_agent_start(
     Ok(id)
 }
 
+/// H5c: an image the person attached in the composer — the bytes in base64 (the type is read from them).
+#[derive(serde::Deserialize, Debug, Clone)]
+pub struct ImageIn {
+    pub name: Option<String>,
+    pub data: String,
+}
+
+/// At most 8 images per message, each a PNG/JPEG/GIF/WebP of at most `MAX_IMAGE_BYTES`.
+fn images_in(v: Vec<ImageIn>) -> Result<Vec<tutor_agent::types::Image>, String> {
+    if v.len() > 8 {
+        return Err("at most 8 images per message".into());
+    }
+    v.iter()
+        .map(|i| {
+            let name = i.name.as_deref().unwrap_or("image");
+            let bytes = tutor_agent::types::base64_decode(i.data.trim())
+                .ok_or_else(|| format!("{name}: not base64"))?;
+            tutor_agent::types::Image::from_bytes(&bytes).map_err(|e| format!("{name}: {e}"))
+        })
+        .collect()
+}
+
 /// Envia uma mensagem (ou, com `text: null`, repete a partir do histórico). Devolve logo;
 /// o turno corre numa thread e responde por eventos. `origin`: o pedido humano a que o turno
 /// responde (`{kind: "chat"|"editor"|"issue", issue?, scope?}`, RF-G01); sem ele, as acções
 /// do turno são bloqueadas («bloqueada: sem pedido»). Quem pediu vem do git do projecto.
+/// `images` (H5c): the images attached to the message.
 #[tauri::command]
 pub fn codev_agent_send(
     app: tauri::AppHandle,
     session_id: String,
     text: Option<String>,
     origin: Option<tutor_agent::permissions::Origin>,
+    images: Option<Vec<ImageIn>>,
 ) {
     std::thread::spawn(move || {
         let (a1, a2, sid) = (app.clone(), app.clone(), session_id.clone());
-        let r = codev_agent::send(
+        // H5c: each image checked here (a known type, decoded, at most MAX_IMAGE_BYTES) — none is sent otherwise
+        let images = match images_in(images.unwrap_or_default()) {
+            Ok(v) => v,
+            Err(e) => {
+                let _ = app.emit(
+                    "codev-agent://error",
+                    serde_json::json!({ "session": session_id, "error": e }),
+                );
+                return;
+            }
+        };
+        let r = codev_agent::send_with_images(
             &session_id,
             text,
+            images,
             origin,
             &mut |event| {
                 let _ = a1.emit(

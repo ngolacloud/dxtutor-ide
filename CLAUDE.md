@@ -1637,6 +1637,25 @@ resultados (um resultado segue a sua chamada); um resumo novo é feito sobre a v
 `/compact` (comando do IDE, tratado no `send`, nunca expandido) resume tudo já; no Claude diz que o servidor o faz.
 Testes: `cargo test -p tutor-agent --test agent_loop` (`…compacted_on_the_client…`, `compact_now_…`).
 
+## Imagens na conversa (H5c, `tutor_agent::types::Image`, conjunto 16)
+
+Uma imagem (PNG, JPEG, GIF, WebP — o tipo lê-se dos bytes, `Image::sniff`) entra MEDIDA (≤ 3,75 MB: `MAX_IMAGE_BYTES`;
+sem redimensionar) e o histórico nunca a muda depois. Chega por dois caminhos:
+- **O `read`** (conjunto 16, a descrição di-lo; o 15 continua a dizer «binário») devolve-a dentro do `tool_result` da
+  chamada (`ToolOutput.images` → `ToolResult.images` → conteúdo em blocos: o texto e cada `image` base64).
+- **O compositor**: colar uma captura ou anexar um ficheiro de imagem dá um chip; as imagens seguem À PARTE do texto
+  (`host.send(q, images)` → `handlePrompt` → `codevEngine.chat` → `agentChat.send` → `gateway.send(…, images)` →
+  `codev_agent_send` com `images`), no máximo 8 por mensagem; o backend volta a verificar cada uma (`images_in`). Com o
+  Co-Dev a trabalhar esperam (a fila só guarda texto); um `/comando` não as leva; sem o agente v2 a mensagem segue sem
+  elas e um aviso di-lo. Textos em `ui/image-messages.ts`.
+- **Fornecedores:** o Claude recebe os blocos tal como estão; no Chat Completions (Codex, Gemini) uma mensagem `tool` só
+  leva texto, por isso as imagens dos resultados seguem numa mensagem `user` logo a seguir (`image_url` com data URL); o
+  Ollama nativo recebe-as em `images` (fora da estimativa do `num_ctx`).
+- **A redacção nunca toca nos bytes de uma imagem** (`mask_json_count` salta o `data` de uma fonte base64, os data URLs
+  e o `images` do Ollama): mudá-los estragava a imagem. O que uma captura MOSTRA não é redigido.
+Testes: `cargo test -p tutor-agent types:: openai:: --test flow`, `cargo test -p tutor-protect redact`,
+`tests/codev.composer.test.ts`, `tests/codev.agent-chat.test.ts`.
+
 ## A ferramenta `ide` e as skills do IDE (H3/H4, `src-tauri/src/ide_tool.rs`, `ide_tool/ops.rs`, `tutor_agent::extensions`)
 
 Decisão D4: o Co-Dev chega ao que o IDE sabe por UMA ferramenta, `ide`, com `action` e `args`, decidida no Rust. Uma

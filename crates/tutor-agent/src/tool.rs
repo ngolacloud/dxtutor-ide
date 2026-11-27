@@ -28,6 +28,8 @@ impl ToolCtx {
 pub struct ToolOutput {
     pub content: String,
     pub is_error: bool,
+    /// H5c: images that go back with the result (the tool that produced them returns them, sized already).
+    pub images: Vec<crate::types::Image>,
 }
 
 impl ToolOutput {
@@ -35,12 +37,22 @@ impl ToolOutput {
         ToolOutput {
             content: content.into(),
             is_error: false,
+            images: Vec::new(),
+        }
+    }
+    /// A result with an image (a screenshot, a picture the agent read).
+    pub fn with_image(content: impl Into<String>, image: crate::types::Image) -> Self {
+        ToolOutput {
+            content: content.into(),
+            is_error: false,
+            images: vec![image],
         }
     }
     pub fn err(content: impl Into<String>) -> Self {
         ToolOutput {
             content: content.into(),
             is_error: true,
+            images: Vec::new(),
         }
     }
 }

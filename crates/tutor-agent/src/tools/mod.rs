@@ -89,6 +89,7 @@ pub fn coding_tools(opts: &ToolsetOptions) -> Vec<Arc<dyn Tool>> {
         Arc::new(fs::Read {
             state: state.clone(),
             v9: opts.version >= 9,
+            images: opts.version >= 16,
         }),
         Arc::new(search::Glob),
         Arc::new(search::Grep),
@@ -138,7 +139,8 @@ pub fn coding_tools(opts: &ToolsetOptions) -> Vec<Arc<dyn Tool>> {
 /// 14 = a `ide` ganha as acções de Platform/SRE/DevOps (H4: runbooks, incidentes, fila, IaC, Kubernetes, deploy),
 ///      cada uma com o seu nível — leitura, acção (aprovação + auditoria) ou só do humano.
 /// 15 = + `web_fetch` (H5a: ler uma página; o domínio decide-se na política de permissões).
-pub const TOOLSET_VERSION: u32 = 15;
+/// 16 = o `read` devolve imagens (H5c: PNG, JPEG, GIF, WebP como imagem; a descrição di-lo).
+pub const TOOLSET_VERSION: u32 = 16;
 
 /// O estado partilhado entre as ferramentas de fluxo e a sessão.
 #[derive(Clone, Default)]

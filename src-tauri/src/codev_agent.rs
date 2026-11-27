@@ -1155,6 +1155,18 @@ pub fn send(
     on_event: &mut dyn FnMut(AgentEvent),
     on_approval: &mut dyn FnMut(&ApprovalRequest),
 ) -> Result<TurnOutcome, String> {
+    send_with_images(id, text, vec![], origin, on_event, on_approval)
+}
+
+/// H5c: [`send`] with the images the person attached to the message (already sized: `Image::from_bytes`).
+pub fn send_with_images(
+    id: &str,
+    text: Option<String>,
+    images: Vec<tutor_agent::types::Image>,
+    origin: Option<Origin>,
+    on_event: &mut dyn FnMut(AgentEvent),
+    on_approval: &mut dyn FnMut(&ApprovalRequest),
+) -> Result<TurnOutcome, String> {
     let s = get(id)?;
     if s.busy.swap(true, Ordering::SeqCst) {
         return Err("a sessão já está a correr um turno".into());
@@ -1601,7 +1613,10 @@ pub fn send(
                     emit(AgentEvent::Notice { text: text.clone() });
                 }
             }
-            t.push(Message::user_text(q));
+            // H5c: the person's images go with the message, after its text
+            let mut m = Message::user_text(q);
+            m.content.extend(images.iter().map(|i| i.block()));
+            t.push(m);
             // anuncia o modo no primeiro turno e quando muda (mensagem system a meio)
             let mode = s.policy.lock().unwrap().mode;
             let mut announced = s.announced.lock().unwrap();

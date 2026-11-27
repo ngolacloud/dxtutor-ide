@@ -777,3 +777,13 @@ test("RF-G07: depois do Stop, a barra mantém ou descarta (volta ao checkpoint d
   expect(t.gateway.rewind).toHaveBeenCalledWith("S1", 4, false);
   expect((t.deps.reloadFromDisk as ReturnType<typeof vi.fn>).mock.calls.length).toBe(reloads + 1);
 });
+
+test("H5c: as imagens anexadas seguem com a mensagem para o gateway, e a conversa mostra-as", async () => {
+  const t = setup();
+  const shown: string[] = [];
+  (t.deps.presenter as unknown as Record<string, unknown>).userMessage = (q: string) => shown.push(q);
+  t.setScript(() => t.emit(done()));
+  await t.chat.send("o que vês?", [{ name: "ecra.png", data: "iVBORw0KGgo=" }]);
+  expect(t.gateway.send).toHaveBeenCalledWith("S1", "o que vês?", { kind: "chat" }, [{ name: "ecra.png", data: "iVBORw0KGgo=" }]);
+  expect(shown).toEqual(["o que vês?\n\n🖼 ecra.png"]);
+});

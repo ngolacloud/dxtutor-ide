@@ -1128,6 +1128,8 @@ impl Agent {
                     tool_use_id: c.id.clone(),
                     content,
                     is_error: o.is_error,
+                    // H5c: a result's images go back inside its `tool_result` (a refused call has none)
+                    images: o.images,
                 }
             })
             .collect()

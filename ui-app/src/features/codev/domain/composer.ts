@@ -147,7 +147,7 @@ export const parseDictationLang = (s: string | null | undefined): string =>
 
 export interface Attachment {
   id: string;
-  kind: "file" | "mention" | "snippet";
+  kind: "file" | "mention" | "snippet" | "image";
   name: string;
   /** `file`: o texto do ficheiro carregado; `mention`: vazio (o agente lê-o); `snippet`: o
    *  contexto que outra feature mandou com `codev.ask` (selecção, hunk, problema…). */
@@ -157,6 +157,28 @@ export interface Attachment {
   /** `mention`: o caminho no projecto. */
   path?: string;
   size?: number;
+  /** `image` (H5c): os bytes em base64 — seguem à parte do texto, para o modelo ver a imagem. */
+  data?: string;
+}
+
+/** H5c: o tecto de uma imagem (bytes; o backend volta a verificar) e de imagens por mensagem. */
+export const MAX_IMAGE_BYTES = 3_750_000;
+export const MAX_IMAGES = 8;
+
+/** H5c: as imagens que o modelo recebe. */
+export function isImageFile(mime: string): boolean {
+  return ["image/png", "image/jpeg", "image/gif", "image/webp"].includes(mime);
+}
+
+/** H5c: o base64 de um data URL (`data:image/png;base64,…`), ou nada. */
+export function base64OfDataUrl(url: string): string | null {
+  const m = /^data:image\/(png|jpeg|gif|webp);base64,(.+)$/.exec(url);
+  return m ? m[2] : null;
+}
+
+/** H5c: as imagens anexadas, como seguem para o agente. */
+export function imagesOf(atts: Attachment[]): Array<{ name: string; data: string }> {
+  return atts.filter((a) => a.kind === "image" && a.data).map((a) => ({ name: a.name, data: a.data as string }));
 }
 
 /** Tecto por anexo carregado (o resto é cortado com aviso no próprio texto). */
@@ -168,7 +190,7 @@ export function formatSize(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
-/** Só texto: o agente ainda não recebe imagens nem binários. */
+/** Texto (as imagens são anexos à parte, `isImageFile`; áudio, vídeo e binários não seguem). */
 export function isTextFile(name: string, mime: string): boolean {
   if (mime.startsWith("text/") || /json|xml|yaml|toml|javascript|typescript|sql|x-sh/.test(mime)) return true;
   if (mime.startsWith("image/") || mime.startsWith("audio/") || mime.startsWith("video/")) return false;

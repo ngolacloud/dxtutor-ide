@@ -224,7 +224,19 @@ impl Redactor {
                 n
             }
             Value::Array(a) => a.iter_mut().map(|x| self.mask_json_count(x)).sum(),
-            Value::Object(o) => o.values_mut().map(|x| self.mask_json_count(x)).sum(),
+            // an image's bytes (base64) are never text to mask — changing them breaks the image: the source of
+            // an image block (`{type: base64, data}`), a data URL (`image_url.url`) and Ollama's `images`
+            Value::Object(o) => {
+                let base64_source = o.get("type").and_then(Value::as_str) == Some("base64");
+                o.iter_mut()
+                    .map(|(k, x)| match (k.as_str(), &*x) {
+                        ("data", Value::String(_)) if base64_source => 0,
+                        ("url", Value::String(u)) if u.starts_with("data:image/") => 0,
+                        ("images", Value::Array(_)) => 0,
+                        _ => self.mask_json_count(x),
+                    })
+                    .sum()
+            }
             _ => 0,
         }
     }
@@ -317,6 +329,23 @@ pub fn guard_body(origin: &str, body: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_bytes_of_an_image_are_never_masked() {
+        let r = Redactor::new();
+        let key = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123";
+        let mut v = serde_json::json!({"messages": [{"content": [
+            {"type": "text", "text": format!("my key {key}")},
+            {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": key}},
+            {"type": "image_url", "image_url": {"url": format!("data:image/png;base64,{key}")}},
+        ], "images": [key]}]});
+        assert_eq!(r.mask_json_count(&mut v), 1, "only the text");
+        let c = &v["messages"][0]["content"];
+        assert!(!c[0]["text"].as_str().unwrap().contains(key));
+        assert_eq!(c[1]["source"]["data"], key);
+        assert!(c[2]["image_url"]["url"].as_str().unwrap().ends_with(key));
+        assert_eq!(v["messages"][0]["images"][0], key);
+    }
 
     #[test]
     fn well_known_keys_are_masked() {
