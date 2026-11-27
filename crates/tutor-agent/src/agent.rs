@@ -55,6 +55,9 @@ pub struct AgentConfig {
     pub compaction: bool,
     /// TTL dos breakpoints do system prompt (o Co-Dev do IDE usa 1 hora: as pausas de revisão).
     pub cache_ttl: CacheTtl,
+    /// H5b: client compaction for the providers without it on the server — when a request's prompt passes this
+    /// many tokens, the start of the conversation is summarized ([`COMPACTION_BLOCK`]). `None`: off (Claude).
+    pub client_compaction_at: Option<u64>,
 }
 
 impl AgentConfig {
@@ -70,8 +73,101 @@ impl AgentConfig {
             max_iterations: 60,
             compaction: base.compaction,
             cache_ttl: base.cache_ttl,
+            client_compaction_at: None,
         }
     }
+}
+
+/// H5b: the block of a client compaction, first in the assistant message that answered the compacted request:
+/// `{type, summary, keep_from}` — every request from then on sends the summary (as the person's message) and the
+/// transcript from `keep_from` on, never what came before. The transcript itself only grows (it is the record); the
+/// block never reaches a provider ([`request_view`] takes it out).
+pub const COMPACTION_BLOCK: &str = "dxtutor_compaction";
+
+const SUMMARY_REQUEST: &str = "Your context is about to be compacted: everything before this point will be replaced \
+by your summary. Write that summary now, for yourself, to continue the work without asking again: the person's requests \
+and constraints (in their words where they matter), decisions taken and why, the files you read and changed (paths and \
+what changed), commands and tests run and their results, errors and how they were fixed, and what remains to do, in \
+order. Be concrete and complete; no greetings. Reply with the summary only — do not call a tool.";
+
+fn summary_text(summary: &str) -> String {
+    format!(
+        "<summary of the conversation so far>\n{summary}\n</summary of the conversation so far>"
+    )
+}
+
+/// Where a compaction cuts: the first message kept as it is. The last message of the person (or the last tool call
+/// with its results — a result must follow its call) stays; mid-conversation `system` notes after it stay too.
+pub fn compaction_cut(messages: &[Message]) -> Option<usize> {
+    let k = messages.iter().rposition(|m| m.role != Role::System)?;
+    let m = &messages[k];
+    let j = if m.role == Role::User && m.content.iter().any(|b| b["type"] == "tool_result") {
+        messages[..k]
+            .iter()
+            .rposition(|m| m.role == Role::Assistant)?
+    } else {
+        k
+    };
+    // nothing before the cut (other than a previous summary's tail) is nothing to compact
+    (j > 0).then_some(j)
+}
+
+fn latest_compaction(messages: &[Message]) -> Option<(usize, String, usize)> {
+    messages.iter().enumerate().rev().find_map(|(i, m)| {
+        if m.role != Role::Assistant {
+            return None;
+        }
+        m.content
+            .iter()
+            .find(|b| b["type"] == COMPACTION_BLOCK)
+            .map(|b| {
+                (
+                    i,
+                    b["summary"].as_str().unwrap_or_default().to_string(),
+                    (b["keep_from"].as_u64().unwrap_or(0) as usize).min(i),
+                )
+            })
+    })
+}
+
+/// What a request sends of the transcript: from the latest compaction on — its summary as the person's message,
+/// then the messages kept — or everything. `pending` is a compaction whose answer has not arrived yet.
+pub fn request_view(messages: &[Message], pending: Option<(&str, usize)>) -> Vec<Message> {
+    let found = match pending {
+        Some((s, j)) => Some((s.to_string(), j)),
+        None => latest_compaction(messages).map(|(_, s, j)| (s, j)),
+    };
+    let strip = |m: &Message| -> Message {
+        Message {
+            role: m.role,
+            content: m
+                .content
+                .iter()
+                .filter(|b| b["type"] != COMPACTION_BLOCK)
+                .cloned()
+                .collect(),
+        }
+    };
+    let Some((summary, j)) = found else {
+        return messages.iter().map(strip).collect();
+    };
+    let j = j.min(messages.len());
+    let head = json!({"type": "text", "text": summary_text(&summary)});
+    let mut out: Vec<Message> = vec![];
+    let mut rest = messages[j..].iter().map(strip).peekable();
+    match rest.peek() {
+        Some(m) if m.role == Role::User => {
+            let mut first = rest.next().unwrap();
+            first.content.insert(0, head);
+            out.push(first);
+        }
+        _ => out.push(Message {
+            role: Role::User,
+            content: vec![head],
+        }),
+    }
+    out.extend(rest);
+    out
 }
 
 /// Uma chamada à espera de decisão.
@@ -313,6 +409,8 @@ pub struct Agent {
     /// Live hunks (RF-CODEV-STREAM): with the tools' read/edit/write state, `edit` and
     /// `write` stream hunks and apply only what is accepted. `None`: they write directly.
     pub hunks: Option<Arc<crate::tools::FileState>>,
+    /// H5b: the prompt tokens of the last request (when to compact on the client).
+    last_prompt: std::sync::atomic::AtomicU64,
 }
 
 fn add_usage(t: &mut Usage, u: &Usage) {
@@ -356,6 +454,7 @@ impl Agent {
             checkpoints: None,
             hooks: None,
             hunks: None,
+            last_prompt: Default::default(),
         }
     }
 
@@ -374,11 +473,17 @@ impl Agent {
         self.ctx.cancel.load(Ordering::Relaxed)
     }
 
-    fn request(&self, t: &Transcript, max_tokens: u32, resume_paused: bool) -> Request {
+    fn request(
+        &self,
+        t: &Transcript,
+        max_tokens: u32,
+        resume_paused: bool,
+        pending: Option<(&str, usize)>,
+    ) -> Request {
         Request {
             model: self.cfg.model.clone(),
             system: self.cfg.system.clone(),
-            messages: t.messages().to_vec(),
+            messages: request_view(t.messages(), pending),
             tools: self.tools.iter().map(|x| x.def()).collect(),
             max_tokens,
             effort: self.cfg.effort,
@@ -434,6 +539,125 @@ impl Agent {
         }
     }
 
+    /// H5b: the summary of `messages[..cut]` (as a request would send them), by the session's own model, with no
+    /// stream to the UI. `None` when the model gave no text.
+    fn summarize(&self, messages: &[Message], cut: usize) -> Result<Option<String>, ProviderError> {
+        let mut msgs = request_view(&messages[..cut], None);
+        match msgs.last_mut() {
+            Some(m) if m.role == Role::User => m
+                .content
+                .push(json!({"type": "text", "text": SUMMARY_REQUEST})),
+            _ => msgs.push(Message::user_text(SUMMARY_REQUEST)),
+        }
+        let req = Request {
+            model: self.cfg.model.clone(),
+            system: self.cfg.system.clone(),
+            messages: msgs,
+            tools: self.tools.iter().map(|x| x.def()).collect(),
+            max_tokens: 8_000.min(self.cfg.max_tokens.max(2_000)),
+            effort: self.cfg.effort,
+            thinking: self.cfg.thinking,
+            fallbacks: self.cfg.fallbacks,
+            resume_paused: false,
+            compaction: false,
+            cache_ttl: self.cfg.cache_ttl,
+        };
+        let cancel = self.ctx.cancel.clone();
+        let r = self
+            .provider
+            .stream(&req, &mut |_| !cancel.load(Ordering::Relaxed))?;
+        let text = Message::assistant(r.content).text();
+        Ok((!text.trim().is_empty()).then(|| text.trim().to_string()))
+    }
+
+    /// H5b: compacts before the next request when the last one passed the limit: `Some((summary, cut))` to send
+    /// with it (and to keep in the answer), or `None` (not needed, nothing to cut, or the summary failed — said).
+    fn maybe_compact(
+        &self,
+        t: &Transcript,
+        events: &mut dyn FnMut(AgentEvent),
+    ) -> Option<(String, usize)> {
+        let limit = self.cfg.client_compaction_at?;
+        let last = self.last_prompt.load(Ordering::Relaxed);
+        if last < limit {
+            return None;
+        }
+        let cut = compaction_cut(t.messages())?;
+        if latest_compaction(t.messages()).is_some_and(|(_, _, j)| j >= cut) {
+            return None; // nothing new since the last compaction
+        }
+        match self.summarize(t.messages(), cut) {
+            Ok(Some(s)) => {
+                self.last_prompt.store(0, Ordering::Relaxed);
+                events(AgentEvent::Notice {
+                    text: format!(
+                        "contexto compactado: o início da conversa ({cut} mensagens, ~{}k tokens no último pedido) foi resumido",
+                        last / 1000
+                    ),
+                });
+                Some((s, cut))
+            }
+            Ok(None) => {
+                events(AgentEvent::Notice {
+                    text: "a compactação do contexto não devolveu um resumo: continua sem ela"
+                        .into(),
+                });
+                None
+            }
+            Err(e) => {
+                events(AgentEvent::Notice {
+                    text: format!("a compactação do contexto falhou ({e}): continua sem ela"),
+                });
+                None
+            }
+        }
+    }
+
+    /// H5b, `/compact`: summarizes the whole conversation now (the providers without server compaction). The
+    /// transcript gets an assistant message with the summary's block; the next request starts from it.
+    pub fn compact_now(
+        &self,
+        t: &mut Transcript,
+        events: &mut dyn FnMut(AgentEvent),
+    ) -> Result<TurnOutcome, AgentError> {
+        let outcome = TurnOutcome::Done { truncated: false };
+        if self.cfg.client_compaction_at.is_none() {
+            events(AgentEvent::Notice {
+                text: "este modelo compacta o contexto no servidor quando é preciso: /compact não muda nada".into(),
+            });
+            events(AgentEvent::Done {
+                outcome: outcome.clone(),
+            });
+            return Ok(outcome);
+        }
+        let n = t.len();
+        if latest_compaction(t.messages()).is_some_and(|(i, _, _)| i + 1 == n) || n == 0 {
+            events(AgentEvent::Notice {
+                text: "nada a compactar".into(),
+            });
+            events(AgentEvent::Done {
+                outcome: outcome.clone(),
+            });
+            return Ok(outcome);
+        }
+        let summary = self
+            .summarize(t.messages(), n)
+            .map_err(AgentError::Provider)?
+            .ok_or_else(|| AgentError::UnexpectedStop("the summary came back empty".into()))?;
+        t.push(Message::assistant(vec![
+            json!({"type": COMPACTION_BLOCK, "summary": summary, "keep_from": n}),
+            json!({"type": "text", "text": "(contexto compactado: a conversa até aqui está resumida)"}),
+        ]));
+        self.last_prompt.store(0, Ordering::Relaxed);
+        events(AgentEvent::Notice {
+            text: format!("contexto compactado: {n} mensagens resumidas"),
+        });
+        events(AgentEvent::Done {
+            outcome: outcome.clone(),
+        });
+        Ok(outcome)
+    }
+
     /// Corre um turno: acrescenta `user` (se houver) e conversa com o modelo até ele
     /// terminar. `approve` decide cada chamada de ferramenta, pela ordem pedida.
     pub fn run_turn(
@@ -468,6 +692,7 @@ impl Agent {
             label,
             checkpointed: false,
         };
+        let mut pending: Option<(String, usize)> = None;
         let mut tracker = self
             .hunks
             .as_ref()
@@ -477,7 +702,16 @@ impl Agent {
             if self.cancelled() {
                 return Ok(self.finish(TurnOutcome::Cancelled, events, &mut tracker));
             }
-            let req = self.request(transcript, max_tokens, resume_paused);
+            // H5b: a compaction found now stays pending until its answer arrives (it goes into that message)
+            if pending.is_none() {
+                pending = self.maybe_compact(transcript, events);
+            }
+            let req = self.request(
+                transcript,
+                max_tokens,
+                resume_paused,
+                pending.as_ref().map(|(s, j)| (s.as_str(), *j)),
+            );
             resume_paused = false;
             let resp = match self.ask(&req, events, tracker.as_mut()) {
                 Ok(r) => r,
@@ -490,6 +724,29 @@ impl Agent {
                 }
             };
             add_usage(&mut turn, &resp.usage);
+            let u = &resp.usage;
+            self.last_prompt.store(
+                u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens,
+                Ordering::Relaxed,
+            );
+            let mut resp = resp;
+            let answered = matches!(
+                resp.stop_reason,
+                StopReason::EndTurn
+                    | StopReason::StopSequence
+                    | StopReason::ToolUse
+                    | StopReason::PauseTurn
+                    | StopReason::Compaction
+            ) || (resp.stop_reason == StopReason::MaxTokens
+                && !resp.content.iter().any(|b| b["type"] == "tool_use"));
+            if answered {
+                if let Some((summary, j)) = pending.take() {
+                    resp.content.insert(
+                        0,
+                        json!({"type": COMPACTION_BLOCK, "summary": summary, "keep_from": j}),
+                    );
+                }
+            }
             events(AgentEvent::Usage {
                 request: resp.usage,
                 turn,

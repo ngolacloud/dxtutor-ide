@@ -78,8 +78,19 @@ pub fn builtin_commands() -> Vec<Command> {
             body: PROJECT_BODY.into(),
             builtin: true,
         },
+        // H5b: the host answers it (`COMPACT_COMMAND_LINE`); listed so the person finds it
+        Command {
+            name: "compact".into(),
+            description: "Summarize the conversation so far to free the context (Claude does it on the server)"
+                .into(),
+            body: String::new(),
+            builtin: true,
+        },
     ]
 }
+
+/// H5b: `/compact` — handled by the host (the conversation is summarized now), never expanded into a prompt.
+pub const COMPACT_COMMAND_LINE: &str = "/compact";
 
 /// Os comandos do projecto e, depois, os do IDE que o projecto não substitui.
 pub fn all_commands(root: &Path) -> Vec<Command> {
