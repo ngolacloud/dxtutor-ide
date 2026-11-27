@@ -33,6 +33,10 @@ beforeEach(async () => {
 afterEach(() => {
   vi.restoreAllMocks();
   document.getElementById("lsp-complete")?.remove();
+  // cada `input` no editor agenda o `refresh(true)` global 180 ms depois (editor.ts); o teste seguinte pode trocar o
+  // documento (o último bloco deixa só uma textarea), e o refresh correria sem a moldura da app — limpa-se aqui
+  const ta = document.getElementById("ed-ta") as (HTMLTextAreaElement & { _t?: ReturnType<typeof setTimeout> }) | null;
+  if (ta?._t) clearTimeout(ta._t);
 });
 
 describe("realce sem extensão: a gramática que vem com o dxtutor", () => {
