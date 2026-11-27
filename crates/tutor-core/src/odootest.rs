@@ -1,5 +1,5 @@
 //! **A avaliação de módulos Odoo** (Learn P3c): a tabela `[odoo]` do [`crate::toolcheck::CHECKS_FILE`]
-//! de um passo do curso de Odoo (linguagem de avaliação `odoo`).
+//! de um passo do curso de Odoo (linguagem de avaliação `odoo-module`).
 //!
 //! Um passo destes não corre comandos escritos pelo autor: diz QUE módulos instalar, com que
 //! versão do Odoo e que etiquetas de testes correr, e o avaliador (`tutor_eval::odoo_check`)

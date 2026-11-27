@@ -497,6 +497,11 @@ const PODMAN_BASICS: &str = include_str!("../../../courses/podman/courses/podman
 /// Docker (ferramenta): a sintaxe e o CLI do Docker, avaliados no MESMO sandbox Podman rootless
 /// (nunca no daemon do Docker); as mesmas três imagens base.
 const DOCKER_BASICS: &str = include_str!("../../../courses/docker/courses/docker.toml");
+/// Odoo 18, 19 e 20 (framework, linguagem de avaliação `odoo-module` — Learn P3c): só no backend;
+/// cada desafio instala os módulos num Odoo e num PostgreSQL do sandbox Podman rootless
+/// (`tutor_eval::odoo_check`), das imagens fixadas pelo digest no `[build]`. O TOML é GERADO por
+/// `scripts/build-odoo-course.py` a partir de `courses/odoo/src/`.
+const ODOO_BASICS: &str = include_str!("../../../courses/odoo/courses/odoo.toml");
 
 /// Todos os cursos guiados embebidos no binário.
 pub fn builtin_courses() -> Vec<Course> {
@@ -518,6 +523,7 @@ pub fn builtin_courses() -> Vec<Course> {
         parse("delonix-basics", DELONIX_BASICS),
         parse("podman-basics", PODMAN_BASICS),
         parse("docker-basics", DOCKER_BASICS),
+        parse("odoo-basics", ODOO_BASICS),
     ]
 }
 
@@ -1691,5 +1697,49 @@ mod tool_course_tests {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod odoo_tests {
+    use super::*;
+
+    /// O curso de Odoo (Learn P3c): framework, linguagem de avaliação `odoo-module`, as imagens do
+    /// Odoo 18/19/20 e do PostgreSQL fixadas pelo digest, e cada desafio com a tabela `[odoo]`.
+    #[test]
+    fn odoo_is_a_framework_course_graded_in_odoo_by_series() {
+        let c = load_course("odoo-basics").expect("odoo course");
+        assert_eq!(c.category, CourseCategory::Framework);
+        assert_eq!(c.subject, "odoo");
+        assert_eq!(c.language, "odoo-module");
+        assert!(crate::toolcheck::graded_by_checks(&c.language));
+        assert!(c.build.prepare);
+        let images = crate::toolcheck::course_images(&c);
+        assert_eq!(images.len(), 4, "odoo 18, 19, 20 and postgres");
+        for series in ["18.0", "19.0", "20.0"] {
+            assert!(crate::odootest::odoo_image(&images, series).is_some(), "{series}");
+        }
+        assert!(crate::odootest::postgres_image(&images).is_some());
+        let mut by_series: std::collections::BTreeMap<String, usize> = Default::default();
+        let mut enterprise = 0;
+        for u in &c.units {
+            for s in u.steps.iter().filter(|s| s.kind == StepKind::Challenge) {
+                let p = s.project.as_ref().expect("project step");
+                assert!(p.check().is_empty(), "{}: {:?}", s.id, p.check());
+                let errs = crate::toolcheck::check_step_with(p, Some(&images));
+                assert!(errs.is_empty(), "{}: {errs:?}", s.id);
+                let checks = crate::toolcheck::Checks::parse(&p.tests["checks.toml"]).unwrap();
+                let odoo = checks.odoo.expect("[odoo] table");
+                assert!(s.id.starts_with(&format!("odoo{}-", &odoo.version[..2])), "{}", s.id);
+                *by_series.entry(odoo.version.clone()).or_default() += 1;
+                enterprise += usize::from(odoo.enterprise);
+                assert!(c.phase(s, Level::Basico).is_some());
+            }
+        }
+        // The same stages for every series, except the Enterprise payroll (18 and 19 only).
+        assert_eq!(by_series["18.0"], by_series["19.0"]);
+        assert_eq!(by_series["20.0"] + 1, by_series["18.0"]);
+        assert_eq!(enterprise, 2);
+        assert!(c.overview.contains("noupdate=\"1\""));
     }
 }

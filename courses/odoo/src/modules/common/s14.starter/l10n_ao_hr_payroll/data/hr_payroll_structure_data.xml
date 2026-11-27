@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Part of the dxtutor Odoo course (l10n_ao_hr_payroll). License: LGPL-3.
+     The structure keeps hr_payroll's default rules (BASIC, GROSS, NET…) and adds the Angolan ones. -->
+<odoo>
+    <record id="structure_ao_monthly" model="hr.payroll.structure">
+        <field name="name">Angola: Monthly Pay</field>
+        <field name="code">AOMONTHLY</field>
+        <field name="country_id" ref="base.ao"/>
+        <field name="type_id" ref="structure_type_employee_ao"/>
+    </record>
+    <record id="structure_type_employee_ao" model="hr.payroll.structure.type">
+        <field name="default_struct_id" ref="structure_ao_monthly"/>
+    </record>
+</odoo>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Part of the dxtutor Odoo course (l10n_ao_hr). License: LGPL-3. -->
+<odoo>
+    <record id="hr_employee_view_form_inherit_l10n_ao" model="ir.ui.view">
+        <field name="name">hr.employee.form.inherit.l10n_ao</field>
+        <field name="model">hr.employee</field>
+        <field name="inherit_id" ref="hr.view_employee_form"/>
+        <field name="arch" type="xml">
+            <field name="identification_id" position="after">
+                <field name="l10n_ao_inss_number" invisible="company_country_code != 'AO'"/>
+            </field>
+        </field>
+    </record>
+</odoo>

@@ -59,14 +59,14 @@ const MAX_RUNS: usize = 24;
 pub fn graded_by_checks(language: &str) -> bool {
     matches!(
         language.trim().to_ascii_lowercase().as_str(),
-        "yaml" | "yml" | "dockerfile" | "containerfile" | "odoo"
+        "yaml" | "yml" | "dockerfile" | "containerfile" | "odoo-module"
     )
 }
 
-/// `true` se os passos de um curso nesta linguagem são módulos Odoo (Learn P3c): avaliados pela
+/// `true` se os passos de um curso nesta linguagem (`odoo-module`) são módulos Odoo (Learn P3c): avaliados pela
 /// tabela `[odoo]` do [`CHECKS_FILE`] ([`crate::odootest`]), no sandbox de contentores.
 pub fn odoo_language(language: &str) -> bool {
-    language.trim().eq_ignore_ascii_case("odoo")
+    language.trim().eq_ignore_ascii_case("odoo-module")
 }
 
 /// `true` se os ficheiros dos drills de um curso nesta linguagem são Containerfiles (os cursos de

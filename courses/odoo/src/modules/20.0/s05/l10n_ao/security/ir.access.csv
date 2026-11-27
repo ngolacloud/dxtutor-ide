@@ -1,0 +1,4 @@
+id,name,model_id,group_id/id,operation,domain
+access_l10n_ao_tax_exemption_reason_user,l10n_ao.tax.exemption.reason user,l10n_ao.tax.exemption.reason,base.group_user,r,
+access_l10n_ao_tax_exemption_reason_manager,l10n_ao.tax.exemption.reason manager,l10n_ao.tax.exemption.reason,account.group_account_manager,crud,
+access_l10n_ao_exemption_reason_assign_manager,l10n_ao.exemption.reason.assign manager,l10n_ao.exemption.reason.assign,account.group_account_manager,crud,

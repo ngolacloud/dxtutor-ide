@@ -146,7 +146,7 @@ impl CacheKind {
             "rust" | "rs" => Some(CacheKind::Cargo),
             "python" | "py" | "python3" => Some(CacheKind::Pip),
             // O curso de Odoo (Learn P3c): as imagens do Odoo e do PostgreSQL, no mesmo sandbox.
-            "dockerfile" | "containerfile" | "odoo" => Some(CacheKind::Images),
+            "dockerfile" | "containerfile" | "odoo-module" => Some(CacheKind::Images),
             "yaml" | "yml" => Some(CacheKind::Cluster),
             _ => None,
         }

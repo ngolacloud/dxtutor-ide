@@ -1,0 +1,252 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Part of the dxtutor Odoo course (l10n_ao). License: LGPL-3.
+     Source: Decreto Executivo n.º 683/25, de 22 de Agosto, Anexo I — Tabela 4 (isenções de IVA)
+     and Tabela 5 (isenções de Imposto do Selo), DR I Série n.º 159, pp. 19223-19226.
+     The mentions ("Menção a constar no documento") are copied as published, including their
+     irregular wording (M18, M22-M24, M80-M93). M10 and M16 cite provisions that Lei n.º 14/23
+     revoked: they are kept because the AGT table still lists them. -->
+<odoo noupdate="1">
+        <record id="exemption_reason_m10" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M10</field>
+            <field name="name">Isento nos termos da alínea a) do n.º 1 do artigo 12.º do CIVA</field>
+            <field name="description">Bens alimentares (Anexo I). Legacy: Lei n.º 14/23 revoked art. 12.º n.º 1 a) — these goods are now taxed at 5%.</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m11" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M11</field>
+            <field name="name">Isento nos termos da alínea b) do n.º 1 do artigo 12.º do CIVA</field>
+            <field name="description">Medicamentos destinados exclusivamente a fins terapêuticos e profilácticos.</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m12" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M12</field>
+            <field name="name">Isento nos termos da alínea c) do n.º 1 do artigo 12.º do CIVA</field>
+            <field name="description">Cadeiras de rodas e veículos semelhantes, equipamento braille e aparelhos para corrigir a audição.</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m13" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M13</field>
+            <field name="name">Isento nos termos da alínea d) do n.º 1 do artigo 12.º do CIVA</field>
+            <field name="description">Livros, incluindo em formato digital.</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m14" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M14</field>
+            <field name="name">Isento nos termos da alínea e) do n.º 1 do artigo 12.º do CIVA</field>
+            <field name="description">Locação de bens imóveis (excepto alojamento hoteleiro e similar).</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m15" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M15</field>
+            <field name="name">Isento nos termos da alínea f) do n.º 1 do artigo 12.º do CIVA</field>
+            <field name="description">Operações sujeitas ao imposto de SISA (transmissão de imóveis).</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m16" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M16</field>
+            <field name="name">Isento nos termos da alínea g) do n.º 1 do artigo 12.º do CIVA</field>
+            <field name="description">Jogos de fortuna ou azar. Legacy: Lei n.º 14/23 revoked art. 12.º n.º 1 g).</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m17" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M17</field>
+            <field name="name">Isento nos termos da alínea h) do n.º 1 do artigo 12.º do CIVA</field>
+            <field name="description">Transporte colectivo de passageiros.</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m18" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M18</field>
+            <field name="name">Isento nos termos da alínea i) do n.º 1 artigo 12.º do CIVA</field>
+            <field name="description">Operações de intermediação financeira, excepto as cobradas por uma taxa específica.</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m19" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M19</field>
+            <field name="name">Isento nos termos da alínea j) do n.º 1 do artigo 12.º do CIVA</field>
+            <field name="description">Seguro de saúde e seguros e resseguros do ramo vida.</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m20" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M20</field>
+            <field name="name">Isento nos termos da alínea k) do n.º 1 do artigo 12.º do CIVA</field>
+            <field name="description">Produtos petrolíferos (anexo).</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m21" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M21</field>
+            <field name="name">Isento nos termos da alínea l) do n.º 1 do artigo 12.º do CIVA</field>
+            <field name="description">Ensino por estabelecimentos integrados no sistema de educação e ensino.</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m22" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M22</field>
+            <field name="name">Isento nos termos da alínea m) do artigo 12.º do CIVA</field>
+            <field name="description">Serviços médico-sanitários por estabelecimentos hospitalares, clínicas e similares.</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m23" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M23</field>
+            <field name="name">Isento nos termos da alínea n) do artigo 12.º do CIVA</field>
+            <field name="description">Transporte de doentes ou feridos em ambulâncias.</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m24" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M24</field>
+            <field name="name">Isento nos termos da alínea o) do artigo 12.º do CIVA</field>
+            <field name="description">Equipamentos médicos para estabelecimentos de saúde.</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m30" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M30</field>
+            <field name="name">Isento nos termos da alínea a) do artigo 15.º do CIVA</field>
+            <field name="description">Exportação: bens expedidos ou transportados para o estrangeiro.</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m31" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M31</field>
+            <field name="name">Isento nos termos da alínea b) do artigo 15.º do CIVA</field>
+            <field name="description">Abastecimento de embarcações em alto mar.</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m32" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M32</field>
+            <field name="name">Isento nos termos da alínea c) do artigo 15.º do CIVA</field>
+            <field name="description">Abastecimento de aeronaves de tráfego internacional.</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m33" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M33</field>
+            <field name="name">Isento nos termos da alínea d) do artigo 15.º do CIVA</field>
+            <field name="description">Abastecimento de embarcações de salvamento, pesca costeira e de guerra.</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m34" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M34</field>
+            <field name="name">Isento nos termos da alínea e) do artigo 15.º do CIVA</field>
+            <field name="description">Navios e aeronaves de tráfego internacional (transmissões, reparações, locação).</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m35" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M35</field>
+            <field name="name">Isento nos termos da alínea f) do artigo 15.º do CIVA</field>
+            <field name="description">Relações diplomáticas e consulares.</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m36" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M36</field>
+            <field name="name">Isento nos termos da alínea g) do artigo 15.º do CIVA</field>
+            <field name="description">Organismos internacionais.</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m37" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M37</field>
+            <field name="name">Isento nos termos da alínea h) do artigo 15.º do CIVA</field>
+            <field name="description">Tratados e acordos internacionais.</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m38" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M38</field>
+            <field name="name">Isento nos termos da alínea i) do artigo 15.º do CIVA</field>
+            <field name="description">Transporte de pessoas provenientes ou com destino ao estrangeiro.</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m80" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M80</field>
+            <field name="name">Isento nos termos da alínea a) do n.º 1 do artigo 14.º</field>
+            <field name="description">Importação de bens cuja transmissão no território nacional é isenta.</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m81" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M81</field>
+            <field name="name">Isento nos termos da alínea b) do n.º 1 do artigo 14.º</field>
+            <field name="description">Importação de ouro, moedas ou notas pelo Banco Nacional de Angola.</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m82" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M82</field>
+            <field name="name">Isento nos termos da alínea c) do n.º 1 do artigo 14.º</field>
+            <field name="description">Importação de ofertas para calamidades naturais.</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m83" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M83</field>
+            <field name="name">Isento nos termos da alínea d) do n.º 1 do artigo 14.º</field>
+            <field name="description">Importação para operações petrolíferas e mineiras.</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m84" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M84</field>
+            <field name="name">Isento nos termos da alínea e) do n.º 1 do artigo 14.º</field>
+            <field name="description">Importação de moeda estrangeira por instituições financeiras bancárias.</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m85" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M85</field>
+            <field name="name">Isento nos termos da alínea a) do n.º 2 do artigo 14.º</field>
+            <field name="description">Tratados e acordos internacionais.</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m86" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M86</field>
+            <field name="name">Isento nos termos da alínea b) do n.º 2 do artigo 14.º</field>
+            <field name="description">Relações diplomáticas e consulares.</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m90" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M90</field>
+            <field name="name">Isento nos termos da alínea a) do n.º 1 do artigo 16.º</field>
+            <field name="description">Zona franca, entrepostos aduaneiros e lojas francas.</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m91" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M91</field>
+            <field name="name">Isento nos termos da alínea b) do n.º 1 do artigo 16.º</field>
+            <field name="description">Bens expedidos para essas zonas ou depósitos.</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m92" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M92</field>
+            <field name="name">Isento nos termos da alínea c) do n.º 1 do artigo 16.º</field>
+            <field name="description">Transmissões dentro desses regimes.</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m93" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M93</field>
+            <field name="name">Isento nos termos da alínea d) do n.º 1 do artigo 16.º</field>
+            <field name="description">Trânsito, draubaque e importação temporária.</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m00" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M00</field>
+            <field name="name">IVA– Regime Simplificado</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m02" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M02</field>
+            <field name="name">Transmissão de bens e serviço não sujeita</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_m04" model="l10n_ao.tax.exemption.reason">
+            <field name="code">M04</field>
+            <field name="name">IVA – Regime de Exclusão</field>
+            <field name="tax_type">iva</field>
+        </record>
+        <record id="exemption_reason_s01" model="l10n_ao.tax.exemption.reason">
+            <field name="code">S01</field>
+            <field name="name">Isento nos termos do CIS</field>
+            <field name="description">Isenção no âmbito do Código do Imposto do Selo.</field>
+            <field name="tax_type">is</field>
+        </record>
+        <record id="exemption_reason_s02" model="l10n_ao.tax.exemption.reason">
+            <field name="code">S02</field>
+            <field name="name">Isento nos termos do Artigo 28.º do CBF</field>
+            <field name="description">Aumentos de capital (Código dos Benefícios Fiscais).</field>
+            <field name="tax_type">is</field>
+        </record>
+        <record id="exemption_reason_s03" model="l10n_ao.tax.exemption.reason">
+            <field name="code">S03</field>
+            <field name="name">Isento nos termos do Artigo 40.º do CBF</field>
+            <field name="description">Recibo de quitação de Micro Empresas (Código dos Benefícios Fiscais).</field>
+            <field name="tax_type">is</field>
+        </record>
+</odoo>

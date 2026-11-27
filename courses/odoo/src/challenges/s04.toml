@@ -1,0 +1,45 @@
+id = "access-rights"
+title = "Access rights by group"
+points = 40
+difficulty = 2
+main = "{security_file}"
+install = ["l10n_ao", "dxt_check"]
+test_tags = ["/dxt_check"]
+min_tests = 5
+message = "Internal users read the exemption reasons; only account managers change them."
+intro = "Replace the provisional access line with real, group-based rights."
+instructions = '''
+Unit 2 gave `l10n_ao.tax.exemption.reason` a provisional access line: administrators only. Real
+users need more, and less. Rewrite `{security_file}` so that:
+
+- every **internal user** (`base.group_user`) can **read** the reasons — invoices show them;
+- **account managers** (`account.group_account_manager`) can read, create, change and delete
+  them;
+- nobody else (portal users included) has access;
+- the provisional line `access_l10n_ao_tax_exemption_reason_system` is gone.
+
+{format_rule}
+
+The grader logs in as an internal user, an account manager and a portal user, and tries each
+operation.
+'''
+explanation = '''
+Access rights are additive: a user gets the union of the lines of all their groups, and a model
+with no line for a user's groups is closed to them. Record rules (row-level filters) are a
+second layer on top. {format_explanation}
+'''
+
+[vars."18.0"]
+security_file = "l10n_ao/security/ir.model.access.csv"
+format_rule = "In Odoo 18 the file is `security/ir.model.access.csv` (model `ir.model.access`), header `id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink`, the model written as its external id `model_l10n_ao_tax_exemption_reason` and one `0`/`1` column per operation."
+format_explanation = "In Odoo 18 and 19 the rights are `ir.model.access` (one boolean per operation) and row filters are separate `ir.rule` records. Odoo 20 merged both into one model, `ir.access`."
+
+[vars."19.0"]
+security_file = "l10n_ao/security/ir.model.access.csv"
+format_rule = "In Odoo 19 the file is still `security/ir.model.access.csv` (model `ir.model.access`), header `id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink`, the model written as its external id `model_l10n_ao_tax_exemption_reason` and one `0`/`1` column per operation."
+format_explanation = "Odoo 19 still uses `ir.model.access` plus separate `ir.rule` records; Odoo 20 merged them into `ir.access`. (Odoo 19 did change the groups themselves: `res.groups` gained privileges, and the users' field is `group_ids`, no longer `groups_id`.)"
+
+[vars."20.0"]
+security_file = "l10n_ao/security/ir.access.csv"
+format_rule = "Odoo 20 replaced `ir.model.access` (and `ir.rule`) with **`ir.access`**: the file is `security/ir.access.csv`, header `id,name,model_id,group_id/id,operation,domain`. `model_id` is the model's **name** (`l10n_ao.tax.exemption.reason`), `operation` is a subset of `crud` (`r` for read only, `crud` for everything) and `domain` is empty for a plain permission. An `ir.model.access.csv` makes the install fail in Odoo 20 (`KeyError: 'ir.model.access'`)."
+format_explanation = "In Odoo 20 one `ir.access` record is both: with a group it is a *permission* for the operations in `operation`; without a group it is a *restriction* (what a global record rule used to be), and `domain` filters the rows. The CSV of the native modules (e.g. `account/security/ir.access.csv`) shows both kinds."

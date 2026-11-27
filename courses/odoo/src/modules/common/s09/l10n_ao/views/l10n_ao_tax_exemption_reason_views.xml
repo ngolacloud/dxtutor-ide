@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Part of the dxtutor Odoo course (l10n_ao). License: LGPL-3. -->
+<odoo>
+    <record id="l10n_ao_tax_exemption_reason_view_list" model="ir.ui.view">
+        <field name="name">l10n_ao.tax.exemption.reason.list</field>
+        <field name="model">l10n_ao.tax.exemption.reason</field>
+        <field name="arch" type="xml">
+            <list string="Exemption Reasons">
+                <field name="code"/>
+                <field name="name"/>
+                <field name="tax_type"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="l10n_ao_tax_exemption_reason_view_form" model="ir.ui.view">
+        <field name="name">l10n_ao.tax.exemption.reason.form</field>
+        <field name="model">l10n_ao.tax.exemption.reason</field>
+        <field name="arch" type="xml">
+            <form string="Exemption Reason">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="code"/>
+                            <field name="tax_type"/>
+                            <field name="active"/>
+                        </group>
+                        <group>
+                            <field name="name"/>
+                        </group>
+                    </group>
+                    <field name="description" placeholder="What the exemption covers"/>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="l10n_ao_tax_exemption_reason_view_search" model="ir.ui.view">
+        <field name="name">l10n_ao.tax.exemption.reason.search</field>
+        <field name="model">l10n_ao.tax.exemption.reason</field>
+        <field name="arch" type="xml">
+            <search string="Exemption Reasons">
+                <field name="code"/>
+                <field name="name"/>
+                <filter string="IVA" name="iva" domain="[('tax_type', '=', 'iva')]"/>
+                <filter string="Imposto do Selo" name="imposto_selo" domain="[('tax_type', '=', 'is')]"/>
+                <separator/>
+                <filter string="Archived" name="inactive" domain="[('active', '=', False)]"/>
+                <group>
+                    <filter string="Tax Type" name="group_tax_type" domain="[]" context="{'group_by': 'tax_type'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_l10n_ao_tax_exemption_reason" model="ir.actions.act_window">
+        <field name="name">Exemption Reasons (AO)</field>
+        <field name="res_model">l10n_ao.tax.exemption.reason</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <menuitem id="menu_l10n_ao_tax_exemption_reason"
+              name="Exemption Reasons (AO)"
+              parent="account.account_account_menu"
+              action="action_l10n_ao_tax_exemption_reason"
+              groups="account.group_account_manager"
+              sequence="30"/>
+
+    <record id="view_tax_form_inherit_l10n_ao" model="ir.ui.view">
+        <field name="name">account.tax.form.inherit.l10n_ao</field>
+        <field name="model">account.tax</field>
+        <field name="inherit_id" ref="account.view_tax_form"/>
+        <field name="arch" type="xml">
+            <field name="tax_group_id" position="after">
+                <field name="l10n_ao_exemption_reason_id"
+                       invisible="country_code != 'AO' or amount_type != 'percent' or amount != 0"
+                       options="{'no_create': True}"/>
+                <field name="l10n_ao_withholding_threshold"
+                       invisible="country_code != 'AO' or amount_type != 'percent' or amount >= 0"/>
+            </field>
+        </field>
+    </record>
+</odoo>

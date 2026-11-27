@@ -1,0 +1,48 @@
+id = "fiscal-positions"
+title = "Fiscal positions: regimes, cativação, Cabinda and abroad"
+points = 70
+difficulty = 4
+main = "l10n_ao/data/template/account.fiscal.position-ao.csv"
+install = ["l10n_ao", "dxt_check"]
+test_tags = ["/dxt_check"]
+min_tests = 8
+timeout_secs = 900
+message = "Each fiscal position must replace exactly the taxes the instructions list."
+intro = "A fiscal position swaps taxes for a kind of partner — and Odoo 19 turned the mapping around."
+instructions = '''
+Complete `data/template/account.fiscal.position-ao.csv` (the domestic position
+`fp_regime_geral` is there) with:
+
+| id | name | auto_apply | sequence | replaces |
+|---|---|---|---|---|
+| `fp_cativo_50` | Cativo 50% (bancos, seguradoras, telecomunicações) | no | 20 | `iva_sale_14` → `iva_sale_14_cativo50` |
+| `fp_cativo_100` | Cativo 100% (Estado, petrolíferas) | no | 21 | `iva_sale_14` → `iva_sale_14_cativo100` |
+| `fp_fornecedor_exclusao` | Fornecedor em regime de exclusão | no | 30 | the five purchase IVA taxes `iva_purch_14_inv`, `iva_purch_14_fixed`, `iva_purch_14_other`, `iva_purch_7`, `iva_purch_5` → `iva_purch_0_m04` |
+| `fp_fornecedor_simplificado` | Fornecedor em regime simplificado | no | 31 | the same five → `iva_purch_0_m00` |
+| `fp_cabinda` | Cabinda (regime especial, 1%) | no | 40 | `iva_sale_14` → `iva_sale_1_cab`; the three 14% purchase taxes → `iva_purch_1_cab` |
+| `fp_estrangeiro` | Estrangeiro (exportação e serviços de não residentes) | yes (no country) | 50 | `iva_sale_14` and `iva_sale_5` → `iva_sale_0_m30`; `iva_purch_14_other` → `iva_purch_14_reverse` |
+
+{mapping_rule}
+
+A supplier in the regime de exclusão or simplificado charges no IVA, so its bills carry the 0%
+tax with the AGT mention (M04, M00). Cabinda is applied by hand: the CIVA gives the 1% to
+operations in the Cabinda fiscal space, which an address alone does not prove.
+'''
+explanation = '''
+`_get_fiscal_position(partner)` picks the first automatic position (by sequence) whose country
+matches the partner: an Angolan customer gets the domestic one, a Portuguese customer the
+"Estrangeiro" one, which has no country. `map_tax` then swaps taxes, and taxes nobody replaces
+(the withholdings) stay. {mapping_explanation}
+'''
+
+[vars."18.0"]
+mapping_rule = "In Odoo 18 the mapping lives in the fiscal position: the columns `tax_ids/tax_src_id` and `tax_ids/tax_dest_id`, one pair per row; extra pairs go on rows with the other columns empty."
+mapping_explanation = "In Odoo 18 the mapping is a list of `account.fiscal.position.tax` lines (source → destination) on the position."
+
+[vars."19.0"]
+mapping_rule = "Odoo 19 **inverted the mapping**: the position file only has `id,name,auto_apply,country_id,sequence`, and the taxes say where they belong. In `data/template/account.tax-ao.csv` (now with the columns `fiscal_position_ids` and `original_tax_ids`) every tax that some position replaces already lists the positions where it **stays** (`fiscal_position_ids`), and taxes nobody replaces (withholdings, Imposto do Selo, exemptions) list none — valid everywhere; fill the replacement taxes: `fiscal_position_ids` is the position and `original_tax_ids` the comma-separated taxes it replaces (e.g. `iva_purch_0_m04` → `fp_fornecedor_exclusao` / `iva_purch_14_inv,iva_purch_14_fixed,iva_purch_14_other,iva_purch_7,iva_purch_5`)."
+mapping_explanation = "Odoo 19 dropped `account.fiscal.position.tax`: a tax lists the positions it is valid in (`fiscal_position_ids`) and the domestic taxes it replaces there (`original_tax_ids`); a tax with no position is valid everywhere, and the first position matching the company's country is the domestic one. In Odoo 19 a tax that is not replaced stays in any position; Odoo 20 is stricter (see the Odoo 20 track), and this module's data is written for both."
+
+[vars."20.0"]
+mapping_rule = "As in Odoo 19, the mapping is **on the taxes**: the position file only has `id,name,auto_apply,country_id,sequence`. In `data/template/account.tax-ao.csv` (with the columns `fiscal_position_ids` and `original_tax_ids`) every tax that some position replaces already lists the positions where it **stays** (`fiscal_position_ids`), and taxes nobody replaces (withholdings, Imposto do Selo, exemptions) list none — valid everywhere; fill the replacement taxes: `fiscal_position_ids` is the position and `original_tax_ids` the comma-separated taxes it replaces (e.g. `iva_purch_0_m04` → `fp_fornecedor_exclusao` / `iva_purch_14_inv,iva_purch_14_fixed,iva_purch_14_other,iva_purch_7,iva_purch_5`)."
+mapping_explanation = "Odoo 20 keeps 19's inverted mapping and makes it strict, as read in `account/models/partner.py`: in a position, a tax that nothing replaces stays only if that position is in its `fiscal_position_ids` or it has none — so a domestic tax must list every position where it stays, or the 5% IVA would vanish for a bank customer."

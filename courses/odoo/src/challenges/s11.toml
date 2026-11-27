@@ -1,0 +1,45 @@
+id = "partner-nif"
+title = "Partners: the NIF"
+points = 50
+difficulty = 3
+main = "l10n_ao/models/res_partner.py"
+install = ["l10n_ao", "dxt_check"]
+test_tags = ["/dxt_check"]
+min_tests = 4
+message = "An Angolan NIF must be checked in its published formats, and only those."
+intro = "Hook Angola into Odoo's VAT number validation without inventing a checksum."
+instructions = '''
+Odoo validates a partner's tax number by calling `check_vat_<country>` on `res.partner` (or a
+`python-stdnum` module, which has none for Angola). Write `check_vat_ao(self, vat)` in
+`l10n_ao/models/res_partner.py`:
+
+- remove spaces, dots and dashes and upper-case the value;
+- accept a **14-character** number of digits and capital letters — a national's NIF is the
+  number of the Bilhete de Identidade (Decreto Presidencial n.º 245/21, art. 5.º; Lei n.º 4/09,
+  art. 9.º);
+- accept **1 to 15 digits** — the sequential NIF AGT gives to companies and foreigners (its length
+  is not published; the e-invoice allows 15 characters), which also covers the generic
+  final-consumer NIF `999999999`;
+- refuse anything else. **No check digit**: none is published, and inventing one would reject
+  real numbers.
+
+Also set `vat_label` of `base.ao` to `NIF` in `data/res_country_data.xml`, and {dependency_rule}
+'''
+explanation = '''
+Odoo's partner constraint looks up `check_vat_<country code>` by name, so a localization adds a
+country by adding one method — the same way `l10n_br` and `l10n_pt` do. Validating only the
+confirmed format is the honest choice here: the BI's last character is a check digit, but its
+algorithm is not public. {dependency_explanation}
+'''
+
+[vars."18.0"]
+dependency_rule = "add `base_vat` to the manifest's `depends`: in Odoo 18 the `check_vat_<country>` mechanism lives in the `base_vat` module."
+dependency_explanation = "In Odoo 18 and 19 that mechanism is the `base_vat` module, so the localization depends on it."
+
+[vars."19.0"]
+dependency_rule = "add `base_vat` to the manifest's `depends`: in Odoo 19 the `check_vat_<country>` mechanism lives in the `base_vat` module."
+dependency_explanation = "In Odoo 19 the mechanism is still the `base_vat` module (Odoo 20 folds it into `base`)."
+
+[vars."20.0"]
+dependency_rule = "do **not** depend on `base_vat`: Odoo 20 removed that module and moved the VAT checks (and the `check_vat_<country>` lookup) into `base/models/res_partner.py`."
+dependency_explanation = "Odoo 20 removed `base_vat`; `base` itself looks up `check_vat_<country>` (`_check_vat_number`), so the module only depends on `account`."

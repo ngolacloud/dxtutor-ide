@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Part of the dxtutor Odoo course (l10n_ao_hr). License: LGPL-3. -->
+<odoo>
+    <record id="l10n_ao_hr_irt_table_view_list" model="ir.ui.view">
+        <field name="name">l10n_ao_hr.irt.table.list</field>
+        <field name="model">l10n_ao_hr.irt.table</field>
+        <field name="arch" type="xml">
+            <list string="IRT Tables">
+                <field name="name"/>
+                <field name="date_from"/>
+                <field name="date_to"/>
+                <field name="exempt_threshold"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="l10n_ao_hr_irt_table_view_form" model="ir.ui.view">
+        <field name="name">l10n_ao_hr.irt.table.form</field>
+        <field name="model">l10n_ao_hr.irt.table</field>
+        <field name="arch" type="xml">
+            <form string="IRT Table">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                            <field name="exempt_threshold"/>
+                            <field name="active"/>
+                        </group>
+                        <group>
+                            <field name="date_from"/>
+                            <field name="date_to"/>
+                            <field name="source"/>
+                        </group>
+                    </group>
+                    <field name="bracket_ids">
+                        <list editable="bottom">
+                            <field name="lower_limit"/>
+                            <field name="upper_limit"/>
+                            <field name="fixed_amount"/>
+                            <field name="rate"/>
+                            <field name="excess_over"/>
+                        </list>
+                    </field>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_l10n_ao_hr_irt_table" model="ir.actions.act_window">
+        <field name="name">IRT Tables (AO)</field>
+        <field name="res_model">l10n_ao_hr.irt.table</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="l10n_ao_hr_parameter_view_list" model="ir.ui.view">
+        <field name="name">l10n_ao_hr.parameter.list</field>
+        <field name="model">l10n_ao_hr.parameter</field>
+        <field name="arch" type="xml">
+            <list string="Payroll Parameters">
+                <field name="name"/>
+                <field name="code"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="l10n_ao_hr_parameter_view_form" model="ir.ui.view">
+        <field name="name">l10n_ao_hr.parameter.form</field>
+        <field name="model">l10n_ao_hr.parameter</field>
+        <field name="arch" type="xml">
+            <form string="Payroll Parameter">
+                <sheet>
+                    <group>
+                        <field name="name"/>
+                        <field name="code"/>
+                        <field name="description"/>
+                    </group>
+                    <field name="value_ids">
+                        <list editable="bottom">
+                            <field name="date_from"/>
+                            <field name="value"/>
+                            <field name="source"/>
+                        </list>
+                    </field>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_l10n_ao_hr_parameter" model="ir.actions.act_window">
+        <field name="name">Payroll Parameters (AO)</field>
+        <field name="res_model">l10n_ao_hr.parameter</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <menuitem id="menu_l10n_ao_hr_config" name="Angola" parent="hr.menu_human_resources_configuration" sequence="90" groups="hr.group_hr_manager"/>
+    <menuitem id="menu_l10n_ao_hr_irt_table" name="IRT Tables" parent="menu_l10n_ao_hr_config" action="action_l10n_ao_hr_irt_table" sequence="10"/>
+    <menuitem id="menu_l10n_ao_hr_parameter" name="Payroll Parameters" parent="menu_l10n_ao_hr_config" action="action_l10n_ao_hr_parameter" sequence="20"/>
+</odoo>

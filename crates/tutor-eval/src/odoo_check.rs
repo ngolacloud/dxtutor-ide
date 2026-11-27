@@ -52,6 +52,9 @@ const MAX_PROBLEMS: usize = 8;
 const BENIGN_WARNINGS: &[&str] = &[
     // Acompanha sempre um erro de carregamento (que já falha e é mostrado).
     "Transient module states were reset",
+    // A imagem oficial do Odoo 20 (20.0-20261123) não traz o pacote Python `markdown2`: o `mail`
+    // avisa ao carregar, com ou sem o módulo do aluno.
+    "markdown2 is not installed, markdown will not be rendered",
 ];
 
 /// Os addons Enterprise de um passo Enterprise: a pasta da variável da série do passo
@@ -273,6 +276,14 @@ pub(crate) fn run(
     a.push(odoo.name());
     a.extend(odoo_args(spec, &password, enterprise.is_some()));
     let out = sb.exec(&a, timeout)?;
+    // Parar o PostgreSQL já (o `conmon` corre o `container cleanup` dele agora), antes da limpeza
+    // por etiqueta: medido no Podman 4.9.3 com a máquina carregada, um `rm -f -t 0` de um
+    // contentor ainda a correr pode ficar preso contra o `container cleanup` que o próprio `rm`
+    // provoca. Melhor esforço: a limpeza da corrida remove-o de qualquer forma.
+    let _ = sb.exec(
+        &[s("stop"), s("-t"), s("10"), pg_name.clone()],
+        Duration::from_secs(60),
+    );
     let mut log = session.tidy(&format!("{}{}", out.stdout, out.stderr));
     log = log.replace(&password, "***");
     Ok(OdooRun {
