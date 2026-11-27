@@ -1671,6 +1671,17 @@ Testes: `cargo test -p tutor-agent types:: openai:: --test flow`, `cargo test -p
 Testes: `cargo test -p tutor-agent hooks:: permissions:: --test agent_loop`, `cargo test -p dxtutor-ide
 session_start_and_prompt_submit_hooks`.
 
+## MCP por HTTP (H5e, `tutor_agent::mcp`)
+
+Um servidor do `mcp.json` (do utilizador, ou do projecto com confiança) é local (`command`, stdio, dentro da sandbox)
+ou remoto (`url` + `headers`, o transporte «Streamable HTTP»), nunca os dois (`load_config` recusa). Remoto: cada
+mensagem é um `POST` (`Accept: application/json, text/event-stream`, `MCP-Protocol-Version`); a resposta vem em JSON
+ou SSE (`sse_messages` lê até à resposta, um pedido do servidor pelo meio é recusado); a sessão segue no
+`Mcp-Session-Id` e fecha-se com um `DELETE` quando o cliente sai. Só `https`, ou `http` para esta máquina
+(`url_allowed`). `${env:NOME}` nos cabeçalhos lê-se do ambiente do IDE; uma variável em falta é erro, nunca um
+cabeçalho vazio. A ligação é do IDE, fora da sandbox dos comandos. Sem OAuth por agora. Testes: `cargo test -p
+tutor-agent mcp::` (um servidor HTTP falso: sessão, SSE, cabeçalhos, `DELETE`).
+
 ## A ferramenta `ide` e as skills do IDE (H3/H4, `src-tauri/src/ide_tool.rs`, `ide_tool/ops.rs`, `tutor_agent::extensions`)
 
 Decisão D4: o Co-Dev chega ao que o IDE sabe por UMA ferramenta, `ide`, com `action` e `args`, decidida no Rust. Uma
