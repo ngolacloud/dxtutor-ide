@@ -1656,6 +1656,21 @@ sem redimensionar) e o histórico nunca a muda depois. Chega por dois caminhos:
 Testes: `cargo test -p tutor-agent types:: openai:: --test flow`, `cargo test -p tutor-protect redact`,
 `tests/codev.composer.test.ts`, `tests/codev.agent-chat.test.ts`.
 
+## Hooks completos (H5d, `tutor_agent::hooks`, `.dxtutor/hooks.json`, só com confiança)
+
+- **`pre_tool` corre ANTES de o humano ser perguntado** (antes corria depois da aprovação), para cada chamada válida.
+  Exit 2 ou `{"decision":"deny"}` no stdout bloqueia (o humano nem é perguntado; uma escrita em hunks é rejeitada);
+  `{"decision":"ask","reason"}` obriga a perguntar, em qualquer modo; `{"decision":"allow"}` dispensa uma pergunta
+  vulgar. O conselho segue no `PendingCall.hook` (`HookAdvice`) e o `Policy::decide` aplica-o DEPOIS das regras:
+  nunca dispensa uma pergunta perigosa nem desfaz uma recusa (deny, modo plano, sem pedido, issue terminada).
+- **`session_start`** (`{event, source: "new"|"resume"}`): o stdout entra como nota do operador no primeiro pedido
+  (`Session.notes`); falhas são avisos de arranque.
+- **`prompt_submit`** (`{event, prompt}`): exit 2 recusa o pedido antes de tudo (nem a issue começa, nem o modelo é
+  chamado: um aviso e o fim do turno); com exit 0, o stdout segue como nota do operador logo a seguir ao pedido. O
+  `/compact` não passa por ele.
+Testes: `cargo test -p tutor-agent hooks:: permissions:: --test agent_loop`, `cargo test -p dxtutor-ide
+session_start_and_prompt_submit_hooks`.
+
 ## A ferramenta `ide` e as skills do IDE (H3/H4, `src-tauri/src/ide_tool.rs`, `ide_tool/ops.rs`, `tutor_agent::extensions`)
 
 Decisão D4: o Co-Dev chega ao que o IDE sabe por UMA ferramenta, `ide`, com `action` e `args`, decidida no Rust. Uma

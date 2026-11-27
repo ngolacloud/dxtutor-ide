@@ -402,6 +402,26 @@ impl Policy {
     }
 
     pub fn decide(&self, call: &PendingCall) -> Verdict {
+        let v = self.decide_rules(call);
+        // H5d: a pre_tool hook's advice, after the rules: «ask» makes an allowed call ask (every mode); «allow»
+        // spares the human an ordinary question — never a dangerous one, never a refusal
+        match (&call.hook, v) {
+            (Some(crate::agent::HookAdvice::Ask { reason }), Verdict::Allow) => Verdict::Ask {
+                reason: format!("hook do projecto: {reason}"),
+                dangerous: false,
+                suggested_rule: None,
+            },
+            (
+                Some(crate::agent::HookAdvice::Allow { .. }),
+                Verdict::Ask {
+                    dangerous: false, ..
+                },
+            ) => Verdict::Allow,
+            (_, v) => v,
+        }
+    }
+
+    fn decide_rules(&self, call: &PendingCall) -> Verdict {
         let a = call.command.as_deref().map(|c| assess(c, &self.root));
         if let Some(reason) = self.denied(call, a.as_ref()) {
             return Verdict::Deny { reason };
@@ -573,6 +593,7 @@ mod tests {
             read_only,
             command: command.map(String::from),
             hunks: vec![],
+            hook: None,
         }
     }
     fn bash(cmd: &str) -> PendingCall {
@@ -705,6 +726,38 @@ mod tests {
         assert_eq!(kind(&q.decide(&get("https://a.evil.test/"))), "deny");
         assert_eq!(kind(&q.decide(&get("file:///etc/passwd"))), "deny");
         assert_eq!(kind(&q.decide(&get("https://u:p@example.org/"))), "deny");
+    }
+
+    #[test]
+    fn a_hook_advises_after_the_rules_and_never_over_danger_or_a_refusal() {
+        use crate::agent::HookAdvice;
+        let with = |mut c: PendingCall, h: HookAdvice| {
+            c.hook = Some(h);
+            c
+        };
+        let ask = |r: &str| HookAdvice::Ask { reason: r.into() };
+        let allow = || HookAdvice::Allow {
+            reason: "ok".into(),
+        };
+        let p = pol(Mode::Manual, Rules::default());
+        // «allow» spares an ordinary question (Manual asks for every command)
+        assert_eq!(kind(&p.decide(&bash("cargo test"))), "ask");
+        assert_eq!(kind(&p.decide(&with(bash("cargo test"), allow()))), "allow");
+        // never a dangerous one, never a refusal
+        assert_eq!(kind(&p.decide(&with(bash("rm -rf /"), allow()))), "ask!");
+        let mut rules = Rules::default();
+        rules.deny.push("bash:git push".into());
+        let q = pol(Mode::Auto, rules);
+        assert_eq!(kind(&q.decide(&with(bash("git push"), allow()))), "deny");
+        // «ask» makes an allowed call ask, in Auto too, with the hook's reason
+        let r = pol(Mode::Auto, Rules::default());
+        let read = call("read", true, json!({"path": "a"}), None);
+        assert_eq!(kind(&r.decide(&read)), "allow");
+        let v = r.decide(&with(read, ask("lê só com aprovação")));
+        let Verdict::Ask { reason, .. } = v else {
+            panic!("{v:?}")
+        };
+        assert_eq!(reason, "hook do projecto: lê só com aprovação");
     }
 
     #[test]

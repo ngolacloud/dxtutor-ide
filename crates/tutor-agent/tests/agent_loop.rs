@@ -742,3 +742,62 @@ fn compact_now_summarizes_everything_and_claude_is_left_to_the_server() {
         .iter()
         .any(|e| matches!(e, AgentEvent::Notice { text } if text == "nada a compactar")));
 }
+
+// ───── H5d: pre_tool hooks before the human ─────
+
+#[cfg(unix)]
+#[test]
+fn a_pre_tool_hook_blocks_before_the_human_is_asked_and_its_advice_reaches_the_policy() {
+    let d = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(d.path().join(".dxtutor")).unwrap();
+    std::fs::write(
+        d.path().join(".dxtutor/hooks.json"),
+        r#"{"pre_tool":[{"match":"write","command":"echo '{\"decision\":\"deny\",\"reason\":\"use edit\"}'"},
+                        {"match":"read","command":"echo '{\"decision\":\"allow\",\"reason\":\"reads are fine\"}'"}]}"#,
+    )
+    .unwrap();
+    let log: Log = Default::default();
+    let mut h = harness(
+        vec![
+            resp(
+                StopReason::ToolUse,
+                vec![
+                    call("w", "write", json!({"x": "a.rs"})),
+                    call("r", "read", json!({"x": "b.rs"})),
+                ],
+            ),
+            resp(StopReason::EndTurn, vec![text("ok")]),
+        ],
+        vec![probe("write", false, 0, &log), probe("read", true, 0, &log)],
+    );
+    h.agent.hooks = Some(Arc::new(
+        tutor_agent::hooks::Hooks::load(d.path()).unwrap().unwrap(),
+    ));
+    let mut t = Transcript::new();
+    let mut asked: Vec<PendingCall> = vec![];
+    let (r, _) = run(&h, &mut t, Some("muda"), &mut |c| {
+        asked.push(c.clone());
+        Decision::Allow
+    });
+    r.unwrap();
+    // the write never reached the human; the read did, with the hook's advice
+    assert_eq!(
+        asked.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+        ["read"]
+    );
+    assert_eq!(
+        asked[0].hook,
+        Some(tutor_agent::agent::HookAdvice::Allow {
+            reason: "reads are fine".into()
+        })
+    );
+    let res = results_of(&t.messages()[2]);
+    assert_eq!(res[0].0, "w");
+    assert!(
+        res[0].2
+            && res[0]
+                .1
+                .contains("bloqueado por um hook do projecto: use edit")
+    );
+    assert_eq!(res[1], ("r".into(), "read:b.rs".into(), false));
+}
