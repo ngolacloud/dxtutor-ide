@@ -165,6 +165,7 @@ fn a_container_step_is_graded_in_the_sandbox_and_leaves_nothing_behind() {
     let Some(sb) = testing::sandbox_or_skip(&sb_root) else {
         return;
     };
+    let _cleanup = testing::DestroyOnDrop(sb.clone());
     let digest = testing::busybox_image(&sb, IMG).expect("fixture image");
     let images = vec![format!("{IMG}@{digest}")];
     let p = phase(&images);

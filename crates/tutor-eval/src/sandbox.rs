@@ -877,6 +877,18 @@ pub mod testing {
         }
     }
 
+    /// Apaga o sandbox ao cair, mesmo quando um teste falha a meio (as camadas pertencem aos subuids
+    /// e o `TempDir` sozinho não as consegue apagar).
+    pub struct DestroyOnDrop(pub Sandbox);
+
+    impl Drop for DestroyOnDrop {
+        fn drop(&mut self) {
+            if self.0.root().exists() {
+                let _ = self.0.destroy();
+            }
+        }
+    }
+
     /// Constrói `tag` (`localhost/fixture/busybox:1`) no sandbox, offline, e devolve o digest.
     pub fn busybox_image(sb: &Sandbox, tag: &str) -> Result<String> {
         sb.ensure()?;

@@ -37,6 +37,7 @@ fn the_sandbox_runs_limited_labelled_containers_and_cleans_up_after_itself() {
     let Some(sb) = testing::sandbox_or_skip(&root) else {
         return;
     };
+    let _cleanup = testing::DestroyOnDrop(sb.clone());
     let owner_before = owner_db_mtime();
     let v = sb.version().expect("podman --version");
     assert!(v.starts_with("podman version"), "{v}");
