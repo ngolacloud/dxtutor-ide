@@ -41,6 +41,8 @@ import { fetchOpenVsx, searchOpenVsx } from "../platform/tauri/extensions";
 import { bindActions } from "./ext/ui/actions";
 import { toggleLineComment, type ExtensionContributions } from "./ext/domain/contributions";
 import { languageFor } from "./lsp/domain/registry";
+import { toggleBlockComment, toggleLinesWithBlock } from "./lsp/domain/comments";
+import { formatFallback } from "./lsp/fallback";
 import {
   initExs,
   lsGet,
@@ -155,14 +157,21 @@ function vsxSnippet(ta: HTMLTextAreaElement, path: string): boolean {
   return true;
 }
 
-/** Ctrl+/ no editor: comenta/descomenta as linhas da selecção. `true` se mudou. */
-function vsxToggleComment(ta: HTMLTextAreaElement, path: string): boolean {
+/** Ctrl+/ no editor: comenta/descomenta as linhas da selecção; com `block` (Ctrl+Shift+A, LSP P5), o
+ *  Toggle Block Comment. `true` se mudou; `false` se a linguagem não tem esse comentário. */
+function vsxToggleComment(ta: HTMLTextAreaElement, path: string, block = false): boolean {
   const ext = extOf(path);
-  /* sem language-configuration de uma extensão instalada: o marcador do registo de linguagens
+  /* sem language-configuration de uma extensão instalada: os marcadores do registo de linguagens
      (pelo nome do ficheiro — `Dockerfile`, `Makefile` — ou pela extensão, ou pelo shebang) */
-  const marker = contrib.lineCommentFor(ext) || languageFor(path, ta.value)?.lineComment;
-  if (!marker) return false;
-  const r = toggleLineComment(ta.value, ta.selectionStart, ta.selectionEnd, marker);
+  const lang = languageFor(path, ta.value);
+  const marker = contrib.lineCommentFor(ext) || lang?.lineComment;
+  const pair = contrib.blockCommentFor(ext) || lang?.blockComment || null;
+  const r = block
+    ? pair ? toggleBlockComment(ta.value, ta.selectionStart, ta.selectionEnd, pair) : null
+    : marker
+      ? toggleLineComment(ta.value, ta.selectionStart, ta.selectionEnd, marker)
+      : pair ? toggleLinesWithBlock(ta.value, ta.selectionStart, ta.selectionEnd, pair) : null; // HTML, CSS: as linhas num bloco
+  if (!r) return false;
   ta.value = r.text;
   ta.setSelectionRange(r.selStart, r.selEnd);
   return true;
@@ -205,6 +214,8 @@ const engine = makeExtEngine({
   notifier: { toast: m => toast(m) },
   rerender: () => rerExt(),
   contrib,
+  /* LSP P5: o «Format Document» sem servidor só faz o que é seguro, e diz o quê */
+  formatter: { format: (path, text) => formatFallback(path, text) },
 });
 const { extAll, extOn, extCmds, saveExt, extInstall, extRemove, extToggle, loadVsix, formatDoc } = engine;
 

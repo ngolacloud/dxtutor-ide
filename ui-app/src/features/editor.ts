@@ -33,6 +33,7 @@ import { authorOf } from "./scm";
 import { dbgBreaks, dbgCurrent } from "./debug";
 import { services } from "../app/services";
 import { languageFor } from "./lsp/domain/registry";
+import { fallbackHighlighter, fallbackCopy } from "./lsp/fallback";
 
 /* ───── overlay (RF-CODEV-STREAM §8): live Co-Dev hunks drawn over the file ─────
    With an overlay view, the textarea shows the view's text (the file plus the proposed
@@ -64,21 +65,31 @@ function renderFileView(t:{path:string},host:HTMLElement){const f=FS[t.path];hos
     /* Fase 4: snippets e toggle de comentário das extensões VS Code instaladas (feature `ext`). */
     if(e.key==='Tab'&&!e.shiftKey&&window.vsxSnippet&&window.vsxSnippet(ta,t.path)){e.preventDefault();(ta.oninput as any)();return;}
     if((e.ctrlKey||e.metaKey)&&e.key==='/'&&window.vsxToggleComment&&window.vsxToggleComment(ta,t.path)){e.preventDefault();(ta.oninput as any)();return;}
+    /* LSP P5: Toggle Block Comment — Ctrl+Shift+A (o do VS Code no Linux; fora do editor continua a abrir o assistente) ou Shift+Alt+A */
+    if(isBlockCommentKey(e)){e.preventDefault();if(window.vsxToggleComment&&window.vsxToggleComment(ta,t.path,true))ta.oninput?.(new Event('input'));else toast(fallbackCopy('noBlockComment',{lang:languageFor(t.path,ta.value)?.name||fallbackCopy('plainText')}));return;}
     if(e.key==='Tab'){e.preventDefault();if(!document.execCommand('insertText',false,'    '))ta.setRangeText('    ',ta.selectionStart,ta.selectionEnd,'end');(ta.oninput as any)();}};
   ta.onkeyup=ta.onclick=ta.onfocus=()=>stPos();
   bus.emit('editor:file-view',{path:t.path});/* quem decora a vista do ficheiro (p.ex. o aviso de servidor de linguagem em falta) repõe-se aqui */}
 
+/** Ctrl+Shift+A ou Shift+Alt+A (Toggle Block Comment, LSP P5). */
+export function isBlockCommentKey(e:KeyboardEvent):boolean{const a=e.key.toLowerCase()==='a'||e.code==='KeyA';return a&&e.shiftKey&&(((e.ctrlKey||e.metaKey)&&!e.altKey)||(e.altKey&&!e.ctrlKey&&!e.metaKey));}
+
 /* ───── pintor do editor (gutter + realce + minimapa a partir dos diagnósticos) ───── */
-function paintEd(p:string){const f=FS[p],v=VIEWS.get(p)??null,lines=(v?v.text:f.content).split('\n'),dgReal:Record<number,string>={},ext=extOf(p);services.diagnostics!.diagnostics().forEach(d=>{if(d.p===p&&dgReal[d.line]!=='e')dgReal[d.line]=d.sev;});
+/** o último ficheiro pintado: quando a gramática do dxtutor (ou o resto de um ficheiro grande) fica pronta, é ele que se repinta */
+let lastPainted:string|null=null;
+const repaintLater=(p:string)=>()=>{if(lastPainted===p&&FS[p]&&$('#ed-hl'))paintEdFull(p);};
+function paintEd(p:string){lastPainted=p;const f=FS[p],v=VIEWS.get(p)??null,lines=(v?v.text:f.content).split('\n'),dgReal:Record<number,string>={},ext=extOf(p);services.diagnostics!.diagnostics().forEach(d=>{if(d.p===p&&dgReal[d.line]!=='e')dgReal[d.line]=d.sev;});
   /* with an overlay, diagnostics follow the real line numbers; proposed lines have none */
   const dg:Record<number,string>={};lines.forEach((_,i)=>{const r=v?v.lines[i]?.real:i+1;if(r&&dgReal[r])dg[i+1]=dgReal[r];});
   const num=(i:number)=>{if(!v)return String(i+1);const m=v.lines[i];return m&&m.kind==='new'?'+':m&&m.real?String(m.real):'';};
   const hk=(i:number)=>{const m=v&&v.lines[i];return m&&m.kind!=='ctx'?` hk-${m.kind}${m.writing?' hk-writing':''}`:'';};
   $('#ed-gut')!.innerHTML=lines.map((_,i)=>{const c=((dg[i+1]?`g-${dg[i+1]}`:'')+hk(i)).trim();return `<div${c?` class="${c}"`:''}>${num(i)}</div>`;}).join('');
   /* Fase 4: se uma extensão VS Code instalada traz a gramática TextMate da linguagem, o
-     realce é do documento inteiro (com estado entre linhas); senão, o realce de sempre. */
-  const tm=window.vsxHighlight?window.vsxHighlight(ext,lines):null;
-  $('#ed-hl')!.innerHTML=lines.map((l,i)=>`<div class="l${dg[i+1]?' d-'+dg[i+1]:''}${hk(i)}">${(tm?tm[i]:hlLine(l,ext))||' '}</div>`).join('');
+     realce é do documento inteiro (com estado entre linhas); senão, a gramática que o dxtutor traz
+     para a linguagem (LSP P5: incremental; uma linha ainda por fazer fica com o realce de sempre);
+     senão, o realce de sempre. */
+  const tm:Array<string|undefined>|null=(window.vsxHighlight?window.vsxHighlight(ext,lines):null)??fallbackHighlighter.highlight(p,lines,repaintLater(p));
+  $('#ed-hl')!.innerHTML=lines.map((l,i)=>`<div class="l${dg[i+1]?' d-'+dg[i+1]:''}${hk(i)}">${(tm?.[i]??hlLine(l,ext))||' '}</div>`).join('');
   const mm=$('#minimap')!;mm.classList.remove('hidden');$('#ebody')!.classList.add('with-mm');
   mm.innerHTML='<div class="mm-view"></div>'+lines.slice(0,120).map((l,i)=>`<div class="mm-line${dg[i+1]==='e'?' err':''}" style="width:${l.trim()?Math.max(6,Math.min(52,l.length*.9)):0}px"></div>`).join('');
   const ov=editorOverlay.get(),wrap=$('#ed-hl')!.parentElement;if(ov&&wrap)ov.decorate(p,{wrap,hl:$('#ed-hl')!,gut:$('#ed-gut')!},v??null);annotateLine();}

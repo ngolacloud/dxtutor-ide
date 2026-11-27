@@ -24,7 +24,9 @@
    (`workspace:changed`) dá `didClose`; abrir outra pasta (`dx:workspace`) pára os servidores da anterior; a
    paleta lista os servidores a correr (`application/servers`, com «Restart»/«Stop» e «Show log», que abre o
    canal «Language servers» do Output pelo `services.panel`); o tecto de servidores por cumprir é avisado.
-   No browser/testes não arranca: o editor continua exactamente como antes. */
+   No browser/testes não arranca. O que funciona SEM servidor (LSP P5, `fallback.ts`) corre nos dois: o
+   completion por palavras dos ficheiros abertos quando o servidor não sugere nada (aqui), o realce pelas
+   gramáticas do dxtutor (o editor), o «Format Document» seguro e os comentários de bloco (as extensões). */
 
 import { isDesktop } from "../../platform/tauri/core";
 import { bus } from "../../app/bus";
@@ -52,6 +54,10 @@ import { bindFormatHooks } from "./ui/format-hooks";
 import { bindSymbolHooks } from "./ui/symbol-hooks";
 import { bindWorkspaceSymbolHooks } from "./ui/workspace-symbol-hooks";
 import { bindTypeHierarchyHooks } from "./ui/type-hierarchy-hooks";
+import { wordCompletion, fallbackCopy } from "./fallback";
+
+/** LSP P5: as palavras dos ficheiros abertos, quando o servidor não sugere nada. */
+const words = { words: wordCompletion.at, wordsNote: () => fallbackCopy("wordsNote") };
 
 if (isDesktop()) {
   const audit = auditClient();
@@ -123,10 +129,13 @@ if (isDesktop()) {
     },
     enabled: () => !!workspace.diskRoot(),
   });
-  bindCompletionHooks({ completionAt: client.completionAt, enabled: () => !!workspace.diskRoot() });
+  /* com uma pasta, pergunta ao servidor; sem sugestões dele (ou sem pasta), as palavras */
+  bindCompletionHooks({ completionAt: (o, t) => (workspace.diskRoot() ? client.completionAt(o, t) : Promise.resolve(null)), enabled: () => true, ...words });
   bindSignatureHooks({ signatureHelpAt: client.signatureHelpAt, enabled: () => !!workspace.diskRoot() });
   /* Shift+Alt+F: formata pelo servidor; sem ele, o «Format Document» do dxtutor */
   bindFormatHooks({ formatAt: client.formatAt, builtinFormat: editor.builtinFormat, enabled: () => !!workspace.diskRoot() });
+  /* LSP P5: com a tecla ligada aqui, o atalho global não formata antes (sem servidor, o formatAt cai no do dxtutor) */
+  services.lspFormat = { handles: () => !!workspace.diskRoot() };
   /* Ctrl+Shift+O (e a paleta): os símbolos do ficheiro, com filtro */
   const goToSymbol = bindSymbolHooks({
     currentFileKey: workspace.currentFileKey,
@@ -157,4 +166,7 @@ if (isDesktop()) {
     covers: (p) => !!workspace.diskRoot() && !!languageIdFor(p, workspace.text(p)),
     symbols: async (p) => (await client.symbolsFor(p))?.map((s) => ({ k: s.label, n: s.name, line: s.line, d: s.depth })) ?? null,
   };
+} else {
+  /* no browser não há servidor: o completion é só o das palavras */
+  bindCompletionHooks({ completionAt: () => Promise.resolve(null), enabled: () => true, ...words });
 }

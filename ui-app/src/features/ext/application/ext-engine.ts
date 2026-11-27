@@ -5,9 +5,9 @@
    `window`, sem Tauri — tudo o que precisa chega por `deps` (verificado por A7/A8).
 
    Fiel ao comportamento anterior (UI/comportamento congelados): a mesma ordem de
-   efeitos de cada operação, o mesmo registo de comandos, a mesma heurística do
-   formatador. Só mudou a PROVENIÊNCIA das capacidades — antes globais resolvidos
-   pelo bridge, agora injectadas por argumento.
+   efeitos de cada operação, o mesmo registo de comandos. Só mudou a PROVENIÊNCIA das
+   capacidades — antes globais resolvidos pelo bridge, agora injectadas por argumento.
+   O formatador passou a ser o seguro da LSP P5 (`formatter`, injectado).
 
    O estado instalado (`EXS`) continua a atravessar o bridge: `deps.state.read()`
    devolve o objecto JÁ hidratado (window-backed no resíduo) e o motor muta-o no
@@ -31,7 +31,7 @@ export interface ExtEngine {
 }
 
 export function makeExtEngine(deps: ExtDeps): ExtEngine {
-  const { catalogue, remote, state, storage, palette, editor, tabs, vsix, notifier, rerender, contrib } = deps;
+  const { catalogue, remote, state, storage, palette, editor, tabs, vsix, notifier, rerender, contrib, formatter } = deps;
 
   /** Os VSIX instalados + o que se conhece do Open VSX (pesquisa e recomendações), sem repetir ids. */
   const extAll = (): ExtItem[] => { const v = state.read().vsix; return v.concat(catalogue().filter((x) => !v.some((y) => y.id === x.id))); };
@@ -163,9 +163,9 @@ export function makeExtEngine(deps: ExtDeps): ExtEngine {
     }
   }
 
-  /** «Format Document» do dxtutor (Shift+Alt+F): apara espaços finais, normaliza a indentação
-   *  (tabs→4 espaços, excepto Go/Makefile) e a última linha. Não é o Prettier — nunca foi; o
-   *  nome deixou de o fingir (ADR-0006, R6b). */
+  /** «Format Document» do dxtutor (Shift+Alt+F, ou quando o servidor de linguagem não formata): só o
+   *  que é seguro, pelo `formatter` (LSP P5: espaços no fim, a indentação no estilo do próprio ficheiro,
+   *  a quebra de linha final; nunca reescreve código), e o aviso diz o que fez. Não é o Prettier. */
   function formatDoc(): void {
     const t = editor.tabOf(editor.current());
     if (!t || t.kind !== "file" || !t.path) {
@@ -173,21 +173,12 @@ export function makeExtEngine(deps: ExtDeps): ExtEngine {
       return;
     }
     const f = editor.files()[t.path];
-    const ext = editor.extOf(t.path);
-    const keepTabs = ext === "go" || /Makefile$/.test(t.path);
-    const c = f.content
-      .split("\n")
-      .map(l => l.replace(/\s+$/, ""))
-      .map(l => (keepTabs ? l : l.replace(/^\t+/, m => "    ".repeat(m.length))))
-      .join("\n")
-      .replace(/\n*$/, "\n");
-    if (c === f.content) {
-      notifier.toast("Already formatted");
-      return;
+    const r = formatter.format(t.path, f.content);
+    if (r.changed) {
+      f.content = r.text;
+      editor.refresh();
     }
-    f.content = c;
-    editor.refresh();
-    notifier.toast("Formatted (trailing spaces, indentation, final newline)");
+    notifier.toast(r.message);
   }
 
   return { extAll, extOn, extCmds, saveExt, extInstall, extRemove, extToggle, loadVsix, formatDoc };

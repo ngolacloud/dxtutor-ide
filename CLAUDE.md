@@ -971,9 +971,9 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
   LINHAS pedidas e, logo após uma edição, espera (até 2 s) pelos diagnósticos do texto novo.
 - **Formatação** (`domain/formatting.ts`, `ui/format-hooks.ts`, comando `lsp_format`): Shift+Alt+F
   no editor formata o documento (ou só a selecção, por `rangeFormatting`) pelo servidor, com o
-  cursor entre os mesmos caracteres visíveis. A tecla é apanhada na fase de captura, antes do
-  atalho global do «Format Document» do dxtutor (`features/shortcuts.ts`), que continua a correr
-  quando não há servidor ou ele não formata o documento. O kotlin-language-server (ktfmt) não
+  cursor entre os mesmos caracteres visíveis. Com o formatador ligado (desktop com pasta), o atalho
+  global do «Format Document» do dxtutor (`features/shortcuts.ts`) cede-lhe a tecla
+  (`services.lspFormat`, LSP P5) e só corre quando não há servidor ou ele não formata o documento. O kotlin-language-server (ktfmt) não
   formata selecções: a UI avisa e não mexe no texto.
 - **Símbolos do ficheiro** (`domain/symbols.ts`, `ui/symbol-hooks.ts` + `showSymbolPicker` em
   `ui/popups.ts`, comando `lsp_document_symbols`): Ctrl+Shift+O no editor, ou «Go to Symbol in Editor…»
@@ -1033,6 +1033,25 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
   reiniciar. apt e brew só se mostram (o apt pede sudo: o dxtutor nunca os corre). Um servidor instalado assim arranca
   com o `GEM_PATH`/`DOTNET_ROOT` de que precisa (`lspinstall::launch_env`). Testes: `cargo test -p tutor-eval langreg
   lspinstall` (gestores falsos num PATH temporário, servidor HTTP falso para o checksum) e `tests/lsp.install.test.ts`.
+- **Sem servidor de linguagem (LSP P5, `lsp/fallback.ts`; browser e app):**
+  - **Gramáticas do dxtutor:** `languages/grammars/` (Python/MagicPython e Dockerfile, 104 186 bytes) — o ficheiro EXACTO do
+    VS Code (tag 1.148.0), fixado por sha256 no `manifest.json`, licenças em `THIRD-PARTY-NOTICES.md`;
+    `npm run grammars:verify` descarrega e confere (`grammars:check` só os ficheiros). O `paintEd` pergunta primeiro ao
+    `vsxHighlight` (uma extensão ganha), depois ao `application/fallback-highlight.ts`: `import()` por gramática e realce
+    INCREMENTAL (HTML e estado do tokenizador por linha; ≤ 300 linhas por pintura, o resto em pedaços e repinta) — o
+    tokenizador custa ~0,25 ms/linha. Ficaram de fora Go, Java, C/C++, C#, Swift, Shell, Makefile, Ruby, Lua, Dart e CSS:
+    o «lite» não acaba regras em `\n` nem conhece o `\G` (um comentário pintava o resto do ficheiro). Gramática nova =
+    entrada no manifesto + linha no `infrastructure/grammars.ts` + teste num excerto real.
+  - **Palavras:** sem sugestões do servidor (ou sem servidor/pasta), os ganchos do completion pedem as palavras dos ficheiros
+    abertos (`application/word-completion.ts`, `domain/words.ts`): a mesma lista e teclas, com a linha `.lsp-c-note`;
+    nunca misturadas com as do servidor; não abre sozinha em Markdown/sem linguagem.
+  - **Comentários:** `blockComment` no registo (`[abre, fecha]`, `langreg::validate`). Ctrl+Shift+A/Shift+Alt+A no editor de
+    um ficheiro = Toggle Block Comment (`domain/comments.ts`, como o VS Code; fora do editor continua o assistente); o
+    Ctrl+/ de uma linguagem sem `lineComment` comenta as linhas num bloco. A language-configuration de uma extensão ganha.
+  - **Formatar:** o `formatDoc` usa o `domain/safe-format.ts`: espaços no fim, re-indentação no estilo do próprio ficheiro,
+    quebra final; nunca reescreve código; não mexe onde o espaço é sintaxe (Markdown, Makefile, shell, YAML, Haskell,
+    `.diff`); o aviso diz o que fez. GOTCHA-ordem: o listener do atalho global regista-se antes do do servidor no mesmo nó
+    e corriam os dois; agora, com o formatador do servidor ligado, o global cede-lhe (`services.lspFormat`).
 - Os diagnósticos já chegavam ao Problems e ao gutter pelo `features/panel`. O backend usa a pasta
   aberta como raiz de reserva de um ficheiro sem marcador de projecto (o SQL não tem nenhum).
 - **Recursos (LSP P6, `src-tauri/src/lsp/lifecycle.rs`, módulo filho do `lsp.rs`):** um servidor pára com

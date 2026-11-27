@@ -82,6 +82,9 @@ export interface Services {
   proposals: Pick<typeof CodevIndex, "proposeInEditor">;
   /** r23 F4c2: o deploy guiado (features/deploy, que avalia depois da infra): o «Promote»/«Redeploy» abrem-no */
   deploy: { open: (env: string) => void; recent: () => DeployRecord[] };
+  /** LSP P5: o Shift+Alt+F do editor é do formatador do servidor de linguagem (features/lsp, só desktop com pasta), que
+   *  cai no «Format Document» do dxtutor quando não há servidor; os atalhos globais, que avaliam antes, perguntam-lhe */
+  lspFormat: { handles: () => boolean };
   /** r23 F4c/F5a: the Vault the IDE is signed in to (features/vault, que avalia depois do Ops), null otherwise */
   vault: { signedIn: () => { addr: string; namespace: string | null } | null };
 }

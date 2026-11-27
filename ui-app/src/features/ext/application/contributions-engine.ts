@@ -63,6 +63,8 @@ export interface ContribEngine {
     | { prefix: string; expansion: Expansion }
     | null;
   lineCommentFor(fileExt: string): string | null;
+  /** O `blockComment` (`[abre, fecha]`) da language-configuration de uma extensão instalada (LSP P5). */
+  blockCommentFor(fileExt: string): [string, string] | null;
   languageServerFor(extId: string): { language: string; server: string } | undefined;
 }
 
@@ -179,11 +181,18 @@ export function makeContribEngine(deps: ContribDeps): ContribEngine {
     return { prefix: m.prefix, expansion: expandSnippet(m.snippet.body, ctx, indent, tab) };
   }
 
-  function lineCommentFor(fileExt: string): string | null {
+  function configFor(fileExt: string): LanguageConfig | undefined {
     const lang = language(fileExt);
     let cfg: LanguageConfig | undefined;
     for (const c of list()) cfg ??= c.configs.find(x => x.language === lang)?.config;
-    return cfg?.lineComment || null;
+    return cfg;
+  }
+
+  const lineCommentFor = (fileExt: string): string | null => configFor(fileExt)?.lineComment || null;
+
+  function blockCommentFor(fileExt: string): [string, string] | null {
+    const b = configFor(fileExt)?.blockComment;
+    return b && b[0] && b[1] ? b : null;
   }
 
   return {
@@ -199,6 +208,7 @@ export function makeContribEngine(deps: ContribDeps): ContribEngine {
     snippetsFor,
     expandAt,
     lineCommentFor,
+    blockCommentFor,
     languageServerFor: id => KNOWN_LANGUAGE_SERVERS[id.toLowerCase()],
   };
 }

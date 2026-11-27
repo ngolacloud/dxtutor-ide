@@ -7,6 +7,9 @@
    na fase de CAPTURA do `document`, antes do `onkeydown` do editor (que usaria o Tab para
    indentar ou para os snippets das extensões). Aceitar aplica o item ao texto da textarea e
    dispara `input` — o editor actualiza o `FS`, repinta, e o servidor recebe o `didChange`.
+   Sem sugestões do servidor (não há servidor, ou respondeu sem nenhuma), as palavras dos ficheiros
+   abertos (LSP P5, `words`): a mesma lista e as mesmas teclas, com uma linha a dizer que são palavras;
+   nunca se juntam às do servidor. Uma palavra igual ao que já está escrito não aparece.
    Não toca em `window`. */
 
 import { applyCompletion, autoTrigger, filterCompletions, type CompletionItem } from "../domain/completion";
@@ -18,6 +21,11 @@ import { closeCompletions, completionOpen, moveCompletion, selectedCompletion, s
 export interface CompletionHooksDeps {
   completionAt(offset: number, triggerCharacter: string | null): Promise<CompletionResult | null>;
   enabled(): boolean;
+  /** LSP P5: as palavras dos ficheiros abertos para o nome que acaba em `offset` de `text`, quando o
+   *  servidor não sugere nada (`explicit`: Ctrl+Espaço) */
+  words?(text: string, offset: number, explicit: boolean): CompletionResult | null;
+  /** a linha por cima da lista de palavras */
+  wordsNote?(): string;
 }
 
 const KEY = "__lspCompletionHooks__";
@@ -32,7 +40,7 @@ export function bindCompletionHooks(d: CompletionHooksDeps): void {
   doc[KEY]?.();
 
   /** A sessão aberta: as sugestões do servidor e onde começa o nome a completar. */
-  let session: { all: CompletionItem[]; incomplete: boolean; wordStart: number } | null = null;
+  let session: { all: CompletionItem[]; incomplete: boolean; wordStart: number; words: boolean } | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let seq = 0;
   let applying = false;
@@ -57,18 +65,25 @@ export function bindCompletionHooks(d: CompletionHooksDeps): void {
     if (caret < session.wordStart) return close();
     const prefix = ta.value.slice(session.wordStart, caret);
     if (/[^\p{L}\p{N}_$]/u.test(prefix)) return close();
-    const shown = filterCompletions(session.all, prefix);
+    // uma palavra igual ao que já está escrito não acrescenta nada (e o Enter seria dela, não da linha nova)
+    const shown = filterCompletions(session.all, prefix).filter((i) => !session!.words || i.label !== prefix);
     if (!shown.length) return close();
     const p = place(ta, session.wordStart);
-    showCompletions(shown, p.x, p.y, (item) => accept(ta, item));
+    showCompletions(shown, p.x, p.y, (item) => accept(ta, item), session.words ? (d.wordsNote?.() ?? "") : undefined);
   };
 
-  const request = async (ta: HTMLTextAreaElement, trigger: string | null): Promise<void> => {
+  const request = async (ta: HTMLTextAreaElement, trigger: string | null, explicit = false): Promise<void> => {
     const mine = ++seq;
     const res = await d.completionAt(ta.selectionStart, trigger);
     if (mine !== seq || document.activeElement !== ta) return; // entretanto escreveu-se mais / saiu
-    if (!res || !res.items.length) return close();
-    session = { all: res.items, incomplete: res.incomplete, wordStart: res.wordStart };
+    if (res && res.items.length) {
+      session = { all: res.items, incomplete: res.incomplete, wordStart: res.wordStart, words: false };
+      return refresh(ta);
+    }
+    // o servidor não sugeriu nada (ou não há servidor): as palavras dos ficheiros abertos
+    const w = d.words?.(ta.value, ta.selectionStart, explicit) ?? null;
+    if (!w || !w.items.length) return close();
+    session = { all: w.items, incomplete: false, wordStart: w.wordStart, words: true };
     refresh(ta);
   };
 
@@ -106,7 +121,7 @@ export function bindCompletionHooks(d: CompletionHooksDeps): void {
     if ((e.ctrlKey || e.metaKey) && (e.key === " " || e.code === "Space")) {
       e.preventDefault();
       e.stopPropagation();
-      void request(ta, null);
+      void request(ta, null, true);
       return;
     }
     if (!completionOpen()) return;

@@ -124,7 +124,7 @@ declare global {
        toggle de comentário (Ctrl+/); ausentes no harness, por isso opcionais. */
     vsxHighlight?: (ext: string, lines: string[]) => string[] | null;
     vsxSnippet?: (ta: HTMLTextAreaElement, path: string) => boolean;
-    vsxToggleComment?: (ta: HTMLTextAreaElement, path: string) => boolean;
+    vsxToggleComment?: (ta: HTMLTextAreaElement, path: string, block?: boolean) => boolean;
     /* feature `palette` (migrada de app.ts): paleta de comandos / quick open. O estado
        é window-backed porque o resíduo boot/keydown de app.ts o lê por nome livre:
        boot usa PIDX/PITEMS + palDraw/palRun, o keydown usa closePal. */
