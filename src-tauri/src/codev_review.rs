@@ -834,9 +834,12 @@ fn brief(r: &Review, title: &str, dod: &[String], root: &str) -> Result<String, 
 /// `review_verdict`: the reviewer's answer. Checked before it is kept: every criterion once, a
 /// known status, real evidence (a file and lines of the candidate, a test it contains, a check that
 /// ran), and the overall verdict consistent with the criteria.
+/// Says whether a piece of evidence is real (`Err`: why not).
+type EvidenceCheck = Box<dyn Fn(&Evidence) -> Result<(), String> + Send + Sync>;
+
 pub struct ReviewVerdictTool {
     criteria: Vec<String>,
-    evidence_ok: Box<dyn Fn(&Evidence) -> Result<(), String> + Send + Sync>,
+    evidence_ok: EvidenceCheck,
     pub verdict: Arc<Mutex<Option<Verdict>>>,
 }
 
@@ -871,7 +874,7 @@ impl ReviewVerdictTool {
                 "test" => {
                     let name = e.reference.trim();
                     let last = name
-                        .rsplit(|c: char| c == ':' || c == '.' || c == '/' || c == ' ' || c == '#')
+                        .rsplit([':', '.', '/', ' ', '#'])
                         .find(|s| !s.is_empty())
                         .unwrap_or(name);
                     if gi::mentions(&root, &commit, last)
@@ -1175,14 +1178,14 @@ pub fn integrate(
         dir,
         &tutor_protect::scan::Scope::Between(&review.tips.base, &review.candidate),
     )
-    .map_err(&fail)?;
+    .map_err(fail)?;
     let gtips = gi::Tips {
         target: review.tips.target.clone(),
         base: review.tips.base.clone(),
         branch: review.tips.branch.clone(),
         head: review.tips.head.clone(),
     };
-    let commit = gi::integrate(dir, key, &gtips, &review.candidate).map_err(&fail)?;
+    let commit = gi::integrate(dir, key, &gtips, &review.candidate).map_err(fail)?;
     let _ = record(
         db,
         root,
