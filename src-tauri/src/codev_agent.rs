@@ -68,6 +68,8 @@ pub struct StartSpec {
     /// Toolset 11: as ferramentas das sessões de backlog (`backlog_propose`, `project_propose`),
     /// só nas sessões com `backlog`.
     pub host_tools_v11: Vec<Arc<dyn Tool>>,
+    /// Toolset 13 (H3): the host tools of every session from this version (`ide`).
+    pub host_tools_v13: Vec<Arc<dyn Tool>>,
     /// Ficheiro de confiança (hooks/MCP do projecto). `None` = nada é confiado (o adaptador
     /// passa `~/.config/dxtutor/trusted.json`).
     pub trust_store: Option<PathBuf>,
@@ -102,6 +104,110 @@ pub struct StartSpec {
     /// worktrees (`tutor_eval::gitwork::codev::find`), never from a path the UI typed; only with
     /// `issue_key`. Ignored on a resume (the saved one counts). `None`: `root` itself, as always.
     pub worktree: Option<PathBuf>,
+    /// H1: `Some(false)` runs the agent's commands without the OS sandbox (the tests that need it);
+    /// `None`/`Some(true)`: the sandbox, when this machine has it.
+    pub sandbox: Option<bool>,
+    /// H2: the project of the workspace the session works in (relative to `root`; `None` or `"."`: the whole
+    /// workspace). Its test/lint commands replace `test_cmd`/`lint_cmd`, its instruction files join the
+    /// root's, and a chat request may change only its files without asking. Ignored on a resume.
+    pub project: Option<String>,
+}
+
+/// H1: the OS sandbox of a session (`None`: off by the spec, by a trusted project file, or not
+/// available on this machine — then a notice says so). A project file that loosens it (network on,
+/// sandbox off, a folder outside the project writable) counts only when the person trusted it, as it
+/// is — in a worktree, only when its copy is the trusted one byte for byte.
+fn session_sandbox(
+    root: &Path,
+    work_root: &Path,
+    spec: &StartSpec,
+    notes: &mut Vec<String>,
+) -> (
+    Option<Arc<tutor_agent::os_sandbox::OsSandbox>>,
+    Option<tutor_agent::net_proxy::Proxy>,
+) {
+    use tutor_agent::os_sandbox::{self, SandboxConfig, CONFIG_FILE};
+    if spec.sandbox == Some(false) {
+        return (None, None);
+    }
+    let mut cfg = match SandboxConfig::load(work_root) {
+        Ok(c) => c.unwrap_or_default(),
+        Err(e) => {
+            notes.push(format!("{e} — a sandbox fica com as regras por omissão"));
+            SandboxConfig::default()
+        }
+    };
+    if cfg.loosens(work_root) {
+        let trusted = spec
+            .trust_store
+            .as_deref()
+            .is_some_and(|st| trust::is_trusted(st, root, CONFIG_FILE))
+            && (work_root == root
+                || std::fs::read(root.join(CONFIG_FILE)).ok()
+                    == std::fs::read(work_root.join(CONFIG_FILE)).ok());
+        if !trusted {
+            notes.push(format!(
+                "o {CONFIG_FILE} do projecto afrouxa a sandbox (rede, desligar ou pastas de fora) e ainda não o confiaste — vale a sandbox por omissão; vê /comandos"
+            ));
+            cfg = SandboxConfig {
+                writable: cfg
+                    .writable
+                    .into_iter()
+                    .filter(|w| !w.contains("..") && !Path::new(w).is_absolute())
+                    .collect(),
+                ..Default::default()
+            };
+        }
+    }
+    if cfg.enabled == Some(false) {
+        notes.push(format!("sandbox desligada pelo {CONFIG_FILE} do projecto (confiado): os comandos correm sem ela"));
+        return (None, None);
+    }
+    match os_sandbox::available() {
+        Ok(bwrap) => {
+            let home = std::env::var_os("HOME").map(PathBuf::from);
+            let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from);
+            let sb = os_sandbox::OsSandbox::for_project(
+                &bwrap,
+                work_root,
+                home.as_deref(),
+                runtime.as_deref(),
+                &cfg,
+            );
+            if sb.network {
+                notes.push(format!(
+                    "a rede está ligada para os comandos deste projecto ({CONFIG_FILE})"
+                ));
+            }
+            // H1b: only the allowed domains, through a proxy outside the sandbox
+            if cfg.network.as_deref() == Some("allowlist") && !cfg.allow_domains.is_empty() {
+                let dir = std::env::temp_dir().join(format!("dxtutor-net-{}", new_id()));
+                let allow = tutor_agent::net_proxy::Allowlist::new(&cfg.allow_domains, &[]);
+                match (tutor_agent::net_proxy::Proxy::start(&dir, allow), std::env::current_exe()) {
+                    (Ok(proxy), Ok(exe)) => {
+                        notes.push(format!(
+                            "a rede dos comandos deste projecto só chega a: {} ({CONFIG_FILE})",
+                            cfg.allow_domains.join(", ")
+                        ));
+                        let net = os_sandbox::NetBridge {
+                            dir,
+                            bridge: vec![exe.into_os_string()],
+                            denied: proxy.denied_log(),
+                        };
+                        return (Some(Arc::new(sb.with_net(net))), Some(proxy));
+                    }
+                    (Err(e), _) | (_, Err(e)) => notes.push(format!(
+                        "a lista de domínios do {CONFIG_FILE} não arrancou ({e}): a rede fica desligada"
+                    )),
+                }
+            }
+            (Some(Arc::new(sb)), None)
+        }
+        Err(why) => {
+            notes.push(format!("sem sandbox do sistema nesta máquina ({why}): os comandos do Co-Dev correm sem ela"));
+            (None, None)
+        }
+    }
 }
 
 /// Prefixo do erro de um modelo sem tool calling nativo: a UI reconhece-o e recua para o
@@ -283,6 +389,8 @@ struct Session {
     project_root: PathBuf,
     /// The worktree's project folder when the session works in one (= `agent.ctx.root`).
     worktree: Option<PathBuf>,
+    /// H2: the project of the workspace (relative), from the session's meta.
+    project: Option<String>,
     agent: Agent,
     transcript: Mutex<Transcript>,
     busy: AtomicBool,
@@ -299,6 +407,8 @@ struct Session {
     /// editada, por isso o que muda entre turnos vai como mensagem `system`.
     notes: Mutex<Vec<String>>,
     /// Avisos do arranque para o humano (MCP que falhou, hooks por confiar…).
+    /// H1b: the allowlist proxy of this session's sandbox (stops with the session).
+    _net_proxy: Option<tutor_agent::net_proxy::Proxy>,
     startup_notices: Vec<String>,
     /// Live hunks on ([`StartSpec::review_edits`]).
     review_edits: bool,
@@ -681,18 +791,42 @@ pub fn start(
                 Some(w) => Some(worktree_of(&root, w, spec.issue_key.as_deref())?),
                 None => None,
             };
+            // H2: the project of the workspace, with its commands
+            let base = worktree.clone().unwrap_or_else(|| root.clone());
+            let ws = tutor_agent::workspace::detect(&base);
+            let project = session_project(&base, spec.project.as_deref())?;
+            let wsp = project
+                .as_deref()
+                .and_then(|p| ws.projects.iter().find(|x| x.path == p));
+            let in_project = |c: &Option<String>| -> Option<String> {
+                let p = project.as_deref()?;
+                c.as_deref()
+                    .map(|c| format!("cd {} && {c}", shell_quote(p)))
+            };
+            let (test_cmd, lint_cmd) = match &project {
+                Some(_) => (
+                    in_project(&wsp.and_then(|w| w.test.clone())),
+                    in_project(&wsp.and_then(|w| w.lint.clone())),
+                ),
+                None => (
+                    spec.test_cmd.clone().filter(|c| !c.trim().is_empty()),
+                    spec.lint_cmd.clone().filter(|c| !c.trim().is_empty()),
+                ),
+            };
             let meta = SessionMeta {
                 id: new_id(),
                 root: root_s.clone(),
                 model: resolve_model(&provider, spec.model.as_deref()),
                 effort: parse_effort(spec.effort.as_deref()).as_str().to_string(),
-                system: session_system(
-                    worktree.as_deref().unwrap_or(&root),
+                system: session_system_for(
+                    &base,
                     spec.review_edits,
                     ReplyLang::from_ui(spec.lang.as_deref()),
+                    &ws,
+                    project.as_deref(),
                 ),
-                test_cmd: spec.test_cmd.clone().filter(|c| !c.trim().is_empty()),
-                lint_cmd: spec.lint_cmd.clone().filter(|c| !c.trim().is_empty()),
+                test_cmd,
+                lint_cmd,
                 compaction: provider_features(&provider).compaction,
                 created: session::now(),
                 toolset: TOOLSET_VERSION,
@@ -701,6 +835,7 @@ pub fn start(
                 lang: spec.lang.clone().filter(|l| !l.trim().is_empty()),
                 scopes: session_scopes(&spec),
                 worktree: worktree.map(|w| w.display().to_string()),
+                project,
             };
             (meta, Transcript::new(), None)
         }
@@ -730,10 +865,17 @@ pub fn start(
     // servidores MCP: ligam-se sempre; numa sessão nova as definições anunciadas ficam
     // gravadas, numa retoma usam-se as gravadas (o prefixo do pedido não pode mudar)
     let mut notes = vec![];
+    // H1: what the agent runs (bash, run_tests/lint, hooks, MCP servers) runs in the OS sandbox of the
+    // folder it works in; H1b: with the project's domain allowlist, through a proxy kept by the session
+    let (sandbox, net_proxy) = session_sandbox(&root, &work_root, &spec, &mut notes);
     let mut meta = meta;
     let new_session = log.is_none();
     let connected = if meta.toolset >= 3 {
-        let (tools, mut n) = mcp::connect_all(&mcp_servers(&root, &spec, &mut notes), &work_root);
+        let (tools, mut n) = mcp::connect_all_in(
+            &mcp_servers(&root, &spec, &mut notes),
+            &work_root,
+            sandbox.as_deref(),
+        );
         notes.append(&mut n);
         tools
     } else {
@@ -825,6 +967,7 @@ pub fn start(
             lint_cmd: meta.lint_cmd.clone(),
             files: files.clone(),
             issue: meta.has_scope(session::SCOPE_ISSUE),
+            sandbox: sandbox.clone(),
             ..Default::default()
         },
         meta.toolset,
@@ -851,7 +994,7 @@ pub fn start(
                     == std::fs::read(work_root.join(HOOKS_FILE)).ok();
             if same {
                 match Hooks::load(&work_root) {
-                    Ok(h) => agent.hooks = h.map(Arc::new),
+                    Ok(h) => agent.hooks = h.map(|h| Arc::new(h.sandboxed(sandbox.clone()))),
                     Err(e) => notes.push(e),
                 }
             } else {
@@ -874,6 +1017,7 @@ pub fn start(
         id: id.clone(),
         project_root: root.clone(),
         worktree: meta.worktree.as_ref().map(PathBuf::from),
+        project: meta.project.clone(),
         agent,
         transcript: Mutex::new(transcript),
         busy: AtomicBool::new(false),
@@ -884,6 +1028,7 @@ pub fn start(
         flow,
         notes: Mutex::new(vec![]),
         startup_notices: notes,
+        _net_proxy: net_proxy,
         review_edits: spec.review_edits,
         checks,
         review: Mutex::new(HashMap::new()),
@@ -958,11 +1103,13 @@ fn session_host_tools(spec: &StartSpec, meta: &SessionMeta) -> Vec<Arc<dyn Tool>
     // toolset 11: only the sessions that started as backlog sessions (never an older one)
     let backlog = toolset >= 11 && meta.scopes.iter().any(|s| s == session::SCOPE_BACKLOG);
     let v11 = spec.host_tools_v11.iter().filter(|_| backlog);
+    let v13 = spec.host_tools_v13.iter().filter(|_| toolset >= 13);
     spec.host_tools
         .iter()
         .chain(v4)
         .chain(v8)
         .chain(v11)
+        .chain(v13)
         .cloned()
         .collect()
 }
@@ -997,6 +1144,13 @@ pub fn send(
         let o = origin.map(|mut o| {
             o.by = crate::board::actor(&s.project_root.display().to_string());
             o.scope.retain(|p| !p.trim().is_empty());
+            // H2: a chat (or editor) request in a project's session changes that project's files; outside
+            // it, the policy asks (RF-G03)
+            if o.scope.is_empty() && o.issue.is_none() {
+                if let Some(p) = &s.project {
+                    o.scope = vec![format!("{p}/**")];
+                }
+            }
             o
         });
         // a new request needs its own plan, answers the last question and starts a new issue run
@@ -2403,6 +2557,54 @@ pub const REVIEW_EDITS_NOTE: &str = "No IDE, as tuas alterações aparecem no ed
 
 /// The system prompt of a new session; with live hunks, the core block also carries
 /// [`REVIEW_EDITS_NOTE`]. It is saved with the session, so a resume keeps it byte for byte.
+/// H2: the project a new session works in — a folder inside the workspace, or `None` for the whole of it.
+fn session_project(base: &Path, p: Option<&str>) -> Result<Option<String>, String> {
+    let Some(p) = p
+        .map(|p| p.trim().trim_start_matches("./").trim_end_matches('/'))
+        .filter(|p| !p.is_empty() && *p != ".")
+    else {
+        return Ok(None);
+    };
+    if p.starts_with('/') || p.contains('\\') || p.split('/').any(|s| s == ".." || s.is_empty()) {
+        return Err(format!("o projecto «{p}» não é uma pasta do workspace"));
+    }
+    if !base.join(p).is_dir() {
+        return Err(format!("o projecto «{p}» não existe no workspace"));
+    }
+    Ok(Some(p.to_string()))
+}
+
+/// A path for `sh`: single-quoted.
+fn shell_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+/// The system prompt of a new session in a workspace: the core and the root's instructions, then (H2) the
+/// project's own instruction files and the workspace's projects (only when there are several), with the
+/// cache breakpoint on the last block.
+fn session_system_for(
+    root: &Path,
+    review_edits: bool,
+    lang: ReplyLang,
+    ws: &tutor_agent::workspace::Workspace,
+    project: Option<&str>,
+) -> Vec<(String, bool)> {
+    let mut v = session_system(root, review_edits, lang);
+    if let Some(p) = project {
+        if let Some(text) = tutor_agent::context::project_instructions(&root.join(p)) {
+            v.push((format!("Instructions of the project `{p}`:\n{text}"), false));
+        }
+    }
+    if let Some(block) = tutor_agent::workspace::prompt_block(ws, Some(project.unwrap_or("."))) {
+        v.push((block, false));
+    }
+    let n = v.len();
+    for (i, b) in v.iter_mut().enumerate() {
+        b.1 = i + 1 == n;
+    }
+    v
+}
+
 fn session_system(root: &Path, review_edits: bool, lang: ReplyLang) -> Vec<(String, bool)> {
     let mut v: Vec<(String, bool)> = tutor_agent::context::system_prompt_in(root, lang)
         .into_iter()
@@ -2779,6 +2981,8 @@ pub struct ExtensionsStatus {
     pub skills: Vec<Skill>,
     pub hooks: FileTrust,
     pub mcp: FileTrust,
+    /// H1: `.dxtutor/sandbox.json` (only what loosens the sandbox needs trust).
+    pub sandbox: FileTrust,
     /// Nomes dos servidores MCP configurados (utilizador + projecto).
     pub mcp_servers: Vec<String>,
 }
@@ -2809,9 +3013,10 @@ pub fn extensions_status(
     servers.dedup();
     ExtensionsStatus {
         commands: extensions::all_commands(&root),
-        skills: extensions::skills(&root),
+        skills: extensions::all_skills(&root),
         hooks: file(HOOKS_FILE),
         mcp: file(mcp::PROJECT_FILE),
+        sandbox: file(tutor_agent::os_sandbox::CONFIG_FILE),
         mcp_servers: servers,
     }
 }
@@ -2822,6 +3027,7 @@ pub fn trust_project_file(root: &str, kind: &str, store: Option<&Path>) -> Resul
     let rel = match kind {
         "hooks" => HOOKS_FILE,
         "mcp" => mcp::PROJECT_FILE,
+        "sandbox" => tutor_agent::os_sandbox::CONFIG_FILE,
         other => return Err(format!("tipo desconhecido: {other}")),
     };
     let store = store.ok_or("sem HOME para guardar a confiança")?;
@@ -3064,6 +3270,71 @@ mod tests {
     }
 
     #[test]
+    fn a_session_in_a_project_of_the_workspace_takes_its_commands_instructions_and_boundaries() {
+        let dir = tempfile::tempdir().unwrap();
+        let r = dir.path();
+        let put = |rel: &str, text: &str| {
+            let p = r.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, text).unwrap();
+        };
+        put(
+            "services/orders/Cargo.toml",
+            "[package]\nname = \"orders\"\n",
+        );
+        put("services/orders/AGENTS.md", "Errors use thiserror.\n");
+        put(
+            "apps/web/package.json",
+            r#"{"scripts": {"test": "vitest"}}"#,
+        );
+        let spec = |project: Option<&str>| StartSpec {
+            root: r.display().to_string(),
+            sessions_base: Some(r.join(".sessions")),
+            test_cmd: Some("npm test".into()),
+            project: project.map(String::from),
+            sandbox: Some(false),
+            ..Default::default()
+        };
+        let id = start(spec(Some("services/orders/")), &key("sk-test"), None).unwrap();
+        let s = get(&id).unwrap();
+        assert_eq!(s.project.as_deref(), Some("services/orders"));
+        assert_eq!(
+            s.checks,
+            [
+                "cd 'services/orders' && cargo test",
+                "cd 'services/orders' && cargo clippy"
+            ],
+            "the project's commands, run in its folder (not the workspace's)"
+        );
+        let system: Vec<&str> = s.agent.cfg.system.iter().map(|b| b.text.as_str()).collect();
+        assert!(system.iter().any(|t| t
+            .starts_with("Instructions of the project `services/orders`:")
+            && t.contains("thiserror")));
+        let ws = system
+            .iter()
+            .find(|t| t.starts_with("Projects of this workspace"))
+            .expect("the workspace block");
+        assert!(
+            ws.contains("`services/orders` (rust)")
+                && ws.contains("← this conversation")
+                && ws.contains("`apps/web`"),
+            "{ws}"
+        );
+        assert!(
+            s.agent.cfg.system.last().unwrap().cache,
+            "the cache breakpoint stays on the last block"
+        );
+        close(&id);
+        // the whole workspace: the UI's commands, as before
+        let id = start(spec(None), &key("sk-test"), None).unwrap();
+        assert_eq!(get(&id).unwrap().checks, ["npm test"]);
+        close(&id);
+        // a folder outside the workspace is refused
+        assert!(start(spec(Some("../x")), &key("sk-test"), None).is_err());
+        assert!(start(spec(Some("nope")), &key("sk-test"), None).is_err());
+    }
+
+    #[test]
     fn live_sessions_list_the_open_ones_with_their_issue_until_closed() {
         let dir = tempfile::tempdir().unwrap();
         let spec = StartSpec {
@@ -3250,6 +3521,7 @@ mod tests {
                 Arc::new(T("backlog_propose")),
                 Arc::new(T("project_propose")),
             ],
+            host_tools_v13: vec![Arc::new(T("ide"))],
             backlog: true,
             ..Default::default()
         };
@@ -3274,6 +3546,17 @@ mod tests {
         assert_eq!(names(11, &[]), ["lsp_diagnostics"]);
         assert_eq!(names(10, &["backlog"]), ["lsp_diagnostics"]);
         assert_eq!(names(5, &[]), ["lsp_diagnostics"]);
+        // H3: `ide` in every session from toolset 13 (an older one resumes without it)
+        assert_eq!(names(13, &[]), ["lsp_diagnostics", "ide"]);
+        assert_eq!(
+            names(13, &["backlog"]),
+            [
+                "lsp_diagnostics",
+                "backlog_propose",
+                "project_propose",
+                "ide"
+            ]
+        );
     }
 
     #[test]

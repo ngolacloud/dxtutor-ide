@@ -150,7 +150,7 @@ fn the_build_table_is_checked() {
     let with_build = |table: &'static str| {
         move |c: String| c.replacen("\n[[unit]]", &format!("\n{table}\n[[unit]]"), 1)
     };
-    // a prepared cache needs dependencies, a sane timeout, and a course graded in rust
+    // a prepared cache needs dependencies, a sane timeout, and a course graded in rust or python
     let d = variant(
         with_build("[build]\nprepare = true\ntimeout_secs = 5\n"),
         |m| m,
@@ -161,10 +161,51 @@ fn the_build_table_is_checked() {
         errs.contains("build.timeout_secs must be between"),
         "{errs}"
     );
+    let d = variant(
+        |c| {
+            with_build("[build]\nprepare = true\ndependencies = ['x = \"1\"']\n")(c)
+                .replace("language = \"python\"", "language = \"typescript\"")
+        },
+        |m| m.replace("\"id\": \"python\"", "\"id\": \"typescript\""),
+    );
+    let errs = errors_of(d.path());
     assert!(
-        errs.contains("only available for courses graded in rust"),
+        errs.contains("only available for courses graded in rust (cargo) or python (pip)"),
         "{errs}"
     );
+    // a python course pins every package with its hash (pip --require-hashes), never a range
+    // or an index, and installs them only into a prepared cache
+    let hash = "5965d974a5218a2b68a11dd1276434707f23886525c23f0598eccedaf4f4ca00";
+    let d = variant(
+        with_build("[build]\nprepare = true\ndependencies = ['Django>=5']\n"),
+        |m| m,
+    );
+    let errs = errors_of(d.path());
+    assert!(errs.contains("pin an exact version"), "{errs}");
+    let pinned = format!(
+        "[build]\nprepare = true\ndependencies = ['Django==5.2.19 --index-url https://evil.example --hash=sha256:{hash}']\n"
+    );
+    let d = variant(
+        |c| c.replacen("\n[[unit]]", &format!("\n{pinned}\n[[unit]]"), 1),
+        |m| m,
+    );
+    let errs = errors_of(d.path());
+    assert!(errs.contains("only `--hash=sha256:<64 hex>`"), "{errs}");
+    let unprepared = format!("[build]\ndependencies = ['Django==5.2.19 --hash=sha256:{hash}']\n");
+    let d = variant(
+        |c| c.replacen("\n[[unit]]", &format!("\n{unprepared}\n[[unit]]"), 1),
+        |m| m,
+    );
+    let errs = errors_of(d.path());
+    assert!(errs.contains("set build.prepare = true"), "{errs}");
+    let ok = format!(
+        "[build]\nprepare = true\ntimeout_secs = 120\ndependencies = ['Django==5.2.19 --hash=sha256:{hash}']\n"
+    );
+    let d = variant(
+        |c| c.replacen("\n[[unit]]", &format!("\n{ok}\n[[unit]]"), 1),
+        |m| m,
+    );
+    assert_eq!(errors_of(d.path()), "");
     // an undefined `${name}` makes the course unreadable, with the reason
     let d = variant(
         with_build("[build]\ndependencies = ['x = { ${nope} }']\n"),
@@ -175,12 +216,16 @@ fn the_build_table_is_checked() {
         errs.contains("`${nope}`") && errs.contains("[build.vars]"),
         "{errs}"
     );
-    // shared dependencies without a cache are fine (no preparation needed)
+    // shared dependencies without a cache are fine where nothing installs them (a course
+    // graded in a language without a package step, here typescript)
     let d = variant(
-        with_build(
-            "[build]\ndependencies = ['x = { ${v} }']\n[build.vars]\nv = 'version = \"1\"'\n",
-        ),
-        |m| m,
+        |c| {
+            with_build(
+                "[build]\ndependencies = ['x = { ${v} }']\n[build.vars]\nv = 'version = \"1\"'\n",
+            )(c)
+            .replace("language = \"python\"", "language = \"typescript\"")
+        },
+        |m| m.replace("\"id\": \"python\"", "\"id\": \"typescript\""),
     );
     assert_eq!(errors_of(d.path()), "");
 }

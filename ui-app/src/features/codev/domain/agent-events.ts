@@ -202,6 +202,11 @@ export function describeCall(name: string, input: Record<string, unknown>, comma
       return (input.staged === true ? "--staged " : "") + s("path");
     case "backlog_propose":
       return `${s("title")} → .dxtutor/backlog.json (${Array.isArray(input.issues) ? input.issues.length : 0} issues)`;
+    case "ide": {
+      const a = input.args && typeof input.args === "object" ? (input.args as Record<string, unknown>) : {};
+      const detail = ["key", "project", "filter", "sha"].map((k) => (typeof a[k] === "string" ? (a[k] as string) : "")).filter(Boolean).join(" ");
+      return s("action") + (detail ? ` ${detail}` : "");
+    }
     case "project_propose":
       return `${s("method") || "—"} · ${Array.isArray(input.sprints) ? input.sprints.length : 0} sprints`;
     default:
@@ -364,6 +369,8 @@ export interface ExtensionsStatus {
   skills: Array<{ name: string; description: string }>;
   hooks: { present: boolean; trusted: boolean };
   mcp: { present: boolean; trusted: boolean };
+  /** H1: `.dxtutor/sandbox.json` (what loosens the OS sandbox counts only when trusted). */
+  sandbox: { present: boolean; trusted: boolean };
   mcpServers: string[];
 }
 
@@ -379,6 +386,7 @@ export function parseExtensions(v: unknown): ExtensionsStatus {
     skills: list(o.skills),
     hooks: ft(o.hooks),
     mcp: ft(o.mcp),
+    sandbox: ft(o.sandbox),
     mcpServers: Array.isArray(o.mcpServers) ? (o.mcpServers.filter(str) as string[]) : [],
   };
 }

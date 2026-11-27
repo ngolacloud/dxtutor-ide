@@ -1,0 +1,9 @@
+{
+  "id": "py-split-bill",
+  "title": "Splitting a bill loses cents",
+  "language": "python",
+  "category": "bugfix",
+  "prompt": "Splitting a 100.00 bill among 3 people gives 33.33 each and one cent disappears. `split(total, n)` in app/money.py\nmust return `n` amounts as `Decimal` with 2 decimal places that add up exactly to `total`; the extra cents go to the\nfirst people (100.00 / 3 → 33.34, 33.33, 33.33). `total` may be a str, int or Decimal (never float); `n` must be ≥ 1\nand a negative total raises `ValueError`.",
+  "check": "python3 -m unittest discover -s tests -q 2>&1",
+  "test": "python3 -m unittest discover -s tests -q"
+}

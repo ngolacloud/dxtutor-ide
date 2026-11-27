@@ -55,6 +55,7 @@ Each entry names the `id` it changes or adds.
 | `filenames` | whole file names (`Dockerfile`, `Makefile`); they win over the extension |
 | `firstLine` | a regular expression for the first line (a shebang), tried only when the name says nothing |
 | `lineComment` | the Ctrl+/ comment marker |
+| `blockComment` | `[open, close]`, e.g. `["/*", "*/"]`: Toggle Block Comment (Ctrl+Shift+A), and Ctrl+/ in a language without `lineComment`; two tokens without spaces |
 | `outline` | the language the syntactic outline speaks |
 | `server` | the `id` of the server in `servers[]`; `null` turns the language server off for this language |
 
@@ -74,6 +75,7 @@ Each entry names the `id` it changes or adds.
 | `initOptions` | `initializationOptions` sent once, when the server starts |
 | `settings` | the server's settings (see below) |
 | `oneShot`, `quirks`, `vscodeExtensions` | as in the bundled registry |
+| `vscodeLanguages` | VS Code language ids an installed VSIX named in `vscodeExtensions` contributes and this server also serves (gopls: `go.mod`, `go.sum`, `go.work`); only these VSIX-only languages reach it |
 | `install` | how to install it by hand: text only, shown when no recipe applies |
 | `recipes` | how dxtutor may install it from the missing-server banner (see [Install recipes](#install-recipes)) |
 

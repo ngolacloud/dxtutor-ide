@@ -57,6 +57,8 @@ pub struct Hooks {
     pre: Vec<Compiled>,
     post: Vec<Compiled>,
     stop: Vec<Compiled>,
+    /// H1: the hooks run inside the project's OS sandbox, like the agent's commands.
+    sandbox: Option<Arc<crate::os_sandbox::OsSandbox>>,
 }
 
 /// O resultado de um hook `pre_tool`.
@@ -86,6 +88,12 @@ fn compile(defs: Vec<HookDef>) -> Result<Vec<Compiled>, String> {
 }
 
 impl Hooks {
+    /// H1: run the hooks inside the project's OS sandbox.
+    pub fn sandboxed(mut self, sandbox: Option<Arc<crate::os_sandbox::OsSandbox>>) -> Self {
+        self.sandbox = sandbox;
+        self
+    }
+
     /// Lê `.dxtutor/hooks.json`. `Ok(None)` se não existir.
     pub fn load(root: &Path) -> Result<Option<Self>, String> {
         let Ok(text) = std::fs::read_to_string(root.join(HOOKS_FILE)) else {
@@ -97,6 +105,7 @@ impl Hooks {
             pre: compile(f.pre_tool)?,
             post: compile(f.post_tool)?,
             stop: compile(f.stop)?,
+            sandbox: None,
         }))
     }
 
@@ -126,6 +135,10 @@ impl Hooks {
         // o JSON vai por stdin via ficheiro temporário (run_process não liga stdin a pipes)
         let tmp = crate::tools::unique_temp("dxtutor-hook", "json");
         let _ = std::fs::write(&tmp, payload.to_string());
+        let c = match &self.sandbox {
+            Some(sb) => sb.wrap(&c),
+            None => c,
+        };
         let r = run_process_io(c, &self.root, TIMEOUT, &ctx, std::fs::File::open(&tmp).ok());
         let _ = std::fs::remove_file(&tmp);
         (r.code, r.stdout, r.stderr)

@@ -23,12 +23,14 @@ export interface ProjectGateway {
   methodPreview?(root: string, method: string, lang: string): Promise<unknown>;
   /** `/project`: creates the Project from `.dxtutor/backlog.json` and the plan Co-Dev proposed
    *  (`project_create_from_backlog`; the file must still be the one the plan was made from — `hash`). */
-  createFromBacklog?(root: string, hash: string, plan: unknown, ready: boolean, lang: string): Promise<unknown>;
+  createFromBacklog?(root: string, hash: string, plan: unknown, ready: boolean, lang: string, draftRoot?: string | null): Promise<unknown>;
 }
 
 export interface Workspace {
-  /** The folder open in the desktop app, or `null`. */
+  /** The Project's folder (H2: the current project of the workspace), or `null`. */
   root(): string | null;
+  /** H2: the workspace's folder (where the backlog draft lives), when different from the project's. */
+  workspaceRoot?(): string | null;
   /** Who "mine" means (the project's git user). */
   me(): string;
   /** The folder's detected test command (`cargo test`, `npm test`…): the default mandatory check. */

@@ -16,7 +16,7 @@ import { $, esc, svg, mdFull } from "../core";
 import { VIEW } from "../app/store/registry";
 import rustCourse from "../content/courses/rust.json";
 import goCourse from "../content/courses/go.json";
-import { LANGUAGE_CATALOG, findLanguage, findSubject, languageCards, subjectCards } from "./learn/domain/catalog";
+import { EVALUATION_LANGUAGES, LANGUAGE_CATALOG, findLanguage, findSubject, languageCards, subjectCards } from "./learn/domain/catalog";
 import { baseName, isReadonly, projectPaths, projectSubmission } from "./learn/domain/project";
 import { fromEmbedded } from "./learn/domain/course-adapter";
 import type { Course, PluginRow, PrepareStatus } from "./learn/domain/types";
@@ -77,7 +77,7 @@ const saveLT=()=>LS.set('lt3',LTS);
 /* LT_LANGS (forma antiga {id,n,g}) deriva do catálogo oficial de 10 linguagens; LT_EXT é
    preenchido do catálogo + manifestos dos plugins (mutado em sítio, como COURSES). */
 const LT_LEVELS=[['basic','Basic','Start from the ground up — syntax and first programs.'],['intermediate','Intermediate','Build on the basics with real-world patterns.'],['advanced','Advanced','Deep dives, performance and the tricky corners.']];
-const LT_EXT:Record<string,string>=Object.fromEntries(LANGUAGE_CATALOG.map(l=>[l.id,l.extension])),LT_BADGE:Record<string,string>={concept:'LEARN',drill:'DRILL',challenge:'APPLY'};
+const LT_EXT:Record<string,string>=Object.fromEntries(LANGUAGE_CATALOG.concat(EVALUATION_LANGUAGES).map(l=>[l.id,l.extension])),LT_BADGE:Record<string,string>={concept:'LEARN',drill:'DRILL',challenge:'APPLY'};
 /* a escolha do onboarding (língua e níveis): com dono aqui (U7j — era window.ONB) */
 export let ONB:{lang:string|null;levels:string[]}={lang:null,levels:[]};
 let LT_SUB:{ok:boolean;why:string}|null=null;let LT_HOOD=false;
@@ -164,17 +164,19 @@ function ltPrepareCard(c:Course):string{
   const st=ltPrepState(c);
   const note=LT_PREP_MSG?`<p class="lt-note${LT_PREP_MSG.bad?' bad':''}">${esc(LT_PREP_MSG.text)}</p>${LT_PREP_MSG.output?`<pre class="notr">${esc(LT_PREP_MSG.output.slice(-4000))}</pre>`:''}`:'';
   if(!st||st==='loading'||!needsPreparing(st))return note?`<div class="lt-card">${note}</div>`:'';
-  return `<div class="lt-card lt-prep"><h3>${esc(tt("prepareHeading"))}</h3><p>${esc(st.state==='stale'?tt("prepareStale"):tt("prepareBody"))}</p>${note}<button class="mini pri" data-action="lt-prepare" ${LT_PREPARING?'disabled':''}>${esc(LT_PREPARING?tt("preparing"):tt("prepareButton"))}</button></div>`;
+  return `<div class="lt-card lt-prep"><h3>${esc(tt("prepareHeading"))}</h3><p>${esc(st.state==='stale'?tt("prepareStale"):st.kind==='pip'?tt("prepareBodyPip"):tt("prepareBody"))}</p>${note}<button class="mini pri" data-action="lt-prepare" ${LT_PREPARING?'disabled':''}>${esc(LT_PREPARING?tt(st.kind==='pip'?"preparingPip":"preparing"):tt("prepareButton"))}</button></div>`;
 }
 async function ltPrepare(){
   const c=course();if(!c||LT_PREPARING)return;
   LT_PREPARING=true;LT_PREP_MSG=null;ltRes();
   try{
-    const r=await prepareCourse({gw:tauriCourseGateway,human:{approve:req=>requestApproval(req)},audit:tauriLearnAudit,title:tt("prepareTitle",{course:c.title})},c.id);
+    const ps=ltPrepState(c);const isPip=!!ps&&ps!=='loading'&&ps.kind==='pip';
+    const r=await prepareCourse({gw:tauriCourseGateway,human:{approve:req=>requestApproval(req)},audit:tauriLearnAudit,title:tt(isPip?"prepareTitlePip":"prepareTitle",{course:c.title}),
+      packagesText:kind=>({heading:tt("preparePackages"),note:tt(kind==='pip'?"preparePackagesPip":"preparePackagesCargo")})},c.id);
     if(r.kind==='refused')LT_PREP_MSG={text:tt("prepareRefused"),bad:true};
     else{LT_PREP[c.id]=r.status;
       if(r.kind==='failed')LT_PREP_MSG={text:tt("prepareFailed"),bad:true,output:r.output};
-      else if(r.kind==='prepared')LT_PREP_MSG={text:tt("prepareDone",{fetch:Math.round(r.status.fetchSecs??0),warm:Math.round(r.status.warmSecs??0)}),bad:false};}
+      else if(r.kind==='prepared')LT_PREP_MSG={text:tt(r.status.kind==='pip'?"prepareDonePip":"prepareDone",{fetch:Math.round(r.status.fetchSecs??0),warm:Math.round(r.status.warmSecs??0)}),bad:false};}
   }catch(e){LT_PREP_MSG={text:`${tt("prepareFailed")} ${msg(e)}`,bad:true};}
   finally{LT_PREPARING=false;ltRes();}
 }

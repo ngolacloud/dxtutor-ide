@@ -1,0 +1,9 @@
+{
+  "id": "rust-word-freq",
+  "title": "Top words, sorted and case-insensitive",
+  "language": "rust",
+  "category": "refactor",
+  "prompt": "`word_counts` in src/lib.rs returns a `HashMap`, so the report prints words in random order and counts \"The\" and\n\"the\" separately. Replace it with `top_words(text, n) -> Vec<(String, usize)>`: words are lowercase, made of letters,\ndigits and apostrophes (punctuation around them does not count), sorted by count (highest first) then alphabetically,\nat most `n` of them. Update the existing callers and tests.",
+  "check": "cargo test --quiet --offline 2>&1",
+  "test": "cargo test --quiet --offline"
+}

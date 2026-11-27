@@ -21,6 +21,13 @@ export const LANGUAGE_CATALOG: readonly Language[] = [
   { id: "sql", name: "SQL", icon: "🗄️", extension: "sql", indent: "  " },
 ];
 
+/** Linguagens em que um curso se ESCREVE e se avalia sem serem linguagens do catálogo (não contam
+ *  para o tecto de 10 nem aparecem como cartões): o YAML dos cursos de ferramentas (Kubernetes,
+ *  Delonix), avaliado por verificações no backend. Dão a extensão e a indentação do editor. */
+export const EVALUATION_LANGUAGES: readonly Language[] = [
+  { id: "yaml", name: "YAML", icon: "📄", extension: "yaml", indent: "  " },
+];
+
 /** `"tab"` → tabulação; `"4"` → quatro espaços; qualquer outra coisa → quatro espaços. */
 export function indentText(spec: string): string {
   if (spec === "tab") return "\t";
@@ -30,7 +37,7 @@ export function indentText(spec: string): string {
 
 /** A linguagem conhecida por `id`: do catálogo, senão do manifesto de um plugin instalado. */
 export function findLanguage(id: string, plugins: readonly PluginRow[]): Language | null {
-  return LANGUAGE_CATALOG.find(l => l.id === id) ?? plugins.find(p => p.language?.id === id)?.language ?? null;
+  return LANGUAGE_CATALOG.find(l => l.id === id) ?? EVALUATION_LANGUAGES.find(l => l.id === id) ?? plugins.find(p => p.language?.id === id)?.language ?? null;
 }
 
 /**
@@ -68,11 +75,11 @@ const official = (id: string): string => `ngolacloud/dxtutor-course-${id}`;
 export const FRAMEWORK_CATALOG: readonly Subject[] = [
   { id: "dxjs", name: "Dxjs", icon: "⚡", category: "framework", docs: "https://ngolacloud.github.io/dxjs/", install: "Node.js 22.18 or newer. dxjs 1.2.0 itself comes with the course (it is not on npm).", repo: official("dxjs") },
   { id: "seiva", name: "Seiva", icon: "🌿", category: "framework", docs: "https://ngolacloud.github.io/seiva/", install: "The Rust toolchain (rustup, cargo).", repo: official("seiva") },
-  { id: "django", name: "Django", icon: "🎸", category: "framework", docs: "https://docs.djangoproject.com/", install: "Python 3 and Django (pip install django).", repo: official("django") },
-  { id: "delonix", name: "Delonix Engine", icon: "🌺", category: "tool", docs: "https://ngolacloud.github.io/delonix/", install: "The delonix binary from its official releases.", repo: official("delonix") },
+  { id: "django", name: "Django", icon: "🎸", category: "framework", docs: "https://docs.djangoproject.com/en/5.2/", install: "Python 3.10 or newer with its venv module. «Prepare course» installs Django 5.2 LTS for the course only, not into your Python.", repo: official("django") },
+  { id: "delonix", name: "Delonix Engine", icon: "🌺", category: "tool", docs: "https://ngolacloud.github.io/delonix/", install: "The delonix 0.2.0 binary from its official releases. Grading runs only delonix manifest render and delonix compose config, which read your files and never touch the engine.", repo: official("delonix") },
   { id: "docker", name: "Docker", icon: "🐳", category: "tool", docs: "https://docs.docker.com/", install: "Docker Engine.", repo: official("docker") },
   { id: "podman", name: "Podman", icon: "🦭", category: "tool", docs: "https://docs.podman.io/", install: "Podman, rootless.", repo: official("podman") },
-  { id: "kubernetes", name: "Kubernetes", icon: "☸️", category: "tool", docs: "https://kubernetes.io/docs/", install: "kubectl and kind (kind.sigs.k8s.io) on rootless Podman.", repo: official("kubernetes") },
+  { id: "kubernetes", name: "Kubernetes", icon: "☸️", category: "tool", docs: "https://kubernetes.io/docs/", install: "kubectl (https://kubernetes.io/docs/tasks/tools/), for the Kustomize units. No cluster: grading is offline and never reads your kubeconfig. Running the manifests on kind with rootless Podman is a later part.", repo: official("kubernetes") },
   { id: "odoo", name: "Odoo", icon: "🟪", category: "framework", docs: "https://www.odoo.com/documentation/", install: "Odoo 18 to 20, Community edition, with PostgreSQL. Enterprise only with an Odoo licence.", repo: official("odoo") },
 ];
 

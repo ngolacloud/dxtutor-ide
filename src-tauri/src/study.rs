@@ -551,10 +551,14 @@ mod tests {
             "minishop-fixture"
         );
         assert_eq!(
-            find_course(&courses, "python", Some("django"))
+            find_course(&courses, "python", Some("django")).unwrap().id,
+            "django-basics"
+        );
+        assert_eq!(
+            find_course(&courses, "python", Some("flask"))
                 .unwrap_err()
                 .to_string(),
-            "no course for `django`"
+            "no course for `flask`"
         );
     }
 
@@ -661,6 +665,60 @@ mod tests {
         assert!(autonomous.is_object() && free.is_object());
     }
 
+    /// O curso Django embutido prepara-se com uma cache pip (Learn P2a): o estado diz o que
+    /// falta, o plano é o venv + `pip install --require-hashes` dos pacotes fixados, a lista dos
+    /// pacotes vai para o diálogo, e só o comando aprovado (o plano actual) corre.
+    #[test]
+    fn the_builtin_django_course_prepares_a_pip_cache() {
+        if tutor_eval::course_cache::host_python().is_none() {
+            return;
+        }
+        let courses = tutor_core::builtin_courses();
+        let django = find_course(&courses, "python", Some("django")).unwrap();
+        assert_eq!(django.id, "django-basics");
+        assert_eq!(
+            find_course(&courses, "python", None).unwrap().id,
+            "python-basics"
+        );
+        let tmp = tempfile::tempdir().unwrap();
+        let st = prepare_status_in(&courses, "django-basics", tmp.path()).unwrap();
+        assert!(st.needed);
+        assert_eq!(st.state, "missing");
+        assert_eq!(st.timeout_secs, 120);
+        let plan = st.plan.expect("a plan");
+        assert_eq!(plan.kind, tutor_core::CacheKind::Pip);
+        let names: Vec<String> = plan
+            .packages
+            .iter()
+            .map(|p| format!("{} {} {}", p.name, p.version, p.source))
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "Django 5.2.19 PyPI",
+                "asgiref 3.12.1 PyPI",
+                "sqlparse 0.6.1 PyPI"
+            ]
+        );
+        assert!(plan
+            .command
+            .contains("--require-hashes --only-binary=:all:"));
+        assert!(plan.command.contains("--index-url https://pypi.org/simple"));
+        assert!(plan.layout.dir.starts_with(tmp.path()));
+        // Only the command the human saw (the current plan) is accepted.
+        assert!(approved_plan_in(&courses, "django-basics", tmp.path(), &plan.command).is_ok());
+        let e = approved_plan_in(&courses, "django-basics", tmp.path(), "pip install evil")
+            .unwrap_err();
+        assert!(
+            e.to_string()
+                .contains("not this course's current preparation"),
+            "{e}"
+        );
+        // A course without a [build] has nothing to prepare.
+        let none = prepare_status_in(&courses, "python-basics", tmp.path()).unwrap();
+        assert_eq!((none.needed, none.state), (false, "not-needed"));
+    }
+
     /// O curso Dxjs embutido avalia-se com os seus ficheiros de apoio: sem eles,
     /// `import … from "@dxjs/core"` falhava e a solução nunca passava. Corre o Node real
     /// (saltado onde não há Node ou fora do motor `Host`).
@@ -713,6 +771,66 @@ mod tests {
             "dxjs-u07-p1-todo-store",
             Some("typescript"),
             Submission::Files(&project.solution),
+        )
+        .unwrap();
+        assert!(ok.correctness.passed, "{}", ok.correctness.raw);
+    }
+
+    /// Os cursos de ferramentas (Learn P2b) avaliam-se pelo `submit_step` normal: a linguagem é
+    /// `yaml`, os ids não chocam entre os dois cursos, e um passo só estrutural passa com a solução
+    /// e falha com os ficheiros iniciais sem precisar de nenhuma ferramenta. Um curso de
+    /// ferramenta nunca é «o curso» de uma linguagem.
+    #[test]
+    fn the_tool_courses_grade_through_submit_step() {
+        let courses = tutor_core::builtin_courses();
+        assert_eq!(
+            find_course(&courses, "yaml", Some("kubernetes"))
+                .unwrap()
+                .id,
+            "kubernetes-basics"
+        );
+        assert_eq!(
+            find_course(&courses, "yaml", Some("delonix")).unwrap().id,
+            "delonix-basics"
+        );
+        assert!(matches!(
+            find_course(&courses, "yaml", None),
+            Err(StudyError::NoCourse(_))
+        ));
+        let k8s = find_course(&courses, "yaml", Some("kubernetes")).unwrap();
+        let project = k8s
+            .step("k8s-p3-deployment")
+            .unwrap()
+            .project
+            .clone()
+            .unwrap();
+        let (ok, _) = grade_in(
+            &courses,
+            "k8s-p3-deployment",
+            Some("yaml"),
+            Submission::Files(&project.solution),
+        )
+        .unwrap();
+        assert!(ok.correctness.passed, "{}", ok.correctness.raw);
+        let (bad, _) = grade_in(
+            &courses,
+            "k8s-p3-deployment",
+            Some("yaml"),
+            Submission::Files(&Default::default()),
+        )
+        .unwrap();
+        assert!(!bad.correctness.passed);
+        assert!(bad
+            .correctness
+            .raw
+            .contains("✗ deployment.yaml › spec.replicas"));
+        // Um só ficheiro (o `code` antigo) é o ficheiro principal do passo de projecto.
+        let main = project.solution[&project.main].clone();
+        let (ok, _) = grade_in(
+            &courses,
+            "k8s-p3-deployment",
+            Some("yaml"),
+            Submission::Code(&main),
         )
         .unwrap();
         assert!(ok.correctness.passed, "{}", ok.correctness.raw);

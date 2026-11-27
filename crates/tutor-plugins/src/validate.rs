@@ -288,11 +288,11 @@ fn check_course(
     for msg in c.build.check() {
         e(r, msg);
     }
-    if c.build.prepare && !matches!(c.language.as_str(), "rust" | "rs") {
+    if c.build.prepare && tutor_core::CacheKind::of(&c.language).is_none() {
         e(
             r,
             format!(
-                "build.prepare: a prepared course cache is only available for courses graded in rust (this one is graded in `{}`)",
+                "build.prepare: a prepared course cache is only available for courses graded in rust (cargo) or python (pip) (this one is graded in `{}`)",
                 c.language
             ),
         );
@@ -395,6 +395,23 @@ fn check_course(
                     for msg in tutor_core::support::project_clashes(&c.support, p) {
                         e(r, format!("{at}: {msg}"));
                     }
+                    // Um curso avaliado por verificações (ferramentas): o `checks.toml` oculto
+                    // lê-se, só corre comandos da lista permitida e só nomeia ficheiros do passo.
+                    if tutor_core::toolcheck::graded_by_checks(&c.language) {
+                        for msg in tutor_core::toolcheck::check_step(p) {
+                            e(r, format!("{at}: {msg}"));
+                        }
+                    }
+                }
+                StepKind::Challenge if tutor_core::toolcheck::graded_by_checks(&c.language) => {
+                    e(
+                        r,
+                        format!(
+                            "{at}: a course graded by checks (`{}`) uses project steps: put the files in `project` and the checks in `project.tests.\"{}\"`",
+                            c.language,
+                            tutor_core::toolcheck::CHECKS_FILE
+                        ),
+                    );
                 }
                 StepKind::Challenge => {
                     for (field, v) in [

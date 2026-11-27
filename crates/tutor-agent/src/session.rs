@@ -61,6 +61,11 @@ pub struct SessionMeta {
     /// prefix does not change. Older files do not have it → `root`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree: Option<String>,
+    /// H2: the project of the workspace this session works in (relative, never `"."`): its instructions and
+    /// commands are the session's, and a chat request may change only its files without asking. `None`:
+    /// the whole workspace (as before).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
 }
 
 /// O conjunto extra das sessões que trabalham numa issue do Project (`finish_issue`).
@@ -427,6 +432,7 @@ mod tests {
             mcp_tools: vec![],
             scopes: vec![],
             worktree: None,
+            project: None,
         }
     }
 

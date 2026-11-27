@@ -5,6 +5,7 @@
    palette) — no window global. Kanban, Scrum, XP or Scrum + XP over the SQLite store. */
 
 import { services } from "../../app/services";
+import { workspaceProjects } from "../../app/workspace-projects";
 import { VIEW } from "../../app/store/registry";
 import { makeProjectService } from "./application/project-service";
 import { makeProjectView } from "./ui/view";
@@ -73,6 +74,9 @@ services.project = {
     if (projectService.state().status !== "ready") await projectService.open();
     projectService.select(key);
     await projectService.work(key);
+  },
+  refresh: () => {
+    if (projectService.state().status !== "idle") void projectService.open();
   },
 };
 
@@ -190,6 +194,8 @@ const table: ActionTable = {
   /* Multi Co-Dev (the integration gate): the functional approval of the selected issue */
   "pj-functional-approve": { click: () => { const k = sel(); if (k) void projectService.approveFunctional(k); } },
   "pj-functional-revoke": { click: () => { const k = sel(); if (k) void projectService.revokeFunctional(k); } },
+  /* Multi Co-Dev (fase 4): o painel «Rever e integrar» da issue (features/integration, no acto) */
+  "pj-integration": { click: () => { const k = sel(); if (k) services.integration?.open(k); } },
   "pj-audit": { click: () => { const k = sel(); if (k) void projectService.exportAudit(k); } },
   "pj-diff": { click: (e) => openDiff(e.on) },
   /* RF-A05: the drift of the rules in the issue's files */
@@ -240,6 +246,11 @@ projectInbox.register(async (items) => {
   let n = 0;
   for (const it of items) if (await projectService.apply({ op: "propose", ...it })) n++;
   return n;
+});
+
+/* H2: another project of the workspace picked (status bar): the board is that project's */
+workspaceProjects.onChange(() => {
+  if (projectService.state().status !== "idle") void projectService.open();
 });
 
 /* another folder opened in the desktop app: the project is that folder's */

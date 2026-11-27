@@ -16,7 +16,9 @@
     "format": "prettier --write ui-app/src/features/diff/domain ui-app/src/features/router/domain ui-app/src/features/codev/domain/project-commands.ts eslint.config.js",
     "format:check": "prettier --check ui-app/src/features/diff/domain ui-app/src/features/router/domain ui-app/src/features/codev/domain/project-commands.ts eslint.config.js",
     "arch:check": "bash scripts/arch-check.sh && bash scripts/ui-metrics.sh",
-    "ui:e2e": "playwright test --config ui-app/e2e/playwright.config.ts"
+    "ui:e2e": "playwright test --config ui-app/e2e/playwright.config.ts",
+    "grammars:verify": "node scripts/fetch-grammars.mjs",
+    "grammars:check": "node scripts/fetch-grammars.mjs --offline"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.1.1",

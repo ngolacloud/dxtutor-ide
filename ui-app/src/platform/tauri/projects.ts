@@ -16,3 +16,7 @@ export const projectsClient = (inv: Invoker = invoke) => ({
 });
 
 export type ProjectsClient = ReturnType<typeof projectsClient>;
+
+/** H2: `workspace_projects` — the projects of the workspace (relative paths, `"."` the root), each with its test
+ *  and lint commands; `.dxtutor/workspace.json` decides when it exists. */
+export const workspaceProjects = (root: string, inv: Invoker = invoke): Promise<unknown> => inv<unknown>("workspace_projects", { root });

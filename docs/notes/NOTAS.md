@@ -7,17 +7,19 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 ## Índice
 
 - [Co-Dev: o assistente escreve no editor e mostra quem está a trabalhar](#co-dev-o-assistente-escreve-no-editor-e-mostra-quem-esta-a-trabalhar) — 5 acções
+- [Rever e integrar (a porta de integração do Multi Co-Dev)](#rever-e-integrar-a-porta-de-integracao-do-multi-co-dev) — 3 acções
 - [Explain · Code review · Under the hood](#explain-code-review-under-the-hood) — 9 acções
 - [Quadro (backlog, sprints e kanban)](#quadro-backlog-sprints-e-kanban) — 2 acções
 - [Project](#project) — 11 acções
 - [Testes](#testes) — 1 acção
-- [Servidor de linguagem (LSP)](#servidor-de-linguagem-lsp) — 8 acções
+- [Servidor de linguagem (LSP)](#servidor-de-linguagem-lsp) — 13 acções
 - [Protecção de dados — nenhum segredo sai da máquina](#proteccao-de-dados-nenhum-segredo-sai-da-maquina) — 4 acções
 - [Ops — infraestrutura, Kubernetes, runbooks e evidências](#ops-infraestrutura-kubernetes-runbooks-e-evidencias) — 12 acções
 - [Platform — a minha fila, revisão de PR de infra e incidentes](#platform-a-minha-fila-revisao-de-pr-de-infra-e-incidentes) — 3 acções
 - [Vault — segredos, sessão e credenciais dinâmicas](#vault-segredos-sessao-e-credenciais-dinamicas) — 3 acções
 - [Deploy guiado — staging e produção](#deploy-guiado-staging-e-producao) — 3 acções
-- [Learning Track](#learning-track) — 4 acções
+- [Learning Track](#learning-track) — 6 acções
+- [Novo projecto: um projecto completo a partir dos templates do Delonix](#novo-projecto-um-projecto-completo-a-partir-dos-templates-do-delonix) — 1 acção
 
 ---
 
@@ -193,6 +195,99 @@ Quando já há um Co-Dev aberto, a issue seguinte trabalha numa worktree git pr�
 - Integrar o ramo no principal é a fase 4 (o revisor e a porta de integração).
 
 <sub>Cobre: `codev:codevs-files`, `codev:codevs-commit`, `codev:codevs-cleanup`</sub>
+
+---
+
+## Rever e integrar (a porta de integração do Multi Co-Dev)
+
+O trabalho de um Co-Dev só entra no ramo por omissão quando três condições valem ao mesmo tempo, para o código tal como está agora: as verificações obrigatórias do projecto passaram exactamente na árvore que ia entrar, o revisor Co-Dev confirmou cada critério de aceitação com evidência, e o responsável registou a aprovação funcional para os critérios actuais. O painel mostra as três com a sua evidência e só deixa integrar quando todas valem — e quem decide é o backend, outra vez, no momento do clique.
+
+<sub>Código: `ui-app/src/features/integration/`, `src-tauri/src/codev_review.rs`, `src-tauri/src/commands/codev_review.rs`, `crates/tutor-board/src/project/integration.rs`, `crates/tutor-eval/src/gitwork/integrate.rs` · revisto em 2026-11-27</sub>
+
+| Acção | Onde |
+|---|---|
+| [Abrir o painel «Rever e integrar»](#abrir-o-painel-rever-e-integrar) | Faixa «Co-Devs» › botão ⇥ de uma issue com ramo · Project › painel da issue › secção «Integration» › «Review & integrate…» |
+| [Pedir revisão](#pedir-revisao) | Painel «Rever e integrar» › «Request review» |
+| [Integrar](#integrar) | Painel «Rever e integrar» › «Integrate» |
+
+### Abrir o painel «Rever e integrar»
+
+**Onde:** Faixa «Co-Devs» › botão ⇥ de uma issue com ramo · Project › painel da issue › secção «Integration» › «Review & integrate…»
+
+Mostra a porta de integração da issue: o ramo e quantos commits tem que o ramo por omissão não tem, e as três condições — cada uma com um ✓ ou um ✕ e o porquê — e, por baixo, porque é que «Integrate» está desligado.
+
+**Como usar**
+
+1. Na faixa «Co-Devs», carrega no ⇥ do cartão da issue (ou de uma worktree guardada); ou abre a issue no Project e carrega em «Review & integrate…».
+2. ⟳ relê a porta; Esc ou ✕ fecham o painel.
+
+**Fluxo (por dentro)**
+
+1. `codev_review_state` (só leitura) lê a revisão mais recente da issue, as pontas de agora (o ramo que a pasta do projecto tem — o ramo por omissão — e o ramo da issue), as verificações obrigatórias, os critérios e a aprovação funcional, e pergunta a porta (`tutor_board::project::integration::gate`).
+2. Cada condição vem como um código (por exemplo `stale_head`: o ramo da issue andou desde a revisão) que o painel diz por palavras; um código que o painel não conhece nunca aparece como «ok».
+3. O comando de cada botão (pedir a revisão, integrar) vem do backend: o painel mostra-o no diálogo de aprovação tal como vai correr.
+
+**Dicas**
+
+- Alterações por commitar na worktree do Co-Dev não entram em nenhuma revisão: o painel avisa. Faz «Commit» na faixa antes de pedir a revisão.
+
+<sub>Cobre: `codev:codevs-integrate`, `pj-integration`, `integration:close`, `integration:refresh`</sub>
+
+### Pedir revisão
+
+**Onde:** Painel «Rever e integrar» › «Request review»
+
+Funde o ramo da issue na ponta actual do ramo por omissão numa worktree temporária, corre lá as verificações obrigatórias e as regras de arquitectura e, se tudo passar, pede ao revisor Co-Dev que confirme os critérios de aceitação um a um, com evidência. Nada muda nos teus ramos.
+
+**Como usar**
+
+1. Carrega em «Request review»: o diálogo de aprovação mostra os comandos exactos (o merge, a worktree temporária e cada verificação, com a pasta onde corre). Aprova.
+2. Acompanha os passos no painel («A correr tests…», «O revisor Co-Dev está a ler a alteração…»); «Stop» pára a revisão.
+3. No fim vês cada verificação (comando, exit, tempo e o fim da saída, com os segredos mascarados) e a tabela do revisor: critério, cumprido / não cumprido / por esclarecer, e a evidência (ficheiros e linhas, testes, saída).
+4. Sem verificações obrigatórias, o painel oferece o comando de testes detectado na pasta («Use … as the mandatory check»); senão, define-as nas definições do Project.
+
+**Fluxo (por dentro)**
+
+1. `codev_review_request` corre só o plano aprovado (se as pontas ou as verificações mudaram entretanto, recusa e mostra o plano novo) e regista-o no registo de auditoria antes de correr (`review.request`, sem auditoria não corre) e com o resultado.
+2. O candidato é calculado sem tocar em nada (`git merge-tree --write-tree`) e guardado como um commit de merge que nenhum ramo aponta ainda (`git commit-tree`, com `refs/dxtutor/review/<issue>` para não se perder); um conflito diz os ficheiros e acaba aí.
+3. A worktree temporária fica em `<dados da app>/integration/<repositório>/<issue>`, destacada nesse commit, e sai no fim. As verificações correm lá, uma a uma, todas (mesmo depois de uma falhar), com o ambiente da shell de login; o fim da saída é mascarado.
+4. As regras do arquitecto (`.dxtutor/architecture.toml`) correm sobre cada ficheiro que o candidato muda; o secret scan do que ele traz também corre (mostrado agora, exigido ao integrar).
+5. Só com tudo verde corre o revisor: um agente com ferramentas só de leitura (`read`, `glob`, `grep`) na worktree temporária e a ferramenta `review_verdict`; recebe o diff, os critérios, a DoD e os resultados das verificações, não o repositório inteiro. A evidência que dá é verificada contra o candidato (o ficheiro existe e tem essas linhas, o teste existe, a verificação correu); o que não bate volta-lhe para corrigir. Corre com o provedor e o modelo do Co-Dev.
+6. Tudo fica na base do Project (`integration_reviews`, migração 19) com as pontas, o commit e a árvore exactos.
+
+**Limites**
+
+- As verificações correm numa árvore acabada de sair do git: têm de instalar o que precisam (por exemplo `npm ci && npm test`).
+- Se uma verificação falhar ou uma regra partir, o revisor não corre (não gasta tokens numa alteração que não pode entrar).
+- O revisor nunca age sozinho: só corre quando pedes a revisão.
+
+<sub>Cobre: `integration:request`, `integration:cancel`, `integration:detected`</sub>
+
+### Integrar
+
+**Onde:** Painel «Rever e integrar» › «Integrate»
+
+Avança o ramo por omissão para exactamente o commit revisto (fast-forward), só quando as três condições valem para as pontas de agora. Nunca faz push, nunca força.
+
+**Como usar**
+
+1. Com os três ✓, carrega em «Integrate»: o diálogo de aprovação mostra o comando exacto (`git -C … merge --ff-only <commit>`, e a remoção da worktree do Co-Dev se estiver limpa). Aprova.
+2. Se o secret scan encontrar algo no que a alteração traz, pede um motivo (fica registado) antes de continuar.
+3. No fim, a issue anda no Project pelas regras do método (para Done se a DoD estiver cumprida; senão fica e a actividade diz porquê) e o Co-Dev da issue fecha.
+
+**Fluxo (por dentro)**
+
+1. `codev_review_integrate` pergunta a porta outra vez com os factos lidos nesse momento; com uma condição a falhar, recusa e diz qual. Depois confirma que o comando é o aprovado e regista `review.integrate` no registo de auditoria antes (sem auditoria não corre) e com o resultado.
+2. Tira um undo snapshot (o «Undo» do Commit Graph repõe o ramo), corre o secret scan do que o commit revisto traz e faz `git merge --ff-only` na pasta do projecto: a árvore de trabalho acompanha; alterações por commitar que o git sobreporia param tudo e nada muda.
+3. O Project liga o commit à issue, regista «integrada» e anda com ela passo a passo pelas regras normais (WIP, test-first, DoD), sem excepções; onde uma regra recusa, fica com uma entrada «held».
+4. Pelas regras da fase 3: a sessão Co-Dev aberta da issue fecha (as reservas voltam e a worktree sai se estiver limpa); sem sessão, a worktree sai se estiver limpa (auditado). O ramo fica.
+
+**Limites**
+
+- O ramo por omissão é o que a pasta do projecto tem em uso; se mudares de ramo depois da revisão, a revisão deixa de valer.
+- Se o ramo da issue, o ramo por omissão, as verificações ou os critérios mudarem depois da revisão, ela deixa de valer: pede outra. Uma aprovação funcional dada para outros critérios também não vale.
+
+<sub>Cobre: `integration:integrate`</sub>
 
 ---
 
@@ -818,7 +913,7 @@ O responsável pela issue regista que ela faz o que os critérios de aceitação
 
 **Limites**
 
-- O código pode mudar depois da aprovação: confirmar que ela ainda vale no commit a integrar é da porta de integração (fase 4).
+- A aprovação guarda os critérios para que foi dada: a porta de integração (painel «Rever e integrar») só a aceita se forem os critérios de agora.
 
 <sub>Cobre: `pj-functional-approve`, `pj-functional-revoke`</sub>
 
@@ -872,9 +967,9 @@ Corre a suite do projecto e mostra-a a acontecer: spinner, barra de progresso, c
 
 ## Servidor de linguagem (LSP)
 
-Na app desktop, o editor fala com o servidor de linguagem de cada ficheiro (rust-analyzer, typescript-language-server, pyright, gopls, jdtls…) para os diagnósticos ao vivo, o hover, o «ir para a definição», o rename e o completion. Que linguagem é cada ficheiro (pela extensão, sem distinguir maiúsculas, pelo nome inteiro como `Dockerfile` e `Makefile`, ou pelo shebang) e que servidor a serve diz um só ficheiro de dados, `languages/registry.json`, lido pelo editor e pelo backend. O teu `lsp.json` e o `.dxtutor/lsp.json` de cada projecto acrescentam linguagens e servidores e mudam o comando, os argumentos e as definições de cada servidor; o comando que um projecto pede só corre depois de o aprovares. Quando o servidor não está instalado, o editor diz qual falta e instala-o depois de aprovares o comando exacto, para a pasta do próprio dxtutor. Os servidores não ficam a gastar a máquina: um servidor sem ficheiros abertos pára sozinho ao fim de algum tempo, há um limite de servidores ao mesmo tempo, e a paleta mostra os que estão a correr, com o registo de cada um.
+Na app desktop, o editor fala com o servidor de linguagem de cada ficheiro (rust-analyzer, typescript-language-server, pyright, gopls, jdtls…) para os diagnósticos ao vivo, o hover, o «ir para a definição», o rename e o completion. Que linguagem é cada ficheiro (pela extensão, sem distinguir maiúsculas, pelo nome inteiro como `Dockerfile` e `Makefile`, ou pelo shebang) e que servidor a serve diz um só ficheiro de dados, `languages/registry.json`, lido pelo editor e pelo backend. O teu `lsp.json` e o `.dxtutor/lsp.json` de cada projecto acrescentam linguagens e servidores e mudam o comando, os argumentos e as definições de cada servidor; o comando que um projecto pede só corre depois de o aprovares. Quando o servidor não está instalado, o editor diz qual falta e instala-o depois de aprovares o comando exacto, para a pasta do próprio dxtutor. Uma extensão VS Code instalada (VSIX) que traz uma linguagem que o registo não conhece torna-a uma linguagem do editor — realce, comentários e o nome na barra de estado — e, se o registo o disser, liga-a ao servidor de linguagem certo. Os servidores não ficam a gastar a máquina: um servidor sem ficheiros abertos pára sozinho ao fim de algum tempo, há um limite de servidores ao mesmo tempo, e a paleta mostra os que estão a correr, com o registo de cada um. Sem servidor (ou no browser), o editor continua útil: realce pelas gramáticas que vêm com o dxtutor (Python, Go, Java, Shell, Makefile, Dockerfile), completion pelas palavras dos ficheiros abertos, comentários de bloco e um «Format Document» que só arruma os espaços.
 
-<sub>Código: `languages/registry.json`, `crates/tutor-eval/src/langreg.rs`, `crates/tutor-eval/src/lspconf.rs`, `ui-app/src/features/lsp/application/overrides.ts`, `ui-app/src/features/lsp/ui/config-view.ts`, `docs/lsp/overrides.md`, `ui-app/src/features/lsp/domain/registry.ts`, `ui-app/src/features/lsp/application/lsp-client.ts`, `ui-app/src/features/lsp/domain/server-status.ts`, `crates/tutor-eval/src/lspinstall.rs`, `src-tauri/src/commands/lsp_install.rs`, `src-tauri/src/lsp.rs`, `src-tauri/src/lsp/lifecycle.rs`, `ui-app/src/features/lsp/application/servers.ts`, `ui-app/src/features/lsp/ui/servers-view.ts`, `ui-app/src/features/panel/domain/lsp-log.ts` · revisto em 2026-11-26</sub>
+<sub>Código: `languages/registry.json`, `crates/tutor-eval/src/langreg.rs`, `crates/tutor-eval/src/lspconf.rs`, `ui-app/src/features/lsp/application/overrides.ts`, `ui-app/src/features/lsp/ui/config-view.ts`, `docs/lsp/overrides.md`, `ui-app/src/features/lsp/domain/registry.ts`, `ui-app/src/features/lsp/application/lsp-client.ts`, `ui-app/src/features/lsp/domain/server-status.ts`, `crates/tutor-eval/src/lspinstall.rs`, `src-tauri/src/commands/lsp_install.rs`, `src-tauri/src/lsp.rs`, `src-tauri/src/lsp/lifecycle.rs`, `ui-app/src/features/lsp/application/servers.ts`, `ui-app/src/features/lsp/ui/servers-view.ts`, `ui-app/src/features/panel/domain/lsp-log.ts`, `crates/tutor-eval/src/langcontrib.rs`, `ui-app/src/features/ext/domain/contributions.ts`, `ui-app/src/features/ext/domain/plist.ts`, `ui-app/src/features/lsp/application/contributions.ts`, `languages/grammars/manifest.json`, `scripts/fetch-grammars.mjs`, `ui-app/src/features/lsp/fallback.ts`, `ui-app/src/features/lsp/application/fallback-highlight.ts`, `ui-app/src/features/lsp/application/word-completion.ts`, `ui-app/src/features/lsp/domain/comments.ts`, `ui-app/src/features/lsp/domain/safe-format.ts` · revisto em 2026-11-27</sub>
 
 | Acção | Onde |
 |---|---|
@@ -884,8 +979,13 @@ Na app desktop, o editor fala com o servidor de linguagem de cada ficheiro (rust
 | [Aprovar o comando e as definições que um projecto pede](#aprovar-o-comando-e-as-definicoes-que-um-projecto-pede) | faixa no topo do ficheiro «… is waiting for your approval» → «Review…» · a configuração efectiva → «Review…» |
 | [Ver a configuração efectiva](#ver-a-configuracao-efectiva) | paleta: «LSP: Show Effective Language Server Configuration» |
 | [Aviso de definições ignoradas](#aviso-de-definicoes-ignoradas) | cartão vermelho no canto «Language server settings ignored» |
+| [Linguagens trazidas por uma extensão VS Code (VSIX)](#linguagens-trazidas-por-uma-extensao-vs-code-vsix) | painel «Extensions» → instalar do Open VSX ou de um .vsix (+) · página da extensão → «What this extension adds here» |
 | [Ver os servidores de linguagem a correr](#ver-os-servidores-de-linguagem-a-correr) | paleta: «LSP: Show Running Language Servers» |
 | [Servidores inactivos e o limite de servidores](#servidores-inactivos-e-o-limite-de-servidores) | automático · o teu `lsp.json`: «resources» |
+| [Realce sem extensão: as gramáticas que vêm com o dxtutor](#realce-sem-extensao-as-gramaticas-que-vem-com-o-dxtutor) | editor (automático) |
+| [Completion por palavras quando não há servidor](#completion-por-palavras-quando-nao-ha-servidor) | editor: ao escrever 2 letras de um nome · Ctrl+Espaço |
+| [Comentário de bloco (Ctrl+Shift+A) e Ctrl+/ sem comentário de linha](#comentario-de-bloco-ctrlshifta-e-ctrl-sem-comentario-de-linha) | editor: Ctrl+Shift+A (ou Shift+Alt+A) · editor: Ctrl+/ |
+| [Format Document sem servidor: só o que é seguro](#format-document-sem-servidor-so-o-que-e-seguro) | editor: Shift+Alt+F |
 
 ### Servidor de linguagem em falta: maneiras de instalar, Copiar, Instalar e Verificar outra vez
 
@@ -1033,6 +1133,37 @@ Quando o teu `lsp.json` ou o `.dxtutor/lsp.json` têm um erro, o dxtutor ignora 
 
 <sub>Cobre: `lsp:config-errors-open`</sub>
 
+### Linguagens trazidas por uma extensão VS Code (VSIX)
+
+**Onde:** painel «Extensions» → instalar do Open VSX ou de um .vsix (+) · página da extensão → «What this extension adds here»
+
+Uma extensão instalada que declara uma linguagem que o dxtutor ainda não conhece (o Apache para o `.htaccess`, o Perl, o `go.mod` da extensão do Go) passa a ser uma linguagem do editor: o ficheiro é reconhecido pelo nome inteiro, por um padrão, pela extensão ou pela primeira linha, ganha o realce da gramática da extensão (JSON ou `.tmLanguage` em XML), o Ctrl+/ com o comentário do `language-configuration.json` e o nome na barra de estado. Se o registo de linguagens do dxtutor o disser, o ficheiro vai para o servidor de linguagem dessa extensão (instalar a extensão do Go dá o gopls aos `go.mod`, `go.sum` e `go.work`). Desinstalar ou desligar a extensão tira tudo o que ela trouxe.
+
+**Como usar**
+
+1. Instala a extensão (do Open VSX ou de um ficheiro .vsix) e abre um ficheiro dessa linguagem.
+2. Na página da extensão, cada linguagem diz se é nova no editor ou já do dxtutor, que ficheiros reconhece, que servidor de linguagem tem (ou que não tem) e que ficheiros ficam com o registo do dxtutor.
+3. Uma extensão instalada antes desta versão guardou só as extensões de ficheiro: a página pede para a reinstalar.
+
+**Fluxo (por dentro)**
+
+1. Ao instalar, `readFromVsix` lê de cada linguagem `extensions`, `filenames`, `filenamePatterns`, `firstLine` e `aliases` (o primeiro é o nome), e as gramáticas em JSON ou em property list XML (`ext/domain/plist.ts`); fica tudo no `vsx-contrib`.
+2. As linguagens das extensões ligadas, juntadas por id, entram no registo de linguagens POR BAIXO dele (`useContributed`): o editor, o explorador e o cliente LSP perguntam lá. O registo ganha sempre: um ficheiro que ele já reconhece (pelo nome ou pela extensão) fica dele, e a página da extensão di-lo.
+3. Dentro das extensões: o nome inteiro, depois o padrão mais comprido, depois a extensão mais comprida (`.d.ts` antes de `.ts`); a primeira linha só quando o nome não diz nada (a do registo primeiro). Uma linguagem com o id de uma do registo (`python` com `.pyw`) É essa, servidor incluído.
+4. Servidor: só o do registo que nomeia a extensão em `vscodeExtensions` e a linguagem em `vscodeLanguages` (o gopls lista `go.mod`, `go.sum`, `go.work`; o `go.asm` da mesma extensão fica sem servidor, e o `pip-requirements` da extensão do Python nunca vai para o pyright). O id da linguagem da extensão é o `languageId` que o servidor recebe. Os overrides (P2), a aprovação e as receitas de instalação (P3) continuam iguais.
+5. O backend recebe a lista inteira (`lsp_contributions`) antes de o cliente decidir a linguagem de um ficheiro e sempre que muda (bus `ext:languages`); quando muda, um documento aberto que perdeu o servidor fecha-se nele.
+
+**Dicas**
+
+- No teu `lsp.json` podes dar `vscodeLanguages` a um servidor para que sirva outra linguagem que uma extensão dele traga.
+
+**Limites**
+
+- Não há extension host: o JavaScript da extensão nunca corre, e uma extensão nunca traz o comando de um servidor — o servidor é sempre o do registo.
+- Gramáticas que incluem outras gramáticas (`source.js`…) ficam sem realce nesses blocos; regras que acabam no fim da linha (`\n`) ou com `\G` (o comentário do Perl) ainda não são bem tratadas pelo realce.
+
+<sub>Cobre: `lsp:vsix-languages`</sub>
+
 ### Ver os servidores de linguagem a correr
 
 **Onde:** paleta: «LSP: Show Running Language Servers»
@@ -1086,6 +1217,106 @@ Fechar um ficheiro avisa o servidor (`didClose`). Um servidor sem ficheiros aber
 - O limite não pára um servidor com ficheiros abertos: com muitas linguagens abertas ao mesmo tempo, pode haver mais servidores do que o limite (o editor avisa).
 
 <sub>Cobre: `lsp:resources`</sub>
+
+### Realce sem extensão: as gramáticas que vêm com o dxtutor
+
+**Onde:** editor (automático)
+
+Um ficheiro Python, Go, Java, Shell, Makefile ou Dockerfile tem realce de sintaxe a sério (palavras-chave, strings, comentários, números) mesmo sem nenhuma extensão instalada: o dxtutor traz as gramáticas TextMate dessas linguagens, copiadas tal e qual do VS Code. A gramática de uma extensão instalada para a mesma linguagem ganha sempre. As outras linguagens ficam com o realce de sempre.
+
+**Como usar**
+
+1. Abre um `.py`, `.go`, `.java`, `.sh`, um `Makefile`, um `Dockerfile` ou um script com `#!/usr/bin/env python3`: o realce chega logo que a gramática carrega (a primeira vez, um instante).
+2. Queres outro realce para a linguagem? Instala uma extensão do Open VSX que traga a gramática: passa a ser a dela.
+
+**Fluxo (por dentro)**
+
+1. `languages/grammars/manifest.json` diz que gramática serve que linguagem do registo e fixa cada ficheiro pelo sha256 (repositório do VS Code, tag 1.148.0); `npm run grammars:verify` descarrega-os de novo e confere-os. As licenças estão em `languages/grammars/THIRD-PARTY-NOTICES.md`.
+2. O editor (`paintEd`) pergunta primeiro às extensões (`vsxHighlight`); sem resposta, a `lsp/application/fallback-highlight.ts`: carrega a gramática por um `import()` próprio e tokeniza com o mesmo tokenizador «lite» das extensões.
+3. O realce é incremental: guarda o HTML e o estado do tokenizador de cada linha e só volta a tokenizar as linhas que mudaram (no máximo 300 de cada vez); o resto de um ficheiro grande faz-se em pedaços e o editor repinta quando acaba.
+4. O tokenizador (`ext/domain/textmate.ts`) passou a ler cada linha com o seu `\n` e a dar ao `\G` a âncora certa (onde acabou o `begin` da regra aberta, nessa linha), como o `vscode-textmate`: antes, uma regra que acaba em `\n` ou num `(?!\G)` nunca fechava, e um comentário pintava o resto do ficheiro — também nas gramáticas das extensões (o Perl, por exemplo).
+
+**Limites**
+
+- Só estas seis. C# e Swift ficaram de fora (o tokenizador «lite» não percebe parte das expressões deles: no C# um comentário `///` pintava o resto do ficheiro), C++ é grande demais (678 KB), o CSS perde metade dos padrões; Ruby, Lua, Dart e C já funcionam, mas ficaram de fora para o conjunto continuar pequeno.
+- O tokenizador «lite» não faz `include` de outras gramáticas: o SQL dentro de uma string, por exemplo, fica sem realce.
+
+<sub>Cobre: `lsp:bundled-grammars`</sub>
+
+### Completion por palavras quando não há servidor
+
+**Onde:** editor: ao escrever 2 letras de um nome · Ctrl+Espaço
+
+Quando nenhum servidor de linguagem sugere nada (não está instalado, não há pasta aberta, ou respondeu sem sugestões), a lista do completion mostra as palavras que já estão escritas: as do ficheiro (as mais perto do cursor primeiro) e as dos outros separadores abertos da mesma linguagem. A lista diz por cima que são palavras dos ficheiros abertos, e cada palavra diz de onde vem. Nunca se juntam às sugestões do servidor.
+
+**Como usar**
+
+1. Escreve 2 letras de um nome: a lista abre sozinha. Ctrl+Espaço abre-a a qualquer altura (também em Markdown, onde não abre sozinha).
+2. ↑/↓ escolhem, Enter ou Tab aceitam, Escape fecha — as mesmas teclas do completion do servidor.
+
+**Fluxo (por dentro)**
+
+1. Os ganchos do completion (`lsp/ui/completion-hooks.ts`) perguntam primeiro ao servidor; sem sugestões, perguntam à `lsp/application/word-completion.ts`, que junta as palavras (`lsp/domain/words.ts`: letras, dígitos, `_` e `$`, com pelo menos 3 caracteres; a que estás a escrever não conta).
+2. Os outros separadores lêem-se pelos stores (`app/store`), no máximo 8, só os da mesma linguagem do registo.
+
+**Dicas**
+
+- Uma palavra igual ao que já escreveste não aparece, para o Enter continuar a ser uma linha nova.
+
+**Limites**
+
+- São só palavras: não sabe tipos, membros nem imports. Para isso, o servidor de linguagem.
+
+<sub>Cobre: `lsp:words`</sub>
+
+### Comentário de bloco (Ctrl+Shift+A) e Ctrl+/ sem comentário de linha
+
+**Onde:** editor: Ctrl+Shift+A (ou Shift+Alt+A) · editor: Ctrl+/
+
+Ctrl+Shift+A envolve a selecção num comentário de bloco da linguagem (`/* … */`, `<!-- … -->`, `--[[ … ]]`, `{- … -}`) ou tira o comentário que a envolve; sem selecção, insere um comentário vazio com o cursor no meio. Numa linguagem sem comentário de linha (CSS, HTML, Markdown), o Ctrl+/ comenta as linhas da selecção com um só comentário de bloco.
+
+**Como usar**
+
+1. Selecciona o texto e carrega em Ctrl+Shift+A; outra vez para descomentar (ou com o cursor dentro do comentário).
+2. Numa linguagem sem comentário de bloco (Python, YAML, Shell), o editor diz-to e não mexe no texto: usa o Ctrl+/.
+
+**Fluxo (por dentro)**
+
+1. Os marcadores vêm da language-configuration de uma extensão instalada, se a tiver; senão, do `blockComment` do registo de linguagens (`languages/registry.json`, validado pelo `langreg::validate`: dois marcadores sem espaços). O teu `lsp.json` também o pode dar.
+2. `lsp/domain/comments.ts` faz como o VS Code: procura a abertura para trás na linha onde a selecção começa e o fecho para a frente na linha onde acaba; um fecho a meio quer dizer dois comentários, e então acrescenta outro à volta.
+
+**Limites**
+
+- No editor de um ficheiro, Ctrl+Shift+A deixou de abrir o assistente (como no VS Code no Linux); fora do editor continua a abri-lo, e o Ctrl+L leva-te ao chat.
+- Comentar à volta de um comentário que já existe aninha-os: em C ou CSS isso não compila.
+
+<sub>Cobre: `lsp:block-comment`</sub>
+
+### Format Document sem servidor: só o que é seguro
+
+**Onde:** editor: Shift+Alt+F
+
+Sem um servidor que formate o ficheiro, o Shift+Alt+F tira os espaços no fim das linhas, re-indenta no estilo do PRÓPRIO ficheiro as linhas que usam o outro carácter (um tab num ficheiro de espaços, ou o contrário) e deixa uma única quebra de linha no fim. Nunca parte nem junta linhas, nem mexe no meio de uma linha. O aviso diz o que mudou, o que ficou de propósito e porquê.
+
+**Como usar**
+
+1. Shift+Alt+F no editor. Com um servidor de linguagem que formate a linguagem (desktop com a pasta aberta), é ele que formata; este só corre quando ele não o faz.
+
+**Fluxo (por dentro)**
+
+1. `lsp/domain/safe-format.ts` decide o estilo pelas linhas do ficheiro (tabs ou espaços, e a largura de um nível) e devolve um relatório; `lsp/application/fallback-format.ts` faz dele a frase do aviso. O «Format Document» do dxtutor (`ext-engine.ts`, `formatDoc`) usa-o.
+2. Com o formatador do servidor ligado, o atalho global não formata antes dele (`services.lspFormat`): antes corriam os dois.
+
+**Dicas**
+
+- As quebras de linha CRLF ficam CRLF.
+
+**Limites**
+
+- Onde o espaço é sintaxe não mexe: os espaços no fim de uma linha de Markdown (são quebras de linha), a indentação de um Makefile, de um script de shell (o `<<-`), de YAML ou de Haskell, e nada num `.diff`/`.patch`.
+- Um ficheiro sem estilo dominante (tantas linhas com tabs como com espaços) não é re-indentado.
+
+<sub>Cobre: `lsp:format-fallback`</sub>
 
 ---
 
@@ -1729,7 +1960,9 @@ Percursos guiados para aprender uma linguagem, um framework ou uma ferramenta: l
 | [Escolher o que aprender: linguagens e «Frameworks & tools»](#escolher-o-que-aprender-linguagens-e-frameworks-tools) | Learning Track › «Choose what to learn» · o selector que abre quando não há percurso |
 | [Passo de projecto: vários ficheiros](#passo-de-projecto-varios-ficheiros) | Learning Track › um desafio com a lista de ficheiros por cima do editor |
 | [O curso Dxjs: da primeira signal a uma pequena app](#o-curso-dxjs-da-primeira-signal-a-uma-pequena-app) | Learning Track › «Choose what to learn» › «Frameworks & tools» › Dxjs |
-| [Preparar um curso (Seiva): descarregar as bibliotecas uma vez](#preparar-um-curso-seiva-descarregar-as-bibliotecas-uma-vez) | Learning Track › um passo do curso Seiva › cartão «Prepare this course» |
+| [O curso Django: de uma vista a uma pequena app de leituras](#o-curso-django-de-uma-vista-a-uma-pequena-app-de-leituras) | Learning Track › «Choose what to learn» › «Frameworks & tools» › Django |
+| [Os cursos de Kubernetes e do Delonix: manifestos avaliados sem cluster](#os-cursos-de-kubernetes-e-do-delonix-manifestos-avaliados-sem-cluster) | Learning Track › «Choose what to learn» › «Frameworks & tools» › Kubernetes ou Delonix Engine |
+| [Preparar um curso (Seiva, Django): descarregar as dependências uma vez](#preparar-um-curso-seiva-django-descarregar-as-dependencias-uma-vez) | Learning Track › um passo do curso Seiva ou Django › cartão «Prepare this course» |
 
 ### Escolher o que aprender: linguagens e «Frameworks & tools»
 
@@ -1758,7 +1991,7 @@ Mostra as 10 linguagens oficiais e, numa secção à parte, os frameworks e as f
 **Limites**
 
 - No browser só há os cursos embutidos de Rust e Go: os frameworks ficam todos «Coming soon».
-- Dos frameworks e ferramentas oficiais, o Dxjs e o Seiva têm curso (embutidos na app); os outros chegam em fases próximas.
+- Dos frameworks e ferramentas oficiais, o Dxjs, o Seiva, o Kubernetes e o Delonix Engine têm curso (embutidos na app); os outros chegam em fases próximas.
 
 <sub>Cobre: `lt-pick`, `lt-onboard`, `lt-install`, `lt-remove`</sub>
 
@@ -1789,7 +2022,7 @@ Um desafio pode ser um pequeno projecto: vários ficheiros (um aberto primeiro, 
 **Limites**
 
 - Só na app desktop.
-- Hoje os avaliadores de Python (`unittest`), de TypeScript (`node --test`) e de Rust (`cargo test`, um crate ou um workspace) correm passos de projecto; as outras linguagens dizem que ainda não o suportam.
+- Hoje os avaliadores de Python (`unittest`; num projecto com `manage.py` na raiz, o `manage.py test` do Django), de TypeScript (`node --test`) e de Rust (`cargo test`, um crate ou um workspace) correm passos de projecto; as outras linguagens dizem que ainda não o suportam.
 - Não se criam ficheiros novos: o passo traz todos os ficheiros com que se trabalha.
 
 <sub>Cobre: `lt-file`, `learn:go`</sub>
@@ -1824,37 +2057,144 @@ O curso oficial do dxjs, o motor de interfaces reactivas da NgolaCloud: 12 unida
 
 <sub>Cobre: `lt-pick`, `submit_step`</sub>
 
-### Preparar um curso (Seiva): descarregar as bibliotecas uma vez
+### O curso Django: de uma vista a uma pequena app de leituras
 
-**Onde:** Learning Track › um passo do curso Seiva › cartão «Prepare this course»
+**Onde:** Learning Track › «Choose what to learn» › «Frameworks & tools» › Django
 
-Um curso que compila contra bibliotecas de fora (o Seiva 0.2.0, o tokio, o axum) avalia-se sempre sem rede. Antes da primeira avaliação, «Prepare course» descarrega essas bibliotecas uma vez para uma cache deste curso e compila-as; depois, cada passo compila offline em poucos segundos.
+O curso oficial de Django 5.2 LTS: 9 unidades — vistas e URLs, modelos e migrações, o ORM, templates, formulários, o admin, testes e uma API JSON só com Django — que constroem uma pequena app de leituras (livros, autores e críticas). Os exercícios correm contra o Django verdadeiro, com o próprio executor de testes do Django.
 
 **Como usar**
 
-1. Abre um passo do curso Seiva: enquanto o curso não está preparado, aparece o cartão «Prepare this course».
-2. Carrega em «Prepare course» e lê, no diálogo, os comandos exactos e a pasta onde correm.
-3. Aprova: a preparação demora cerca de um minuto; no fim o cartão desaparece e «Submit» já avalia.
+1. Escolhe o cartão Django na secção «Frameworks & tools» e os níveis que queres.
+2. Na primeira vez, prepara o curso (cartão «Prepare this course»): instala o Django num ambiente Python só deste curso.
+3. Lê os conceitos de cada unidade, escreve os drills linha a linha e resolve os projectos: cada um é um projecto Django com `manage.py`, onde só os ficheiros da tarefa são editáveis.
 
 **Fluxo (por dentro)**
 
-1. O backend constrói os comandos (`course_prepare_status`): `cargo fetch` (a única ida à rede) e `cargo test --offline --no-run`, com um `CARGO_HOME` e um `target` só do curso — o `~/.cargo` não é tocado.
-2. O diálogo de aprovação partilhado mostra-os. Uma recusa vai para o registo de auditoria e nada corre.
-3. Aprovado, `course_prepare` só corre se o comando aprovado for o plano actual; regista a operação na auditoria antes de correr e outra vez com o resultado.
-4. No fim fica um marcador com a impressão digital das dependências e o `Cargo.lock`; cada avaliação corre com `--offline`, essa cache e o tempo limite do curso.
-5. Sem preparação (ou se o curso mudou as bibliotecas), a avaliação recusa com `COURSE_NOT_PREPARED` e o cartão volta a aparecer.
+1. O curso vem embutido no backend (`courses/django/`, `include_str!`), na categoria `framework`, avaliado pelo descritor de Python.
+2. As dependências (Django, asgiref e sqlparse) estão fixadas no `[build]` do curso, cada uma com a versão exacta e o hash sha256; a avaliação usa o venv do curso, sem rede e só com SQLite.
+3. Num passo de projecto, o descritor vê o `manage.py` na raiz e corre `manage.py test`: a base de dados de teste é criada em memória, as migrações correm e os testes ocultos decidem; um teste que não corre nunca conta como aprovado.
 
 **Dicas**
 
-- Na linha de comandos, `dxt plugin prepare courses/seiva` faz o mesmo para a mesma cache.
-- A cache fica em `<dados do utilizador>/dxtutor/course-cache/seiva-basics` (uns 650 MB); apagá-la só obriga a preparar outra vez.
+- Precisa do Python 3.10 ou mais recente com o módulo `venv` (no Debian/Ubuntu, o pacote `python3-venv`).
+- No primeiro passo, «About» leva à documentação oficial do Django 5.2, em docs.djangoproject.com/en/5.2.
 
 **Limites**
 
-- Só na app desktop, e só para cursos avaliados em Rust.
-- Precisa de rede na preparação (crates.io e GitHub).
+- Só na app desktop; no browser o cartão fica «Coming soon».
+- Não se criam ficheiros novos: uma migração a escrever já vem no passo, vazia.
+
+<sub>Cobre: `lt-pick`, `submit_step`</sub>
+
+### Os cursos de Kubernetes e do Delonix: manifestos avaliados sem cluster
+
+**Onde:** Learning Track › «Choose what to learn» › «Frameworks & tools» › Kubernetes ou Delonix Engine
+
+Dois cursos de ferramentas em que se escreve YAML: o de Kubernetes (11 unidades, dos objectos e Pods ao Kustomize) e o do Delonix Engine 0.2.0 (9 unidades, dos manifestos e Pods aos ficheiros compose e a um projecto inteiro num Stack). Cada desafio é avaliado na tua máquina, sem cluster e sem tocar no motor de contentores.
+
+**Como usar**
+
+1. Escolhe o cartão Kubernetes ou Delonix Engine na secção «Frameworks & tools» e os níveis que queres.
+2. Lê os conceitos, escreve os drills linha a linha (o drill de YAML só confirma que o ficheiro se lê) e resolve os desafios: cada um é um pequeno projecto de ficheiros YAML.
+3. Carrega em «Submit»: o resultado lista cada verificação, ✓ ou ✗, com o que se esperava e o que se encontrou.
+
+**Fluxo (por dentro)**
+
+1. Os cursos vêm embutidos no backend (`courses/kubernetes/`, `courses/delonix/`), na categoria `tool`, e escrevem-se e avaliam-se em `yaml`.
+2. Cada desafio traz, nos ficheiros ocultos, um `checks.toml`: verificações sobre o YAML (um caminho e uma afirmação — igual, corresponde a, só estas chaves, um selector que escolhe as etiquetas de outro documento, um nome que existe noutro ficheiro) e, às vezes, um comando de uma ferramenta.
+3. Os comandos só podem ser os da lista do backend (`tutor_core::toolcheck`): `kubectl kustomize <pasta>`, `delonix manifest render -f <ficheiro>` e `delonix compose config -f <ficheiro> -p <projecto>`. Nenhum vai à rede, a um cluster ou ao motor de contentores.
+4. Correm sem shell, com o ambiente limpo, um `HOME` e um `KUBECONFIG` vazios numa pasta temporária (os teus contextos do kubectl nunca são lidos) e um tempo limite. Um kustomization que aponte para a rede ou use o Helm, ou uma porta de compose sem a porta do anfitrião, é recusado antes de correr.
+
+**Dicas**
+
+- Precisas do kubectl para as unidades de Kustomize e do delonix 0.2.0 para o curso do Delonix; sem eles, o desafio diz o que instalar em vez de falhar.
+- O relatório da avaliação mostra a saída do comando que falhou: é a mesma mensagem que verias no terminal.
+
+**Limites**
+
+- Só na app desktop; no browser os cartões ficam «Coming soon».
+- Esta é a parte offline: correr os manifestos num cluster local (kind sobre Podman sem root) fica para uma fase seguinte.
+- O `delonix manifest validate` não é usado na avaliação: lê o estado do motor (e mexe nos cgroups do anfitrião); as referências entre documentos são verificadas pelo curso, a partir dos teus ficheiros.
+
+<sub>Cobre: `lt-pick`, `submit_step`</sub>
+
+### Preparar um curso (Seiva, Django): descarregar as dependências uma vez
+
+**Onde:** Learning Track › um passo do curso Seiva ou Django › cartão «Prepare this course»
+
+Um curso que usa bibliotecas de fora (o Seiva 0.2.0, o tokio e o axum; o Django 5.2) avalia-se sempre sem rede. Antes da primeira avaliação, «Prepare course» descarrega essas bibliotecas uma vez para uma cache deste curso; depois, cada passo corre offline em poucos segundos.
+
+**Como usar**
+
+1. Abre um passo do curso: enquanto o curso não está preparado, aparece o cartão «Prepare this course».
+2. Carrega em «Prepare course» e lê, no diálogo, os pacotes que vão ser descarregados (nome, versão e origem), os comandos exactos e a pasta onde correm.
+3. Aprova: o Seiva demora cerca de um minuto, o Django uns segundos; no fim o cartão desaparece e «Submit» já avalia.
+
+**Fluxo (por dentro)**
+
+1. O backend constrói os comandos e a lista de pacotes (`course_prepare_status`). Num curso Rust: `cargo fetch` (a única ida à rede) e `cargo test --offline --no-run`, com um `CARGO_HOME` e um `target` só do curso — o `~/.cargo` não é tocado.
+2. Num curso Python: `python3 -m venv` cria um venv só do curso, `pip install --require-hashes --only-binary=:all:` instala do PyPI as versões exactas (a única ida à rede; um pacote sem hash ou não fixado faz o pip recusar; nenhum `setup.py` corre; a configuração e a cache do pip do utilizador ficam de fora) e `pip check` confirma o resultado sem rede. O Python do utilizador não ganha pacotes.
+3. O diálogo de aprovação partilhado mostra os pacotes e os comandos. Uma recusa vai para o registo de auditoria e nada corre.
+4. Aprovado, `course_prepare` só corre se o comando aprovado for o plano actual; regista a operação na auditoria antes de correr e outra vez com o resultado.
+5. No fim fica um marcador com a impressão digital das dependências; cada avaliação corre contra essa cache (`--offline` no Rust, o Python do venv com `PIP_NO_INDEX` no Python) e com o tempo limite do curso.
+6. Sem preparação (ou se o curso mudou as dependências), a avaliação recusa com `COURSE_NOT_PREPARED` e o cartão volta a aparecer.
+
+**Dicas**
+
+- Na linha de comandos, `dxt plugin prepare courses/seiva` (ou `courses/django`) faz o mesmo para a mesma cache.
+- A cache fica em `<dados do utilizador>/dxtutor/course-cache/<id do curso>` (o Seiva uns 650 MB, o Django uns 60 MB); apagá-la só obriga a preparar outra vez.
+- Um curso de terceiros pode declarar as dependências que quiser: confere a lista do diálogo antes de aprovar.
+
+**Limites**
+
+- Só na app desktop, e só para cursos avaliados em Rust (cargo) ou Python (pip).
+- Precisa de rede na preparação (crates.io e GitHub; o PyPI).
 
 <sub>Cobre: `lt-prepare`</sub>
+
+---
+
+## Novo projecto: um projecto completo a partir dos templates do Delonix
+
+Cria um projecto novo já completo — código, testes, Dockerfile, compose, CI, ADRs, runbooks e dotfiles — a partir dos mesmos templates do `delonix init -t` (Rust, Go, Node.js, FastAPI, Django, NestJS, Next.js, Laravel, nginx, Apache httpd, HAProxy, Odoo e WordPress), e abre-o logo como o teu workspace.
+
+<sub>Código: `crates/tutor-scaffold/src/lib.rs`, `src-tauri/src/commands/scaffold.rs`, `templates/projects/`, `scripts/sync-delonix-templates.sh`, `ui-app/src/features/newproject/` · revisto em 2026-11-27</sub>
+
+| Acção | Onde |
+|---|---|
+| [Criar um projecto novo](#criar-um-projecto-novo) | Boas-vindas › Começar › Novo projecto… · menu File › New Project… · paleta › File: New Project… |
+
+### Criar um projecto novo
+
+**Onde:** Boas-vindas › Começar › Novo projecto… · menu File › New Project… · paleta › File: New Project…
+
+Abre um diálogo com um cartão por template, agrupados em Linguagens, Frameworks, Servidores web e Aplicações. Escolhes um, dás o nome, a pasta onde fica e a versão, e o projecto é criado e aberto como workspace.
+
+**Como usar**
+
+1. Abre o Novo projecto e escolhe o cartão (por exemplo, FastAPI).
+2. Escreve o nome (letras minúsculas, dígitos e hífenes), confirma a pasta onde fica e a versão.
+3. Carrega em «Criar projecto» e confirma no diálogo, que mostra exactamente o que vai acontecer.
+4. O projecto abre-se como o teu workspace; o resumo diz como ficou o git e o lockfile.
+
+**Fluxo (por dentro)**
+
+1. Os templates são os do Delonix (`bins/delonix/templates`), copiados por `scripts/sync-delonix-templates.sh` para `templates/projects/` (o commit de origem fica em `SOURCE`) e embutidos no binário pelo crate `tutor-scaffold`.
+2. `project_new_plan` valida o nome (uma etiqueta DNS), a versão (as do `template.meta`) e a pasta (nova ou vazia), e diz o que vai acontecer; não escreve nada.
+3. `project_new` substitui os tokens (`__NAME__`, `__MODULE__`, `__PORT__`, `__TLS_PORT__`, `__TEMPLATE_VERSION__`, `__DISTROLESS_REGISTRY__`) nos conteúdos e nos caminhos, escreve o `.env` (0600) com segredos aleatórios a partir do `.env.tmpl`, gera o lockfile se o gestor de pacotes estiver instalado, faz `git init` em `main` e o commit `chore: scaffold`. Fica no registo de auditoria do projecto novo, antes e com o resultado.
+
+**Dicas**
+
+- O `.env` nunca entra no commit (o `.gitignore` do template exclui-o); os segredos são só deste projecto.
+
+**Limites**
+
+- Só na app desktop.
+- O certificado local dos templates com HTTPS (pasta `tls/`) não é gerado: cria-o com `scripts/tls.sh` ou com o `delonix init`.
+- Sem o gestor de pacotes (uv, pnpm, cargo, composer) instalado, o lockfile não é gerado e o resumo diz que comando correr.
+
+<sub>Cobre: `welcome:newProject`, `newproject:pick`, `newproject:create`, `newproject:parent`</sub>
 
 ---
 

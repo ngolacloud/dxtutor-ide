@@ -123,6 +123,8 @@ test("abre a sessão com os comandos detectados e o modo, faz streaming do texto
     architecture: false,
     // toolset 11: a backlog session only for /backlog and /project
     backlog: false,
+    // H2: the project of the workspace (none here)
+    project: null,
   });
   expect(t.gateway.send).toHaveBeenCalledWith("S1", "olá", { kind: "chat" });
   expect(t.calls).toContain("reasoning vou ver");
@@ -504,6 +506,17 @@ test("o uso de cada pedido do agente segue para o contador e o ctx (entrada com 
   expect(onUsage.mock.calls.map((c) => c.slice(0, 2))).toEqual([[1230, 50], [400, 20]]);
   expect(onUsage.mock.calls[0][2]).toEqual({ cacheRead: 200, cacheWrite: 30, cost: costUSD("claude-opus-5-5", u(1000, 50, 200, 30)) });
   expect(onUsage.mock.calls[1][2]).toEqual({ cacheRead: 0, cacheWrite: 0, cost: costUSD("claude-opus-5-5", u(400, 20)) });
+});
+
+test("H1: /comandos mostra a sandbox do projecto e deixa confiá-la", async () => {
+  const t = setup("sandbox");
+  (t.gateway.extensions as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+    commands: [], skills: [], hooks: { present: false, trusted: false }, mcp: { present: false, trusted: false },
+    sandbox: { present: true, trusted: false }, mcpServers: [],
+  });
+  await t.chat.commandsMenu();
+  expect(t.calls.some((c) => c.startsWith("text ") && c.includes("**Sandbox** (`.dxtutor/sandbox.json`)"))).toBe(true);
+  expect(t.gateway.trust).toHaveBeenCalledWith("/proj", "sandbox");
 });
 
 test("conjunto 11: /backlog abre uma sessão de backlog; o /project continua nela; a conversa normal não a tem", async () => {

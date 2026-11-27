@@ -480,6 +480,16 @@ const DXJS_SUPPORT: &[(&str, &str)] = &[
 /// Seiva (framework, avaliado em Rust): também só no backend; compila contra o Seiva 0.2.0 do
 /// repositório (`[build]` do curso), preparado uma vez e avaliado offline.
 const SEIVA_BASICS: &str = include_str!("../../../courses/seiva/courses/seiva.toml");
+/// Django (framework, avaliado em Python): também só no backend; corre contra o Django 5.2 LTS
+/// fixado (versão e sha256) no `[build]` do curso, instalado uma vez num venv do curso e avaliado
+/// offline com o `manage.py test` do próprio Django.
+const DJANGO_BASICS: &str = include_str!("../../../courses/django/courses/django.toml");
+/// Kubernetes (ferramenta, avaliada por verificações — `crate::toolcheck`): só no backend. A parte
+/// offline: os manifestos lêem-se e o `kubectl kustomize` constrói-os sem cluster.
+const KUBERNETES_BASICS: &str = include_str!("../../../courses/kubernetes/courses/kubernetes.toml");
+/// Delonix Engine 0.2.0 (ferramenta, avaliada por verificações): só no backend, com os comandos
+/// do delonix que não tocam no motor (`manifest render`, `compose config`).
+const DELONIX_BASICS: &str = include_str!("../../../courses/delonix/courses/delonix.toml");
 
 /// Todos os cursos guiados embebidos no binário.
 pub fn builtin_courses() -> Vec<Course> {
@@ -496,6 +506,9 @@ pub fn builtin_courses() -> Vec<Course> {
         parse("swift-basics", SWIFT_BASICS),
         with_support(parse("dxjs-basics", DXJS_BASICS), DXJS_SUPPORT),
         parse("seiva-basics", SEIVA_BASICS),
+        parse("django-basics", DJANGO_BASICS),
+        parse("kubernetes-basics", KUBERNETES_BASICS),
+        parse("delonix-basics", DELONIX_BASICS),
     ]
 }
 
@@ -1224,6 +1237,99 @@ explanation = "Why."
 }
 
 #[cfg(test)]
+mod django_tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    /// O curso Django: framework avaliado em Python, 9 unidades, um projecto Django por unidade
+    /// (sempre com `manage.py` na raiz, o que faz o descritor Python correr `manage.py test`), e
+    /// as dependências fixadas com hash numa cache pip preparada.
+    #[test]
+    fn django_is_a_framework_course_graded_by_python_with_a_pip_cache() {
+        let c = load_course("django-basics").expect("curso django-basics");
+        assert_eq!(
+            (
+                c.language.as_str(),
+                c.category,
+                c.subject.as_str(),
+                c.track()
+            ),
+            ("python", CourseCategory::Framework, "django", "django")
+        );
+        assert!(c
+            .overview
+            .contains("https://docs.djangoproject.com/en/5.2/"));
+        assert!(c.support.is_empty());
+        let levels: BTreeSet<&str> = c.units.iter().map(|u| u.level.as_str()).collect();
+        assert_eq!(
+            levels,
+            BTreeSet::from(["basic", "intermediate", "advanced"])
+        );
+        // As dependências: o Django 5.2 LTS e as suas, cada uma exacta e com o sha256 da roda.
+        assert!(c.build.prepare);
+        let pins: Vec<(String, String)> = c
+            .build
+            .dependencies
+            .iter()
+            .map(|d| {
+                let r = crate::pip_requirement(d).expect("pinned and hashed");
+                assert_eq!(r.hashes.len(), 1, "{d}");
+                (r.name, r.version)
+            })
+            .collect();
+        assert_eq!(
+            pins,
+            [
+                ("Django".to_string(), "5.2.19".to_string()),
+                ("asgiref".to_string(), "3.12.1".to_string()),
+                ("sqlparse".to_string(), "0.6.1".to_string()),
+            ]
+        );
+        for (n, u) in c.units.iter().enumerate() {
+            assert_eq!(u.difficulty as usize, n + 1, "{}", u.id);
+            assert!(u.concepts.len() > 1000, "{}: concepts", u.id);
+            assert_eq!(u.steps.first().map(|s| s.kind), Some(StepKind::Concept));
+            let kinds: Vec<StepKind> = u.steps.iter().map(|s| s.kind).collect();
+            assert_eq!(
+                kinds,
+                [
+                    StepKind::Concept,
+                    StepKind::Drill,
+                    StepKind::Drill,
+                    StepKind::Challenge
+                ],
+                "{}",
+                u.id
+            );
+            for s in &u.steps {
+                assert!(s.id.starts_with("dj-"), "{}", s.id);
+                let cache = s
+                    .build
+                    .cache
+                    .as_ref()
+                    .expect("every step uses the course cache");
+                assert_eq!(cache.kind(), Some(crate::CacheKind::Pip));
+                assert_eq!(cache.key, "django-basics");
+            }
+            let last = u.steps.last().unwrap();
+            let p = last
+                .project
+                .as_ref()
+                .expect("each unit ends with a project");
+            assert!(p.check().is_empty(), "{}: {:?}", last.id, p.check());
+            assert!(p.starter.contains_key("manage.py"), "{}", last.id);
+            assert!(p.readonly.iter().any(|f| f == "config/settings.py"));
+            assert!(
+                p.starter["config/settings.py"].contains("django.db.backends.sqlite3"),
+                "SQLite only"
+            );
+            let phase = c.phase(last, Level::Basico).expect("avaliável");
+            assert_eq!(phase.build.timeout_secs, 120);
+        }
+    }
+}
+
+#[cfg(test)]
 mod dxjs_tests {
     use super::*;
     use std::collections::BTreeSet;
@@ -1357,5 +1463,129 @@ justification = "j"
         // Clonar o curso partilha os ficheiros (Arc), não os copia.
         let clone = c.clone();
         assert!(Arc::ptr_eq(&clone.support_files, &c.support_files));
+    }
+}
+
+#[cfg(test)]
+mod tool_course_tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    /// A forma dos cursos de ferramentas (Learn P2b): categoria `tool`, avaliados por verificações
+    /// (`yaml`), ids com o prefixo do curso, níveis por blocos, e cada unidade conceito + drills +
+    /// um desafio de projecto cujo `checks.toml` é válido.
+    fn tool_course(
+        id: &str,
+        subject: &str,
+        prefix: &str,
+        units: usize,
+        tools: &[crate::toolcheck::Tool],
+    ) {
+        let c = load_course(id).unwrap_or_else(|| panic!("curso {id}"));
+        assert_eq!(
+            (
+                c.language.as_str(),
+                c.category,
+                c.subject.as_str(),
+                c.track()
+            ),
+            ("yaml", CourseCategory::Tool, subject, subject)
+        );
+        assert!(crate::toolcheck::graded_by_checks(&c.language));
+        assert!(c.overview.len() > 1500, "overview");
+        assert!(c.support.is_empty(), "sem ficheiros de apoio");
+        assert_eq!(c.units.len(), units);
+        let levels: Vec<&str> = c.units.iter().map(|u| u.level.as_str()).collect();
+        let rank = |l: &str| {
+            ["basic", "intermediate", "advanced"]
+                .iter()
+                .position(|x| *x == l)
+                .unwrap()
+        };
+        assert!(
+            levels.windows(2).all(|w| rank(w[0]) <= rank(w[1])),
+            "{levels:?}"
+        );
+        assert_eq!(
+            levels.iter().copied().collect::<BTreeSet<_>>(),
+            BTreeSet::from(["basic", "intermediate", "advanced"])
+        );
+        for (n, u) in c.units.iter().enumerate() {
+            assert_eq!(u.difficulty as usize, n + 1, "{}", u.id);
+            assert!(u.concepts.len() > 1000, "{}: concepts", u.id);
+            assert!(
+                u.concepts.contains("https://"),
+                "{}: a link to the official docs",
+                u.id
+            );
+            let kinds: Vec<StepKind> = u.steps.iter().map(|s| s.kind).collect();
+            assert_eq!(
+                kinds,
+                [
+                    StepKind::Concept,
+                    StepKind::Drill,
+                    StepKind::Drill,
+                    StepKind::Challenge
+                ],
+                "{}",
+                u.id
+            );
+            for s in &u.steps {
+                assert!(s.id.starts_with(prefix), "{}", s.id);
+                assert!(s.points > 0, "{}", s.id);
+            }
+            for d in u.steps.iter().filter(|s| s.kind == StepKind::Drill) {
+                let lines: Vec<&str> = d.target.trim_end_matches('\n').split('\n').collect();
+                assert_eq!(
+                    d.line_comments.len(),
+                    lines.len(),
+                    "{}: um comentário por linha",
+                    d.id
+                );
+                for (line, comment) in lines.iter().zip(&d.line_comments) {
+                    assert_eq!(
+                        line.trim().is_empty(),
+                        comment.trim().is_empty(),
+                        "{}: {line:?}",
+                        d.id
+                    );
+                }
+            }
+            let ch = u.steps.last().unwrap();
+            let p = ch.project.as_ref().expect("desafio de projecto");
+            assert!(p.check().is_empty(), "{}: {:?}", ch.id, p.check());
+            let errs = crate::toolcheck::check_step(p);
+            assert!(errs.is_empty(), "{}: {errs:?}", ch.id);
+            assert!(c.phase(ch, Level::Basico).is_some());
+        }
+        let used: Vec<crate::toolcheck::Tool> =
+            crate::toolcheck::course_tools(&c).into_iter().collect();
+        assert_eq!(used, tools);
+    }
+
+    #[test]
+    fn kubernetes_is_a_tool_course_graded_by_checks() {
+        tool_course(
+            "kubernetes-basics",
+            "kubernetes",
+            "k8s-",
+            11,
+            &[crate::toolcheck::Tool::Kubectl],
+        );
+        let c = load_course("kubernetes-basics").unwrap();
+        assert!(c.overview.contains("kubectl v1.36"));
+    }
+
+    #[test]
+    fn delonix_is_a_tool_course_graded_by_checks() {
+        tool_course(
+            "delonix-basics",
+            "delonix",
+            "dlx-",
+            9,
+            &[crate::toolcheck::Tool::Delonix],
+        );
+        let c = load_course("delonix-basics").unwrap();
+        assert!(c.overview.contains("Delonix 0.2.0") && c.overview.contains("0.1.x"));
     }
 }

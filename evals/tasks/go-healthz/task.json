@@ -1,0 +1,9 @@
+{
+  "id": "go-healthz",
+  "title": "A health endpoint for the load balancer",
+  "language": "go",
+  "category": "feature",
+  "prompt": "The load balancer needs a health check. In server/health.go implement `HealthHandler(version string, ready func()\nerror) http.Handler`: `GET /healthz` answers 200 with JSON `{\"status\":\"ok\",\"version\":\"<version>\"}` and\n`Content-Type: application/json` when `ready()` returns nil, and 503 with `{\"status\":\"unavailable\",\"error\":\"<msg>\"}`\notherwise. Other methods get 405 with an `Allow: GET` header. Any other path is 404.",
+  "check": "go test ./... 2>&1",
+  "test": "go test ./..."
+}

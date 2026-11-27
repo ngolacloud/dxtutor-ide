@@ -1,0 +1,9 @@
+{
+  "id": "rust-lru-recency",
+  "title": "LRU cache evicts recently read entries",
+  "language": "rust",
+  "category": "bugfix",
+  "prompt": "Users report that our `LruCache` (src/lib.rs) evicts entries they just read. Reading an entry with `get` must make\nit the most recently used, so the next insert over capacity evicts the least recently used one. Inserting an existing\nkey updates the value and also makes it most recent. Fix it without changing the public API.",
+  "check": "cargo test --quiet --offline 2>&1",
+  "test": "cargo test --quiet --offline"
+}

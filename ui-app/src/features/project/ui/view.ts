@@ -48,6 +48,13 @@ function functionalBlock(i: Issue): string {
   return `<div class="pj-sec"><span>${esc(gt("functional"))}</span></div>${body}`;
 }
 
+/** Multi Co-Dev (phase 4): an issue with a branch opens its «Review & integrate» panel (the gate's three
+ *  conditions with their evidence; the integration itself is the backend's). */
+function integrationBlock(i: Issue): string {
+  if (!i.branch) return "";
+  return `<div class="pj-sec"><span>${esc(gt("integration"))}</span></div><div class="pj-dim">${esc(gt("integrationHint", { branch: i.branch }))}</div><button class="pj-btn" data-action="pj-integration"><span>${esc(gt("integrationOpen"))}</span></button>`;
+}
+
 const KIND_MARK: Record<string, string> = { story: "▣", bug: "●", task: "☑", spike: "⚑" };
 const PRI_MARK: Record<string, string> = { high: "⬆", medium: "＝", low: "⬇" };
 
@@ -244,6 +251,7 @@ function issuePanel(st: ProjectState, p: Project, now: number): string {
         : ""
     }
     ${functionalBlock(i)}
+    ${integrationBlock(i)}
     ${
       // RF-B02: the Definition of Ready holds in every method (Co-Dev needs a Ready issue), so the
       // section is always there — not only for Scrum or a project with its own DoR list

@@ -31,6 +31,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, State};
+use tutor_eval::langcontrib::{self, ContribLanguage, FileLanguage};
 use tutor_eval::langreg::{self, Server};
 use tutor_eval::lspconf::{self, Effective, TrustStore};
 use tutor_eval::lspinstall;
@@ -153,15 +154,33 @@ fn serves_a_language(reg: &langreg::Registry, server_id: &str) -> bool {
 
 /// The session group of a file: its language (by file name or extension, case-insensitive; by the
 /// first line for a file whose name says nothing) and that language's server — in the registry of
-/// the open folder the file is in (its override files included).
+/// the open folder the file is in (its override files included). A file the registry does not know
+/// may be a language an installed VSIX contributes (LSP P4, [`file_language`]).
 fn lang_for_path(path: &str) -> Option<Lang> {
     let project = project_of(path);
     let eff = effective(project.as_deref());
-    let server = eff
-        .registry
-        .server_of(eff.registry.language_for_file(path)?)?
+    let server = file_language(&eff.registry, path)?
+        .server(&eff.registry)?
         .clone();
     Some(Lang::of(&server, project, eff))
+}
+
+/// The languages the installed VS Code extensions contribute (LSP P4), as the UI last sent them
+/// (`lsp_contributions`). Only file routing: the server one of them gets comes from the registry
+/// (`vscodeExtensions` + `vscodeLanguages`, see `tutor_eval::langcontrib`); a VSIX never brings a
+/// command.
+fn contributed() -> &'static Mutex<Vec<ContribLanguage>> {
+    static C: OnceLock<Mutex<Vec<ContribLanguage>>> = OnceLock::new();
+    C.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+/// The language of a file: the registry's rules first, then the VSIX languages
+/// (`langcontrib::file_language`; the first line is read only when the name says nothing).
+fn file_language<'a>(reg: &'a langreg::Registry, path: &str) -> Option<FileLanguage<'a>> {
+    let langs = contributed().lock().unwrap().clone();
+    langcontrib::file_language(reg, &langs, path, || {
+        langreg::first_line_of(Path::new(path))
+    })
 }
 
 /// The open folder a file belongs to (the deepest one), whose `.dxtutor/lsp.json` applies.
@@ -1374,6 +1393,28 @@ pub async fn lsp_server_status(path: String) -> Result<Option<ServerStatus>, Str
         .map_err(|e| e.to_string())
 }
 
+/// LSP P4: the languages the installed VS Code extensions contribute (merged by id), sent by the UI
+/// when the app starts and after each install or uninstall — the whole list each time, so an
+/// uninstalled VSIX's languages are gone. A file the registry knows never changes language; a
+/// VSIX-only language reaches a server only as `tutor_eval::langcontrib` says.
+#[tauri::command]
+pub async fn lsp_contributions(languages: Vec<ContribLanguage>) -> Result<(), String> {
+    set_contributions(languages);
+    Ok(())
+}
+
+fn set_contributions(languages: Vec<ContribLanguage>) {
+    let clean = languages
+        .into_iter()
+        .filter(|l| !l.id.trim().is_empty())
+        .map(|mut l| {
+            l.from = l.from.iter().map(|x| x.to_ascii_lowercase()).collect();
+            l
+        })
+        .collect();
+    *contributed().lock().unwrap() = clean;
+}
+
 // ── Overrides (LSP P2): the user file, the project's `.dxtutor/lsp.json`, approvals, reload ──
 
 /// Where the override files and approvals live, and the effective registry of each open folder.
@@ -1901,10 +1942,7 @@ pub async fn lsp_did_change(
                 None => {
                     let language_id = lang_for_path(&path)
                         .and_then(|l| {
-                            l.eff
-                                .registry
-                                .language_for_file(&path)
-                                .map(|x| x.lsp_id().to_string())
+                            file_language(&l.eff.registry, &path).map(|x| x.lsp_id().to_string())
                         })
                         .unwrap_or_default();
                     d.insert(
@@ -3065,6 +3103,58 @@ mod registry_resolution_tests {
         assert!(
             lang_for_path("/w/Dockerfile").is_none(),
             "a language without a server"
+        );
+    }
+
+    #[test]
+    fn a_vsix_language_reaches_the_server_its_extension_names_and_goes_when_uninstalled() {
+        // the real `golang.go` VSIX's languages (part of them) and a VSIX that claims `.h`
+        let go = |id: &str, names: &[&str], exts: &[&str]| ContribLanguage {
+            id: id.into(),
+            filenames: names.iter().map(|x| x.to_string()).collect(),
+            extensions: exts.iter().map(|x| x.to_string()).collect(),
+            from: vec!["Golang.Go".into()],
+            ..Default::default()
+        };
+        set_contributions(vec![
+            go("go.mod", &["go.mod"], &[]),
+            go("go.asm", &[], &[".s"]),
+            ContribLanguage {
+                id: "objective-c".into(),
+                extensions: vec![".h".into()],
+                from: vec!["acme.objc".into()],
+                ..Default::default()
+            },
+        ]);
+        let gomod = lang_for_path("/p4-vsix/mod/go.mod").expect("gopls for go.mod");
+        assert_eq!(
+            (gomod.id.as_str(), gomod.server_label.as_str()),
+            ("go", "gopls")
+        );
+        let lang_id = file_language(&gomod.eff.registry, "/p4-vsix/mod/go.mod")
+            .map(|f| f.lsp_id().to_string());
+        assert_eq!(
+            lang_id.as_deref(),
+            Some("go.mod"),
+            "the VSIX id is the LSP languageId"
+        );
+        assert_eq!(
+            server_status("/p4-vsix/mod/go.mod").map(|s| s.language),
+            Some("go".into())
+        );
+        assert!(
+            lang_for_path("/p4-vsix/a.s").is_none(),
+            "gopls does not list go.asm"
+        );
+        assert_eq!(
+            lang_for_path("/p4-vsix/a.h").map(|l| l.id),
+            Some("cpp".into()),
+            "the registry wins"
+        );
+        set_contributions(Vec::new());
+        assert!(
+            lang_for_path("/p4-vsix/mod/go.mod").is_none(),
+            "uninstalled: gone"
         );
     }
 }

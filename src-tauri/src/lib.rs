@@ -19,13 +19,16 @@ mod bridge;
 pub mod codeintel;
 pub mod codev;
 pub mod codev_agent;
+mod codev_review;
 mod codev_worktree;
 mod commands;
 pub mod debug;
 pub mod devcontainer;
 pub mod dictation;
+pub mod eval;
 mod fsops;
 pub mod gitops;
+pub mod ide_tool;
 mod keys;
 mod llm;
 mod lsp;
@@ -73,6 +76,9 @@ use commands::codev_agent::{
     codev_agent_permissions, codev_agent_review, codev_agent_rewind, codev_agent_save_permissions,
     codev_agent_send, codev_agent_sessions, codev_agent_set_mode, codev_agent_set_plan,
     codev_agent_start, codev_agent_trust,
+};
+use commands::codev_review::{
+    codev_review_cancel, codev_review_integrate, codev_review_request, codev_review_state,
 };
 use commands::codev_worktree::{
     codev_claims, codev_worktree_commit, codev_worktree_create, codev_worktree_file,
@@ -129,7 +135,10 @@ use commands::runbook::{
     runbook_decide, runbook_list, runbook_parse, runbook_step, sources_status,
 };
 use commands::sandbox::{compose_ps, get_sandbox_engine, set_sandbox_engine};
-use commands::search::{detect_projects, list_files, read_folder_sources, search_project};
+use commands::scaffold::{project_new, project_new_plan, project_templates};
+use commands::search::{
+    detect_projects, list_files, read_folder_sources, search_project, workspace_projects,
+};
 use commands::study::{
     course_prepare, course_prepare_status, get_course, get_glossary, get_study_guide, list_courses,
     list_phases, request_fix, request_hint, request_plan, study_policy, submit, submit_step,
@@ -1069,6 +1078,11 @@ pub fn run() {
             codev_worktree_file,
             codev_worktree_commit,
             codev_claims,
+            // Multi Co-Dev, fase 4 — a revisão Co-Dev assistida e a porta de integração (commands/codev_review.rs)
+            codev_review_state,
+            codev_review_request,
+            codev_review_cancel,
+            codev_review_integrate,
             dictation_status,
             dictation_start,
             dictation_stop,
@@ -1166,6 +1180,7 @@ pub fn run() {
             devcontainer_session_status,
             devcontainer_session_down,
             detect_projects,
+            workspace_projects,
             pty::pty_spawn,
             pty::pty_spawn_in_session,
             pty::pty_write,
@@ -1248,6 +1263,8 @@ pub fn run() {
             lsp::lsp_server_log,
             lsp::lsp_server_stop,
             lsp::lsp_server_restart,
+            // LSP P4: the languages the installed VS Code extensions contribute
+            lsp::lsp_contributions,
             board::board_load,
             board::board_save,
             board::project_load,
@@ -1268,6 +1285,9 @@ pub fn run() {
             board::audit_export_evidence,
             board::project_issue_prompt,
             board::project_create_from_backlog,
+            project_templates,
+            project_new_plan,
+            project_new,
             board::project_sprint_plan,
             board::project_scope_overlap,
             board::project_checks,

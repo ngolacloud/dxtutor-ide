@@ -18,6 +18,9 @@ ureq = { version = "2.12" }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 flate2 = "1"
 tutor-core = { path = "../tutor-core" }
+# Learn P2b: the tool evaluator reads the learner's YAML (maintained fork of serde_yaml 0.9, the
+# same crate the Delonix Engine uses)
+serde_norway = "0.9"
 anyhow.workspace = true
 tempfile.workspace = true
 serde.workspace = true

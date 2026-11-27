@@ -29,6 +29,8 @@ export interface StartAgentArgs {
   /** Sessão de backlog (conjunto 11, `/backlog` e `/project`): só estas levam `backlog_propose` e
    *  `project_propose`. Fica gravada com a sessão. */
   backlog?: boolean;
+  /** H2: the project of the workspace the session works in (relative; `null` or `"."`: the whole workspace). */
+  project?: string | null;
   /** Multi Co-Dev (fase 3): a sessão da issue trabalha na worktree dela (o backend encontra-a; tem de existir). */
   worktree?: boolean;
 }
@@ -49,6 +51,7 @@ export const startAgent = (a: StartAgentArgs): Promise<string> =>
     language: a.language ?? currentLocale(),
     architecture: a.architecture ?? false,
     backlog: a.backlog ?? false,
+    project: a.project ?? null,
     ...(a.worktree ? { worktree: true } : {}),
   });
 
@@ -122,5 +125,5 @@ export const saveAgentPermissions = (root: string, rules: { allow: string[]; den
 export const agentExtensions = (root: string): Promise<unknown> => invoke<unknown>("codev_agent_extensions", { root });
 
 /** Confia nos hooks (`"hooks"`) ou nos servidores MCP (`"mcp"`) do projecto, tal como estão. */
-export const trustAgentFile = (root: string, kind: "hooks" | "mcp"): Promise<void> =>
+export const trustAgentFile = (root: string, kind: "hooks" | "mcp" | "sandbox"): Promise<void> =>
   invoke<void>("codev_agent_trust", { root, kind });

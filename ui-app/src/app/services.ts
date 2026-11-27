@@ -72,6 +72,8 @@ export interface Services {
     createFromBacklog(o: { hash: string; plan: unknown; ready: boolean; issues: number; sprints: number }): Promise<BacklogCreated | null>;
     /** hands a Project issue to Co-Dev («Work on it with Co-Dev») */
     workOn(key: string): Promise<void>;
+    /** Multi Co-Dev (phase 4): reads the Project again, when it is open (an integration moved an issue) */
+    refresh(): void;
   };
   /** r23 F4a: um commit da UI que o secret scan bloqueou pergunta ao humano (features/protect, que avalia depois);
    *  e o hook de pre-commit (endurecimento r23), pedido pela paleta */
@@ -82,6 +84,16 @@ export interface Services {
   proposals: Pick<typeof CodevIndex, "proposeInEditor">;
   /** r23 F4c2: o deploy guiado (features/deploy, que avalia depois da infra): o «Promote»/«Redeploy» abrem-no */
   deploy: { open: (env: string) => void; recent: () => DeployRecord[] };
+  /** LSP P5: o Shift+Alt+F do editor é do formatador do servidor de linguagem (features/lsp, só desktop com pasta), que
+   *  cai no «Format Document» do dxtutor quando não há servidor; os atalhos globais, que avaliam antes, perguntam-lhe */
+  lspFormat: { handles: () => boolean };
+  /** Multi Co-Dev (fase 4): o que o painel de revisão precisa do Co-Dev (features/codev/index.ts) — o provedor e o
+   *  modelo com que o revisor corre, e fechar a sessão de uma issue integrada (as reservas e a worktree saem pelas
+   *  regras da fase 3) */
+  codevReview: { reviewer(): { provider: string; model: string }; closeSession(session: string): boolean };
+  /** Multi Co-Dev (fase 4): o painel «Rever e integrar» de uma issue (features/integration, que avalia depois da faixa
+   *  «Co-Devs» e do Project, que o abrem no acto) */
+  integration: { open(key: string): void };
   /** r23 F4c/F5a: the Vault the IDE is signed in to (features/vault, que avalia depois do Ops), null otherwise */
   vault: { signedIn: () => { addr: string; namespace: string | null } | null };
 }

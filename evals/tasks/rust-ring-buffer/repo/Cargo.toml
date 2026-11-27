@@ -1,0 +1,9 @@
+[package]
+name = "task"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+# its own workspace: never part of the dxtutor-ide one
+[workspace]

@@ -39,8 +39,11 @@ import { makeContribEngine } from "./ext/application/contributions-engine";
 import { isDesktop } from "../platform/tauri/core";
 import { fetchOpenVsx, searchOpenVsx } from "../platform/tauri/extensions";
 import { bindActions } from "./ext/ui/actions";
-import { toggleLineComment, type ExtensionContributions } from "./ext/domain/contributions";
-import { languageFor } from "./lsp/domain/registry";
+import { languageConflicts, toggleLineComment, type ExtensionContributions } from "./ext/domain/contributions";
+import { contributedServerOf, languageById, languageFor, serverOf, useContributed } from "./lsp/domain/registry";
+import { bus } from "../app/bus";
+import { toggleBlockComment, toggleLinesWithBlock } from "./lsp/domain/comments";
+import { formatFallback } from "./lsp/fallback";
 import {
   initExs,
   lsGet,
@@ -64,8 +67,11 @@ import {
 } from "./ext/infrastructure/legacy-bridge";
 import { translator } from "../app/i18n";
 import { EXT_MESSAGES } from "./ext/ui/messages";
+import { EXT_LANGUAGE_MESSAGES } from "./ext/ui/language-messages";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(EXT_MESSAGES);
+/** Os textos das linguagens de um VSIX (LSP P4, texto novo). */
+const ltxt = translator(EXT_LANGUAGE_MESSAGES);
 
 /* ── ADR-0006, R6b: já não há catálogo fixo. O que se conhece sem estar instalado vem do Open VSX
    real (a pesquisa, na app desktop) e das recomendações pela pilha do projecto
@@ -102,7 +108,12 @@ publishJSZipLoader();
    snippets, language-configuration). Guardadas em LS; o tema activo vive numa <style>
    própria confinada ao editor (`.ed`). ── */
 const CONTRIB_KEY = "vsx-contrib";
+/* LSP P4: as linguagens que os VSIX instalados (e ligados) contribuem entram no registo de linguagens por
+   baixo dele (o editor, o explorador e o cliente LSP perguntam lá); quem quer saber que mudaram ouve
+   `ext:languages` (o cliente LSP manda-as ao backend e fecha os documentos que perderam o servidor). */
 const contrib = makeContribEngine({
+  active: id => { hydrateExs(); const i = EXS.inst[id]; return !i || !!i.on; },
+  onChange: () => bus.emit("ext:languages", { count: contrib.languages().length }),
   store: {
     load: () => {
       const v = lsGet(CONTRIB_KEY, []);
@@ -138,6 +149,16 @@ const contrib = makeContribEngine({
   },
   editorScope: ".ed",
 });
+useContributed(() => {
+  try {
+    return contrib.languages();
+  } catch {
+    return []; // o armazenamento ainda não existe (arranque): volta a perguntar depois
+  }
+});
+
+/** A linguagem do ficheiro (o registo, com as linguagens dos VSIX por baixo). */
+const fileLanguage = (path: string, content: string | null) => languageFor(path, content);
 
 /** Tab no editor: expande o snippet cujo prefixo acaba no cursor. `true` se expandiu. */
 function vsxSnippet(ta: HTMLTextAreaElement, path: string): boolean {
@@ -146,7 +167,7 @@ function vsxSnippet(ta: HTMLTextAreaElement, path: string): boolean {
   const lineStart = v.lastIndexOf("\n", pos - 1) + 1;
   const lineBefore = v.slice(lineStart, pos);
   const indent = (/^\s*/.exec(lineBefore) || [""])[0];
-  const r = contrib.expandAt(extOf(path), lineBefore, { filename: path, now: new Date() }, indent, "    ");
+  const r = contrib.expandAt(fileLanguage(path, v)?.id ?? null, lineBefore, { filename: path, now: new Date() }, indent, "    ");
   if (!r) return false;
   const start = pos - r.prefix.length;
   ta.setSelectionRange(start, pos);
@@ -155,27 +176,37 @@ function vsxSnippet(ta: HTMLTextAreaElement, path: string): boolean {
   return true;
 }
 
-/** Ctrl+/ no editor: comenta/descomenta as linhas da selecção. `true` se mudou. */
-function vsxToggleComment(ta: HTMLTextAreaElement, path: string): boolean {
-  const ext = extOf(path);
-  /* sem language-configuration de uma extensão instalada: o marcador do registo de linguagens
-     (pelo nome do ficheiro — `Dockerfile`, `Makefile` — ou pela extensão, ou pelo shebang) */
-  const marker = contrib.lineCommentFor(ext) || languageFor(path, ta.value)?.lineComment;
-  if (!marker) return false;
-  const r = toggleLineComment(ta.value, ta.selectionStart, ta.selectionEnd, marker);
+/** Ctrl+/ no editor: comenta/descomenta as linhas da selecção; com `block` (Ctrl+Shift+A, LSP P5), o
+ *  Toggle Block Comment. `true` se mudou; `false` se a linguagem não tem esse comentário. */
+function vsxToggleComment(ta: HTMLTextAreaElement, path: string, block = false): boolean {
+  /* a linguagem do ficheiro (pelo nome — `Dockerfile`, `Makefile` —, pela extensão ou pelo shebang; uma
+     linguagem de um VSIX também, LSP P4); os marcadores do language-configuration de uma extensão instalada,
+     senão os do registo (`lineComment`, `blockComment` — LSP P5) */
+  const lang = fileLanguage(path, ta.value);
+  const id = lang?.id ?? null;
+  const marker = contrib.lineCommentFor(id) || lang?.lineComment;
+  const pair = contrib.blockCommentFor(id) || lang?.blockComment || null;
+  const r = block
+    ? pair ? toggleBlockComment(ta.value, ta.selectionStart, ta.selectionEnd, pair) : null
+    : marker
+      ? toggleLineComment(ta.value, ta.selectionStart, ta.selectionEnd, marker)
+      : pair ? toggleLinesWithBlock(ta.value, ta.selectionStart, ta.selectionEnd, pair) : null; // HTML, CSS: as linhas num bloco
+  if (!r) return false;
   ta.value = r.text;
   ta.setSelectionRange(r.selStart, r.selEnd);
   return true;
 }
 
 let contribRestored = false;
-/** Realce do documento com a gramática TextMate da linguagem, se alguma extensão a trouxer. */
-function vsxHighlight(ext: string, lines: string[]): string[] | null {
+/** Realce do documento com a gramática TextMate da linguagem, se alguma extensão a trouxer. A linguagem é
+ *  a do ficheiro `path` (pelo nome ou pela primeira linha, LSP P4); sem caminho, a da extensão `ext`. */
+function vsxHighlight(ext: string, lines: string[], path?: string): string[] | null {
   if (!contribRestored) {
     contribRestored = true;
     contrib.restore();
   }
-  return contrib.highlight(ext, lines);
+  const lang = fileLanguage(path ?? `file.${ext}`, lines[0] ?? "");
+  return lang ? contrib.highlight(lang.id, lines) : null;
 }
 
 /** Aplica um tema de cor de uma extensão (ou `null` para o tema do dxtutor) e repinta. */
@@ -205,6 +236,8 @@ const engine = makeExtEngine({
   notifier: { toast: m => toast(m) },
   rerender: () => rerExt(),
   contrib,
+  /* LSP P5: o «Format Document» sem servidor só faz o que é seguro, e diz o quê */
+  formatter: { format: (path, text) => formatFallback(path, text) },
 });
 const { extAll, extOn, extCmds, saveExt, extInstall, extRemove, extToggle, loadVsix, formatDoc } = engine;
 
@@ -236,11 +269,35 @@ function contribSection(x: ExtItem): string {
   c.themes.forEach(label => rows.push(`<div class="rowline"><span>Color theme <b class="notr">${esc(label)}</b></span><span class="sp"></span>${active === label ? `<span class="tag live">${txt("active")}</span>` : `<button class="mini" data-action="vsx-theme" data-on="${esc(label)}">Apply</button>`}</div>`));
   if (c.grammars.length) rows.push(`<div class="rowline"><span>Syntax highlighting (TextMate) for <span class="notr">${c.grammars.map(esc).join(", ")}</span></span></div>`);
   if (c.snippets) rows.push(`<div class="rowline"><span>${c.snippets} snippet${c.snippets === 1 ? "" : "s"} — type the prefix and press <kbd>Tab</kbd></span></div>`);
-  if (c.languages.length) rows.push(`<div class="rowline"><span>Languages <span class="notr">${c.languages.map(esc).join(", ")}</span> (file extensions, comments: <kbd>Ctrl+/</kbd>)</span></div>`);
+  const stored = contrib.get(x.id);
+  if (stored && stored.languages.length) rows.push(...languageRows(stored));
+  else if (c.languages.length) rows.push(`<div class="rowline"><span>Languages <span class="notr">${c.languages.map(esc).join(", ")}</span> (file extensions, comments: <kbd>Ctrl+/</kbd>)</span></div>`);
   if (c.lsp) rows.push(`<div class="rowline"><span>Language server: dxtutor runs <code>${esc(c.lsp)}</code> for this language when it is installed</span></div>`);
   const warn = c.warnings.length ? `<div class="sub" style="margin-top:8px">${c.warnings.map(w => `⚠ ${esc(w)}`).join("<br>")}</div>` : "";
   return `<h2>What this extension adds here</h2><div class="adv agent">${svg("check")}<div>dxtutor applies the extension's declarative contributions below. Its own JavaScript code does not run: there is no VS Code extension host, so commands that need it are listed but inactive.</div></div>
    ${rows.length ? `<div class="tbl-wrap">${rows.join("")}</div>` : '<div class="sub">This extension has no declarative contributions dxtutor can use.</div>'}${warn}`;
+}
+
+/** LSP P4: cada linguagem do VSIX — nova no editor ou já do dxtutor, os ficheiros que reconhece, o servidor
+ *  que o registo lhe dá (ou nenhum) — e o que fica com o registo de linguagens, que ganha sempre. */
+function languageRows(c: ExtensionContributions): string[] {
+  const row = (text: string) => `<div class="rowline"><span class="notr">${esc(text)}</span></div>`;
+  const merged = contrib.languages();
+  const out: string[] = [];
+  for (const l of c.languages) {
+    const m = merged.find(x => x.id === l.id);
+    const claims = [...l.extensions, ...(l.filenames ?? []), ...(l.filenamePatterns ?? []), ...(l.firstLine ? [ltxt("langFirstLine", { pattern: l.firstLine })] : [])];
+    const shown = claims.length ? claims.slice(0, 8).join(", ") + (claims.length > 8 ? ", …" : "") : ltxt("langNone");
+    const known = languageById(l.id);
+    const name = `${known?.name ?? m?.name ?? l.id} (${l.id})`;
+    out.push(row(ltxt(known ? "langKnown" : "langNew", { name, claims: shown })));
+    const server = known ? serverOf(known) : m ? contributedServerOf(m) : null;
+    if (server) out.push(row(ltxt("langServer", { server: server.label })));
+    else if (!known) out.push(row(ltxt("langNoServer")));
+  }
+  for (const k of languageConflicts(c)) out.push(row(ltxt("langConflict", { claim: k.claim, kept: k.kept, language: k.language })));
+  if (c.languages.some(l => l.filenames === undefined)) out.push(row(ltxt("langReinstall")));
+  return out;
 }
 
 /** Fase 4: instalar do Open VSX pelo id (`publisher.name`). Só no desktop: o download é do

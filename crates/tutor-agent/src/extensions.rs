@@ -99,7 +99,31 @@ pub struct Skill {
     pub description: String,
     #[serde(skip)]
     pub path: PathBuf,
+    /// Comes with the IDE (H3); a project skill with the same name wins.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub builtin: bool,
+    #[serde(skip)]
+    pub body: Option<&'static str>,
 }
+
+/// H3: the skills that come with the IDE — each says which `ide` actions fit a kind of work, and what never to do
+/// without the human. `(name, description, body)`.
+pub const BUILTIN_SKILLS: &[(&str, &str, &str)] = &[
+    ("workspace", "Know this workspace's projects and work inside one (boundaries, commands)",
+     "# Workspace\n\n1. `ide` action `workspace.projects` lists the projects (path, language, test and lint commands).\n2. Work inside the project of the request: its folder, its commands (run them from its folder), its AGENTS.md/CLAUDE.md.\n3. A change in another project needs the human's approval — say why it is needed before you ask.\n4. `.dxtutor/workspace.json` declares or excludes projects; it is the human's file: propose changes, do not write it.\n"),
+    ("project-board", "Read the Project board: sprint status, what is blocked, what is Ready, one issue in detail",
+     "# Project board\n\n1. `ide` action `project.board` (args `project` for another project of the workspace): method, sprints, issues by state, WIP limits, DoR/DoD.\n2. `project.issue` with `key`: the story, criteria, scope, dependencies, what it lacks to be Ready, recent activity.\n3. Answer from the data: count by state, name blocked issues and why, issues over WIP, what keeps an issue from Ready (the `missing` list). Never invent a status.\n4. You do not move or edit issues: the human does it in the Project tab; an issue you work on ends with `finish_issue`. Suggest new work with `suggest` (it goes to the Project inbox).\n"),
+    ("source-control", "Branches, recent commits, pull requests and CI status of this repository",
+     "# Source control\n\n1. `ide` actions: `git.refs` (branches, ahead/behind, worktrees, stashes), `git.log` (args `n`, `path`), `gh.prs` (`filter`: open, mine, review), `gh.runs` (`sha`, HEAD by default).\n2. For «why is CI red?»: `gh.runs` for the commit, then read the failing job's step with the test or build output you can reproduce locally (`run_tests`).\n3. Never push, force-push, merge, rebase a shared branch or delete a branch: say the exact command and leave it to the human.\n4. `gh` may be missing or not signed in: say so, do not guess PR or CI state.\n"),
+    ("dependencies", "Outdated, duplicated or risky dependencies of the project's manifests",
+     "# Dependencies\n\n1. `ide` action `deps.report` reads the manifests and lock files (offline).\n2. Report what matters: security-relevant packages, major versions behind, duplicates; with the manifest and line.\n3. Upgrade one dependency at a time, run the tests after each, and stop on the first failure. Never upgrade everything in one change.\n4. Work outside the request goes to the Project inbox with `suggest`.\n"),
+    ("architecture", "Check the code against the architect's rules and explain or fix the violations",
+     "# Architecture\n\n1. `ide` action `arch.conformance` checks the repository against `.dxtutor/architecture.toml` (layers, allowed libraries, naming).\n2. Explain each violation with file:line and the rule; fix it inside the request's scope.\n3. A deliberate deviation needs an accepted ADR: you may draft it under docs/adr (status proposed); only the architect accepts it.\n4. Never edit `.dxtutor/architecture.toml` yourself.\n"),
+    ("codebase-onboarding", "A guided tour of an unfamiliar codebase: entry points, modules, where things live",
+     "# Codebase onboarding\n\n1. `ide` action `codebase.map`: entry points, modules and their roles.\n2. Then read the 3–5 files that matter most (entry point, main domain module, a test) with `read` by excerpts (`outline` first).\n3. Answer as a short tour: what the system does, how a request flows, where to change X, how to run the tests. Cite paths.\n"),
+    ("sre-slo", "The project's SLOs, error budgets and burn rate from its Prometheus",
+     "# SLOs\n\n1. `ide` action `slo.status`: each SLO with its objective, window, the error budget left and the burn rate (from `.dxtutor/slo.json` and the Prometheus in `.dxtutor/metrics.json`).\n2. «not connected» or no requests means there is no number: say that, never estimate one.\n3. A spent budget is a reason to stop risky changes; say which SLO and how much is left.\n4. You never change the metrics configuration or the token: that is the human's (the Ops tab).\n"),
+];
 
 fn valid_name(n: &str) -> bool {
     !n.is_empty()
@@ -218,6 +242,8 @@ pub fn skills(root: &Path) -> Vec<Skill> {
                 name,
                 description,
                 path: p,
+                builtin: false,
+                body: None,
             })
         })
         .collect();
@@ -225,9 +251,28 @@ pub fn skills(root: &Path) -> Vec<Skill> {
     v
 }
 
+/// The project's skills and then the IDE's that the project does not replace (H3).
+pub fn all_skills(root: &Path) -> Vec<Skill> {
+    let mut v = skills(root);
+    let own: Vec<String> = v.iter().map(|s| s.name.clone()).collect();
+    v.extend(
+        BUILTIN_SKILLS
+            .iter()
+            .filter(|(n, _, _)| !own.iter().any(|o| o == n))
+            .map(|(name, description, body)| Skill {
+                name: name.to_string(),
+                description: description.to_string(),
+                path: PathBuf::new(),
+                builtin: true,
+                body: Some(body),
+            }),
+    );
+    v
+}
+
 /// O índice das skills para o system prompt (vazio se não houver).
 pub fn skills_index(root: &Path) -> Option<String> {
-    let s = skills(root);
+    let s = all_skills(root);
     (!s.is_empty()).then(|| {
         let list: Vec<String> = s
             .iter()
@@ -265,7 +310,7 @@ impl Tool for SkillTool {
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> ToolOutput {
         let name = input["name"].as_str().unwrap_or_default();
-        let all = skills(&ctx.root);
+        let all = all_skills(&ctx.root);
         let Some(s) = all.iter().find(|s| s.name == name) else {
             let names: Vec<&str> = all.iter().map(|s| s.name.as_str()).collect();
             return ToolOutput::err(format!(
@@ -273,6 +318,9 @@ impl Tool for SkillTool {
                 names.join(", ")
             ));
         };
+        if let Some(body) = s.body {
+            return ToolOutput::ok(body);
+        }
         match std::fs::read_to_string(&s.path) {
             Ok(text) => {
                 let others: Vec<String> = s
@@ -370,6 +418,46 @@ mod tests {
     }
 
     #[test]
+    fn the_ide_skills_come_with_the_ide_and_a_project_skill_replaces_one() {
+        let d = tempfile::tempdir().unwrap();
+        let idx = skills_index(d.path()).unwrap();
+        for (name, _, body) in BUILTIN_SKILLS {
+            assert!(idx.contains(&format!("- {name}: ")), "{name}");
+            assert!(
+                body.contains("`ide`"),
+                "{name} says which ide actions to use"
+            );
+        }
+        let ctx = ToolCtx {
+            root: d.path().to_path_buf(),
+            cancel: Default::default(),
+        };
+        let out = SkillTool.run(&json!({"name": "project-board"}), &ctx);
+        assert!(
+            !out.is_error && out.content.contains("project.board"),
+            "{}",
+            out.content
+        );
+        put(
+            d.path(),
+            ".dxtutor/skills/project-board/SKILL.md",
+            "---\nname: project-board\ndescription: Ours\n---\nOur own board rules.",
+        );
+        let all = all_skills(d.path());
+        assert_eq!(all.iter().filter(|s| s.name == "project-board").count(), 1);
+        assert!(
+            !all.iter()
+                .find(|s| s.name == "project-board")
+                .unwrap()
+                .builtin
+        );
+        assert!(SkillTool
+            .run(&json!({"name": "project-board"}), &ctx)
+            .content
+            .contains("Our own board rules"));
+    }
+
+    #[test]
     fn skills_index_and_tool() {
         let d = tempfile::tempdir().unwrap();
         put(d.path(), ".dxtutor/skills/migracoes/SKILL.md", "---\nname: migracoes\ndescription: Como escrever migrações SQL\n---\n1. Nunca apagar colunas.");
@@ -393,7 +481,10 @@ mod tests {
         assert!(SkillTool
             .run(&json!({"name": "x"}), &ctx)
             .content
-            .contains("disponíveis: migracoes"));
-        assert!(skills_index(&d.path().join("nada")).is_none());
+            .contains("disponíveis: migracoes, workspace, project-board"));
+        // without project skills the IDE's are still there (H3)
+        assert!(skills_index(&d.path().join("nada"))
+            .unwrap()
+            .contains("- workspace: "));
     }
 }

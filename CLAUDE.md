@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 333 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 342 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -47,7 +47,7 @@ dependências — só `bash`/`awk`/`grep`). Verifica:
   terminal, mensagens a um agente/par/assistente em curso, ditado, gravações com debounce) e os puros e baratos.
 - **A7–A8** — fronteiras da Clean Architecture das features extraídas (abaixo).
   A var `FEATURES` do `arch-check.sh` lista quais governam (hoje `codev`, `ext`,
-  `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra`, `panel`, `learn`, `arch`, `testing`, `lsp`, `project`, `hood` — o «Under the hood» e o traço reais da A8 — `ops` — o separador Ops da A9 —, `codebase` — Dependencies e Onboarding da A10 —, `comments`, `welcome` — a página de boas-vindas da r23 F6 — `protect` — a protecção de dados da r23 F4a — `vault` — o Vault da r23 F4c — e `deploy` — o deploy guiado da r23 F4c2); cada nova
+  `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra`, `panel`, `learn`, `arch`, `testing`, `lsp`, `project`, `hood` — o «Under the hood» e o traço reais da A8 — `ops` — o separador Ops da A9 —, `codebase` — Dependencies e Onboarding da A10 —, `comments`, `welcome` — a página de boas-vindas da r23 F6 — `protect` — a protecção de dados da r23 F4a — `vault` — o Vault da r23 F4c — `deploy` — o deploy guiado da r23 F4c2 — e `integration` — o painel «Rever e integrar» da fase 4 do Multi Co-Dev); cada nova
   extracção acrescenta-se lá. A `arch` (Studio de arquitectura de sistema, separador «Architecture»)
   é uma feature nova e tipada, separada do Studio do catálogo cloud (`features/studio.ts`). Nota: desde a U4i do ADR-0004 nenhuma
   feature tem `@ts-nocheck` (os resíduos `infra.ts`/`visualizer.ts` e o interpretador `vzRun`
@@ -414,9 +414,9 @@ aceitação da issue e (3) o responsável REGISTOU a aprovação funcional. A fa
   sessão o painel fica igual (nenhum golden mudou). O separador «Co-Dev run» e o `ctx` seguem a conversa à vista; o
   modo da modebar vale para todas; «Nova conversa» só recomeça a à vista; o quadro Tasks antigo («Delegar») continua
   na à vista.
-- **Verificações obrigatórias:** `projects.checks` (JSON `[{name, command}]`, migração 15; `Op::Settings{checks}`;
-  vazio = o comando de testes detectado, `R.projectCmd("test")`), editadas nas Settings (`nome: comando` por linha) e
-  lidas por `project_checks` para a fase 4.
+- **Verificações obrigatórias:** `projects.checks` (JSON `[{name, command}]`, migração 15; `Op::Settings{checks}`),
+  editadas nas Settings (`nome: comando` por linha). Desde a fase 4, vazio NUNCA abre a porta: o painel de integração
+  oferece gravar o comando de testes detectado (`R.projectCmd("test")`) como verificação.
 - **Aprovação funcional:** `Op::ApproveFunctional{key, note?}` / `RevokeFunctional{key, reason}` (colunas
   `issues.functional_*`, migração 15): só com critérios, uma vez, quem/quando do backend, actividade + linha no registo
   de auditoria na mesma transacção (`functional.approve`/`.revoke`); cai se os critérios mudarem. Quem pode:
@@ -463,6 +463,44 @@ aceitação da issue e (3) o responsável REGISTOU a aprovação funcional. A fa
 - Testes: `cargo test -p tutor-eval gitwork::codev`, `cargo test -p tutor-board claims branches`,
   `cargo test -p dxtutor-ide codev_worktree codev_agent::worktree_tests`, `tests/codev.worktrees.test.ts`,
   `tests/codev.sessions.test.ts`, o e2e `e2e/multi-codev.e2e.ts` e o passo `worktrees` do auto-teste.
+
+### Fase 4: o revisor Co-Dev assistido e a porta de integração
+
+**A porta vive no Rust** (`tutor_board::project::integration::gate`, pura) e é perguntada outra vez no clique de
+«Integrar», com os factos lidos nesse momento. Integra-se só se as três valem para as pontas de AGORA: (1) todas as
+verificações obrigatórias passaram (exit 0) no candidato e as regras do arquitecto não acharam nada; (2) o revisor deu
+`met` a cada critério, com evidência, para esse candidato e esses critérios; (3) a aprovação funcional existe e foi
+dada para os critérios de agora (`issues.functional_criteria`, migração 19). Qualquer mudança de uma ponta, das
+verificações ou dos critérios torna a revisão velha (`stale_*`); sem verificações (`none_set`) nunca abre.
+- **O candidato** (`tutor_eval::gitwork::integrate`): o ramo da issue fundido na ponta do ramo por omissão — o que a
+  pasta do projecto tem em uso — sem tocar em nada (`git merge-tree --write-tree` + `commit-tree`, pais: base e
+  cabeça), guardado em `refs/dxtutor/review/<KEY>`; conflito = os ficheiros e nada mais. Destacado numa worktree
+  temporária em `app_local_data_dir/integration/<repo>/<KEY>` (removida no fim da revisão, é da app).
+- **«Pedir revisão»** (`codev_review_request`, caso de uso `src-tauri/src/codev_review.rs`): só o plano aprovado
+  (`codev_review_state` dá o texto exacto), auditado antes (`review.request`) e com o resultado. Corre cada verificação
+  lá (todas; comando, exit, tempo, fim da saída mascarado; ambiente da shell de login, sem `GIT_*`), as regras do
+  arquitecto da pasta sobre os ficheiros que o candidato muda e o secret scan do que ele traz (`Scope::Between`). Só
+  com tudo verde corre o revisor: um `Agent` à parte (não é uma sessão do Co-Dev: nenhum conjunto de ferramentas nem
+  prompt de outra sessão muda) com `read`/`glob`/`grep` na worktree temporária e `review_verdict`; recebe o diff
+  (40 KB no máximo), os critérios, a DoD e os resultados, nunca o repositório. A evidência é verificada contra o
+  candidato (`file`: existe e tem as linhas; `test`: o nome aparece na árvore ou na saída; `output`: a verificação
+  correu) e o `overall` tem de bater com os critérios; o que falha volta-lhe. Sem veredicto depois de lhe pedir duas
+  vezes = `failed`. Provedor e modelo: os do Co-Dev (`services.codevReview`). Tudo em `integration_reviews`
+  (migração 19) com as pontas, o commit e a árvore.
+- **«Integrar»** (`codev_review_integrate`): porta outra vez → comando aprovado → auditoria `review.integrate` antes →
+  `undo_snapshot` → secret scan (bloqueado → o `guard` partilhado pede motivo) → `git merge --ff-only <candidato>` na
+  pasta do projecto (pára com alterações que o git sobreporia; nunca push nem force) → auditoria com o resultado →
+  `ProjectStore::record_integration` (nunca uma `Op`: a UI não pode afirmar uma integração) liga o commit, regista
+  `integrated` e anda com a issue um passo de cada vez pelo `move_check`, sem excepções (`held` onde uma regra recusa).
+  Fase 3: a sessão aberta da issue fecha pela UI (reservas e worktree pelas regras dela); sem sessão, a worktree do
+  Co-Dev sai se estiver limpa (auditado). O ramo fica.
+- **UI** (`features/integration/`, A7/A8): o painel `#ig-panel` (por baixo do `#approval`) com as três condições, a
+  evidência de cada uma e porque é que «Integrar» está desligado; abre-se pelo ⇥ da faixa «Co-Devs» e pela secção
+  «Integration» do painel da issue no Project (só com ramo). Um código que o painel não conhece nunca diz «ok».
+- Testes: `cargo test -p tutor-eval gitwork::integrate`, `cargo test -p tutor-board integration migration_19`,
+  `cargo test -p tutor-protect between`, `cargo test -p dxtutor-ide codev_review` (repositórios reais e um modelo
+  falso: cada ramo da porta), `tests/integration.test.ts`, `tests/codev.worktrees.test.ts` e o passo `integration` do
+  auto-teste (sem modelo: a porta recusa no Rust). Fase 5: autonomia delegada e PRs.
 
 ## `/backlog` e `/project`: o backlog e o Project feitos pelo Co-Dev (conjunto 11)
 
@@ -809,6 +847,38 @@ cpp, sql.
   `timeout_secs` do curso dá o tempo limite de cada compilação. Testes: `cargo test -p tutor-core
   build`, `-p tutor-eval course_cache` e `--test course_cache_real` (git `file://`, sem rede),
   `tests/learn.prepare.test.ts`.
+- **Curso Django e cache pip (Learn P2a):** `courses/django/` (framework, avaliado em `python`, só no
+  backend; 9 unidades, um projecto Django com `manage.py` por unidade). A cache preparada tem um gestor
+  por linguagem (`tutor_core::CacheKind`: `cargo` para Rust, `pip` para Python). Num curso Python cada
+  linha de `[build] dependencies` é `nome==versão --hash=sha256:…` (`tutor_core::pip_requirement`, no
+  parse: sem intervalos, URLs, índices nem opções; todas as transitivas fixadas; sem `prepare` é erro).
+  Preparar = `python3 -m venv --clear <cache>/venv`, `pip install --require-hashes --only-binary=:all:
+  --no-cache-dir --index-url https://pypi.org/simple -r requirements.txt` com `PIP_CONFIG_FILE=/dev/null`
+  (a única ida à rede) e `pip check`; a avaliação põe o venv à frente do `PATH` com `PIP_NO_INDEX=1` e o
+  tempo limite do curso. Um projecto Python com `manage.py` na raiz corre com `manage.py test` (o
+  descritor Python; «no tests ran» também falha). O plano lista os pacotes (`Plan::packages`, nome,
+  versão, origem) e o diálogo de aprovação mostra-os antes do comando (`ApprovalRequest.list`), no Seiva
+  e no Django. O Django 5.2 LTS: actualizar = as três linhas fixadas (hash da roda no PyPI),
+  `dxt plugin prepare` e `dxt plugin test courses/django`. Testes: `cargo test -p tutor-core build`,
+  `-p tutor-eval course_cache` e `--test course_cache_pip_real` (índice `file://`, sem rede),
+  `tests/learn.prepare.test.ts`, `tests/approval.test.ts`.
+- **Cursos de ferramentas (Learn P2b, parte offline):** `courses/kubernetes/` (11 unidades, kubectl
+  v1.36) e `courses/delonix/` (9 unidades, Delonix 0.2.0; o README do delonix ainda diz «0.1.x»),
+  categoria `tool`, linguagem `yaml`, embutidos só no backend. Avaliam-se por verificações
+  (`tutor_core::toolcheck` = forma, lista permitida e avaliação; `tutor_eval::tool_runner` = YAML e
+  comandos): cada desafio é um passo de projecto com um `checks.toml` oculto — `[[check]]` (caminho num
+  documento + uma afirmação: `equals`, `matches`, `only_keys`, `selects`, `among`, `doc_count`…) e
+  `[[run]]` SÓ de `kubectl kustomize <dir>`, `delonix manifest render -f` e `delonix compose config -f
+  -p` (provados sem rede nem motor no código do delonix em `edba10a1c` e medidos com `strace`;
+  `kubectl apply|create --dry-run=client -f` liga à API e `delonix manifest validate` lê os stores e
+  varre cgroups do anfitrião: recusados). Sem shell, ambiente limpo, `HOME`/`XDG_*`/`DELONIX_ROOT` e
+  um `KUBECONFIG` vazio temporários; guardas no Rust: kustomization sem rede nem Helm, compose com a
+  porta do anfitrião e sem `$`, `depends_on` desconhecido (o delonix 0.2.0 entra em pânico).
+  Ferramenta em falta = erro com o que instalar; um drill YAML só se lê. `dxt plugin validate` valida
+  os `checks.toml` e `dxt plugin test` diz a versão de cada ferramenta. Na UI, `EVALUATION_LANGUAGES`
+  (o `yaml`: extensão e indentação, fora do tecto de 10). Testes: `cargo test -p tutor-core
+  toolcheck tool_course`, `-p tutor-eval tool_runner`, `-p tutor-plugins --test tool_courses`,
+  `tests/learn.tools.test.ts`; guia em `docs/plugins/README.md`.
 - Testes: `cargo test -p tutor-plugins`, `ui-app/tests/learn.domain.test.ts`,
   `learn.onboarding.test.ts`, `learn.frameworks.test.ts`; o plugin-fixture só de testes
   `crates/tutor-plugins/tests/fixtures/framework-project` passa por `dxt plugin test`
@@ -837,8 +907,19 @@ forma declarativa é aplicado por código tipado em `features/ext/`, governado p
   diagnósticos); Shift+Alt+F formata sempre.
 - **Backend:** `vsix_fetch_open_vsx` e `vsix_search_open_vsx` (só open-vsx.org) e os servidores LSP das linguagens novas
   em `lsp.rs`.
+- **Linguagens de um VSIX (LSP P4):** lêem-se `extensions`, `filenames`, `filenamePatterns`, `firstLine` e `aliases`
+  (`languagesOf`; o primeiro alias é o nome) e as gramáticas em JSON ou em property list XML (`domain/plist.ts`, decide o
+  conteúdo). As das extensões LIGADAS, juntadas por id (`contributedLanguages`, o comentário do `language-configuration`),
+  entram POR BAIXO do registo de linguagens (`useContributed` em `lsp/domain/registry.ts`, posto pelo `ext.ts`): o editor
+  (barra de estado, `vsxHighlight` com o caminho, Ctrl+/ de linha ou de bloco, snippets) pergunta por LINGUAGEM, não pela
+  extensão do ficheiro. O registo ganha sempre (`languageConflicts` di-lo na página da extensão); o servidor é a regra do
+  LSP abaixo. Instalar, desinstalar ou ligar/desligar avisa `onChange` → bus `ext:languages`. Uma extensão instalada antes
+  guardou só `id`/`extensions` (a página pede para a reinstalar). Limitação conhecida do TextMate «lite»: regras que
+  acabam num `\n` ou num `(?!\G)` (o comentário do Perl) continuam na linha seguinte.
 - **Testes:** `ext.contributions.test.ts`, `ext.contrib-engine.test.ts` e
-  `ext.phase4-harness.test.ts`. A página de detalhe só muda para itens VSIX, por isso os
+  `ext.phase4-harness.test.ts`; do P4, `ext.vsix-languages.test.ts` (domínio e motor), `ext.vsix-editor.test.ts` (no
+  editor real) e `lsp.vsix.test.ts`, com VSIX reais em miniatura em `tests/fixtures/vsix/` (golang.go, Apache com
+  `.tmLanguage` plist, Perl, ms-python; MIT). A página de detalhe só muda para itens VSIX, por isso os
   goldens do catálogo ficam intactos.
 
 ## Nona feature: Testing real (`ui-app/src/features/testing/`)
@@ -888,7 +969,8 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
   `rootMarkers`, `readySignal`, `initOptions` (o jdtls), `oneShot` (o cliente de um pedido do `tutor_eval::lsp`
   pode arrancá-lo: rust/go/ts/python, nunca um JVM), `quirks` (só `nodePath` e `rustupProxy` mudam código; os
   outros registam o que já é genérico), `install` (SÓ texto, a instrução à mão quando nenhuma receita serve),
-  `recipes` (LSP P3, abaixo) e `vscodeExtensions` (o `KNOWN_LANGUAGE_SERVERS`). Leram-se daqui as
+  `recipes` (LSP P3, abaixo), `vscodeExtensions` (o `KNOWN_LANGUAGE_SERVERS`) e `vscodeLanguages` (LSP P4,
+  abaixo). Leram-se daqui as
   nove cópias antigas: `LANGS`/`server_cmd`/pistas/`init_options` do `lsp.rs`, a tabela do `tutor_eval::lsp`,
   `codeintel::outline_lang`, `languages.ts`, `server-status.ts`, `ext/domain/contributions.ts`, os comentários do
   `ext.ts`, o `OUTLINE_LANG` do explorador e os nomes da barra de estado (o `LANG` do `editor.ts` saiu, e com
@@ -902,6 +984,15 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
   --toolchain stable`, `~/.rustup/toolchains/*/bin`) ou de um binário no PATH que NÃO seja o proxy do rustup;
   sem nenhum, `lsp_server_status` diz «não instalado» (antes caía num `rust-analyzer` solto e o aviso nunca
   aparecia). Os resolvers que correm um programa (`rustup`, `go`) guardam só o que encontraram, nunca a falta.
+- **Linguagens dos VSIX instalados (LSP P4, `tutor_eval::langcontrib`).** Só se perguntam quando o registo não reconhece
+  o ficheiro pelo nome; dentro delas, nome inteiro → padrão mais comprido → extensão mais comprida; a primeira linha só
+  quando o nome não diz nada (a do registo primeiro). Uma linguagem com o id de uma do registo É essa. O servidor de uma
+  só do VSIX é o do registo que nomeia a extensão em `vscodeExtensions` E a linguagem em `vscodeLanguages` (o gopls:
+  `go.mod`/`go.sum`/`go.work`; o `pip-requirements` do `ms-python.python` fica sem servidor), e o id do VSIX é o
+  `languageId`. A UI (`registry.ts`, `glob.ts`) e o Rust têm as mesmas regras e os mesmos casos de teste; o backend
+  recebe a lista inteira por `lsp_contributions` antes de o cliente decidir a linguagem de um ficheiro
+  (`application/contributions.ts`, só quando mudou) e o cliente fecha os documentos que perderam o servidor
+  (`onLanguagesChanged`). Um VSIX nunca traz um comando: aprovação, overrides e receitas ficam iguais.
 - **Overrides do registo (LSP P2, `tutor_eval::lspconf`, `docs/lsp/overrides.md`).** Ordem: o registo embutido →
   o `lsp.json` do utilizador (`app_config_dir`, p.ex. `~/.config/ao.ngolacloud.dxtutor-ide/lsp.json`) → o
   `.dxtutor/lsp.json` da pasta aberta. Mesmo formato do registo (`languages[]`/`servers[]` por `id`), JSON com
@@ -971,9 +1062,9 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
   LINHAS pedidas e, logo após uma edição, espera (até 2 s) pelos diagnósticos do texto novo.
 - **Formatação** (`domain/formatting.ts`, `ui/format-hooks.ts`, comando `lsp_format`): Shift+Alt+F
   no editor formata o documento (ou só a selecção, por `rangeFormatting`) pelo servidor, com o
-  cursor entre os mesmos caracteres visíveis. A tecla é apanhada na fase de captura, antes do
-  atalho global do «Format Document» do dxtutor (`features/shortcuts.ts`), que continua a correr
-  quando não há servidor ou ele não formata o documento. O kotlin-language-server (ktfmt) não
+  cursor entre os mesmos caracteres visíveis. Com o formatador ligado (desktop com pasta), o atalho
+  global do «Format Document» do dxtutor (`features/shortcuts.ts`) cede-lhe a tecla
+  (`services.lspFormat`, LSP P5) e só corre quando não há servidor ou ele não formata o documento. O kotlin-language-server (ktfmt) não
   formata selecções: a UI avisa e não mexe no texto.
 - **Símbolos do ficheiro** (`domain/symbols.ts`, `ui/symbol-hooks.ts` + `showSymbolPicker` em
   `ui/popups.ts`, comando `lsp_document_symbols`): Ctrl+Shift+O no editor, ou «Go to Symbol in Editor…»
@@ -1036,6 +1127,31 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
   reiniciar. apt e brew só se mostram (o apt pede sudo: o dxtutor nunca os corre). Um servidor instalado assim arranca
   com o `GEM_PATH`/`DOTNET_ROOT` de que precisa (`lspinstall::launch_env`). Testes: `cargo test -p tutor-eval langreg
   lspinstall` (gestores falsos num PATH temporário, servidor HTTP falso para o checksum) e `tests/lsp.install.test.ts`.
+- **Sem servidor de linguagem (LSP P5, `lsp/fallback.ts`; browser e app):**
+  - **Gramáticas do dxtutor:** `languages/grammars/` (Python/MagicPython, Go, Java, Shell, Makefile e Dockerfile, 291 199
+    bytes, cada uma no seu pedaço do Vite) — o ficheiro EXACTO do VS Code (tag 1.148.0), fixado por sha256 no
+    `manifest.json`, licenças em `THIRD-PARTY-NOTICES.md`; `npm run grammars:verify` descarrega e confere
+    (`grammars:check` só os ficheiros). O `paintEd` pergunta primeiro ao `vsxHighlight` (uma extensão ganha), depois ao
+    `application/fallback-highlight.ts`: `import()` por gramática e realce INCREMENTAL (HTML e estado do tokenizador por
+    linha; ≤ 300 linhas por pintura, o resto em pedaços e repinta) — o tokenizador custa ~0,25 ms/linha. Gramática nova =
+    entrada no manifesto + linha no `infrastructure/grammars.ts` + teste num excerto real. De fora: C# e Swift (o «lite»
+    não os percebe), C++ (678 KB), CSS (`(?xi)`); Ruby, Lua, Dart e C funcionam mas ficaram de fora (conjunto pequeno).
+  - **Tokenizador** (`ext/domain/textmate.ts`, também para as extensões): cada linha vai com o seu `\n` (os tokens são
+    cortados no fim da linha) e o `$` do Oniguruma é «antes do `\n` final»; o `\G` só é verdadeiro na âncora (onde
+    acabou o `begin` da regra aberta, nessa linha; repõe-se ao fechar), por duas variantes compiladas (ancorada com a
+    flag `y`, e com o `\G` falso a partir da posição seguinte). Antes, uma regra que acaba em `\n` ou `(?!\G)` nunca
+    fechava (o comentário do Java/Perl pintava o resto do ficheiro). Uma correspondência vazia que muda o estado já não
+    salta um carácter.
+  - **Palavras:** sem sugestões do servidor (ou sem servidor/pasta), os ganchos do completion pedem as palavras dos ficheiros
+    abertos (`application/word-completion.ts`, `domain/words.ts`): a mesma lista e teclas, com a linha `.lsp-c-note`;
+    nunca misturadas com as do servidor; não abre sozinha em Markdown/sem linguagem.
+  - **Comentários:** `blockComment` no registo (`[abre, fecha]`, `langreg::validate`). Ctrl+Shift+A/Shift+Alt+A no editor de
+    um ficheiro = Toggle Block Comment (`domain/comments.ts`, como o VS Code; fora do editor continua o assistente); o
+    Ctrl+/ de uma linguagem sem `lineComment` comenta as linhas num bloco. A language-configuration de uma extensão ganha.
+  - **Formatar:** o `formatDoc` usa o `domain/safe-format.ts`: espaços no fim, re-indentação no estilo do próprio ficheiro,
+    quebra final; nunca reescreve código; não mexe onde o espaço é sintaxe (Markdown, Makefile, shell, YAML, Haskell,
+    `.diff`); o aviso diz o que fez. GOTCHA-ordem: o listener do atalho global regista-se antes do do servidor no mesmo nó
+    e corriam os dois; agora, com o formatador do servidor ligado, o global cede-lhe (`services.lspFormat`).
 - Os diagnósticos já chegavam ao Problems e ao gutter pelo `features/panel`. O backend usa a pasta
   aberta como raiz de reserva de um ficheiro sem marcador de projecto (o SQL não tem nenhum).
 - **Recursos (LSP P6, `src-tauri/src/lsp/lifecycle.rs`, módulo filho do `lsp.rs`):** um servidor pára com
@@ -1330,6 +1446,99 @@ O Prometheus do projecto, só lido (`GET /api/v1/…`). Desbloqueia o portão `s
 - Testes: `cargo test -p tutor-platform metrics` (um Prometheus real quando está no PATH: as consultas inválidas à própria
   API são os erros), `deploy::tests::the_slo_gate_and_its_waiver`, `review::…capacity_and_error_budget_from_metrics`,
   `tests/ops.test.ts`, `tests/platform.test.ts` e o passo `metrics` do auto-teste (Prometheus e Vault dev do runner).
+
+## Novo projecto: os templates do Delonix (`crates/tutor-scaffold`, `ui-app/src/features/newproject/`)
+
+O mesmo princípio do `delonix init -t`, com os mesmos templates: **13** (Rust, Go, Node.js, FastAPI, Django, NestJS,
+Next.js, Laravel, nginx, Apache httpd, HAProxy, Odoo, WordPress), cada um um projecto completo (código, testes,
+Dockerfile, compose, CI, ADRs, runbooks, dotfiles).
+- **Fonte:** `templates/projects/` é uma CÓPIA de `bins/delonix/templates` do Delonix, feita por
+  `scripts/sync-delonix-templates.sh` (lê o `origin/develop` do checkout do Delonix com `git archive`; o commit fica em
+  `templates/projects/SOURCE`). Não se editam aqui: muda-se no Delonix e corre-se o script.
+- **Regras no Rust** (`tutor-scaffold`, as do `scaffold.rs` do Delonix): nome = etiqueta DNS; versão simples dentro do
+  `versions=` do `template.meta`; tokens `__NAME__`/`__MODULE__`/`__PORT__`/`__TLS_PORT__`/`__TEMPLATE_VERSION__`/
+  `__DISTROLESS_REGISTRY__` nos conteúdos e nos caminhos; `.env.tmpl` → `.env` 0600 com `__SECRET_<NOME>__` aleatório
+  (o mesmo nome, o mesmo valor) e `{random32}`; pasta nova ou vazia; lockfile pelo gestor de pacotes se existir;
+  `git init` em `main` e commit `chore: scaffold`. O `build.rs` embute os ficheiros (com o bit de execução). Um template
+  novo vindo do Delonix precisa de uma linha no `CATALOG` (o teste `every_template_has_a_catalog_row…` reprova-o).
+- **Comandos** (`commands/scaffold.rs`): `project_templates`, `project_new_plan` (o que vai acontecer; não escreve) e
+  `project_new` (cria, auditado no projecto novo antes e com o resultado). O certificado local (`tls/`) dos templates
+  com HTTPS não é gerado: o resumo diz como.
+- **UI** (`features/newproject`, governada por A7/A8): um modal como o do Learning Track (Linguagens, Frameworks,
+  Servidores web, Aplicações), o formulário (nome, pasta, versão), o diálogo de aprovação partilhado e a pasta aberta
+  logo como workspace. Entradas: Boas-vindas › Começar › «Novo projecto…», File › New Project…, paleta «File: New Project…».
+- Testes: `cargo test -p tutor-scaffold` (nenhum token sobra em nenhum template, segredos, modos, git), `cargo test -p
+  dxtutor-ide scaffold`, `tests/newproject.test.ts`.
+
+## A sandbox do sistema para o que o Co-Dev corre (H1, `tutor_agent::os_sandbox`)
+
+O `bash`, o `run_tests`/`lint` e os hooks do projecto correm dentro do bubblewrap (Linux), montado pelo
+`codev_agent::session_sandbox` para a pasta em que a sessão trabalha (a worktree, na fase 3 do Multi Co-Dev):
+- todo o disco só de leitura; graváveis: a pasta do projecto, uma `/tmp` privada, as pastas git de uma worktree e as
+  caches das toolchains (`~/.cache`, `~/.cargo/registry`, `~/go/pkg`, `~/.npm`…). Dentro do projecto, `.git/hooks`,
+  `.git/config` e `.dxtutor/` ficam só de leitura (`.dxtutor/memory/` é do agente);
+- credenciais escondidas (`~/.ssh`, `~/.aws`, `~/.kube`, `~/.config/gh`, o `keys.json` do IDE, o `XDG_RUNTIME_DIR` com o
+  bus do keychain, `.netrc`, `.git-credentials`, `.npmrc`…) e variáveis com cara de credencial removidas do ambiente;
+- **rede desligada** (`--unshare-net`, só loopback) e PID próprio, morto com o IDE.
+- **`.dxtutor/sandbox.json`** (`{enabled, network: "off"|"on", writable: []}`): apertar vale sempre; afrouxar (rede ligada,
+  desligar, pasta fora do projecto) só depois de o humano confiar no ficheiro (`/comandos`, tipo `sandbox`, como hooks e MCP).
+- **Sair da sandbox** para um comando: `bash` com `unsandboxed: true` (conjunto 12) — a política pede SEMPRE ao humano
+  (todos os modos, sem «permitir sempre»; em Auto sem humano é recusado). Uma falha que cheira a sandbox (rede, disco só de
+  leitura) volta ao modelo com a pista (`os_sandbox::hint`).
+- Sem bubblewrap (macOS, Windows, kernel sem user namespaces) os comandos correm como antes e a sessão DIZ que não há
+  sandbox.
+- **H1b — lista de domínios** (`tutor_agent::net_proxy`): `"network": "allowlist"` + `"allowDomains": ["pypi.org",
+  "*.crates.io"]` (confiado). A sessão corre FORA da sandbox um proxy HTTP/CONNECT num socket Unix (só esses domínios,
+  portas 80/443; regista o que recusa); a pasta do socket é montada em `/tmp/.dxtutor-net` e o próprio binário do IDE,
+  em modo ponte (`DXTUTOR_NET_BRIDGE`, `net_proxy::bridge_main` no `main`), escuta `127.0.0.1:3128` lá dentro antes de
+  correr o comando, que recebe `HTTP(S)_PROXY`. O resto continua sem rede. O `bash` diz ao modelo os domínios recusados.
+- **Servidores MCP** correm também na sandbox (`mcp::connect_all_in`), com a mesma rede do projecto.
+- Testes: `cargo test -p tutor-agent os_sandbox net_proxy mcp::` (os testes reais — escrita, segredos, rede, a lista
+  de domínios pelo proxy e um servidor MCP — correm com o bwrap desta máquina e saltam sem ele),
+  `a_command_outside_the_sandbox_is_always_the_humans`, `tests/codev.agent-chat.test.ts` (H1).
+
+## Workspace com projectos (H2, `tutor_agent::workspace`, `app/workspace-projects.ts`)
+
+O workspace é a pasta aberta; os projectos são as pastas com manifesto (`Cargo.toml`, `package.json`, `go.mod`,
+`pyproject.toml`, `pom.xml`, `*.csproj`, `*.tf`…) até DOIS níveis (`apps/*`, `crates/*`, `services/*`; fixtures e
+pastas de build saltam), ou o que o `.dxtutor/workspace.json` diz (`projects: [{path, name?, test?, lint?}]`,
+`exclude: []`, `detect: false`). Cada projecto traz os seus comandos de teste e lint. Uma pasta vazia é um projecto.
+- **Projecto actual** (`app/workspace-projects.ts`, comando `workspace_projects`): carregado ao abrir a pasta,
+  lembrado por pasta; com mais de um, o `#st-project` na barra de estado mostra-o e um clique escolhe outro.
+- **Project por projecto:** a raiz do store passa a ser a pasta do projecto actual (o da raiz é o mesmo de antes —
+  nenhum dado muda de sítio); escolher outro recarrega o quadro. O `/project` cria-o no projecto actual a partir do
+  rascunho do workspace (`project_create_from_backlog` com `draft_root`, que tem de conter a pasta do projecto).
+- **Co-Dev com fronteiras:** uma conversa nova abre no projecto actual (`StartSpec.project`, gravado no
+  `SessionMeta.project`): `run_tests`/`lint` são os do projecto, corridos na pasta dele (`cd '<p>' && …`); as
+  instruções do projecto (AGENTS.md/CLAUDE.md da pasta) juntam-se às da raiz; o system prompt lista os projectos do
+  workspace (só com mais de um, no máximo 15); um pedido do chat só muda ficheiros do projecto sem perguntar (âmbito
+  `<p>/**`; fora dele a política pergunta sempre — RF-G03). Uma issue usa o âmbito dela.
+- Testes: `cargo test -p tutor-agent workspace::`, `cargo test -p dxtutor-ide a_session_in_a_project`,
+  `tests/workspace-projects.test.ts` (inclui o adaptador do Co-Dev a mandar `backlog` e `project` ao backend).
+
+## A ferramenta `ide` e as skills do IDE (H3, `src-tauri/src/ide_tool.rs`, `tutor_agent::extensions`)
+
+Decisão D4: o Co-Dev chega ao que o IDE sabe por UMA ferramenta, `ide` (conjunto 13, em todas as sessões novas),
+com `action` e `args`, decidida no Rust. Uma ferramenta por acção custaria dezenas de definições em cada pedido e
+mudaria o prefixo sempre que uma acção nascesse. Nesta fase só há LEITURAS: `workspace.projects`, `project.board`,
+`project.issue` (o Project nunca é criado por uma leitura), `git.refs`, `git.log`, `gh.prs`, `gh.runs`,
+`deps.report`, `codebase.map`, `arch.conformance`, `slo.status`. As que mudam algo (H4) terão nível próprio:
+proposta que o humano aceita, ou aprovação partilhada + auditoria; segredos do Vault e rollout de produção nunca.
+- **Skills embutidas** (`extensions::BUILTIN_SKILLS`, sempre no índice do system prompt; um
+  `.dxtutor/skills/<nome>/SKILL.md` com o mesmo nome substitui-as): `workspace`, `project-board`, `source-control`,
+  `dependencies`, `architecture`, `codebase-onboarding`, `sre-slo` — cada uma diz que acções usar e o que nunca fazer
+  sem o humano.
+- Testes: `cargo test -p dxtutor-ide ide_tool backlog_tools_enter`, `cargo test -p tutor-agent extensions::`.
+
+## Medir o harness do Co-Dev (H0, `src-tauri/src/eval.rs`, `evals/`)
+
+`cargo run -p dxtutor-ide --example codev-eval -- run` corre o conjunto de tarefas reais (`evals/tasks/`, ≥ 30, Rust,
+Python, JavaScript, Go e DevOps/Platform, só com a biblioteca padrão) com o MESMO harness do IDE (`codev_agent::start`/
+`send`, modo Auto, sem humano: o plano é aprovado, o resto que a política pergunte é recusado, uma pergunta é respondida
+uma vez com «decide tu»), e escreve em `evals/results/` a taxa de resolvidas, tokens, custo e tempo por tarefa. Cada
+fase do `docs/v2/AUDIT-harness.md` mede-se contra a última linha de base. `verify` (sem modelo) prova cada tarefa: por
+resolver falha a verificação, com a solução de referência passa — uma tarefa nova só entra com o `verify` verde. Ver
+`evals/README.md`.
 
 ## Boas-vindas e walkthroughs (`ui-app/src/features/welcome/`, r23 F6)
 

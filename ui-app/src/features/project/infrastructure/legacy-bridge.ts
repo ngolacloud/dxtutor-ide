@@ -4,6 +4,7 @@
    `checkout`, which keeps Source Control in sync, and `git log` for the commits that cite
    issue keys) and Co-Dev (the agent works on an issue). Publishes nothing on `window`. */
 
+import { workspaceProjects } from "../../../app/workspace-projects";
 import { shellClient } from "../../../platform/tauri/shell";
 import { translator } from "../../../app/i18n";
 import { PROJECT_ENGINE_MESSAGES } from "../application/messages";
@@ -35,7 +36,9 @@ const shell = shellClient();
 let me = "";
 
 export const workspace: Workspace = {
-  root: () => G.DXR?.root ?? null,
+  /* H2: the Project is the current project's of the workspace (the root's, as before, when there is one) */
+  root: () => workspaceProjects.currentDir() ?? G.DXR?.root ?? null,
+  workspaceRoot: () => G.DXR?.root ?? null,
   me: () => me,
   testCommand: () => G.DXR?.projectCmd?.("test")?.cmd ?? null,
 };

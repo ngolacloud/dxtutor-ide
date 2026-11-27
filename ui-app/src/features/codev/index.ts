@@ -68,6 +68,7 @@ import type { CommandRules } from "./domain/policy";
 import { currentLocale, translator } from "../../app/i18n";
 import { makeLocalProposals, type ProposalResult } from "./application/local-proposals";
 import { services } from "../../app/services";
+import { workspaceProjects } from "../../app/workspace-projects";
 import { CODEV_ENGINE_MESSAGES } from "./application/messages";
 
 /* os textos dos casos de uso na língua da interface, e a língua em que o modelo responde (i18n dos motores) */
@@ -375,6 +376,10 @@ export const codevSessions = makeCodevSessions({
       },
       /* conjunto 9: só as sessões de arquitectura levam `arch_propose` */
       architecture: (first) => architectureSession(bridge.studioOpen(), first),
+      project: () => {
+        const p = workspaceProjects.currentPath();
+        return p === "." ? null : p;
+      },
       // RF-S09: the live hunks also go to a PairCode guest (same stream, same highlight)
       hunks: {
         ...hunkReview.sink,
@@ -427,6 +432,8 @@ stopTurn = () => agentChat().cancel();
 /** A faixa «Co-Devs» por cima da conversa (só com mais de uma sessão). */
 export const codevsView = makeCodevsView(codevSessions, agentMapStore, {
   worktrees,
+  // fase 4: o painel «Rever e integrar» (features/integration avalia depois: lê-se no acto)
+  ...(bridge.isDesktop() ? { integrate: (key: string) => services.integration?.open(key) } : {}),
   pick: (ph, items) => bridge.palette("", { ph, items: items.map((i) => ({ l: i.label, d: i.detail, run: i.run })) }),
   now: () => Date.now(),
   every: (ms, f) => {
@@ -434,6 +441,22 @@ export const codevsView = makeCodevsView(codevSessions, agentMapStore, {
     return () => clearInterval(id);
   },
 });
+
+/* Multi Co-Dev (fase 4): o painel de revisão corre o revisor com o provedor e o modelo do Co-Dev, e fecha a sessão
+   de uma issue integrada (as reservas voltam e a worktree sai se estiver limpa — as regras da fase 3) */
+services.codevReview = {
+  reviewer: () => {
+    const p = bridge.providers() as unknown as Record<string, { model?: string }>;
+    const provider = bridge.monolith.activeProvider;
+    return { provider, model: p[provider]?.model || "" };
+  },
+  closeSession: (session) => {
+    const slot = codevSessions.slots().find((s) => s.session === session);
+    if (!slot) return false;
+    codevSessions.close(slot.id);
+    return true;
+  },
+};
 
 /** Conversa livre: o agente v2 quando disponível (desktop + pasta real + Claude/Codex/
  *  Gemini/Ollama), senão o harness antigo (protótipo, a flag `dx2.codevLegacy`, ou um modelo

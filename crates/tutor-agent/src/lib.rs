@@ -33,7 +33,9 @@ pub mod hooks;
 pub mod hunks;
 pub mod issue_prompt;
 pub mod mcp;
+pub mod net_proxy;
 pub mod openai;
+pub mod os_sandbox;
 pub mod permissions;
 pub mod provider;
 pub mod redact;
@@ -46,6 +48,7 @@ pub mod tool;
 pub mod tools;
 pub mod trust;
 pub mod types;
+pub mod workspace;
 
 pub use agent::{Agent, AgentConfig, AgentError, AgentEvent, Decision, PendingCall, TurnOutcome};
 pub use provider::{

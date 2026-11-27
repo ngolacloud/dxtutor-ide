@@ -9,6 +9,8 @@
    worktrees sem sessão (guardadas com alterações, ou deixadas por um crash) têm cartão próprio, com
    «Ficheiros» e «Limpar» (aprovado). Com uma worktree ou uma destas, a faixa aparece mesmo com uma sessão.
 
+   Fase 4: o «⇥» de uma issue com ramo abre o painel «Rever e integrar» (features/integration).
+
    Os cliques passam pela tabela delegada da feature (`data-action`/`data-on`). Não toca no `window`
    (regra A8). */
 
@@ -32,6 +34,8 @@ export interface CodevsViewOptions {
   worktrees?: Worktrees;
   /** Uma lista para escolher (a paleta): os ficheiros de uma worktree. */
   pick?(placeholder: string, items: Array<{ label: string; detail: string; run(): void }>): void;
+  /** Fase 4: abre o painel «Rever e integrar» da issue (só na app desktop). */
+  integrate?(key: string): void;
 }
 
 /** O estado de um cartão: a decisão à espera primeiro, depois o que o mapa diz da sessão. */
@@ -60,7 +64,9 @@ export function makeCodevsView(sessions: CodevSessions, map: AgentMapStore, opts
     const title = [`${label} · ${t(st)}`, wt ? t("worktree", { branch: wt.branch ?? "?", path: wt.path }) : "", claims].filter(Boolean).join("\n");
     const where = wt ? `<span class="cdv-wt notr">${esc(branchLabel(wt))}</span>` : "";
     const extra = wt && s.issue
-      ? btn("cdv-a", "codevs-files", s.issue, t("files"), "☰") + btn("cdv-a", "codevs-commit", s.issue, t("commit", { branch: wt.branch ?? "?" }), "✓")
+      ? btn("cdv-a", "codevs-files", s.issue, t("files"), "☰") +
+        btn("cdv-a", "codevs-commit", s.issue, t("commit", { branch: wt.branch ?? "?" }), "✓") +
+        (opts.integrate ? btn("cdv-a", "codevs-integrate", s.issue, t("integrate", { key: s.issue }), "⇥") : "")
       : "";
     return `<span class="cdv-card st-${st}${s.selected ? " sel" : ""}${wt ? " in-wt" : ""}"><button class="cdv-pick" data-action="codevs-pick" data-on="${s.id}" title="${esc(title)}">${dot}<span class="cdv-l notr">${esc(label)}</span>${where}<span class="cdv-m">${esc(t(st))}${meta ? ` · ${esc(meta)}` : ""}${claimed.length ? ` · ${esc(t("claimsShort", { n: claimed.length }))}` : ""}</span></button>${extra}<button class="cdv-x" data-action="codevs-close" data-on="${s.id}" title="${esc(t("close"))}" aria-label="${esc(t("close"))}">✕</button></span>`;
   }
@@ -69,7 +75,8 @@ export function makeCodevsView(sessions: CodevSessions, map: AgentMapStore, opts
     const state = w.prunable ? t("gone") : w.dirty.length ? t("kept", { n: w.dirty.length }) : t("leftover");
     const files = !w.prunable && w.changed.length ? btn("cdv-a", "codevs-files", w.key, t("files"), "☰") : "";
     const clean = wts && wts.cleanable(w) ? btn("cdv-x", "codevs-cleanup", w.key, t("cleanup"), "⌫") : "";
-    return `<span class="cdv-card st-kept" title="${esc(t("keptTitle", { key: w.key, path: w.path }))}"><span class="cdv-pick"><span class="cc-dot done"></span><span class="cdv-l notr">${esc(w.key)}</span><span class="cdv-wt notr">${esc(branchLabel(w))}</span><span class="cdv-m">${esc(state)}</span></span>${files}${clean}</span>`;
+    const integrate = opts.integrate && !w.prunable && w.branch ? btn("cdv-a", "codevs-integrate", w.key, t("integrate", { key: w.key }), "⇥") : "";
+    return `<span class="cdv-card st-kept" title="${esc(t("keptTitle", { key: w.key, path: w.path }))}"><span class="cdv-pick"><span class="cc-dot done"></span><span class="cdv-l notr">${esc(w.key)}</span><span class="cdv-wt notr">${esc(branchLabel(w))}</span><span class="cdv-m">${esc(state)}</span></span>${files}${integrate}${clean}</span>`;
   }
 
   function render(): void {
@@ -132,6 +139,7 @@ export function makeCodevsView(sessions: CodevSessions, map: AgentMapStore, opts
     "codevs-files": { on: "click", run: (e) => { void wts?.refresh().then(() => files(e.on)); } },
     "codevs-commit": { on: "click", run: (e) => void wts?.commit(e.on) },
     "codevs-cleanup": { on: "click", run: (e) => void wts?.cleanup(e.on) },
+    "codevs-integrate": { on: "click", run: (e) => opts.integrate?.(e.on) },
   };
 
   return { render, actions: (): ActionTable => actions };

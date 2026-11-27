@@ -3,7 +3,9 @@
    ficheiro que o backend lê): só para as linguagens com servidor — uma que o backend não serve
    não abre sessão nenhuma, por isso também não vale a pena enviá-la. Reconhece pelo nome do
    ficheiro ou pela extensão (sem distinguir maiúsculas) e, com o conteúdo, pela primeira linha
-   (um shebang). PURO. */
+   (um shebang). Uma linguagem que um VSIX instalado contribui e o registo não conhece (LSP P4) também
+   conta, com o id dela como `languageId`, quando o registo lhe dá um servidor (`vscodeExtensions` +
+   `vscodeLanguages`). PURO. */
 
 import { languageFor, lspIdOf, serverOf } from "./registry";
 

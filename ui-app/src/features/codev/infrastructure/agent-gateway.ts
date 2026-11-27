@@ -27,6 +27,8 @@ export const agentGateway: AgentGateway = {
       reviewEdits: o.reviewEdits ?? false,
       issue: o.issue ?? null,
       architecture: o.architecture ?? false,
+      backlog: o.backlog ?? false,
+      project: o.project ?? null,
       ...(o.worktree ? { worktree: true } : {}),
     }),
   review: (s, call, decisions) => ipc.reviewAgentHunks(s, call, decisions, pairState.driver()),

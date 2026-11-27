@@ -306,6 +306,7 @@ export function makeAgentChat(deps: AgentChatDeps) {
         reviewEdits: !!deps.hunks,
         issue: issueKey,
         architecture: deps.architecture?.(firstRequest) ?? false,
+        project: deps.project?.() ?? null,
         backlog: backlogScope,
         ...(inWorktree ? { worktree: true } : {}),
       });
@@ -464,18 +465,20 @@ export function makeAgentChat(deps: AgentChatDeps) {
       const state = (f: { present: boolean; trusted: boolean }) => (!f.present ? copy("notDefined") : f.trusted ? copy("trusted") : copy("toTrust"));
       lines.push(`**Hooks** (\`.dxtutor/hooks.json\`): ${state(x.hooks)}`);
       lines.push(copy("mcpLine", { servers: x.mcpServers.length ? x.mcpServers.join(", ") : copy("none"), state: state(x.mcp) }));
+      if (x.sandbox?.present) lines.push(copy("sandboxLine", { state: state(x.sandbox) }));
       lines.push("`/plano <pedido>` · `/reverter` · `/retomar` · `/comandos`");
       presenter.assistantText(card, lines.join("\n\n"));
-      const pending: Array<{ l: string; v: "hooks" | "mcp" | "" }> = [];
+      const pending: Array<{ l: string; v: "hooks" | "mcp" | "sandbox" | "" }> = [];
       if (x.hooks.present && !x.hooks.trusted) pending.push({ l: copy("trustHooks"), v: "hooks" });
       if (x.mcp.present && !x.mcp.trusted) pending.push({ l: copy("trustMcp"), v: "mcp" });
+      if (x.sandbox?.present && !x.sandbox.trusted) pending.push({ l: copy("trustSandbox"), v: "sandbox" });
       if (!pending.length) return;
       presenter.agentNote?.(card, "trust", copy("trustWarn"));
-      const pick = await gate.ask<"hooks" | "mcp" | "">(card.tools, [...pending, { l: copy("notNow"), v: "" }]).catch(() => "" as const);
+      const pick = await gate.ask<"hooks" | "mcp" | "sandbox" | "">(card.tools, [...pending, { l: copy("notNow"), v: "" }]).catch(() => "" as const);
       if (!pick) return;
       await gateway.trust(root, pick);
       reset(); // a próxima mensagem abre uma sessão nova, já com eles ligados
-      presenter.agentNote?.(card, "trusted", copy(pick === "hooks" ? "trustedHooks" : "trustedMcp"));
+      presenter.agentNote?.(card, "trusted", copy(pick === "hooks" ? "trustedHooks" : pick === "mcp" ? "trustedMcp" : "trustedSandbox"));
     } catch (e: unknown) {
       presenter.liveError(card, false, undefined, e instanceof Error ? e.message : String(e));
     } finally {

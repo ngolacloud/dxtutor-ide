@@ -235,7 +235,7 @@ export const PROJECT_NOTES: FeatureNotes = {
         "Quem pode: o responsável da issue (o campo «Assignee», pelo `user.name`/`user.email` do git) ou, com pessoas no `.dxtutor/team.json`, um Product Owner ou um Tech Lead (os mesmos que levam uma issue a Done). Sem equipa definida e sem responsável, quem está ao teclado.",
         "Se os critérios de aceitação mudarem depois, a aprovação cai (fica na actividade): foi dada contra os critérios antigos.",
       ],
-      limits: ["O código pode mudar depois da aprovação: confirmar que ela ainda vale no commit a integrar é da porta de integração (fase 4)."],
+      limits: ["A aprovação guarda os critérios para que foi dada: a porta de integração (painel «Rever e integrar») só a aceita se forem os critérios de agora."],
       covers: ["pj-functional-approve", "pj-functional-revoke"],
     },
   ],

@@ -693,7 +693,21 @@ fn toolset_9_offers_finish_issue_only_to_issue_sessions_and_keeps_8_as_it_was() 
     assert_eq!(names(&tools(11, true)), n9i);
     assert_eq!(names(&tools(11, false)), n9);
     assert_eq!(schema(11), schema(10));
-    assert_eq!(tutor_agent::tools::TOOLSET_VERSION, 11);
+    // toolset 12 (H1): the same tools; only `bash` gains `unsandboxed`, and 11 keeps its schema
+    assert_eq!(names(&tools(12, true)), n9i);
+    let bash = |v: u32| {
+        tools(v, false)
+            .into_iter()
+            .find(|t| t.name() == "bash")
+            .unwrap()
+            .input_schema()
+    };
+    assert!(bash(11)["properties"].get("unsandboxed").is_none());
+    assert_eq!(bash(12)["properties"]["unsandboxed"]["type"], "boolean");
+    // toolset 13 (H3): `ide` is the host's — the core tools and schemas stay as in 12
+    assert_eq!(names(&tools(13, true)), n9i);
+    assert_eq!(bash(13), bash(12));
+    assert_eq!(tutor_agent::tools::TOOLSET_VERSION, 13);
 }
 
 #[test]

@@ -37,6 +37,7 @@ pub mod iac;
 pub mod iacfind;
 pub mod js_runner;
 pub mod lang;
+pub mod langcontrib;
 pub mod langreg;
 pub mod lsp;
 pub mod lspconf;
@@ -54,6 +55,7 @@ pub mod testbins;
 pub mod testnav;
 pub mod testrun;
 pub mod textdiff;
+pub mod tool_runner;
 pub mod tracer;
 
 pub use advisor::advise;
