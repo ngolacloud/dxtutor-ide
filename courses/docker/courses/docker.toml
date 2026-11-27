@@ -1,0 +1,2600 @@
+# Docker — the official dxtutor course for Docker (Learn P3a).
+#
+# A TOOL course graded LIVE. The learner writes Dockerfiles (and a compose file) in Docker's syntax;
+# the hidden `checks.toml` of each challenge writes its commands as `docker …`, but they run in the
+# same private rootless Podman sandbox as the Podman course (tutor_core::podcmd: Podman's
+# Docker-compatible `build`/`run`), never through a Docker daemon. `docker build` always builds
+# Docker-format images, as Docker does. Grading never pulls: «Prepare course» pulls the three base
+# images below, by digest, once. Written against the Docker documentation for Docker Engine 29
+# and graded with Podman 4.9.3 (Buildah 1.33).
+
+id = "docker-basics"
+language = "dockerfile"
+category = "tool"
+subject = "docker"
+title = "Docker: Dockerfiles That Ship"
+level = "beginner"
+summary = "Write Dockerfiles and run containers the way production expects: layers, instructions, ENTRYPOINT and CMD, multi-stage builds, non-root users, volumes, networks, Compose, health checks, size and caching — Docker syntax, graded live in a rootless sandbox."
+
+overview = '''
+**Docker** made containers mainstream: a **Dockerfile** describes how to build an image, `docker build`
+turns it into layers, and `docker run` starts containers from it on any machine with a container
+engine. The Dockerfile format and the `docker` command line became the common language of
+containers — Podman, Buildah, Kubernetes builders and CI systems all read the same files.
+
+This course teaches you to write Dockerfiles that build small, safe images, and to run them the way
+production expects: as a non-root user, with data in volumes, health checks that mean something,
+Compose files a reviewer can trust, and builds that reuse their cache. Every challenge is graded
+**live**: your Dockerfile is built and run, and hidden checks look at what came out — the output, the
+image configuration, the files inside the image, a port answering, a volume keeping its data.
+
+What you will learn, in order:
+
+1. **images and layers** — what an image is, tags and digests, where layers come from;
+2. **Dockerfile instructions** — `FROM`, `WORKDIR`, `COPY`, `RUN`, `ENV`, `ARG`, `LABEL`;
+3. **ENTRYPOINT and CMD** — exec form, overriding at run time, detached containers and logs;
+4. **multi-stage builds** — compile with the SDK, ship only the binary;
+5. **users and least privilege** — a fixed non-root UID, read-only code, no capabilities;
+6. **volumes** — data that outlives the container, and who owns it;
+7. **networks** — namespaces, the default bridge, user-defined networks and DNS;
+8. **Compose** — a multi-service application in one `compose.yaml`;
+9. **health checks** — `HEALTHCHECK` and what `docker ps` does with it;
+10. **image size and caching** — layer order, `.dockerignore`, clean up in the same layer.
+
+**How grading works — honestly.** The course teaches **Docker**: its Dockerfile syntax, its
+`docker` commands and its documentation. But grading **does not use Docker**: a Docker daemon runs as
+root, and handing it your exercises would make the grader root-equivalent on your machine. Instead,
+dxtutor grades in a **private rootless Podman sandbox**, using Podman's Docker-compatible `build` and
+`run` (the check reports show the commands as `docker …`). The sandbox has its own image storage (your
+own Docker and Podman images and containers are never read or touched), resource limits, no Linux
+capabilities, `--network none`, and removes everything it created afterwards. It **never pulls an
+image**: the base images below are downloaded once, pinned by digest, when you choose **Prepare
+course** (you approve the exact commands first).
+
+Where Docker and the grader differ, the unit says so. The main differences: Docker builds with
+**BuildKit**, the grader with **Buildah** (BuildKit-only features such as `RUN --mount=type=secret` with
+`docker build --secret`, or Dockerfile heredocs, are not graded); `docker image inspect` and Podman's
+inspect lay out a few fields differently; and the sandbox publishes no ports and creates no
+user-defined networks (a check reaches a service from a second container that shares its network
+namespace). Compose files are checked by reading them, not by `docker compose up`.
+
+**What you need.** To grade: **Podman 4.4 or newer**, rootless, on **Linux** with a systemd user session
+(https://podman.io/docs/installation; validated against **Podman 4.9.3**). Docker itself is not needed
+for grading — install Docker Engine (https://docs.docker.com/engine/install/) to try the commands on
+your own. On macOS and Windows Podman runs in a VM, which the grader does not drive: the lessons
+apply, grading does not run there.
+
+The prepared base images: `alpine:3.24.4`, `python:3.15.2-alpine3.24` and `golang:1.27.4-alpine3.24`
+(all from Docker Hub, `docker.io/library/…`).
+
+Official documentation: https://docs.docker.com/ — the Dockerfile reference
+(https://docs.docker.com/reference/dockerfile/) and the pages linked in each unit.
+'''
+
+[build]
+prepare = true
+timeout_secs = 300
+dependencies = [
+  "docker.io/library/alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf",
+  "docker.io/library/python:3.15.2-alpine3.24@sha256:0f9552bb28711333da16915ec146f5e6bb44a7fdac9ced15dc17c2e0206346dd",
+  "docker.io/library/golang:1.27.4-alpine3.24@sha256:70bd7ddea8b6cbe5d6943cde279d6b67feb10cc924fb9100d1d8757c1575b280",
+]
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+[[unit]]
+id = "dk-u1-images"
+title = "Images and layers"
+level = "basic"
+difficulty = 1
+intro = "An image is a stack of read-only layers plus a configuration; a container is that image running, with a writable layer on top."
+concepts = '''
+An **image** is a stack of **layers** — each one the filesystem changes of one build step — plus a
+**configuration**: the command to run, environment variables, working directory, user, exposed ports
+and labels. A **container** is an instance of an image: Docker stacks the layers read-only, adds a
+thin writable layer, and starts the configured process. Many containers can run from one image; when
+a container is removed, its writable layer goes with it.
+
+**Where layers come from.** In a Dockerfile, `RUN`, `COPY` and `ADD` create layers. `FROM` brings the
+base image's layers. `CMD`, `ENTRYPOINT`, `ENV`, `WORKDIR`, `LABEL`, `USER` and `EXPOSE` only change
+the configuration. `docker history <image>` lists the steps and their sizes; `docker image inspect
+<image>` prints the configuration and the layer digests (`RootFS.Layers`) as JSON.
+
+**Names, tags and digests.** `alpine:3.24.4` is short for `docker.io/library/alpine:3.24.4`: registry
+`docker.io` (Docker Hub), repository `library/alpine` (the official images), tag `3.24.4`. A tag can be
+moved by its publisher; a **digest** (`alpine@sha256:…`) names one exact image forever. Pin at least an
+exact tag in a Dockerfile — never `latest` — and a digest where reproducibility matters.
+
+**Pull, build, run.** `docker pull` downloads an image, `docker build -t name .` builds one from the
+Dockerfile in `.` (the **build context**), `docker run --rm name` starts a container and removes it
+when it exits, `docker images` lists what you have.
+
+| Command | What it does |
+|---|---|
+| `docker build -t banner .` | build `./Dockerfile` and tag the image `banner` |
+| `docker run --rm banner` | run it once |
+| `docker history banner` | the steps (and layers) that made it |
+| `docker image inspect banner` | its configuration, as JSON |
+
+**In this course** the same commands run on Podman's Docker-compatible CLI, in a private sandbox, with
+the base images already prepared (nothing is pulled while grading).
+
+Official docs: https://docs.docker.com/get-started/docker-concepts/building-images/understanding-image-layers/
+and https://docs.docker.com/reference/cli/docker/image/inspect/
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "dk-c1-images"
+title = "What docker build produces"
+points = 5
+difficulty = 1
+intro = '''
+Layers for the files, configuration for the rest.
+'''
+body = '''
+```dockerfile
+FROM alpine:3.24.4                      # Alpine's layer
+COPY banner.txt /usr/share/banner.txt   # + one layer
+CMD ["cat", "/usr/share/banner.txt"]    # configuration only
+```
+
+`docker build -t banner .` produces an image with two layers and a configuration whose `Cmd` is
+`["cat", "/usr/share/banner.txt"]`. `docker run --rm banner` prints the banner and removes the
+container.
+
+In the challenge you build that image and inspect it the way the grader does.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dk-d1-hello"
+title = "The smallest useful Dockerfile"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+A base image and a command.
+'''
+prompt = '''
+Type the Dockerfile. It starts from Alpine, pinned to an exact tag, and prints a greeting.
+'''
+target = '''
+FROM alpine:3.24.4
+CMD ["echo", "hello, docker"]
+'''
+line_comments = [
+  "The official Alpine image from Docker Hub, at an exact tag (never `latest`).",
+  "The default command, in exec form (a JSON list).",
+]
+explanation = "`docker build -t hello .` then `docker run --rm hello` prints `hello, docker`."
+
+[[unit.step]]
+kind = "drill"
+id = "dk-d1-layers"
+title = "Which lines add layers"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+Files change in layers; the rest is configuration.
+'''
+prompt = '''
+Type the Dockerfile and notice which instructions create a layer.
+'''
+target = '''
+FROM alpine:3.24.4
+LABEL org.opencontainers.image.authors="team@example.com"
+WORKDIR /opt/app
+COPY config.ini .
+RUN sed -i 's/debug=true/debug=false/' config.ini
+CMD ["cat", "config.ini"]
+'''
+line_comments = [
+  "Alpine's layer.",
+  "A standard OCI label: configuration only.",
+  "The working directory (created if missing): configuration.",
+  "A file from the build context: a layer.",
+  "A build-time command: its file changes are a layer.",
+  "The default command: configuration.",
+]
+explanation = "`docker history` shows COPY and RUN with a size; the others are 0 B."
+
+[[unit.step]]
+kind = "challenge"
+id = "dk-p1-banner"
+title = "A banner image"
+points = 30
+difficulty = 2
+intro = '''
+Build an image that prints a banner, and inspect it like the grader does.
+'''
+instructions = '''
+`banner.txt` holds a banner. Write the `Dockerfile` so that:
+
+- it starts from `alpine:3.24.4`;
+- it copies `banner.txt` to `/usr/share/banner.txt`;
+- `docker run --rm banner` prints the file with `cat /usr/share/banner.txt`, in **exec form**;
+- it has the label `org.opencontainers.image.description` set to `A banner`;
+- the image has exactly **two layers** (Alpine's and the copy).
+
+The grader runs `docker build -t banner .`, `docker run --rm banner` and `docker image inspect banner`.
+'''
+
+[unit.step.project]
+main = "Dockerfile"
+readonly = ["banner.txt"]
+explanation = '''
+Only `COPY` adds a layer here; `LABEL` and `CMD` are configuration (`Config.Labels`, `Config.Cmd`).
+The exec form runs `cat` directly instead of through `/bin/sh -c`.
+'''
+
+[unit.step.project.starter]
+"Dockerfile" = '''
+# Build an image that prints banner.txt (see the instructions).
+FROM alpine:3.24.4
+'''
+"banner.txt" = '''
+=== Docker course: your first image works ===
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[run]]
+cmd = ["docker", "build", "-t", "banner", "."]
+message = "The Dockerfile must build."
+
+[[run]]
+cmd = ["docker", "run", "--rm", "banner"]
+output_contains = ["=== Docker course: your first image works ==="]
+message = "Running the image must print the banner."
+
+[[run]]
+cmd = ["docker", "run", "--rm", "--mount", "type=image,source=banner,target=/img", "alpine:3.24.4", "cat", "/img/usr/share/banner.txt"]
+output_contains = ["your first image works"]
+message = "The file must be in the image at /usr/share/banner.txt."
+
+[[run]]
+cmd = ["docker", "image", "inspect", "banner"]
+save = "image.json"
+message = "The image must exist."
+
+[[check]]
+file = "image.json"
+path = "[0].Config.Cmd"
+equals = ["cat", "/usr/share/banner.txt"]
+message = "CMD runs [\"cat\", \"/usr/share/banner.txt\"], in exec form."
+
+[[check]]
+file = "image.json"
+path = '[0].Config.Labels["org.opencontainers.image.description"]'
+equals = "A banner"
+message = "The label org.opencontainers.image.description is \"A banner\"."
+
+[[check]]
+file = "image.json"
+path = "[0].RootFS.Layers"
+len = 2
+message = "The image has two layers: Alpine's and the one COPY adds."
+'''
+
+[unit.step.project.solution]
+"Dockerfile" = '''
+FROM alpine:3.24.4
+LABEL org.opencontainers.image.description="A banner"
+COPY banner.txt /usr/share/banner.txt
+CMD ["cat", "/usr/share/banner.txt"]
+'''
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+[[unit]]
+id = "dk-u2-instructions"
+title = "Dockerfile instructions"
+level = "basic"
+difficulty = 2
+intro = "FROM, WORKDIR, COPY, RUN, ENV, ARG and LABEL — and the difference between build time and run time."
+concepts = '''
+A Dockerfile is a list of instructions, run top to bottom. They are case-insensitive (written in
+capitals by convention); a line ending in `\` continues on the next; `#` starts a comment.
+
+| Instruction | What it does |
+|---|---|
+| `FROM image` | the base image (only `ARG` may come before it) |
+| `WORKDIR /app` | the working directory for the next instructions and for the container |
+| `COPY src dest` | copies from the **build context** into the image |
+| `RUN command` | runs at build time; its changes become a layer |
+| `ENV KEY=value` | an environment variable for later instructions and for containers |
+| `ARG NAME=default` | a build-time variable, set with `docker build --build-arg NAME=value` |
+| `LABEL key=value` | metadata; `org.opencontainers.image.*` are the standard keys |
+
+**Build context.** `docker build .` sends the folder `.` to the builder; `COPY` only reads inside it.
+A `.dockerignore` file excludes paths (unit 10).
+
+**ARG versus ENV.** An `ARG` exists only while building. To keep its value at run time, copy it into an
+`ENV`: `ARG APP_VERSION=0.1.0` then `ENV APP_VERSION=$APP_VERSION`. An `ARG` declared before `FROM` is
+only usable in `FROM` lines unless re-declared after it. Never pass secrets with `--build-arg`: `docker
+history` shows them. (BuildKit has `RUN --mount=type=secret` for that; the grader, built on Buildah,
+does not grade it.) BuildKit invalidates its cache from the first step that uses a changed argument;
+Buildah 1.33, which grades, can reuse a cached `ENV`/`LABEL` step instead, so the grader builds without
+the cache once build arguments are involved.
+
+**Run-time overrides.** `docker run -e KEY=value` sets or overrides a variable; arguments after the
+image replace `CMD`; `-w` changes the working directory. The image is unchanged: the same image runs in
+development and in production with different settings.
+
+**BuildKit and the grader.** Docker builds with BuildKit, which honours a `# syntax=docker/dockerfile:1`
+first line by downloading that Dockerfile frontend. The grader builds with Buildah, which ignores the
+line — you may keep it. The instructions in this course behave the same in both.
+
+Official docs: https://docs.docker.com/reference/dockerfile/ and
+https://docs.docker.com/build/concepts/context/
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "dk-c2-instructions"
+title = "Build time and run time"
+points = 5
+difficulty = 1
+intro = '''
+Which values exist while building, which while running, and which in both.
+'''
+body = '''
+| | while building | in the running container | change it with |
+|---|---|---|---|
+| `ARG X=1` | yes | no | `docker build --build-arg X=2` |
+| `ENV X=1` | yes (after the line) | yes | `docker run -e X=2` |
+| `ARG X=1` + `ENV X=$X` | yes | yes | either |
+| `LABEL v=$X` | written once | in the metadata | rebuild |
+
+Use `ARG` for what varies per build (a version, a base tag), `ENV` for configuration with a default.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dk-d2-python"
+title = "A Python application image"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+The everyday shape of an application image.
+'''
+prompt = '''
+Type the Dockerfile of a small Python program.
+'''
+target = '''
+FROM python:3.15.2-alpine3.24
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+WORKDIR /app
+COPY main.py .
+CMD ["python", "main.py"]
+'''
+line_comments = [
+  "The official Python image on Alpine, at an exact version.",
+  "No .pyc files at run time, output not buffered (better logs).",
+  "The application folder.",
+  "The program, into /app.",
+  "Run it.",
+]
+explanation = "Two ENV variables on one line: `ENV A=1 B=2` sets both in one instruction."
+
+[[unit.step]]
+kind = "drill"
+id = "dk-d2-arg-env"
+title = "A build argument that survives"
+points = 10
+difficulty = 2
+placeholder_policy = "shown"
+intro = '''
+Copy an ARG into an ENV to keep it at run time.
+'''
+prompt = '''
+Type the Dockerfile. The version is chosen at build time and visible at run time.
+'''
+target = '''
+FROM alpine:3.24.4
+ARG APP_VERSION=0.1.0
+ENV APP_VERSION=$APP_VERSION
+LABEL org.opencontainers.image.version=$APP_VERSION
+CMD ["sh", "-c", "echo running $APP_VERSION"]
+'''
+line_comments = [
+  "The base image.",
+  "A build argument with a default.",
+  "Kept as an environment variable for containers.",
+  "Recorded in the metadata too.",
+  "The shell expands the variable at run time.",
+]
+explanation = "`docker build --build-arg APP_VERSION=0.2.0 -t app .` and `docker run --rm app` prints `running 0.2.0`."
+
+[[unit.step]]
+kind = "challenge"
+id = "dk-p2-quotes"
+title = "A versioned quote service"
+points = 30
+difficulty = 2
+intro = '''
+Write the Dockerfile of a script whose version is chosen at build time and whose language is chosen at run time.
+'''
+instructions = '''
+`quotes.py` prints `quotes <APP_VERSION> (<QUOTE_LANG>): <a quote>`, reading both from the environment.
+Write the `Dockerfile` so that:
+
+- it starts from `python:3.15.2-alpine3.24`, works in `/app` and copies `quotes.py` there;
+- a build argument **`APP_VERSION`** (default `0.1.0`) is available to the running program as the
+  environment variable `APP_VERSION` and recorded in the label `org.opencontainers.image.version`;
+- `QUOTE_LANG` is `en` by default and can be changed with `docker run -e QUOTE_LANG=pt`;
+- the default command is `python quotes.py`, in exec form.
+
+The grader also builds it with `--build-arg APP_VERSION=0.2.0` and runs that image.
+'''
+
+[unit.step.project]
+main = "Dockerfile"
+readonly = ["quotes.py"]
+explanation = '''
+`ARG APP_VERSION` alone would be gone when the container runs; `ENV APP_VERSION=$APP_VERSION` keeps
+the value chosen at build time. `ENV QUOTE_LANG=en` is a run-time default that `-e` overrides.
+'''
+
+[unit.step.project.starter]
+"Dockerfile" = '''
+FROM python:3.15.2-alpine3.24
+ARG APP_VERSION=0.1.0
+COPY quotes.py /quotes.py
+CMD ["python", "/quotes.py"]
+'''
+"quotes.py" = '''
+import os
+
+QUOTES = {
+    "en": "Simple is better than complex.",
+    "pt": "O simples é melhor do que o complexo.",
+}
+version = os.environ.get("APP_VERSION", "unknown")
+lang = os.environ.get("QUOTE_LANG", "")
+print(f"quotes {version} ({lang or 'none'}): {QUOTES.get(lang, '?')}")
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[run]]
+cmd = ["docker", "build", "-t", "quotes", "."]
+message = "The Dockerfile must build."
+
+[[run]]
+cmd = ["docker", "run", "--rm", "quotes"]
+output_contains = ["quotes 0.1.0 (en): Simple is better than complex."]
+message = "By default the program sees APP_VERSION=0.1.0 (ARG kept with ENV) and QUOTE_LANG=en."
+
+[[run]]
+cmd = ["docker", "run", "--rm", "-e", "QUOTE_LANG=pt", "quotes"]
+output_contains = ["quotes 0.1.0 (pt)"]
+message = "docker run -e QUOTE_LANG=pt changes the language."
+
+[[run]]
+cmd = ["docker", "image", "inspect", "quotes"]
+save = "image.json"
+message = "The image must exist."
+
+[[check]]
+file = "image.json"
+path = "[0].Config.WorkingDir"
+equals = "/app"
+message = "The working directory is /app."
+
+[[check]]
+file = "image.json"
+path = "[0].Config.Cmd"
+equals = ["python", "quotes.py"]
+message = "CMD is [\"python\", \"quotes.py\"], run from /app."
+
+[[check]]
+file = "image.json"
+path = '[0].Config.Labels["org.opencontainers.image.version"]'
+equals = "0.1.0"
+message = "The label org.opencontainers.image.version records APP_VERSION."
+
+[[run]]
+cmd = ["docker", "build", "-t", "quotes:0.2.0", "--build-arg", "APP_VERSION=0.2.0", "."]
+message = "The image must build with --build-arg APP_VERSION=0.2.0."
+
+[[run]]
+cmd = ["docker", "run", "--rm", "quotes:0.2.0"]
+output_contains = ["quotes 0.2.0 (en)"]
+message = "The version chosen at build time reaches the running program."
+'''
+
+[unit.step.project.solution]
+"Dockerfile" = '''
+FROM python:3.15.2-alpine3.24
+ARG APP_VERSION=0.1.0
+ENV APP_VERSION=$APP_VERSION \
+    QUOTE_LANG=en
+LABEL org.opencontainers.image.version=$APP_VERSION
+WORKDIR /app
+COPY quotes.py .
+CMD ["python", "quotes.py"]
+'''
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+[[unit]]
+id = "dk-u3-entrypoint"
+title = "ENTRYPOINT, CMD and running containers"
+level = "basic"
+difficulty = 3
+intro = "The program a container starts, how docker run changes it, and how to follow a container in the background."
+concepts = '''
+**`ENTRYPOINT`** is the program a container runs; **`CMD`** is its default arguments. Arguments given to
+`docker run IMAGE …` replace `CMD` and are appended to `ENTRYPOINT`. With
+
+```dockerfile
+ENTRYPOINT ["python", "/app/slug.py"]
+CMD ["--help"]
+```
+
+`docker run slug` runs `python /app/slug.py --help` and `docker run slug "Hello World"` runs
+`python /app/slug.py "Hello World"`: the image is used like a command. `docker run --entrypoint sh -it
+slug` replaces the entrypoint to explore the image.
+
+**Exec form, please.** In exec form (`["prog", "arg"]`) the program is process 1 and receives the
+`SIGTERM` that `docker stop` sends. In shell form (`CMD prog arg`) Docker runs `/bin/sh -c "prog arg"`:
+the shell is process 1, signals may never reach your program (`docker stop` then waits 10 seconds and
+kills it), and a shell-form `ENTRYPOINT` ignores both `CMD` and the arguments of `docker run`.
+
+**Background containers.** `docker run -d --name worker IMAGE` returns at once. Then:
+
+| Command | What it does |
+|---|---|
+| `docker ps` / `docker ps -a` | running / all containers |
+| `docker logs worker` (`-f` to follow) | stdout and stderr, also after it stopped |
+| `docker exec -it worker sh` | another process inside the running container |
+| `docker stop worker` · `docker rm worker` | SIGTERM then SIGKILL · delete it |
+
+`--rm` deletes the container when it exits; without it, a stopped container (and its logs) stays until
+`docker rm`.
+
+Official docs: https://docs.docker.com/reference/dockerfile/#entrypoint and
+https://docs.docker.com/reference/cli/docker/container/run/
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "dk-c3-entrypoint"
+title = "How the command line is assembled"
+points = 5
+difficulty = 1
+intro = '''
+ENTRYPOINT + (CMD or the arguments of docker run).
+'''
+body = '''
+| Dockerfile | `docker run img` | `docker run img a b` |
+|---|---|---|
+| `CMD ["ls", "-l"]` | `ls -l` | `a b` |
+| `ENTRYPOINT ["ls"]` + `CMD ["-l"]` | `ls -l` | `ls a b` |
+| `ENTRYPOINT ls -l` (shell form) | `/bin/sh -c "ls -l"` | `/bin/sh -c "ls -l"` — `a b` ignored |
+
+The last row is why shell-form entrypoints surprise people.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dk-d3-wrapper"
+title = "A command-line wrapper"
+points = 10
+difficulty = 2
+placeholder_policy = "shown"
+intro = '''
+An image that behaves like `base64`.
+'''
+prompt = '''
+Type the Dockerfile. Arguments to `docker run` become arguments of `base64`.
+'''
+target = '''
+FROM alpine:3.24.4
+ENTRYPOINT ["base64"]
+CMD ["--help"]
+'''
+line_comments = [
+  "busybox in Alpine provides base64.",
+  "Always run base64…",
+  "…with --help unless docker run passes other arguments.",
+]
+explanation = "`echo hi | docker run --rm -i img` encodes stdin; `docker run --rm img -d` would decode it."
+
+[[unit.step]]
+kind = "drill"
+id = "dk-d3-worker"
+title = "A background worker"
+points = 10
+difficulty = 2
+placeholder_policy = "shown"
+intro = '''
+A long-running process in exec form, so `docker stop` is quick.
+'''
+prompt = '''
+Type the Dockerfile of a worker that prints a line every three seconds.
+'''
+target = '''
+FROM python:3.15.2-alpine3.24
+ENV PYTHONUNBUFFERED=1
+COPY worker.py /app/worker.py
+CMD ["python", "/app/worker.py"]
+'''
+line_comments = [
+  "The base image.",
+  "Every print reaches `docker logs` at once.",
+  "The worker.",
+  "Python is process 1 and gets SIGTERM from `docker stop`.",
+]
+explanation = "`docker run -d --name worker img`, `docker logs -f worker`, then `docker stop worker`."
+
+[[unit.step]]
+kind = "challenge"
+id = "dk-p3-slug"
+title = "A slug generator in a container"
+points = 30
+difficulty = 3
+intro = '''
+Package a small command-line tool so the image behaves exactly like the command.
+'''
+instructions = '''
+`slug.py` turns its arguments into a URL slug (`Hello World` → `hello-world`), or prints its usage with
+no arguments or `--help`. Write the `Dockerfile` so that:
+
+- it starts from `python:3.15.2-alpine3.24` and copies `slug.py` to `/app/slug.py`;
+- the **entrypoint** is `python /app/slug.py`, in exec form, and the **default arguments** are `--help`;
+- `docker run --rm slug Hello Docker World` prints `hello-docker-world`;
+- `docker run --rm --entrypoint python slug -c "…"` can still run Python directly.
+
+The grader also runs it detached (`docker run -d --name job slug Ship It`) and reads `docker logs job`.
+'''
+
+[unit.step.project]
+main = "Dockerfile"
+readonly = ["slug.py"]
+explanation = '''
+`ENTRYPOINT` + `CMD` in exec form: the arguments of `docker run` replace only `CMD`. The starter's
+shell-form `ENTRYPOINT` ignored every argument.
+'''
+
+[unit.step.project.starter]
+"Dockerfile" = '''
+FROM python:3.15.2-alpine3.24
+COPY slug.py /app/slug.py
+ENTRYPOINT python /app/slug.py
+'''
+"slug.py" = '''
+import re
+import sys
+
+args = sys.argv[1:]
+if not args or args == ["--help"]:
+    print("usage: slug TEXT...")
+    sys.exit(0)
+print(re.sub(r"[^a-z0-9]+", "-", " ".join(args).lower()).strip("-"))
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[run]]
+cmd = ["docker", "build", "-t", "slug", "."]
+message = "The Dockerfile must build."
+
+[[run]]
+cmd = ["docker", "run", "--rm", "slug"]
+output_contains = ["usage: slug TEXT..."]
+message = "With no arguments, the image runs slug.py --help (CMD)."
+
+[[run]]
+cmd = ["docker", "run", "--rm", "slug", "Hello", "Docker", "World"]
+output_contains = ["hello-docker-world"]
+message = "Arguments to docker run are appended to the ENTRYPOINT (exec form)."
+
+[[run]]
+cmd = ["docker", "run", "--rm", "--entrypoint", "python", "slug", "-c", "print('entrypoint replaced')"]
+output_contains = ["entrypoint replaced"]
+message = "--entrypoint replaces the entrypoint."
+
+[[run]]
+cmd = ["docker", "run", "-d", "--name", "job", "slug", "Ship", "It"]
+message = "The image runs detached."
+
+[[run]]
+cmd = ["docker", "logs", "job"]
+retries = 5
+output_contains = ["ship-it"]
+message = "docker logs shows what the detached container printed."
+
+[[run]]
+cmd = ["docker", "image", "inspect", "slug"]
+save = "image.json"
+message = "The image must exist."
+
+[[check]]
+file = "image.json"
+path = "[0].Config.Entrypoint"
+equals = ["python", "/app/slug.py"]
+message = "ENTRYPOINT is [\"python\", \"/app/slug.py\"], in exec form."
+
+[[check]]
+file = "image.json"
+path = "[0].Config.Cmd"
+equals = ["--help"]
+message = "CMD is [\"--help\"]."
+'''
+
+[unit.step.project.solution]
+"Dockerfile" = '''
+FROM python:3.15.2-alpine3.24
+COPY slug.py /app/slug.py
+ENTRYPOINT ["python", "/app/slug.py"]
+CMD ["--help"]
+'''
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+[[unit]]
+id = "dk-u4-multistage"
+title = "Multi-stage builds"
+level = "intermediate"
+difficulty = 4
+intro = "Build with the whole SDK in one stage, ship only the result from another."
+concepts = '''
+A Dockerfile can have several `FROM` lines. Each starts a **stage**; only the last one becomes the
+image, and a stage copies files from an earlier one with `COPY --from=<name>`:
+
+```dockerfile
+FROM golang:1.27.4-alpine3.24 AS builder
+ARG VERSION=dev
+WORKDIR /src
+COPY . .
+RUN CGO_ENABLED=0 go build -ldflags="-X main.version=${VERSION}" -o /out/app .
+
+FROM scratch
+COPY --from=builder /out/app /app
+ENTRYPOINT ["/app"]
+```
+
+The `golang` image is about 270 MB; the shipped image is the binary, a couple of megabytes. Nothing from
+the build stage — compiler, sources, caches, anything used while building — reaches the final image
+unless it is copied.
+
+**Stage names and targets.** Name stages (`AS builder`) and copy by name. `docker build --target builder
+.` stops at a stage: useful to debug the build, or to run the test suite in a `test` stage in CI.
+Build arguments declared in a stage (`ARG VERSION`) are visible only in that stage.
+
+**Choosing the final base.** `scratch` is empty — perfect for a static binary (`CGO_ENABLED=0` in Go).
+A program that needs a C library, CA certificates or time-zone data needs a small base instead: `alpine`,
+or a distroless image. Whatever you choose, the build tools stay behind.
+
+**Injecting a version.** Go's linker sets a package variable at build time: `-ldflags "-X
+main.version=1.2.3"`. With an `ARG`, `docker build --build-arg VERSION=1.2.3` stamps the binary.
+
+BuildKit (Docker) builds independent stages in parallel and skips stages the target does not need;
+Buildah (the grader) builds them in order. The result is the same image.
+
+Official docs: https://docs.docker.com/build/building/multi-stage/
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "dk-c4-multistage"
+title = "The SDK is not part of the product"
+points = 5
+difficulty = 1
+intro = '''
+What a single-stage image ships that a multi-stage one does not.
+'''
+body = '''
+A single-stage `FROM golang` image ships the compiler, the module cache, your source code and an
+operating system, to run one binary. Every one of those is something to download, store, scan and
+patch. A multi-stage build ships the binary — and the build stage still exists, for `--target` and for
+CI.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dk-d4-stages"
+title = "Builder and runtime"
+points = 10
+difficulty = 2
+placeholder_policy = "shown"
+intro = '''
+Two named stages and a COPY --from.
+'''
+prompt = '''
+Type the multi-stage Dockerfile of a static Go service.
+'''
+target = '''
+FROM golang:1.27.4-alpine3.24 AS builder
+WORKDIR /src
+COPY go.mod main.go ./
+RUN CGO_ENABLED=0 go build -o /out/service .
+
+FROM scratch
+COPY --from=builder /out/service /service
+USER 65532:65532
+ENTRYPOINT ["/service"]
+'''
+line_comments = [
+  "The build stage, named builder.",
+  "Work in /src.",
+  "The module file and the code.",
+  "A static binary.",
+  "",
+  "An empty final image.",
+  "Only the binary crosses over.",
+  "Not root, by number (scratch has no /etc/passwd).",
+  "Run it directly.",
+]
+explanation = "`docker build --target builder .` stops after the first stage."
+
+[[unit.step]]
+kind = "drill"
+id = "dk-d4-test-stage"
+title = "A test stage for CI"
+points = 10
+difficulty = 3
+placeholder_policy = "shown"
+intro = '''
+Run the tests in a stage of their own; the product image does not include them.
+'''
+prompt = '''
+Type the Dockerfile with build, test and runtime stages.
+'''
+target = '''
+FROM golang:1.27.4-alpine3.24 AS builder
+WORKDIR /src
+COPY . .
+RUN CGO_ENABLED=0 go build -o /out/app .
+
+FROM builder AS test
+RUN go test ./...
+
+FROM alpine:3.24.4
+COPY --from=builder /out/app /usr/local/bin/app
+CMD ["app"]
+'''
+line_comments = [
+  "Build stage.",
+  "Work in /src.",
+  "The sources.",
+  "Build the binary.",
+  "",
+  "A stage built FROM another stage…",
+  "…that runs the tests: `docker build --target test .` in CI.",
+  "",
+  "The runtime stage.",
+  "Only the binary.",
+  "The default command.",
+]
+explanation = "Building the final image does not need the `test` stage; BuildKit skips it, and `--target test` runs it."
+
+[[unit.step]]
+kind = "challenge"
+id = "dk-p4-version"
+title = "A stamped binary in a tiny image"
+points = 40
+difficulty = 4
+intro = '''
+Rewrite a single-stage Go image as a multi-stage build that stamps the version into the binary.
+'''
+instructions = '''
+`main.go` prints `app <version>`, where `version` is a package variable (`dev` unless set at link
+time). Rewrite the `Dockerfile` as a **multi-stage** build:
+
+- a stage named **`builder`** from `golang:1.27.4-alpine3.24` that builds a **static** binary from
+  `go.mod` and `main.go`, with a build argument **`VERSION`** (default `dev`) passed to the linker:
+  `-ldflags "-X main.version=${VERSION}"`;
+- a final stage **`FROM scratch`** with only the binary, at `/app`, run with `ENTRYPOINT ["/app"]`;
+- `docker build --build-arg VERSION=1.2.3 -t app .` then `docker run --rm app` prints `app 1.2.3`;
+- the image is under **5 MB**, with a single layer.
+
+The grader also builds `--target builder` and runs `go version` in it.
+'''
+
+[unit.step.project]
+main = "Dockerfile"
+readonly = ["go.mod", "main.go"]
+explanation = '''
+`ARG VERSION` belongs to the builder stage, where the linker uses it; the final stage needs nothing but
+the binary. `CGO_ENABLED=0` makes the binary static, so it runs in `scratch`.
+'''
+
+[unit.step.project.starter]
+"Dockerfile" = '''
+FROM golang:1.27.4-alpine3.24
+WORKDIR /src
+COPY go.mod main.go ./
+RUN go build -o /usr/local/bin/app .
+CMD ["app"]
+'''
+"go.mod" = '''
+module example.com/app
+
+go 1.27
+'''
+"main.go" = '''
+package main
+
+import "fmt"
+
+var version = "dev"
+
+func main() {
+	fmt.Println("app", version)
+}
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[run]]
+cmd = ["docker", "build", "-t", "app", "--build-arg", "VERSION=1.2.3", "."]
+message = "The Dockerfile must build (with --build-arg VERSION=1.2.3)."
+
+[[run]]
+cmd = ["docker", "run", "--rm", "app"]
+output_contains = ["app 1.2.3"]
+message = "The binary prints the version passed with --build-arg (ARG VERSION + -ldflags \"-X main.version=${VERSION}\")."
+
+[[run]]
+cmd = ["docker", "image", "inspect", "app"]
+save = "image.json"
+message = "The image must exist."
+
+[[check]]
+file = "image.json"
+path = "[0].Size"
+at_most = 5000000
+message = "The final image is under 5 MB: only the binary, FROM scratch."
+
+[[check]]
+file = "image.json"
+path = "[0].RootFS.Layers"
+len = 1
+message = "The final image has one layer."
+
+[[check]]
+file = "image.json"
+path = "[0].Config.Entrypoint"
+equals = ["/app"]
+message = "ENTRYPOINT is [\"/app\"]."
+
+[[run]]
+cmd = ["docker", "run", "--rm", "--mount", "type=image,source=app,target=/img", "alpine:3.24.4", "sh", "-c", "test -x /img/app && test ! -e /img/usr/local/go && test ! -e /img/src"]
+message = "Only the binary is in the image: no Go toolchain, no sources."
+
+[[run]]
+cmd = ["docker", "build", "-t", "app-builder", "--target", "builder", "."]
+message = "The first stage is named builder (docker build --target builder)."
+
+[[run]]
+cmd = ["docker", "run", "--rm", "app-builder", "go", "version"]
+output_contains = ["go1.27.4"]
+message = "The builder stage is the Go 1.27.4 SDK."
+'''
+
+[unit.step.project.solution]
+"Dockerfile" = '''
+FROM golang:1.27.4-alpine3.24 AS builder
+ARG VERSION=dev
+WORKDIR /src
+COPY go.mod main.go ./
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/app .
+
+FROM scratch
+COPY --from=builder /out/app /app
+ENTRYPOINT ["/app"]
+'''
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+[[unit]]
+id = "dk-u5-users"
+title = "Users and least privilege"
+level = "intermediate"
+difficulty = 5
+intro = "Run as a fixed non-root user that cannot change its own code, with no extra capabilities."
+concepts = '''
+Without `USER`, a container's process runs as **root** inside the container. With the Docker daemon in
+its default (rootful) mode, that root is also UID 0 on the host kernel, kept in check only by
+namespaces, capabilities and seccomp — a container escape lands as root on the host. Run your services
+as an unprivileged user.
+
+```dockerfile
+RUN addgroup -S -g 1001 web && adduser -S -D -H -u 1001 -G web web
+USER 1001:1001
+```
+
+**Numeric UIDs.** `USER 1001:1001` needs no `/etc/passwd` entry and lets Kubernetes verify
+`runAsNonRoot`. Creating the matching user (as above, with Alpine's busybox tools; `useradd` on Debian)
+keeps tools that print user names happy.
+
+**Read-only code.** `COPY` makes files owned by root unless `--chown` says otherwise. Keep it that way
+for the code and static files: the service can read them but not change them. Give the user write
+access only to where it writes — a volume, a cache folder, `/tmp`.
+
+**Low ports.** Binding a port below 1024 needs the `NET_BIND_SERVICE` capability. Listen on 8080 and let
+`-p 80:8080` (or the platform) map it.
+
+**Capabilities and read-only root.** `docker run --cap-drop=ALL` removes Docker's default capabilities;
+`--cap-add` gives back one at a time; `--read-only` makes the root filesystem read-only (add `--tmpfs
+/tmp` if the program needs scratch space); `--security-opt no-new-privileges` stops setuid binaries from
+gaining privileges. A non-root image that writes only to its volumes runs under all of them — the
+grader always drops every capability.
+
+**Rootless Docker** (https://docs.docker.com/engine/security/rootless/) runs the daemon itself without
+root; Podman, which grades this course, is rootless by default. Both limit the damage of a compromised
+container, neither replaces a non-root `USER`.
+
+Official docs: https://docs.docker.com/reference/dockerfile/#user and
+https://docs.docker.com/engine/security/
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "dk-c5-users"
+title = "Least privilege, three layers deep"
+points = 5
+difficulty = 1
+intro = '''
+User, files and capabilities: three independent limits.
+'''
+body = '''
+| Limit | In the Dockerfile | At run time |
+|---|---|---|
+| not root | `USER 1001:1001` | `--user 1001:1001` |
+| code cannot be changed | `COPY` without `--chown` | `--read-only` |
+| no special powers | (nothing to add) | `--cap-drop=ALL`, `no-new-privileges` |
+
+Each one blocks a different step of an attack. An image built for the first two makes the third free.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dk-d5-user"
+title = "A static site served by a non-root user"
+points = 10
+difficulty = 2
+placeholder_policy = "shown"
+intro = '''
+Create a user with a fixed UID; leave the files owned by root.
+'''
+prompt = '''
+Type the Dockerfile of a static web server.
+'''
+target = '''
+FROM python:3.15.2-alpine3.24
+RUN addgroup -S -g 1001 web && adduser -S -D -H -u 1001 -G web web
+COPY site/ /srv/www/
+USER 1001:1001
+EXPOSE 8080
+CMD ["python", "-m", "http.server", "8080", "--directory", "/srv/www"]
+'''
+line_comments = [
+  "The base image.",
+  "A system group and user, both 1001.",
+  "The site, owned by root: readable, not writable, by the server.",
+  "Serve as 1001.",
+  "A port above 1024.",
+  "Python's built-in static file server.",
+]
+explanation = "`docker run --rm --read-only -p 8080:8080 img` works: the server writes nothing."
+
+[[unit.step]]
+kind = "drill"
+id = "dk-d5-chown"
+title = "Writable where it must be"
+points = 10
+difficulty = 2
+placeholder_policy = "shown"
+intro = '''
+COPY --chown for the one folder the program writes.
+'''
+prompt = '''
+Type the Dockerfile. The cache folder belongs to the user; the code does not.
+'''
+target = '''
+FROM python:3.15.2-alpine3.24
+RUN adduser -S -D -H -u 1001 app
+WORKDIR /app
+COPY main.py .
+COPY --chown=1001:1001 cache/ /app/cache/
+USER 1001
+CMD ["python", "main.py"]
+'''
+line_comments = [
+  "The base image.",
+  "A system user.",
+  "The application folder.",
+  "The code: owned by root.",
+  "The cache: owned by the user, at copy time.",
+  "Run as 1001.",
+  "The program.",
+]
+explanation = "`--chown` on COPY avoids a separate `RUN chown -R`, which would duplicate the files in a new layer."
+
+[[unit.step]]
+kind = "challenge"
+id = "dk-p5-static"
+title = "A static site that runs as nobody special"
+points = 40
+difficulty = 4
+intro = '''
+Serve a static site as a fixed non-root user that cannot change the files it serves.
+'''
+instructions = '''
+`site/index.html` is a page. Write the `Dockerfile` so that:
+
+- it starts from `python:3.15.2-alpine3.24` and copies `site/` to `/srv/www/`, **owned by root**;
+- it creates a user and group `web`, UID and GID **1001**, and runs as that user;
+- it `EXPOSE`s 8080 and by default runs `python -m http.server 8080 --directory /srv/www`;
+- it also works with a read-only root filesystem.
+
+The grader starts it (`docker run -d --name site site`), fetches the page from a second container in
+its network namespace, runs `id -u` in it, and checks the server cannot overwrite the page.
+'''
+
+[unit.step.project]
+main = "Dockerfile"
+readonly = ["site/index.html"]
+explanation = '''
+`USER 1001:1001` runs the server unprivileged; the site was copied without `--chown`, so it stays
+owned by root and read-only for the server. The server writes nothing, so `--read-only` works.
+'''
+
+[unit.step.project.starter]
+"Dockerfile" = '''
+FROM python:3.15.2-alpine3.24
+COPY site/ /srv/www/
+CMD ["python", "-m", "http.server", "8080", "--directory", "/srv/www"]
+'''
+"site/index.html" = '''
+<!doctype html>
+<title>Docker course</title>
+<h1>Served by a non-root user</h1>
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[run]]
+cmd = ["docker", "build", "-t", "site", "."]
+message = "The Dockerfile must build."
+
+[[run]]
+cmd = ["docker", "image", "inspect", "site"]
+save = "image.json"
+message = "The image must exist."
+
+[[check]]
+file = "image.json"
+path = "[0].Config.User"
+matches = '^(1001|web)(:(1001|web))?$'
+message = "The image runs as the web user (UID 1001): USER 1001:1001 or USER web."
+
+[[check]]
+file = "image.json"
+path = "[0].Config.ExposedPorts"
+contains = { "8080/tcp" = {} }
+message = "EXPOSE 8080."
+
+[[run]]
+cmd = ["docker", "run", "-d", "--name", "site", "site"]
+message = "The server starts."
+
+[[run]]
+cmd = ["docker", "run", "--rm", "--network", "container:site", "alpine:3.24.4", "wget", "-q", "-T", "3", "-O", "-", "http://127.0.0.1:8080/"]
+retries = 10
+output_contains = ["Served by a non-root user"]
+message = "The page is served on port 8080 from /srv/www."
+
+[[run]]
+cmd = ["docker", "exec", "site", "id", "-u"]
+output_contains = ["1001"]
+message = "The server runs as UID 1001."
+
+[[run]]
+cmd = ["docker", "exec", "site", "sh", "-c", "echo defaced > /srv/www/index.html"]
+expect = "failure"
+message = "The server cannot change the site: the files stay owned by root."
+
+[[run]]
+cmd = ["docker", "run", "--rm", "--read-only", "site", "python", "-c", "import os; print('read-only ok', os.getuid())"]
+output_contains = ["read-only ok 1001"]
+message = "The image works with a read-only root filesystem."
+'''
+
+[unit.step.project.solution]
+"Dockerfile" = '''
+FROM python:3.15.2-alpine3.24
+RUN addgroup -S -g 1001 web && adduser -S -D -H -u 1001 -G web web
+COPY site/ /srv/www/
+USER 1001:1001
+EXPOSE 8080
+CMD ["python", "-m", "http.server", "8080", "--directory", "/srv/www"]
+'''
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+[[unit]]
+id = "dk-u6-volumes"
+title = "Volumes"
+level = "intermediate"
+difficulty = 6
+intro = "Containers are replaced; data in a volume stays — if the user who writes it owns it."
+concepts = '''
+A container's writable layer is deleted with the container. Data that must survive an upgrade (you
+replace the container with one from a new image), a crash or a `docker rm` goes in a **volume**:
+
+```sh
+docker volume create notes
+docker run --rm -v notes:/var/lib/notes notes add "buy milk"
+docker run --rm -v notes:/var/lib/notes notes list
+```
+
+| Kind | Syntax | Lives in |
+|---|---|---|
+| named volume | `-v notes:/var/lib/notes` | Docker's storage (`docker volume ls`) |
+| bind mount | `-v /home/me/notes:/var/lib/notes` | that host folder |
+| tmpfs | `--tmpfs /tmp` | memory, gone when the container stops |
+
+The long form `--mount type=volume,source=notes,target=/var/lib/notes` says the same with names instead
+of positions. Named volumes are portable and managed by Docker; bind mounts tie the container to one
+machine's folders (great for development, risky in production). The grader only uses named volumes.
+
+**`VOLUME` in a Dockerfile** marks a path as data. A container started without a volume there gets a new
+**anonymous** volume, so its writes never land in the container layer; `docker run --rm` deletes that
+anonymous volume with the container. Only a named volume carries data from one container to the next.
+
+**Ownership — Docker's rule.** When an empty named volume is mounted for the first time, Docker copies
+into it what the image has at that path, **with its ownership**. If the image has no such folder, the
+volume's root belongs to **root**. Either way, a non-root process can only write there if the image
+created the folder and gave it to that user:
+
+```dockerfile
+RUN mkdir -p /var/lib/notes && chown 1001:1001 /var/lib/notes
+USER 1001
+VOLUME /var/lib/notes
+```
+
+(Podman, which grades this course, differs in one case: when the path does not exist in the image it
+gives the new volume to the container's user. The `mkdir` + `chown` above works in both.)
+
+`-v notes:/var/lib/notes:ro` mounts read-only — for a container that only reads another's data.
+
+Official docs: https://docs.docker.com/engine/storage/volumes/
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "dk-c6-volumes"
+title = "Upgrade by replacing the container"
+points = 5
+difficulty = 1
+intro = '''
+Why a container should keep nothing that matters in its own layer.
+'''
+body = '''
+Upgrading a containerised service is: pull the new image, remove the old container, start a new one.
+Everything in the old container's writable layer is gone. With the data in a named volume, the new
+container mounts the same volume and finds it all — that is the whole upgrade.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dk-d6-volume"
+title = "A data folder ready for a volume"
+points = 10
+difficulty = 2
+placeholder_policy = "shown"
+intro = '''
+Create the folder, hand it to the user, declare it.
+'''
+prompt = '''
+Type the Dockerfile of a service that keeps uploads in /srv/uploads.
+'''
+target = '''
+FROM python:3.15.2-alpine3.24
+RUN adduser -S -D -H -u 1001 app \
+ && mkdir -p /srv/uploads \
+ && chown 1001 /srv/uploads
+COPY upload.py /app/upload.py
+USER 1001
+VOLUME /srv/uploads
+CMD ["python", "/app/upload.py"]
+'''
+line_comments = [
+  "The base image.",
+  "A non-root user…",
+  "…the uploads folder…",
+  "…owned by that user (copied into a new volume on first use).",
+  "The code, owned by root.",
+  "Run as the user.",
+  "Declare the data path.",
+  "The program.",
+]
+explanation = "`docker run -v uploads:/srv/uploads img` keeps the uploads across containers and image upgrades."
+
+[[unit.step]]
+kind = "drill"
+id = "dk-d6-backup"
+title = "A backup job that reads a volume"
+points = 10
+difficulty = 2
+placeholder_policy = "shown"
+intro = '''
+A one-off container that reads one volume and writes an archive to another.
+'''
+prompt = '''
+Type the Dockerfile of a backup job.
+'''
+target = '''
+FROM alpine:3.24.4
+WORKDIR /backup
+CMD ["sh", "-c", "tar -czf /backup/data-$(date +%F).tar.gz -C /data ."]
+'''
+line_comments = [
+  "Alpine has tar and date.",
+  "Archives go here.",
+  "Archive everything in /data into today's file.",
+]
+explanation = "`docker run --rm -v data:/data:ro -v backups:/backup img`: the data volume is mounted read-only."
+
+[[unit.step]]
+kind = "challenge"
+id = "dk-p6-notes"
+title = "Notes that survive the container"
+points = 40
+difficulty = 4
+intro = '''
+Make a non-root command-line tool keep its data in a named volume.
+'''
+instructions = '''
+`notes.py` stores notes in `/var/lib/notes/notes.txt`: `notes.py add TEXT…` appends one, `notes.py list`
+prints them numbered. Write the `Dockerfile` so that:
+
+- it starts from `python:3.15.2-alpine3.24` and copies `notes.py` to `/app/notes.py`;
+- it runs as a non-root user with UID **1001**;
+- `/var/lib/notes` exists in the image, is **owned by UID 1001**, and is declared with `VOLUME`;
+- the entrypoint is `python /app/notes.py` and the default argument is `list`.
+
+The grader creates a named volume `notes`, adds two notes in two separate containers, and lists them
+in a third.
+'''
+
+[unit.step.project]
+main = "Dockerfile"
+readonly = ["notes.py"]
+explanation = '''
+The starter's `mkdir` left `/var/lib/notes` owned by root, and a new volume copies that ownership, so
+UID 1001 could not write. `chown 1001` in the image fixes it; `VOLUME` documents the path and keeps
+writes out of the container layer even without `-v`.
+'''
+
+[unit.step.project.starter]
+"Dockerfile" = '''
+FROM python:3.15.2-alpine3.24
+RUN mkdir -p /var/lib/notes
+COPY notes.py /app/notes.py
+USER 1001
+ENTRYPOINT ["python", "/app/notes.py"]
+CMD ["list"]
+'''
+"notes.py" = '''
+import sys
+from pathlib import Path
+
+store = Path("/var/lib/notes/notes.txt")
+args = sys.argv[1:] or ["list"]
+if args[0] == "add" and len(args) > 1:
+    with store.open("a") as f:
+        f.write(" ".join(args[1:]) + "\n")
+    print("added")
+elif args[0] == "list":
+    lines = store.read_text().splitlines() if store.exists() else []
+    for n, line in enumerate(lines, 1):
+        print(f"{n}. {line}")
+    print(f"{len(lines)} notes")
+else:
+    sys.exit("usage: notes add TEXT... | notes list")
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[run]]
+cmd = ["docker", "build", "-t", "notes", "."]
+message = "The Dockerfile must build."
+
+[[run]]
+cmd = ["docker", "volume", "create", "notes"]
+message = "A named volume."
+
+[[run]]
+cmd = ["docker", "run", "--rm", "-v", "notes:/var/lib/notes", "notes", "add", "buy", "milk"]
+output_contains = ["added"]
+message = "A note is written to the volume as UID 1001: /var/lib/notes must be owned by 1001."
+
+[[run]]
+cmd = ["docker", "run", "--rm", "-v", "notes:/var/lib/notes", "notes", "add", "ship", "the", "image"]
+output_contains = ["added"]
+message = "A second container adds a note to the same volume."
+
+[[run]]
+cmd = ["docker", "run", "--rm", "-v", "notes:/var/lib/notes:ro", "notes"]
+output_contains = ["1. buy milk", "2. ship the image", "2 notes"]
+message = "A third container lists both notes (default argument: list), even with the volume read-only."
+
+[[run]]
+cmd = ["docker", "image", "inspect", "notes"]
+save = "image.json"
+message = "The image must exist."
+
+[[check]]
+file = "image.json"
+path = "[0].Config.Volumes"
+contains = { "/var/lib/notes" = {} }
+message = "VOLUME /var/lib/notes declares the data path."
+
+[[check]]
+file = "image.json"
+path = "[0].Config.Entrypoint"
+equals = ["python", "/app/notes.py"]
+message = "ENTRYPOINT is [\"python\", \"/app/notes.py\"]."
+
+[[run]]
+cmd = ["docker", "run", "--rm", "--entrypoint", "id", "notes", "-u"]
+output_contains = ["1001"]
+message = "The image runs as UID 1001."
+'''
+
+[unit.step.project.solution]
+"Dockerfile" = '''
+FROM python:3.15.2-alpine3.24
+RUN adduser -S -D -H -u 1001 notes \
+ && mkdir -p /var/lib/notes \
+ && chown 1001 /var/lib/notes
+COPY notes.py /app/notes.py
+USER 1001
+VOLUME /var/lib/notes
+ENTRYPOINT ["python", "/app/notes.py"]
+CMD ["list"]
+'''
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+[[unit]]
+id = "dk-u7-networks"
+title = "Networks"
+level = "intermediate"
+difficulty = 7
+intro = "How containers reach each other: the default bridge, user-defined networks with DNS, shared namespaces, and published ports."
+concepts = '''
+Every container has its own **network namespace** — its own interfaces and its own `localhost`. Docker
+connects containers with **networks**:
+
+| Network | What containers get |
+|---|---|
+| `bridge` (the default) | a private address; they reach each other only by IP, not by name |
+| a user-defined bridge (`docker network create shop`) | addresses **and DNS**: containers find each other by name |
+| `--network container:<name>` | the other container's namespace: one shared `localhost` |
+| `--network host` | the host's network directly (no isolation; avoid) |
+| `--network none` | only a loopback interface |
+
+On a user-defined network, `docker run --network shop --name api …` makes `api` resolvable from every
+container on `shop`, so a client uses `http://api:8080`. Docker Compose creates one such network per
+project, which is why services find each other by service name. `docker network create --internal`
+makes a network with no route out.
+
+**Publishing ports.** `-p 8080:8080` forwards a host port to the container; `-p 127.0.0.1:8080:8080`
+only on the loopback interface. `EXPOSE` publishes nothing: it documents the port (and `-P` publishes all
+exposed ports to random host ports). A server must listen on `0.0.0.0` inside the container — bound to
+`127.0.0.1`, it is unreachable from published ports and other containers.
+
+**Sidecars.** Two containers sharing one namespace (`--network container:app`) talk over `localhost`:
+the pattern behind Kubernetes Pods — a log shipper, a proxy, or a health probe next to the app.
+
+**In the grader** there are no user-defined networks and no published ports: rootless networks share
+one namespace per user and would collide with your own, and published ports would open on your machine.
+The checks use `--network none` and `--network container:<name>`. Try the user-defined network version
+on your own Docker.
+
+Official docs: https://docs.docker.com/engine/network/
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "dk-c7-networks"
+title = "Names need a user-defined network"
+points = 5
+difficulty = 1
+intro = '''
+Why `http://api:8080` works in Compose but not on the default bridge.
+'''
+body = '''
+Docker's embedded DNS server answers container names only on **user-defined** networks. On the default
+`bridge`, `api` resolves to nothing; in a shared namespace there is no DNS at all, but `localhost` is
+the other container. So the right URL depends on the deployment — keep it in an environment variable.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dk-d7-probe"
+title = "A probe sidecar"
+points = 10
+difficulty = 2
+placeholder_policy = "shown"
+intro = '''
+A tiny image that checks a URL and exits 0 or 1.
+'''
+prompt = '''
+Type the Dockerfile of a probe that fetches `TARGET`.
+'''
+target = '''
+FROM alpine:3.24.4
+ENV TARGET=http://127.0.0.1:8080/
+USER 65534
+CMD ["sh", "-c", "wget -q -T 3 -O - \"$TARGET\""]
+'''
+line_comments = [
+  "busybox has wget.",
+  "The default target: an app in the same namespace.",
+  "`nobody`: a probe needs no privileges.",
+  "Fetch the target; wget's exit code is the verdict.",
+]
+explanation = "`docker run --rm --network container:app probe` checks the app from its own namespace."
+
+[[unit.step]]
+kind = "drill"
+id = "dk-d7-bind"
+title = "Listen on all interfaces"
+points = 10
+difficulty = 2
+placeholder_policy = "shown"
+intro = '''
+Make the bind address explicit, and configurable.
+'''
+prompt = '''
+Type the Dockerfile of a server whose host and port come from the environment.
+'''
+target = '''
+FROM python:3.15.2-alpine3.24
+ENV HOST=0.0.0.0 PORT=8080
+EXPOSE 8080
+USER 1001
+CMD ["sh", "-c", "exec python -m http.server \"$PORT\" --bind \"$HOST\""]
+'''
+line_comments = [
+  "The base image.",
+  "All interfaces, port 8080: reachable from published ports and other containers.",
+  "Documents the port.",
+  "Non-root.",
+  "`exec` keeps Python as process 1.",
+]
+explanation = "With HOST=127.0.0.1 the same image would only answer inside its own namespace."
+
+[[unit.step]]
+kind = "challenge"
+id = "dk-p7-sidecar"
+title = "A health probe next to the app"
+points = 40
+difficulty = 4
+intro = '''
+Point a probe sidecar at an application that shares its network namespace.
+'''
+instructions = '''
+`app/` is a finished service that answers `pong` on `/ping`, port 8080. `probe/probe.py` fetches the URL
+in `TARGET` and prints `probe ok: <answer>`. Write `probe/Dockerfile` so that:
+
+- it starts from `python:3.15.2-alpine3.24` and copies `probe.py` to `/app/probe.py`;
+- `TARGET` defaults to the app's ping URL **as seen from inside the app's network namespace** (the
+  grader runs the probe with `--network container:app`, as a sidecar);
+- it runs as UID 1001, with `python /app/probe.py` by default.
+
+The grader builds both images, starts `app`, runs the probe beside it (it must print `probe ok: pong`)
+and runs the probe alone (it must fail: in its own namespace nothing listens).
+'''
+
+[unit.step.project]
+main = "probe/Dockerfile"
+readonly = ["app/Dockerfile", "app/app.py", "probe/probe.py"]
+explanation = '''
+A sidecar shares the app's network namespace, so the app is at `http://127.0.0.1:8080/ping`. The name
+`app` would only resolve on a user-defined network, through Docker's DNS.
+'''
+
+[unit.step.project.starter]
+"probe/Dockerfile" = '''
+FROM python:3.15.2-alpine3.24
+COPY probe.py /app/probe.py
+ENV TARGET=http://app:8080/ping
+CMD ["python", "/app/probe.py"]
+'''
+"probe/probe.py" = '''
+import os
+import sys
+import urllib.request
+
+target = os.environ.get("TARGET", "")
+try:
+    with urllib.request.urlopen(target, timeout=3) as response:
+        print("probe ok:", response.read().decode().strip())
+except (OSError, ValueError) as error:
+    sys.exit(f"probe failed for {target!r}: {error}")
+'''
+"app/Dockerfile" = '''
+FROM python:3.15.2-alpine3.24
+COPY app.py /app/app.py
+USER 1001
+EXPOSE 8080
+CMD ["python", "/app/app.py"]
+'''
+"app/app.py" = '''
+import http.server
+
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        ok = self.path == "/ping"
+        body = b"pong\n" if ok else b"not found\n"
+        self.send_response(200 if ok else 404)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+http.server.ThreadingHTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[run]]
+cmd = ["docker", "build", "-t", "app", "app"]
+message = "The app image must build."
+
+[[run]]
+cmd = ["docker", "build", "-t", "probe", "probe"]
+message = "probe/Dockerfile must build."
+
+[[run]]
+cmd = ["docker", "image", "inspect", "probe"]
+save = "probe.json"
+message = "The probe image must exist."
+
+[[check]]
+file = "probe.json"
+path = "[0].Config.User"
+matches = '^1001(:.*)?$'
+message = "The probe runs as UID 1001."
+
+[[run]]
+cmd = ["docker", "run", "-d", "--name", "app", "app"]
+message = "The app starts."
+
+[[run]]
+cmd = ["docker", "run", "--rm", "--network", "container:app", "alpine:3.24.4", "wget", "-q", "-T", "3", "-O", "-", "http://127.0.0.1:8080/ping"]
+retries = 10
+message = "The app starts answering on port 8080."
+
+[[run]]
+cmd = ["docker", "run", "--rm", "--network", "container:app", "probe"]
+output_contains = ["probe ok: pong"]
+message = "Beside the app, the probe reaches it at localhost (127.0.0.1), port 8080, path /ping."
+
+[[run]]
+cmd = ["docker", "run", "--rm", "probe"]
+expect = "failure"
+output_contains = ["probe failed"]
+message = "Alone, in its own namespace, the probe finds nothing at its localhost."
+'''
+
+[unit.step.project.solution]
+"probe/Dockerfile" = '''
+FROM python:3.15.2-alpine3.24
+COPY probe.py /app/probe.py
+ENV TARGET=http://127.0.0.1:8080/ping
+USER 1001
+CMD ["python", "/app/probe.py"]
+'''
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+[[unit]]
+id = "dk-u8-compose"
+title = "Docker Compose"
+level = "advanced"
+difficulty = 8
+intro = "Describe a multi-container application in compose.yaml: services, builds, dependencies, health, volumes, networks and hardening."
+concepts = '''
+**Docker Compose** (`docker compose`, the v2 plugin) runs an application described in `compose.yaml`:
+
+```yaml
+services:
+  api:
+    build: ./api
+    ports: ["8000:8000"]
+    environment:
+      REDIS_URL: redis://cache:6379/0
+    depends_on:
+      cache:
+        condition: service_healthy
+  cache:
+    image: redis:8.12.0-alpine3.23
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+```
+
+`docker compose up -d` builds what needs building, creates a network for the project (services resolve
+each other by **service name**: `cache`), creates the volumes, and starts the services in dependency
+order; `docker compose ps`, `logs`, `down` (`-v` also removes the volumes) manage them.
+
+| Key | Meaning |
+|---|---|
+| `build` / `image` | build from a folder, or run a pinned image |
+| `ports` | `"HOST:CONTAINER"`, quoted |
+| `environment` | variables (a mapping or a list); `${VAR}` comes from the shell or `.env` |
+| `depends_on.<svc>.condition` | `service_started`, `service_healthy`, `service_completed_successfully` |
+| `healthcheck` | the same as `HEALTHCHECK`, per service |
+| `volumes` / `networks` | named volumes and networks, declared at the top level too |
+| `restart` | `no`, `on-failure`, `unless-stopped`, `always` |
+| `read_only`, `user`, `cap_drop`, `security_opt` | the hardening flags of `docker run` |
+
+**Production habits:** pin image tags; publish only the services users reach (the cache gets no
+`ports`); put internal services on an `internal: true` network; run as a non-root `user` with a
+`read_only` root filesystem and `cap_drop: [ALL]`; persist data in named volumes; wait for health, not
+for "started".
+
+**In this course** the compose file is graded by **reading it** — every service, dependency, network,
+volume and hardening option, the way a reviewer would. `docker compose up` is not run: the grader never
+uses Docker, and would publish ports and create networks on your machine. The api service's image is
+built and started for real. With Podman, the same file runs with `podman compose`.
+
+Official docs: https://docs.docker.com/compose/ and https://docs.docker.com/reference/compose-file/
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "dk-c8-compose"
+title = "Started is not ready"
+points = 5
+difficulty = 1
+intro = '''
+Why `depends_on` alone does not stop an API from crashing at startup.
+'''
+body = '''
+`depends_on: [cache]` only orders the starts: the API starts as soon as the cache **process** started —
+often before Redis accepts connections — and fails its first request. `depends_on: {cache: {condition:
+service_healthy}}` waits until the cache's health check passes. Pair every dependency that takes time to
+start with a health check.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dk-d8-api"
+title = "The API image Compose builds"
+points = 10
+difficulty = 2
+placeholder_policy = "shown"
+intro = '''
+The image behind `build: ./api`.
+'''
+prompt = '''
+Type the Dockerfile of the API service.
+'''
+target = '''
+FROM python:3.15.2-alpine3.24
+WORKDIR /app
+COPY api.py .
+ENV REDIS_URL=redis://localhost:6379/0
+USER 10001
+EXPOSE 8000
+CMD ["python", "api.py"]
+'''
+line_comments = [
+  "The base image.",
+  "The application folder.",
+  "The code.",
+  "A default; Compose sets the real URL.",
+  "Non-root (Compose can also set `user:`).",
+  "The port Compose publishes.",
+  "The server.",
+]
+explanation = "`build: ./api` in compose.yaml builds this; `environment:` overrides REDIS_URL."
+
+[[unit.step]]
+kind = "drill"
+id = "dk-d8-cache"
+title = "A cache with a health check"
+points = 10
+difficulty = 3
+placeholder_policy = "shown"
+intro = '''
+A dependency that tells Compose when it is ready.
+'''
+prompt = '''
+Type the Dockerfile of a small service that reports healthy once it has started.
+'''
+target = '''
+FROM alpine:3.24.4
+USER 65534
+HEALTHCHECK --interval=5s --timeout=2s --retries=5 CMD test -f /tmp/started
+CMD ["sh", "-c", "sleep 2 && touch /tmp/started && exec sleep infinity"]
+'''
+line_comments = [
+  "The base image.",
+  "Unprivileged.",
+  "Healthy once /tmp/started exists.",
+  "Starts up for two seconds, then marks itself ready.",
+]
+explanation = "`condition: service_healthy` on a dependent service waits for this check."
+
+[[unit.step]]
+kind = "challenge"
+id = "dk-p8-stack"
+title = "An API and its cache in compose.yaml"
+points = 50
+difficulty = 5
+intro = '''
+Write a production-minded compose file for an API and a Redis cache.
+'''
+instructions = '''
+The API (`api/`, finished) needs a Redis cache. Write `compose.yaml` with:
+
+- a service **`api`** built from `./api`, publishing `"8000:8000"`, with `REDIS_URL:
+  redis://cache:6379/0` in its `environment` (a mapping), starting only when `cache` is **healthy**,
+  running as `user: "10001:10001"` with `read_only: true` and `cap_drop: [ALL]`, `restart:
+  unless-stopped`, on the networks `front` and `back`;
+- a service **`cache`** from `redis:8.12.0-alpine3.23`, only on `back`, publishing **no** port, with a
+  health check `["CMD", "redis-cli", "ping"]` and its data in the named volume `cache-data` at `/data`;
+- top-level `networks` (`front`, and `back` with `internal: true`) and `volumes` (`cache-data`).
+
+The grader reads the file and also builds and starts the API image from `./api`.
+'''
+
+[unit.step.project]
+main = "compose.yaml"
+readonly = ["api/Dockerfile", "api/api.py"]
+explanation = '''
+The cache is reachable only on the internal `back` network and publishes nothing; the API waits for its
+health check; the API container runs non-root, read-only and without capabilities. Services find each
+other by name on the project's networks, so `redis://cache:6379/0` works.
+'''
+
+[unit.step.project.starter]
+"compose.yaml" = '''
+# An API built from ./api and a Redis cache.
+services:
+  api:
+    build: ./api
+'''
+"api/Dockerfile" = '''
+FROM python:3.15.2-alpine3.24
+WORKDIR /app
+COPY api.py .
+USER 10001
+EXPOSE 8000
+CMD ["python", "api.py"]
+'''
+"api/api.py" = '''
+import http.server
+import os
+import sys
+
+REDIS_URL = os.environ.get("REDIS_URL", "")
+
+if "--check" in sys.argv:
+    print(f"config ok: cache at {REDIS_URL or '(unset)'}")
+    sys.exit(0 if REDIS_URL else 1)
+
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = f"api up, cache {REDIS_URL}\n".encode()
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+http.server.ThreadingHTTPServer(("0.0.0.0", 8000), Handler).serve_forever()
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[run]]
+cmd = ["docker", "build", "-t", "api", "api"]
+message = "The API image builds from ./api."
+
+[[run]]
+cmd = ["docker", "run", "--rm", "--read-only", "-e", "REDIS_URL=redis://cache:6379/0", "api", "python", "api.py", "--check"]
+output_contains = ["config ok: cache at redis://cache:6379/0"]
+message = "The API image reads REDIS_URL and runs read-only."
+
+[[check]]
+file = "compose.yaml"
+path = "services"
+only_keys = ["api", "cache"]
+message = "There are two services: api and cache."
+
+[[check]]
+file = "compose.yaml"
+path = "services.api.build"
+one_of = ["./api", "api"]
+message = "api is built from ./api."
+
+[[check]]
+file = "compose.yaml"
+path = "services.api.ports"
+contains = "8000:8000"
+message = "api publishes \"8000:8000\" (quoted)."
+
+[[check]]
+file = "compose.yaml"
+path = "services.api.environment.REDIS_URL"
+equals = "redis://cache:6379/0"
+message = "api reaches the cache by its service name: REDIS_URL: redis://cache:6379/0."
+
+[[check]]
+file = "compose.yaml"
+path = "services.api.depends_on.cache.condition"
+equals = "service_healthy"
+message = "api waits for the cache to be healthy."
+
+[[check]]
+file = "compose.yaml"
+path = "services.api.user"
+equals = "10001:10001"
+message = "api runs as user \"10001:10001\" (quoted: YAML would read 10001:10001 as a number)."
+
+[[check]]
+file = "compose.yaml"
+path = "services.api.read_only"
+equals = true
+message = "api has a read-only root filesystem (read_only: true)."
+
+[[check]]
+file = "compose.yaml"
+path = "services.api.cap_drop"
+equals = ["ALL"]
+message = "api drops every capability (cap_drop: [ALL])."
+
+[[check]]
+file = "compose.yaml"
+path = "services.api.restart"
+equals = "unless-stopped"
+message = "api restarts unless stopped."
+
+[[check]]
+file = "compose.yaml"
+path = "services.api.networks"
+contains = "front"
+message = "api is on the front network."
+
+[[check]]
+file = "compose.yaml"
+path = "services.api.networks"
+contains = "back"
+message = "api is on the back network, to reach the cache."
+
+[[check]]
+file = "compose.yaml"
+path = "services.cache.image"
+equals = "redis:8.12.0-alpine3.23"
+message = "cache runs redis:8.12.0-alpine3.23 (a pinned tag)."
+
+[[check]]
+file = "compose.yaml"
+path = "services.cache.networks"
+equals = ["back"]
+message = "cache is only on the back network."
+
+[[check]]
+file = "compose.yaml"
+path = "services.cache.ports"
+exists = false
+message = "cache publishes no port."
+
+[[check]]
+file = "compose.yaml"
+path = "services.cache.healthcheck.test"
+equals = ["CMD", "redis-cli", "ping"]
+message = "cache's health check is [\"CMD\", \"redis-cli\", \"ping\"]."
+
+[[check]]
+file = "compose.yaml"
+path = "services.cache.volumes"
+contains = "cache-data:/data"
+message = "Redis keeps its data in the named volume cache-data at /data."
+
+[[check]]
+file = "compose.yaml"
+path = "volumes.cache-data"
+exists = true
+message = "The volume cache-data is declared at the top level."
+
+[[check]]
+file = "compose.yaml"
+path = "networks.back.internal"
+equals = true
+message = "The back network is internal."
+
+[[check]]
+file = "compose.yaml"
+path = "networks.front"
+exists = true
+message = "The front network is declared."
+'''
+
+[unit.step.project.solution]
+"compose.yaml" = '''
+services:
+  api:
+    build: ./api
+    ports:
+      - "8000:8000"
+    environment:
+      REDIS_URL: redis://cache:6379/0
+    depends_on:
+      cache:
+        condition: service_healthy
+    user: "10001:10001"
+    read_only: true
+    cap_drop:
+      - ALL
+    restart: unless-stopped
+    networks:
+      - front
+      - back
+  cache:
+    image: redis:8.12.0-alpine3.23
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - cache-data:/data
+    networks:
+      - back
+
+networks:
+  front: {}
+  back:
+    internal: true
+
+volumes:
+  cache-data: {}
+'''
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+[[unit]]
+id = "dk-u9-health"
+title = "Health checks"
+level = "advanced"
+difficulty = 9
+intro = "HEALTHCHECK turns 'the process runs' into 'the service answers', and Docker shows it in docker ps."
+concepts = '''
+A container is `Up` while its process runs — even if the application inside has hung. A
+**`HEALTHCHECK`** runs a command in the container on a schedule; exit code 0 means healthy, 1 unhealthy:
+
+```dockerfile
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -q -O /dev/null http://127.0.0.1:3000/healthz || exit 1
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--interval` | 30s | between checks |
+| `--timeout` | 30s | a slower check fails |
+| `--start-period` | 0s | failures during start-up do not count |
+| `--start-interval` | 5s | check interval during the start period (Docker Engine 25+) |
+| `--retries` | 3 | consecutive failures before `unhealthy` |
+
+`docker ps` shows `(healthy)`, `(unhealthy)` or `(health: starting)`; `docker inspect --format
+'{{json .State.Health}}' web` shows the last results. Compose waits on it (`condition: service_healthy`)
+and Swarm replaces unhealthy tasks; plain `docker run` only reports it (`--restart` reacts to exits, not
+to health). Kubernetes ignores `HEALTHCHECK` and uses probes — but point them at the same endpoint.
+
+**Good checks** test the service the way a client does (an HTTP request to a cheap endpoint), have a
+timeout shorter than the interval, and only use tools that exist in the image (busybox `wget` on Alpine;
+a `scratch` image needs its own binary to support a check command, e.g. `CMD ["/app", "healthcheck"]`).
+`HEALTHCHECK NONE` disables a check inherited from the base image.
+
+**The grader** builds Docker-format images (as `docker build` does), so the `HEALTHCHECK` is kept. It
+runs the check itself with `healthcheck run` instead of waiting for the timer. One display difference:
+Docker's `docker image inspect` shows the check under `Config.Healthcheck`, while the inspect the grader
+reads (Podman's) shows it at the top level, `Healthcheck`. (`--start-interval` is the newest option;
+the challenge does not use it.)
+
+Official docs: https://docs.docker.com/reference/dockerfile/#healthcheck
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "dk-c9-health"
+title = "What docker ps can tell you"
+points = 5
+difficulty = 1
+intro = '''
+The difference a health check makes in the status column.
+'''
+body = '''
+| Without HEALTHCHECK | With HEALTHCHECK |
+|---|---|
+| `Up 3 minutes` | `Up 3 minutes (healthy)` |
+| `Up 3 minutes` (hung) | `Up 3 minutes (unhealthy)` |
+
+Only the second column lets Compose, Swarm, a load balancer script or a human tell a working service
+from a stuck one.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dk-d9-healthcheck"
+title = "An HTTP health check"
+points = 10
+difficulty = 2
+placeholder_policy = "shown"
+intro = '''
+Check the service's own health endpoint, with a timeout.
+'''
+prompt = '''
+Type the Dockerfile of a service with a health check on /healthz.
+'''
+target = '''
+FROM python:3.15.2-alpine3.24
+COPY server.py /app/server.py
+USER 10001
+EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -q -O /dev/null http://127.0.0.1:3000/healthz || exit 1
+CMD ["python", "/app/server.py"]
+'''
+line_comments = [
+  "The base image.",
+  "The service.",
+  "Non-root.",
+  "Its port.",
+  "Every 30 s, at most 5 s, ignoring the first 10 s, unhealthy after 3 failures…",
+  "…by fetching /healthz with busybox wget.",
+  "The server.",
+]
+explanation = "`docker ps` shows the status in parentheses once the first check ran."
+
+[[unit.step]]
+kind = "drill"
+id = "dk-d9-scratch"
+title = "A health check without a shell"
+points = 10
+difficulty = 3
+placeholder_policy = "shown"
+intro = '''
+In a scratch image the program checks itself.
+'''
+prompt = '''
+Type the final stage of a Go service whose binary has a `healthcheck` subcommand.
+'''
+target = '''
+FROM golang:1.27.4-alpine3.24 AS builder
+WORKDIR /src
+COPY . .
+RUN CGO_ENABLED=0 go build -o /out/svc .
+
+FROM scratch
+COPY --from=builder /out/svc /svc
+HEALTHCHECK --interval=15s --timeout=3s CMD ["/svc", "healthcheck"]
+ENTRYPOINT ["/svc"]
+'''
+line_comments = [
+  "Build stage.",
+  "Work in /src.",
+  "The sources.",
+  "A static binary.",
+  "",
+  "No shell, no wget.",
+  "The binary.",
+  "Exec form: the binary itself checks the service.",
+  "The service.",
+]
+explanation = "A shell-form check (`CMD wget …`) would need /bin/sh, which scratch does not have."
+
+[[unit.step]]
+kind = "challenge"
+id = "dk-p9-health"
+title = "A health check that tells the truth"
+points = 50
+difficulty = 5
+intro = '''
+Fix a health check that tests the wrong thing, and tune its timing.
+'''
+instructions = '''
+`server.py` serves `/` and a health endpoint `/healthz` on port **3000** (which answers 503 while the
+file `/tmp/maintenance` exists). The starter's health check only checks that a file exists — it would
+say "healthy" while the service fails. Fix the `Dockerfile`
+so that:
+
+- the `HEALTHCHECK` fetches `http://127.0.0.1:3000/healthz` (busybox `wget`), with `--interval=30s`,
+  `--timeout=5s`, `--start-period=10s` and `--retries=3`;
+- the service runs as UID 10001, `EXPOSE`s 3000 and runs `python server.py` from `/app`.
+
+The grader builds it, starts it, runs the health check until it passes and expects `healthy`; then
+puts the server in maintenance (from then on `/healthz` answers 503) and expects the check to fail.
+'''
+
+[unit.step.project]
+main = "Dockerfile"
+readonly = ["server.py"]
+explanation = '''
+A check must exercise the service: an HTTP request to `/healthz` fails as soon as the service reports
+a problem (or stops answering, thanks to the timeout), while `test -f` kept passing. The grader reads the timings in nanoseconds from the image
+(`Interval: 30000000000`).
+'''
+
+[unit.step.project.starter]
+"Dockerfile" = '''
+FROM python:3.15.2-alpine3.24
+WORKDIR /app
+COPY server.py .
+USER 10001
+EXPOSE 3000
+HEALTHCHECK CMD test -f /app/server.py
+CMD ["python", "server.py"]
+'''
+"server.py" = '''
+import http.server
+import os
+
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/healthz" and os.path.exists("/tmp/maintenance"):
+            body, status = b"maintenance\n", 503
+        elif self.path == "/healthz":
+            body, status = b"ok\n", 200
+        elif self.path == "/":
+            body, status = b"hello\n", 200
+        else:
+            body, status = b"not found\n", 404
+        self.send_response(status)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, fmt, *args):
+        pass
+
+
+http.server.ThreadingHTTPServer(("0.0.0.0", 3000), Handler).serve_forever()
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[run]]
+cmd = ["docker", "build", "-t", "web", "."]
+message = "The Dockerfile must build."
+
+[[run]]
+cmd = ["docker", "image", "inspect", "web"]
+save = "image.json"
+message = "The image must exist."
+
+[[check]]
+file = "image.json"
+path = "[0].Healthcheck.Test[1]"
+matches = 'wget .*127\.0\.0\.1:3000/healthz'
+message = "The health check fetches http://127.0.0.1:3000/healthz with wget."
+
+[[check]]
+file = "image.json"
+path = "[0].Healthcheck.Interval"
+equals = 30000000000
+message = "--interval=30s."
+
+[[check]]
+file = "image.json"
+path = "[0].Healthcheck.Timeout"
+equals = 5000000000
+message = "--timeout=5s."
+
+[[check]]
+file = "image.json"
+path = "[0].Healthcheck.StartPeriod"
+equals = 10000000000
+message = "--start-period=10s."
+
+[[check]]
+file = "image.json"
+path = "[0].Healthcheck.Retries"
+equals = 3
+message = "--retries=3."
+
+[[run]]
+cmd = ["docker", "run", "-d", "--name", "web", "web"]
+message = "The service starts."
+
+[[run]]
+cmd = ["docker", "healthcheck", "run", "web"]
+retries = 10
+message = "The health check passes once the server answers."
+
+[[run]]
+cmd = ["docker", "inspect", "web"]
+save = "container.json"
+message = "The container can be inspected."
+
+[[check]]
+file = "container.json"
+path = "[0].State.Health.Status"
+equals = "healthy"
+message = "The container is healthy."
+
+[[run]]
+cmd = ["docker", "exec", "web", "touch", "/tmp/maintenance"]
+message = "The grader puts the server in maintenance (its /healthz now answers 503)."
+
+[[run]]
+cmd = ["docker", "healthcheck", "run", "web"]
+expect = "failure"
+message = "With /healthz failing, the check must fail: it tests the service, not a file."
+'''
+
+[unit.step.project.solution]
+"Dockerfile" = '''
+FROM python:3.15.2-alpine3.24
+WORKDIR /app
+COPY server.py .
+USER 10001
+EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -q -O /dev/null http://127.0.0.1:3000/healthz || exit 1
+CMD ["python", "server.py"]
+'''
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+[[unit]]
+id = "dk-u10-size"
+title = "Image size and build cache"
+level = "advanced"
+difficulty = 10
+intro = "Order instructions for the cache, keep the context lean with .dockerignore, and clean up in the layer that made the mess."
+concepts = '''
+**Cache rules.** Each instruction is cached by its text, its parent layer and — for `COPY`/`ADD` — the
+checksums of the files it copies. The first instruction whose inputs changed runs again, **and so does
+everything after it**. Order the Dockerfile from rarely-changing to often-changing: base, system
+packages, dependency manifests, the dependency install, then the code. `docker build` prints `CACHED`
+(BuildKit) for reused steps; the grader's builder prints `--> Using cache`.
+
+**`.dockerignore`.** The build context — every file under `.` — is sent to the builder, and `COPY . .`
+copies all of it. Exclude what the image does not need: `.git`, `node_modules`, test data, local
+`.env` files, notes. It speeds up builds, avoids cache misses from irrelevant changes, and keeps
+secrets out of images. (Patterns are relative to the context root: `drafts/`, `**/*.log`.)
+
+**Layers only grow.** A file created in one `RUN` and deleted in the next is still in the first layer.
+Clean up in the same instruction that made the mess:
+
+```dockerfile
+RUN python -m venv /opt/tools \
+ && /opt/tools/bin/python compile_messages.py \
+ && rm -rf /opt/tools
+```
+
+For package managers: `apk add --no-cache`, `apt-get … && rm -rf /var/lib/apt/lists/*`,
+`pip install --no-cache-dir`. For build toolchains: a multi-stage build (unit 4).
+
+**BuildKit extras** — cache mounts (`RUN --mount=type=cache,target=/root/.cache/pip`), `COPY --link`,
+remote cache export — speed up builds further. The grader's builder supports cache mounts but this
+course does not rely on them.
+
+`docker image ls` and `docker history --no-trunc` show where the size is; `docker image inspect --format
+'{{.Size}}'` gives the bytes.
+
+Official docs: https://docs.docker.com/build/cache/ and https://docs.docker.com/build/building/best-practices/
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "dk-c10-size"
+title = "A rebuild should cost what changed"
+points = 5
+difficulty = 1
+intro = '''
+The cost of one changed line, by instruction order.
+'''
+body = '''
+If changing one line of application code re-runs the dependency install, the Dockerfile is in the
+wrong order. Copy the dependency manifest first, install, then copy the code: the slow step stays cached
+until the dependencies change. A `.dockerignore` makes sure that "the code" means only the code.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dk-d10-order"
+title = "Manifest first, code last"
+points = 10
+difficulty = 3
+placeholder_policy = "shown"
+intro = '''
+The cache-friendly order for a Go module.
+'''
+prompt = '''
+Type the Dockerfile. Module downloads stay cached until go.mod or go.sum change.
+'''
+target = '''
+FROM golang:1.27.4-alpine3.24 AS builder
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -o /out/app .
+'''
+line_comments = [
+  "The build stage.",
+  "Work in /src.",
+  "Only the module files first…",
+  "…so the download is cached until they change.",
+  "Then the code, which changes on every commit.",
+  "The build reuses the downloaded modules.",
+]
+explanation = "With `COPY . .` first, every code change would download all modules again."
+
+[[unit.step]]
+kind = "drill"
+id = "dk-d10-apk"
+title = "No package cache in the layer"
+points = 10
+difficulty = 3
+placeholder_policy = "shown"
+intro = '''
+Install, use and clean in one RUN.
+'''
+prompt = '''
+Type the Dockerfile: build tools are installed, used and removed in one layer.
+'''
+target = '''
+FROM python:3.15.2-alpine3.24
+COPY requirements.txt /tmp/requirements.txt
+RUN apk add --no-cache --virtual .build gcc musl-dev \
+ && pip install --no-cache-dir -r /tmp/requirements.txt \
+ && apk del .build \
+ && rm /tmp/requirements.txt
+'''
+line_comments = [
+  "The base image.",
+  "The dependency list.",
+  "Compilers as a removable virtual package, without apk's index cache…",
+  "…build and install the packages, without pip's cache…",
+  "…remove the compilers…",
+  "…and the list: nothing temporary reaches the layer.",
+]
+explanation = "Split into four RUN lines, the compilers would stay in the image even after `apk del`."
+
+[[unit.step]]
+kind = "challenge"
+id = "dk-p10-messages"
+title = "A lean, cache-friendly build"
+points = 60
+difficulty = 5
+intro = '''
+Reorder a slow build, keep drafts out of the context, and stop a throw-away tool from bloating the image.
+'''
+instructions = '''
+`compile_messages.py` turns `messages.txt` into `messages.json`, using a throw-away virtual environment
+in `/opt/tools`; `app.py` prints a greeting from `messages.json`. Fix the `Dockerfile` and
+`.dockerignore` so that:
+
+- the slow step (create the venv, run `compile_messages.py` with its Python, delete the venv) is **one**
+  `RUN`, so the image stays under **65 MB** (the base is ~56 MB; the venv alone would add ~14 MB);
+- that step comes **before** the rest of the code is copied and only needs `messages.txt` and
+  `compile_messages.py`: after a change to `app.py`, the grader rebuilds and expects that step to come
+  from the cache;
+- `COPY . .` (the rest, into `/app`) stays, but `.dockerignore` keeps `drafts/` out of the image;
+- the program runs as UID 10001 with `python app.py` in `/app`.
+'''
+
+[unit.step.project]
+main = "Dockerfile"
+readonly = ["app.py", "compile_messages.py", "messages.txt", "drafts/ideas.md"]
+explanation = '''
+Deleting the venv in a later `RUN` hides it but keeps its bytes; deleting it in the same `RUN` keeps it
+out of every layer. Copying only the step's inputs first means `app.py` changes invalidate just the
+final `COPY . .`. `.dockerignore` removes `drafts/` from the context, so `COPY . .` cannot copy it.
+'''
+
+[unit.step.project.starter]
+"Dockerfile" = '''
+FROM python:3.15.2-alpine3.24
+WORKDIR /app
+COPY . .
+RUN python -m venv /opt/tools && /opt/tools/bin/python compile_messages.py
+RUN rm -rf /opt/tools
+USER 10001
+CMD ["python", "app.py"]
+'''
+".dockerignore" = '''
+# Files and folders the build does not need (one pattern per line).
+'''
+"app.py" = '''
+import json
+from pathlib import Path
+
+messages = json.loads(Path("/app/messages.json").read_text())
+print(messages["greeting"], f"({len(messages)} messages)")
+'''
+"compile_messages.py" = '''
+import json
+from pathlib import Path
+
+pairs = (line.split("=", 1) for line in Path("messages.txt").read_text().splitlines() if "=" in line)
+messages = {key.strip(): value.strip() for key, value in pairs}
+Path("messages.json").write_text(json.dumps(messages))
+print("compiled", len(messages), "messages")
+'''
+"messages.txt" = '''
+greeting = Hello from a lean image
+farewell = Goodbye
+error = Something went wrong
+'''
+"drafts/ideas.md" = '''
+# Drafts — not for the image
+
+- rename the greeting
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[run]]
+cmd = ["docker", "build", "-t", "messages", "."]
+message = "The Dockerfile must build."
+
+[[run]]
+cmd = ["docker", "run", "--rm", "messages"]
+output_contains = ["Hello from a lean image (3 messages)"]
+message = "The program prints the greeting from /app/messages.json."
+
+[[run]]
+cmd = ["docker", "image", "inspect", "messages"]
+save = "image.json"
+message = "The image must exist."
+
+[[check]]
+file = "image.json"
+path = "[0].Size"
+at_most = 65000000
+message = "The image stays under 65 MB: create and delete the venv in the same RUN."
+
+[[check]]
+file = "image.json"
+path = "[0].Config.User"
+matches = '^10001(:.*)?$'
+message = "The program runs as UID 10001."
+
+[[run]]
+cmd = ["docker", "run", "--rm", "--mount", "type=image,source=messages,target=/img", "alpine:3.24.4", "sh", "-c", "test -f /img/app/messages.json && test ! -e /img/opt/tools"]
+message = "messages.json is built into /app and the venv in /opt/tools is gone."
+
+[[run]]
+cmd = ["docker", "run", "--rm", "--mount", "type=image,source=messages,target=/img", "alpine:3.24.4", "test", "!", "-e", "/img/app/drafts"]
+message = ".dockerignore keeps drafts/ out of the build context, so it is not in the image."
+
+[[run]]
+cmd = ["append", "app.py", "\n# a small change to the code\n"]
+message = "The grader changes app.py."
+
+[[run]]
+cmd = ["docker", "build", "-t", "messages:2", "."]
+output_matches = ['STEP \d+/\d+: RUN [^\n]*venv[^\n]*\n--> Using cache']
+message = "After a change to app.py, the venv step comes from the cache: copy only messages.txt and compile_messages.py before it, the rest after."
+'''
+
+[unit.step.project.solution]
+"Dockerfile" = '''
+FROM python:3.15.2-alpine3.24
+WORKDIR /app
+COPY messages.txt compile_messages.py ./
+RUN python -m venv /opt/tools \
+ && /opt/tools/bin/python compile_messages.py \
+ && rm -rf /opt/tools
+COPY . .
+USER 10001
+CMD ["python", "app.py"]
+'''
+".dockerignore" = '''
+drafts/
+Dockerfile
+.dockerignore
+'''

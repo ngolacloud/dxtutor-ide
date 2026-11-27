@@ -44,6 +44,9 @@ pub(crate) struct PodSession<'a> {
     /// As imagens construídas nesta corrida (`app:latest`).
     built: BTreeSet<String>,
     counter: u32,
+    /// Uma construção desta corrida já usou `--build-arg`: daí em diante, sem cache (ver
+    /// [`PodSession::translate`]).
+    args_seen: bool,
     pub(crate) version: String,
 }
 
@@ -100,6 +103,7 @@ impl<'a> PodSession<'a> {
             build_timeout,
             built: BTreeSet::new(),
             counter: 0,
+            args_seen: false,
             version,
         })
     }
@@ -269,7 +273,11 @@ impl<'a> PodSession<'a> {
                 for (k, v) in build_args {
                     a.extend([s("--build-arg"), format!("{k}={v}")]);
                 }
-                if *no_cache {
+                // Medido no Buildah 1.33: com `--layers`, um passo `ENV`/`LABEL`/`CMD` que usa um
+                // `ARG` vem da cache mesmo quando o valor do `--build-arg` mudou (a imagem fica com o
+                // valor antigo). Depois de uma construção com argumentos, a corrida constrói sem cache.
+                self.args_seen |= !build_args.is_empty();
+                if *no_cache || self.args_seen {
                     a.push(s("--no-cache"));
                 }
                 a.push(ctx.display().to_string());

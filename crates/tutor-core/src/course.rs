@@ -494,6 +494,9 @@ const DELONIX_BASICS: &str = include_str!("../../../courses/delonix/courses/delo
 /// só no backend; as imagens base, fixadas pelo digest no `[build]`, puxam-se uma vez («Prepare
 /// course») e a avaliação nunca puxa.
 const PODMAN_BASICS: &str = include_str!("../../../courses/podman/courses/podman.toml");
+/// Docker (ferramenta): a sintaxe e o CLI do Docker, avaliados no MESMO sandbox Podman rootless
+/// (nunca no daemon do Docker); as mesmas três imagens base.
+const DOCKER_BASICS: &str = include_str!("../../../courses/docker/courses/docker.toml");
 
 /// Todos os cursos guiados embebidos no binário.
 pub fn builtin_courses() -> Vec<Course> {
@@ -514,6 +517,7 @@ pub fn builtin_courses() -> Vec<Course> {
         parse("kubernetes-basics", KUBERNETES_BASICS),
         parse("delonix-basics", DELONIX_BASICS),
         parse("podman-basics", PODMAN_BASICS),
+        parse("docker-basics", DOCKER_BASICS),
     ]
 }
 
@@ -1638,5 +1642,24 @@ mod tool_course_tests {
     #[test]
     fn podman_is_a_container_course_graded_live() {
         container_course("podman-basics", "podman", "pm-");
+    }
+
+    #[test]
+    fn docker_is_taught_in_docker_syntax_and_graded_in_the_podman_sandbox() {
+        container_course("docker-basics", "docker", "dk-");
+        let c = load_course("docker-basics").unwrap();
+        assert!(c.overview.contains("does not use Docker"));
+        // Every command of the checks is written as `docker …`.
+        for u in &c.units {
+            let p = u.steps.last().unwrap().project.as_ref().unwrap();
+            let checks = crate::toolcheck::Checks::parse(&p.tests["checks.toml"]).unwrap();
+            for r in &checks.runs {
+                assert!(
+                    matches!(r.cmd[0].as_str(), "docker" | "append"),
+                    "{:?}",
+                    r.cmd
+                );
+            }
+        }
     }
 }
