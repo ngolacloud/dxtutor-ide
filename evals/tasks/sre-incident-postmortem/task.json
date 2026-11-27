@@ -1,0 +1,9 @@
+{
+  "id": "sre-incident-postmortem",
+  "title": "On call: checkout returns 500s — investigate with the runbook and draft the postmortem",
+  "language": "markdown",
+  "category": "sre",
+  "pushed": true,
+  "prompt": "You are on call. Since about 10:02 UTC today the checkout service answers HTTP 500 to a large share of\npayments. Investigate it the way this team does: follow the runbook runbooks/checkout.md (run its checks) and read the\nlogs under logs/. Then draft the postmortem at docs/postmortems/INC-1.md with the sections Summary, Impact, Timeline\n(with the UTC times), Root cause (with the evidence for it) and Actions. Do not change any other file: this is an\ninvestigation, not a fix.",
+  "check": "python3 check_postmortem.py 2>&1"
+}

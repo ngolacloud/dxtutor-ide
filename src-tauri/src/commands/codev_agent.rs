@@ -98,8 +98,15 @@ pub async fn codev_agent_start(
         ],
         // H3: `ide` — what the IDE knows, read by action (the Project's folder is `root`)
         host_tools_v13: vec![std::sync::Arc::new(crate::ide_tool::IdeTool {
+            root: project_root.clone(),
+            db: crate::board::db_path(&app).ok(),
+            ops: false,
+        })],
+        // H4: the same, with the Platform/SRE/DevOps actions (each with its level)
+        host_tools_v14: vec![std::sync::Arc::new(crate::ide_tool::IdeTool {
             root: project_root,
             db: crate::board::db_path(&app).ok(),
+            ops: true,
         })],
         trust_store: tutor_agent::trust::default_store(),
         user_mcp: tutor_agent::mcp::user_config(),

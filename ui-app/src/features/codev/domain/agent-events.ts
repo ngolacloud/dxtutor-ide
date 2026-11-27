@@ -204,7 +204,9 @@ export function describeCall(name: string, input: Record<string, unknown>, comma
       return `${s("title")} → .dxtutor/backlog.json (${Array.isArray(input.issues) ? input.issues.length : 0} issues)`;
     case "ide": {
       const a = input.args && typeof input.args === "object" ? (input.args as Record<string, unknown>) : {};
-      const detail = ["key", "project", "filter", "sha"].map((k) => (typeof a[k] === "string" ? (a[k] as string) : "")).filter(Boolean).join(" ");
+      // H4: the Platform/SRE/DevOps actions name a runbook step, an incident, a folder or a namespace
+      const keys = ["key", "project", "filter", "sha", "path", "step", "id", "title", "severity", "kind", "dir", "env", "context", "namespace", "deployment"];
+      const detail = keys.map((k) => (typeof a[k] === "string" || typeof a[k] === "number" ? String(a[k]) : "")).filter(Boolean).join(" ");
       return s("action") + (detail ? ` ${detail}` : "");
     }
     case "project_propose":

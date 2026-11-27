@@ -26,18 +26,60 @@ struct Records {
     precision: (i64, i64),
 }
 
+fn records_in(
+    s: &tutor_board::project::ProjectStore,
+    r: &str,
+    now: i64,
+) -> Result<Records, ProjectError> {
+    Ok(Records {
+        runs: s.runbook_runs(r, None, now - 400 * 86_400_000, now + 1)?,
+        incidents: incidents::list(s.conn(), r)?,
+        deploys: s.deploys(r, None)?,
+        events: incidents::queue_events(s.conn(), r)?,
+        precision: incidents::precision(s.conn(), r)?,
+    })
+}
+
 fn records(app: &AppHandle, root: &str) -> Result<Records, String> {
     let (_, now) = crate::board::who_and_when(root);
-    crate::board::with_store(app, root, |s, r| {
-        Ok(Records {
-            runs: s.runbook_runs(r, None, now - 400 * 86_400_000, now + 1)?,
-            incidents: incidents::list(s.conn(), r)?,
-            deploys: s.deploys(r, None)?,
-            events: incidents::queue_events(s.conn(), r)?,
-            precision: incidents::precision(s.conn(), r)?,
-        })
-    })
-    .map_err(err)
+    crate::board::with_store(app, root, |s, r| records_in(s, r, now)).map_err(err)
+}
+
+fn build_queue(
+    root: &str,
+    rec: &Records,
+    acc: &HashSet<String>,
+    now: i64,
+) -> tutor_platform::queue::Queue {
+    let rp = PathBuf::from(root.trim());
+    let c = tutor_platform::queue::Ctx {
+        root: &rp,
+        cmd: &crate::shellenv::command,
+        has: &crate::shellenv::has,
+        runs: &rec.runs,
+        incidents: &rec.incidents,
+        deploys: &rec.deploys,
+        events: &rec.events,
+        accepted: acc,
+        precision: rec.precision,
+        now,
+    };
+    tutor_platform::queue::build(&c)
+}
+
+/// «My queue» from a Project store (H4: the `ide` tool reads it with the store it was given).
+pub(crate) fn queue_in(
+    s: &tutor_board::project::ProjectStore,
+    root: &str,
+) -> Result<tutor_platform::queue::Queue, String> {
+    let (_, now) = crate::board::who_and_when(root);
+    let r = root.trim();
+    let rec = records_in(s, r, now).map_err(err)?;
+    let acc: HashSet<String> = s
+        .accepted_risks(r, now)
+        .map(|v| v.into_iter().map(|a| a.key).collect())
+        .unwrap_or_default();
+    Ok(build_queue(r, &rec, &acc, now))
 }
 
 /// «My queue»: my open items (each with why it is mine, one action, and a verification), what was verified
@@ -50,24 +92,9 @@ pub async fn queue_items(
     let rec = records(&app, &root)?;
     let acc = accepted(&app, &root);
     let (_, now) = crate::board::who_and_when(&root);
-    tauri::async_runtime::spawn_blocking(move || {
-        let rp = PathBuf::from(root.trim());
-        let c = tutor_platform::queue::Ctx {
-            root: &rp,
-            cmd: &crate::shellenv::command,
-            has: &crate::shellenv::has,
-            runs: &rec.runs,
-            incidents: &rec.incidents,
-            deploys: &rec.deploys,
-            events: &rec.events,
-            accepted: &acc,
-            precision: rec.precision,
-            now,
-        };
-        tutor_platform::queue::build(&c)
-    })
-    .await
-    .map_err(|e| format!("queue task failed: {e}"))
+    tauri::async_runtime::spawn_blocking(move || build_queue(&root, &rec, &acc, now))
+        .await
+        .map_err(|e| format!("queue task failed: {e}"))
 }
 
 #[derive(serde::Serialize)]

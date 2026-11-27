@@ -21,7 +21,8 @@ on the login shell's PATH: `cargo`, `python3`, `node` (≥ 22), `go`, `make`, `b
 
 ## How a task runs
 
-1. `repo/` is copied into a fresh git repository (one commit).
+1. `repo/` is copied into a fresh git repository (one commit); with `pushed`, that commit is also pushed to a local
+   bare remote (`origin`), so what it holds counts as reviewed (a runbook's checks run without asking).
 2. A Co-Dev session starts there in **Auto** mode with `test` as its `run_tests`, and gets `prompt` as the person's
    request. Nobody is at the keyboard: the plan is approved, anything the policy still asks about is refused with a
    reason, and a question (`ask_human`) is answered once with «decide yourself».
@@ -32,7 +33,7 @@ on the login shell's PATH: `cargo`, `python3`, `node` (≥ 22), `go`, `make`, `b
 
 ```
 tasks/<id>/
-  task.json   {id, title, language, category, prompt, check, test?, timeout?}
+  task.json   {id, title, language, category, prompt, check, test?, timeout?, pushed?}
   repo/       the project as the agent finds it
   hidden/     the acceptance tests (the agent never sees them)
   solution/   a reference solution (files over repo/), used only by `verify`
@@ -40,6 +41,10 @@ tasks/<id>/
 
 Tasks use only each language's standard library, so they run offline. A new task must pass `verify` before it is
 committed. `cargo test -p dxtutor-ide eval` checks the suite's shape (≥ 30 tasks, ≥ 4 languages, a solution each).
+
+`sre-incident-postmortem` (H4) is the on-call task: investigate with the runbook's checks (`ide` `runbook.check`) and
+the logs, and draft the postmortem. The incident actions (`incident.open`, …) ask the person, so in an evaluation they
+are refused: the task measures the investigation and the postmortem, not the records.
 
 ## Baseline
 
