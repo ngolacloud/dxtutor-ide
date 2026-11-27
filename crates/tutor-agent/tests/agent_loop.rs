@@ -617,3 +617,128 @@ fn events_serialize_for_the_ui() {
     };
     assert_eq!(serde_json::to_value(&d).unwrap()["outcome"]["type"], "done");
 }
+
+// ───── H5b: client compaction ─────
+
+fn has_block(m: &Message) -> bool {
+    m.content
+        .iter()
+        .any(|b| b["type"] == tutor_agent::agent::COMPACTION_BLOCK)
+}
+
+#[test]
+fn a_long_context_is_compacted_on_the_client_and_requests_start_from_the_summary() {
+    let log: Log = Default::default();
+    let mut h = harness(
+        vec![
+            resp(
+                StopReason::ToolUse,
+                vec![call("t1", "read", json!({"x": "a.rs"}))],
+            ),
+            // the summary (not streamed to the UI, not in the transcript as a message)
+            resp(StopReason::EndTurn, vec![text("RESUMO: leu a.rs")]),
+            resp(StopReason::EndTurn, vec![text("Feito.")]),
+            // the next turn: compacted again (from the person's new message)
+            resp(StopReason::EndTurn, vec![text("RESUMO2")]),
+            resp(StopReason::EndTurn, vec![text("ok")]),
+        ],
+        vec![probe("read", true, 0, &log)],
+    );
+    h.agent.cfg.client_compaction_at = Some(5); // every reply «uses» 10 tokens
+    let mut t = Transcript::new();
+    let (r, evs) = run(&h, &mut t, Some("lê a.rs"), &mut allow);
+    assert_eq!(r.unwrap(), TurnOutcome::Done { truncated: false });
+    let reqs = h.provider.requests();
+    assert_eq!(reqs.len(), 3);
+    // the summary request: what came before the cut (the call and its result stay) + the instruction, no stream
+    assert_eq!(reqs[1].messages.len(), 1);
+    assert_eq!(reqs[1].messages[0].content.len(), 2);
+    assert!(reqs[1].messages[0].content[1]["text"]
+        .as_str()
+        .unwrap()
+        .contains("about to be compacted"));
+    // the request after it: the summary, then the call and its result as they were
+    let m = &reqs[2].messages;
+    assert_eq!(m.len(), 3);
+    assert!(m[0]
+        .text()
+        .starts_with("<summary of the conversation so far>\nRESUMO: leu a.rs"));
+    assert_eq!(m[1].role, Role::Assistant);
+    assert_eq!(m[2].role, Role::User);
+    assert!(
+        reqs.iter()
+            .all(|r| r.messages.iter().all(|m| !has_block(m))),
+        "the block never reaches a provider"
+    );
+    // the transcript only grows: the answer carries the compaction
+    assert_eq!(t.len(), 4);
+    assert!(has_block(&t.messages()[3]));
+    assert_eq!(t.messages()[3].content[0]["keep_from"], 1);
+    assert_eq!(t.messages()[3].text(), "Feito.");
+    assert!(evs
+        .iter()
+        .any(|e| matches!(e, AgentEvent::Notice { text } if text.contains("contexto compactado"))));
+
+    // a new turn: compacted again from the person's message — the summary goes in that message
+    let (r, _) = run(&h, &mut t, Some("e agora?"), &mut allow);
+    assert_eq!(r.unwrap(), TurnOutcome::Done { truncated: false });
+    let reqs = h.provider.requests();
+    assert_eq!(reqs.len(), 5);
+    let m = &reqs[4].messages;
+    assert_eq!(m.len(), 1);
+    assert!(m[0].content[0]["text"]
+        .as_str()
+        .unwrap()
+        .contains("RESUMO2"));
+    assert_eq!(m[0].content[1]["text"], "e agora?");
+    // the second summary was made from the first one's view (cumulative), never from the raw start
+    assert!(reqs[3].messages[0].text().contains("RESUMO: leu a.rs"));
+    assert_eq!(t.messages()[5].content[0]["keep_from"], 4);
+}
+
+#[test]
+fn compact_now_summarizes_everything_and_claude_is_left_to_the_server() {
+    let mut h = harness(
+        vec![
+            resp(StopReason::EndTurn, vec![text("Olá.")]),
+            resp(StopReason::EndTurn, vec![text("RESUMO TOTAL")]),
+            resp(StopReason::EndTurn, vec![text("continua")]),
+        ],
+        vec![],
+    );
+    let mut t = Transcript::new();
+    run(&h, &mut t, Some("olá"), &mut allow).0.unwrap();
+    // Claude (client compaction off): said, nothing changes
+    let mut evs = vec![];
+    h.agent.compact_now(&mut t, &mut |e| evs.push(e)).unwrap();
+    assert_eq!(t.len(), 2);
+    assert!(evs
+        .iter()
+        .any(|e| matches!(e, AgentEvent::Notice { text } if text.contains("no servidor"))));
+    // another provider: the whole conversation becomes the summary
+    h.agent.cfg.client_compaction_at = Some(1_000_000);
+    let mut evs = vec![];
+    h.agent.compact_now(&mut t, &mut |e| evs.push(e)).unwrap();
+    assert_eq!(t.len(), 3);
+    assert!(has_block(&t.messages()[2]));
+    assert!(matches!(evs.last(), Some(AgentEvent::Done { .. })));
+    run(&h, &mut t, Some("e depois?"), &mut allow).0.unwrap();
+    let last = h.provider.requests().pop().unwrap();
+    // [summary, the compaction's own note, the new message]
+    assert_eq!(last.messages.len(), 3);
+    assert!(last.messages[0].text().contains("RESUMO TOTAL"));
+    assert_eq!(last.messages[2].text(), "e depois?");
+    // right after a compaction: nothing to compact (no request)
+    let n = h.provider.requests().len();
+    let mut u = Transcript::new();
+    for m in t.messages().iter().take(3) {
+        u.push(m.clone());
+    }
+    let mut evs = vec![];
+    h.agent.compact_now(&mut u, &mut |e| evs.push(e)).unwrap();
+    assert_eq!(u.len(), 3);
+    assert_eq!(h.provider.requests().len(), n);
+    assert!(evs
+        .iter()
+        .any(|e| matches!(e, AgentEvent::Notice { text } if text == "nada a compactar")));
+}

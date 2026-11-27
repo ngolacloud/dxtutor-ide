@@ -249,6 +249,16 @@ pub fn provider_features(provider: &str) -> ProviderFeatures {
     }
 }
 
+/// H5b: when a provider without server compaction compacts on the client (prompt tokens of the last request): a
+/// bit over half of Ollama's largest `num_ctx`, and well before the large contexts of the hosted models fill up.
+pub fn client_compaction_at(provider: &str) -> Option<u64> {
+    match provider {
+        "claude" => None,
+        "ollama" => Some(80_000),
+        _ => Some(150_000),
+    }
+}
+
 /// O aviso mostrado no primeiro turno de uma sessão que não é Claude.
 pub fn features_notice(provider: &str, model: &str) -> Option<String> {
     if provider == "claude" {
@@ -258,9 +268,6 @@ pub fn features_notice(provider: &str, model: &str) -> Option<String> {
     let mut missing = vec![];
     if !f.thinking {
         missing.push("raciocínio visível");
-    }
-    if !f.compaction {
-        missing.push("compactação automática do contexto");
     }
     if !f.server_fallbacks {
         missing.push("fallback do servidor");
@@ -916,6 +923,7 @@ pub fn start(
     let mut acfg = AgentConfig::new(meta.model.clone());
     acfg.effort = parse_effort(Some(&meta.effort));
     acfg.compaction = meta.compaction;
+    acfg.client_compaction_at = client_compaction_at(&meta.provider);
     // the human's review pauses often pass 5 minutes: the prefix (tools + system) lives an hour
     if meta.provider == "claude" {
         acfg.cache_ttl = CacheTtl::OneHour;
@@ -1578,6 +1586,10 @@ pub fn send(
         now_ms() as u64,
     ));
     let r = match text {
+        // H5b: `/compact` summarizes the conversation now (no request to answer)
+        Some(q) if q.trim() == extensions::COMPACT_COMMAND_LINE => {
+            s.agent.compact_now(&mut t, &mut on_loop_event)
+        }
         Some(q) => {
             // slash commands do projecto (.dxtutor/commands): o modelo recebe o prompt expandido
             let q = match extensions::expand(&s.project_root, &q) {
@@ -3205,7 +3217,12 @@ mod tests {
         assert!(g.tools && !g.thinking && !g.compaction && !g.server_fallbacks);
         assert!(features_notice("claude", "x").is_none());
         let n = features_notice("ollama", "qwen").unwrap();
-        assert!(n.contains("Ollama") && n.contains("compactação") && n.contains("cache de prompt"));
+        assert!(n.contains("Ollama") && n.contains("cache de prompt"));
+        // H5b: the context is compacted on the client for every provider but Claude (which does it on the server)
+        assert!(!n.contains("compactação"));
+        assert_eq!(client_compaction_at("claude"), None);
+        assert_eq!(client_compaction_at("ollama"), Some(80_000));
+        assert_eq!(client_compaction_at("gemini"), Some(150_000));
         // sem chave: Claude/OpenAI/Gemini recusam; o Ollama não precisa
         assert!(make_provider("codex", None, None, None)
             .err()
@@ -3921,13 +3938,18 @@ mod tests {
         let r = root.display().to_string();
 
         let st = extensions_status(&r, Some(&store), None);
-        // the project's command, then the IDE's (/backlog, /project)
+        // the project's command, then the IDE's (/backlog, /project, /compact)
         assert_eq!(
             st.commands
                 .iter()
                 .map(|c| (c.name.as_str(), c.builtin))
                 .collect::<Vec<_>>(),
-            [("rever", false), ("backlog", true), ("project", true)]
+            [
+                ("rever", false),
+                ("backlog", true),
+                ("project", true),
+                ("compact", true)
+            ]
         );
         assert_eq!(
             st.hooks,

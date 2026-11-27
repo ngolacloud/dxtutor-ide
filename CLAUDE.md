@@ -1624,6 +1624,19 @@ redireccionamento não é seguido (o URL novo é outra chamada, decidida de novo
 leitura» para o loop, para que os sub-agentes (só ferramentas de leitura e sem política) nunca cheguem à rede. Testes:
 `cargo test -p tutor-agent tools::web permissions::`.
 
+## Compactação para todos os fornecedores (H5b, `tutor_agent::agent`, `/compact`)
+
+O Claude compacta no servidor (beta `compact-2026-01-12`); os outros (Codex, Gemini, Ollama) compactam no CLIENTE:
+quando o último pedido passou de `AgentConfig.client_compaction_at` tokens (`codev_agent::client_compaction_at`: Ollama
+80k, os outros 150k; Claude `None`), antes do pedido seguinte o próprio modelo resume o início da conversa (um pedido
+sem stream para a UI) e o aviso «contexto compactado» aparece. O histórico continua só a crescer: o resumo vai no bloco
+`dxtutor_compaction` (`{summary, keep_from}`), o primeiro da resposta que respondeu ao pedido compactado, e cada pedido
+seguinte envia o resumo como mensagem da pessoa e o histórico a partir de `keep_from` (`request_view`); o bloco nunca
+chega a um fornecedor. O corte (`compaction_cut`) mantém a última mensagem da pessoa, ou a última chamada com os seus
+resultados (um resultado segue a sua chamada); um resumo novo é feito sobre a vista do anterior (cumulativo). O
+`/compact` (comando do IDE, tratado no `send`, nunca expandido) resume tudo já; no Claude diz que o servidor o faz.
+Testes: `cargo test -p tutor-agent --test agent_loop` (`…compacted_on_the_client…`, `compact_now_…`).
+
 ## A ferramenta `ide` e as skills do IDE (H3/H4, `src-tauri/src/ide_tool.rs`, `ide_tool/ops.rs`, `tutor_agent::extensions`)
 
 Decisão D4: o Co-Dev chega ao que o IDE sabe por UMA ferramenta, `ide`, com `action` e `args`, decidida no Rust. Uma
