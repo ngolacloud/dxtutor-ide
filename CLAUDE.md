@@ -1442,6 +1442,26 @@ Dockerfile, compose, CI, ADRs, runbooks, dotfiles).
 - Testes: `cargo test -p tutor-scaffold` (nenhum token sobra em nenhum template, segredos, modos, git), `cargo test -p
   dxtutor-ide scaffold`, `tests/newproject.test.ts`.
 
+## A sandbox do sistema para o que o Co-Dev corre (H1, `tutor_agent::os_sandbox`)
+
+O `bash`, o `run_tests`/`lint` e os hooks do projecto correm dentro do bubblewrap (Linux), montado pelo
+`codev_agent::session_sandbox` para a pasta em que a sessão trabalha (a worktree, na fase 3 do Multi Co-Dev):
+- todo o disco só de leitura; graváveis: a pasta do projecto, uma `/tmp` privada, as pastas git de uma worktree e as
+  caches das toolchains (`~/.cache`, `~/.cargo/registry`, `~/go/pkg`, `~/.npm`…). Dentro do projecto, `.git/hooks`,
+  `.git/config` e `.dxtutor/` ficam só de leitura (`.dxtutor/memory/` é do agente);
+- credenciais escondidas (`~/.ssh`, `~/.aws`, `~/.kube`, `~/.config/gh`, o `keys.json` do IDE, o `XDG_RUNTIME_DIR` com o
+  bus do keychain, `.netrc`, `.git-credentials`, `.npmrc`…) e variáveis com cara de credencial removidas do ambiente;
+- **rede desligada** (`--unshare-net`, só loopback) e PID próprio, morto com o IDE.
+- **`.dxtutor/sandbox.json`** (`{enabled, network: "off"|"on", writable: []}`): apertar vale sempre; afrouxar (rede ligada,
+  desligar, pasta fora do projecto) só depois de o humano confiar no ficheiro (`/comandos`, tipo `sandbox`, como hooks e MCP).
+- **Sair da sandbox** para um comando: `bash` com `unsandboxed: true` (conjunto 12) — a política pede SEMPRE ao humano
+  (todos os modos, sem «permitir sempre»; em Auto sem humano é recusado). Uma falha que cheira a sandbox (rede, disco só de
+  leitura) volta ao modelo com a pista (`os_sandbox::hint`).
+- Sem bubblewrap (macOS, Windows, kernel sem user namespaces) os comandos correm como antes e a sessão DIZ que não há
+  sandbox. Fica para a H1b: a lista de domínios por projecto (proxy) e os servidores MCP.
+- Testes: `cargo test -p tutor-agent os_sandbox` (o teste real corre com o bwrap desta máquina e salta sem ele),
+  `a_command_outside_the_sandbox_is_always_the_humans`, `tests/codev.agent-chat.test.ts` (H1).
+
 ## Medir o harness do Co-Dev (H0, `src-tauri/src/eval.rs`, `evals/`)
 
 `cargo run -p dxtutor-ide --example codev-eval -- run` corre o conjunto de tarefas reais (`evals/tasks/`, ≥ 30, Rust,

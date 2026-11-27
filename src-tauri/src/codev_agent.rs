@@ -102,6 +102,81 @@ pub struct StartSpec {
     /// worktrees (`tutor_eval::gitwork::codev::find`), never from a path the UI typed; only with
     /// `issue_key`. Ignored on a resume (the saved one counts). `None`: `root` itself, as always.
     pub worktree: Option<PathBuf>,
+    /// H1: `Some(false)` runs the agent's commands without the OS sandbox (the tests that need it);
+    /// `None`/`Some(true)`: the sandbox, when this machine has it.
+    pub sandbox: Option<bool>,
+}
+
+/// H1: the OS sandbox of a session (`None`: off by the spec, by a trusted project file, or not
+/// available on this machine — then a notice says so). A project file that loosens it (network on,
+/// sandbox off, a folder outside the project writable) counts only when the person trusted it, as it
+/// is — in a worktree, only when its copy is the trusted one byte for byte.
+fn session_sandbox(
+    root: &Path,
+    work_root: &Path,
+    spec: &StartSpec,
+    notes: &mut Vec<String>,
+) -> Option<Arc<tutor_agent::os_sandbox::OsSandbox>> {
+    use tutor_agent::os_sandbox::{self, SandboxConfig, CONFIG_FILE};
+    if spec.sandbox == Some(false) {
+        return None;
+    }
+    let mut cfg = match SandboxConfig::load(work_root) {
+        Ok(c) => c.unwrap_or_default(),
+        Err(e) => {
+            notes.push(format!("{e} — a sandbox fica com as regras por omissão"));
+            SandboxConfig::default()
+        }
+    };
+    if cfg.loosens(work_root) {
+        let trusted = spec
+            .trust_store
+            .as_deref()
+            .is_some_and(|st| trust::is_trusted(st, root, CONFIG_FILE))
+            && (work_root == root
+                || std::fs::read(root.join(CONFIG_FILE)).ok()
+                    == std::fs::read(work_root.join(CONFIG_FILE)).ok());
+        if !trusted {
+            notes.push(format!(
+                "o {CONFIG_FILE} do projecto afrouxa a sandbox (rede, desligar ou pastas de fora) e ainda não o confiaste — vale a sandbox por omissão; vê /comandos"
+            ));
+            cfg = SandboxConfig {
+                writable: cfg
+                    .writable
+                    .into_iter()
+                    .filter(|w| !w.contains("..") && !Path::new(w).is_absolute())
+                    .collect(),
+                ..Default::default()
+            };
+        }
+    }
+    if cfg.enabled == Some(false) {
+        notes.push(format!("sandbox desligada pelo {CONFIG_FILE} do projecto (confiado): os comandos correm sem ela"));
+        return None;
+    }
+    match os_sandbox::available() {
+        Ok(bwrap) => {
+            let home = std::env::var_os("HOME").map(PathBuf::from);
+            let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from);
+            let sb = os_sandbox::OsSandbox::for_project(
+                &bwrap,
+                work_root,
+                home.as_deref(),
+                runtime.as_deref(),
+                &cfg,
+            );
+            if sb.network {
+                notes.push(format!(
+                    "a rede está ligada para os comandos deste projecto ({CONFIG_FILE})"
+                ));
+            }
+            Some(Arc::new(sb))
+        }
+        Err(why) => {
+            notes.push(format!("sem sandbox do sistema nesta máquina ({why}): os comandos do Co-Dev correm sem ela"));
+            None
+        }
+    }
 }
 
 /// Prefixo do erro de um modelo sem tool calling nativo: a UI reconhece-o e recua para o
@@ -819,12 +894,15 @@ pub fn start(
         effort: acfg.effort,
         lang: meta.lang(),
     };
+    // H1: what the agent runs (bash, run_tests/lint, hooks) runs in the OS sandbox of the folder it works in
+    let sandbox = session_sandbox(&root, &work_root, &spec, &mut notes);
     let tools = agent_tools(
         &ToolsetOptions {
             test_cmd: meta.test_cmd.clone(),
             lint_cmd: meta.lint_cmd.clone(),
             files: files.clone(),
             issue: meta.has_scope(session::SCOPE_ISSUE),
+            sandbox: sandbox.clone(),
             ..Default::default()
         },
         meta.toolset,
@@ -851,7 +929,7 @@ pub fn start(
                     == std::fs::read(work_root.join(HOOKS_FILE)).ok();
             if same {
                 match Hooks::load(&work_root) {
-                    Ok(h) => agent.hooks = h.map(Arc::new),
+                    Ok(h) => agent.hooks = h.map(|h| Arc::new(h.sandboxed(sandbox.clone()))),
                     Err(e) => notes.push(e),
                 }
             } else {
@@ -2779,6 +2857,8 @@ pub struct ExtensionsStatus {
     pub skills: Vec<Skill>,
     pub hooks: FileTrust,
     pub mcp: FileTrust,
+    /// H1: `.dxtutor/sandbox.json` (only what loosens the sandbox needs trust).
+    pub sandbox: FileTrust,
     /// Nomes dos servidores MCP configurados (utilizador + projecto).
     pub mcp_servers: Vec<String>,
 }
@@ -2812,6 +2892,7 @@ pub fn extensions_status(
         skills: extensions::skills(&root),
         hooks: file(HOOKS_FILE),
         mcp: file(mcp::PROJECT_FILE),
+        sandbox: file(tutor_agent::os_sandbox::CONFIG_FILE),
         mcp_servers: servers,
     }
 }
@@ -2822,6 +2903,7 @@ pub fn trust_project_file(root: &str, kind: &str, store: Option<&Path>) -> Resul
     let rel = match kind {
         "hooks" => HOOKS_FILE,
         "mcp" => mcp::PROJECT_FILE,
+        "sandbox" => tutor_agent::os_sandbox::CONFIG_FILE,
         other => return Err(format!("tipo desconhecido: {other}")),
     };
     let store = store.ok_or("sem HOME para guardar a confiança")?;

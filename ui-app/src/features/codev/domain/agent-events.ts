@@ -364,6 +364,8 @@ export interface ExtensionsStatus {
   skills: Array<{ name: string; description: string }>;
   hooks: { present: boolean; trusted: boolean };
   mcp: { present: boolean; trusted: boolean };
+  /** H1: `.dxtutor/sandbox.json` (what loosens the OS sandbox counts only when trusted). */
+  sandbox: { present: boolean; trusted: boolean };
   mcpServers: string[];
 }
 
@@ -379,6 +381,7 @@ export function parseExtensions(v: unknown): ExtensionsStatus {
     skills: list(o.skills),
     hooks: ft(o.hooks),
     mcp: ft(o.mcp),
+    sandbox: ft(o.sandbox),
     mcpServers: Array.isArray(o.mcpServers) ? (o.mcpServers.filter(str) as string[]) : [],
   };
 }

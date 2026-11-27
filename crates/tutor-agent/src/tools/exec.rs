@@ -220,6 +220,21 @@ pub fn shell(command: &str) -> Command {
 
 pub struct Bash {
     pub default_timeout: Duration,
+    /// H1: where commands run (`None`: no sandbox on this machine).
+    pub sandbox: Option<std::sync::Arc<crate::os_sandbox::OsSandbox>>,
+    /// Toolset 12: the `unsandboxed` parameter is offered.
+    pub escape: bool,
+}
+
+/// What the model sees appended when a command failed because of the sandbox.
+fn with_hint(mut out: ToolOutput) -> ToolOutput {
+    if out.is_error {
+        if let Some(h) = crate::os_sandbox::hint(&out.content) {
+            out.content.push('\n');
+            out.content.push_str(h);
+        }
+    }
+    out
 }
 
 impl Tool for Bash {
@@ -232,7 +247,7 @@ impl Tool for Bash {
          600 (por omissão 120). Prefere read/grep/glob/edit para ler e alterar ficheiros."
     }
     fn input_schema(&self) -> Value {
-        json!({
+        let mut s = json!({
             "type": "object",
             "properties": {
                 "command": {"type": "string"},
@@ -240,7 +255,14 @@ impl Tool for Bash {
             },
             "required": ["command"],
             "additionalProperties": false
-        })
+        });
+        if self.escape {
+            s["properties"]["unsandboxed"] = json!({
+                "type": "boolean",
+                "description": "Run this one command outside the sandbox (network on, the whole disk writable). The human always approves it: use it only when the sandbox blocked something the task needs."
+            });
+        }
+        s
     }
     fn read_only(&self) -> bool {
         false
@@ -271,11 +293,17 @@ impl Tool for Bash {
                 ));
             }
         }
-        let r = run_process(shell(command), &ctx.root, timeout, ctx);
-        ToolOutput {
+        let cmd = match &self.sandbox {
+            Some(sb) if !(self.escape && input["unsandboxed"].as_bool() == Some(true)) => {
+                sb.wrap(&shell(command))
+            }
+            _ => shell(command),
+        };
+        let r = run_process(cmd, &ctx.root, timeout, ctx);
+        with_hint(ToolOutput {
             is_error: !r.ok(),
             content: r.render(),
-        }
+        })
     }
 }
 
@@ -284,6 +312,7 @@ pub struct Verify {
     name: &'static str,
     description: String,
     command: String,
+    sandbox: Option<std::sync::Arc<crate::os_sandbox::OsSandbox>>,
 }
 
 impl Verify {
@@ -292,6 +321,7 @@ impl Verify {
             name: "run_tests",
             description: format!("Corre os testes do projecto (`{cmd}`) e devolve o exit code e a saída. Corre-os depois de alterar código e antes de dar a tarefa por feita."),
             command: cmd.to_string(),
+            sandbox: None,
         }
     }
     pub fn lint(cmd: &str) -> Self {
@@ -301,7 +331,16 @@ impl Verify {
                 "Corre o lint/typecheck do projecto (`{cmd}`) e devolve o exit code e a saída."
             ),
             command: cmd.to_string(),
+            sandbox: None,
         }
+    }
+    /// H1: run it inside the OS sandbox.
+    pub fn sandboxed(
+        mut self,
+        sandbox: Option<std::sync::Arc<crate::os_sandbox::OsSandbox>>,
+    ) -> Self {
+        self.sandbox = sandbox;
+        self
     }
 }
 
@@ -322,11 +361,15 @@ impl Tool for Verify {
         Some(self.command.clone())
     }
     fn run(&self, _input: &Value, ctx: &ToolCtx) -> ToolOutput {
-        let r = run_process(shell(&self.command), &ctx.root, MAX_TIMEOUT, ctx);
-        ToolOutput {
+        let cmd = match &self.sandbox {
+            Some(sb) => sb.wrap(&shell(&self.command)),
+            None => shell(&self.command),
+        };
+        let r = run_process(cmd, &ctx.root, MAX_TIMEOUT, ctx);
+        with_hint(ToolOutput {
             is_error: !r.ok(),
             content: format!("$ {}\n{}", self.command, r.render()),
-        }
+        })
     }
 }
 

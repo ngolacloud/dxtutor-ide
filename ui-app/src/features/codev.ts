@@ -378,7 +378,7 @@ const ACTIONS: ActionTable = {
       void codevRun.savePermissions(lines('allow'), lines('deny'));
     },
   },
-  "hx-trust": { on: "click", run: (e) => void codevRun.trust(e.on as 'hooks' | 'mcp') },
+  "hx-trust": { on: "click", run: (e) => void codevRun.trust(e.on as 'hooks' | 'mcp' | 'sandbox') },
   "hx-refresh": { on: "click", run: () => void codevRun.refresh() },
   "hunk-explain": {
     on: "click",

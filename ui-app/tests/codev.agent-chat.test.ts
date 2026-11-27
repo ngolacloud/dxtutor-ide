@@ -506,6 +506,17 @@ test("o uso de cada pedido do agente segue para o contador e o ctx (entrada com 
   expect(onUsage.mock.calls[1][2]).toEqual({ cacheRead: 0, cacheWrite: 0, cost: costUSD("claude-opus-5-5", u(400, 20)) });
 });
 
+test("H1: /comandos mostra a sandbox do projecto e deixa confiá-la", async () => {
+  const t = setup("sandbox");
+  (t.gateway.extensions as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+    commands: [], skills: [], hooks: { present: false, trusted: false }, mcp: { present: false, trusted: false },
+    sandbox: { present: true, trusted: false }, mcpServers: [],
+  });
+  await t.chat.commandsMenu();
+  expect(t.calls.some((c) => c.startsWith("text ") && c.includes("**Sandbox** (`.dxtutor/sandbox.json`)"))).toBe(true);
+  expect(t.gateway.trust).toHaveBeenCalledWith("/proj", "sandbox");
+});
+
 test("conjunto 11: /backlog abre uma sessão de backlog; o /project continua nela; a conversa normal não a tem", async () => {
   const t = setup();
   t.setScript(() => t.emit(done()));
