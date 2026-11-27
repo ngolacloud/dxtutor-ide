@@ -209,6 +209,8 @@ export function describeCall(name: string, input: Record<string, unknown>, comma
       const detail = keys.map((k) => (typeof a[k] === "string" || typeof a[k] === "number" ? String(a[k]) : "")).filter(Boolean).join(" ");
       return s("action") + (detail ? ` ${detail}` : "");
     }
+    case "web_fetch":
+      return s("url") + (typeof input.offset === "number" && input.offset > 0 ? ` @${input.offset}` : "");
     case "project_propose":
       return `${s("method") || "—"} · ${Array.isArray(input.sprints) ? input.sprints.length : 0} sprints`;
     default:

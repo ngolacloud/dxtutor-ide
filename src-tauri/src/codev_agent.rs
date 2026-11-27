@@ -124,6 +124,7 @@ fn session_sandbox(
     work_root: &Path,
     spec: &StartSpec,
     notes: &mut Vec<String>,
+    web_domains: &mut Vec<String>,
 ) -> (
     Option<Arc<tutor_agent::os_sandbox::OsSandbox>>,
     Option<tutor_agent::net_proxy::Proxy>,
@@ -160,6 +161,10 @@ fn session_sandbox(
                 ..Default::default()
             };
         }
+    }
+    // H5a: the trusted list is also what `web_fetch` reads without asking (an untrusted file was reset above)
+    if cfg.network.as_deref() == Some("allowlist") {
+        *web_domains = cfg.allow_domains.clone();
     }
     if cfg.enabled == Some(false) {
         notes.push(format!("sandbox desligada pelo {CONFIG_FILE} do projecto (confiado): os comandos correm sem ela"));
@@ -869,7 +874,9 @@ pub fn start(
     let mut notes = vec![];
     // H1: what the agent runs (bash, run_tests/lint, hooks, MCP servers) runs in the OS sandbox of the
     // folder it works in; H1b: with the project's domain allowlist, through a proxy kept by the session
-    let (sandbox, net_proxy) = session_sandbox(&root, &work_root, &spec, &mut notes);
+    let mut web_domains = vec![];
+    let (sandbox, net_proxy) =
+        session_sandbox(&root, &work_root, &spec, &mut notes, &mut web_domains);
     let mut meta = meta;
     let new_session = log.is_none();
     let connected = if meta.toolset >= 3 {
@@ -929,6 +936,7 @@ pub fn start(
         work_root.clone(),
     );
     policy.plan = flow.plan_mode.clone();
+    policy.web_domains = web_domains;
     // RF-G01: in the IDE every action answers a human request (the UI sends its origin)
     policy.require_origin = true;
     // toolset 6: plan before changing files in Manual/Assist, and a question stops changes

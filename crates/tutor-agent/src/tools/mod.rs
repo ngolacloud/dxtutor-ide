@@ -10,6 +10,7 @@ pub mod flow;
 mod fs;
 mod git;
 mod search;
+pub mod web;
 
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -136,7 +137,8 @@ pub fn coding_tools(opts: &ToolsetOptions) -> Vec<Arc<dyn Tool>> {
 /// 13 = + a ferramenta do anfitrião `ide` (H3: o que o IDE sabe, por acção; as skills embutidas dizem quais).
 /// 14 = a `ide` ganha as acções de Platform/SRE/DevOps (H4: runbooks, incidentes, fila, IaC, Kubernetes, deploy),
 ///      cada uma com o seu nível — leitura, acção (aprovação + auditoria) ou só do humano.
-pub const TOOLSET_VERSION: u32 = 14;
+/// 15 = + `web_fetch` (H5a: ler uma página; o domínio decide-se na política de permissões).
+pub const TOOLSET_VERSION: u32 = 15;
 
 /// O estado partilhado entre as ferramentas de fluxo e a sessão.
 #[derive(Clone, Default)]
@@ -224,6 +226,10 @@ pub fn agent_tools(
             state,
             v9: version >= 9,
         }));
+    }
+    // toolset 15 (H5a): read a web page — at the end, so the toolset 14 prefix stays byte for byte
+    if version >= 15 {
+        v.push(Arc::new(web::WebFetch));
     }
     v
 }

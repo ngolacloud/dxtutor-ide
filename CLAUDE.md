@@ -1580,6 +1580,22 @@ pastas de build saltam), ou o que o `.dxtutor/workspace.json` diz (`projects: [{
 - Testes: `cargo test -p tutor-agent workspace::`, `cargo test -p dxtutor-ide a_session_in_a_project`,
   `tests/workspace-projects.test.ts` (inclui o adaptador do Co-Dev a mandar `backlog` e `project` ao backend).
 
+## Ler a web (H5a, `tutor_agent::tools::web`, conjunto 15)
+
+`web_fetch` (`url`, `offset`) lê uma página do próprio IDE (não da sandbox dos comandos) e devolve texto: o HTML sem
+scripts nem estilos, com títulos, listas, ligações e código; 20 000 caracteres por chamada; só tipos de texto. Quem
+pode ser lido decide-o a política (`Policy::web_verdict`), antes do modo plano e sem pedido do humano (é investigação):
+- um domínio da lista CONFIADA do projecto (`.dxtutor/sandbox.json`, `network: "allowlist"` + `allowDomains`, a mesma
+  da H1b; passa pelo `session_sandbox` para `Policy.web_domains`) ou de uma regra `web_fetch:<domínio>` (ou `web_fetch`
+  sozinho) lê-se logo; outro pergunta, com «permitir sempre» para esse domínio; `web_fetch:<domínio>` em `deny` recusa;
+- esta máquina e a rede interna (`localhost`, privados, link-local — o serviço de metadados de uma cloud —, `.local`,
+  `.internal`, um nome sem ponto) pergunta SEMPRE, como perigoso e sem «sempre».
+Na ferramenta, o que a política não vê: um URL com um segredo que a redacção conhece é recusado; um nome público que
+resolve para um endereço interno é recusado e a ligação só vai aos endereços verificados (o `resolver` do ureq); um
+redireccionamento não é seguido (o URL novo é outra chamada, decidida de novo); credenciais no URL nunca. Não é «só
+leitura» para o loop, para que os sub-agentes (só ferramentas de leitura e sem política) nunca cheguem à rede. Testes:
+`cargo test -p tutor-agent tools::web permissions::`.
+
 ## A ferramenta `ide` e as skills do IDE (H3/H4, `src-tauri/src/ide_tool.rs`, `ide_tool/ops.rs`, `tutor_agent::extensions`)
 
 Decisão D4: o Co-Dev chega ao que o IDE sabe por UMA ferramenta, `ide`, com `action` e `args`, decidida no Rust. Uma
