@@ -22,7 +22,14 @@
 //!    (`PIP_CONFIG_FILE=/dev/null`) nem a sua cache (`--no-cache-dir`);
 //! 3. `pip check` confirma, sem rede, que as dependências instaladas batem certo.
 //!
-//! Nos dois, um marcador (`prepared.json`) regista a impressão digital das dependências
+//! **cluster** (Kubernetes, Learn P3b — `crate::kindbox`):
+//! 1. descarrega o kind fixado (`kindbox::KIND_VERSION`) e verifica o SHA-256 ANTES de o guardar;
+//! 2. `podman pull` da imagem do nó e das imagens dos passos, pelo digest, para um armazenamento
+//!    do Podman só do curso (`<raiz>/<id>/cluster/podman`: o do utilizador não é tocado), e
+//!    `podman tag` com o nome que os manifestos usam;
+//! 3. `podman save` das imagens dos passos para o arquivo que o cluster carrega (`kind load`).
+//!
+//! Em todos, um marcador (`prepared.json`) regista a impressão digital das dependências
 //! preparadas, e só uma preparação completa o escreve.
 //!
 //! Depois, cada avaliação de um passo deste curso corre contra essa cache (o `CARGO_HOME`, o
@@ -101,6 +108,8 @@ pub struct Layout {
     pub venv: PathBuf,
     /// pip: o `requirements.txt` que a preparação instala.
     pub requirements: PathBuf,
+    /// cluster: a pasta do cluster de prática (`crate::kindbox::Sandbox`).
+    pub cluster: PathBuf,
     pub marker: PathBuf,
 }
 
@@ -120,6 +129,16 @@ impl Layout {
             .join(if cfg!(windows) { "Scripts" } else { "bin" })
     }
 
+    /// O cluster de prática desta cache (só num curso de cluster).
+    pub fn sandbox(&self) -> crate::kindbox::Sandbox {
+        let key = self
+            .dir
+            .file_name()
+            .map(|f| f.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        crate::kindbox::Sandbox::new(&self.dir, &key)
+    }
+
     /// O que uma preparação completa deixa e a avaliação usa (além do marcador).
     fn complete(&self, kind: CacheKind) -> bool {
         match kind {
@@ -127,6 +146,7 @@ impl Layout {
             // `is_file` segue a ligação do venv para o Python que o criou: se esse Python
             // desapareceu (uma actualização do sistema), o venv já não serve.
             CacheKind::Pip => self.venv_python().is_file() && self.requirements.is_file(),
+            CacheKind::Cluster => self.sandbox().prepared(),
         }
     }
 }
@@ -156,6 +176,7 @@ pub fn layout(root: &Path, key: &str) -> Result<Layout> {
         lock: dir.join("Cargo.lock"),
         venv: dir.join("venv"),
         requirements: dir.join("requirements.txt"),
+        cluster: dir.join("cluster"),
         marker: dir.join(MARKER_FILE),
         dir,
     })
@@ -178,6 +199,19 @@ pub fn fingerprint(deps: &[String]) -> String {
     lines.dedup();
     let digest = Sha256::digest(lines.join("\n").as_bytes());
     digest.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// A impressão digital de uma cache: as dependências e, num curso de cluster, o que o `kindbox`
+/// fixa (kind, imagem do nó) — mudar uma dessas versões obriga a preparar outra vez.
+pub fn fingerprint_of(kind: CacheKind, deps: &[String]) -> String {
+    match kind {
+        CacheKind::Cluster => {
+            let mut all = deps.to_vec();
+            all.extend(crate::kindbox::pins());
+            fingerprint(&all)
+        }
+        _ => fingerprint(deps),
+    }
 }
 
 /// O que fica escrito depois de uma preparação completa.
@@ -223,7 +257,9 @@ pub fn status(root: &Path, cache: &CourseCache) -> Result<Status> {
         .ok()
         .and_then(|raw| serde_json::from_str(&raw).ok());
     Ok(match marker {
-        Some(m) if m.fingerprint == fingerprint(&cache.dependencies) && l.complete(kind) => {
+        Some(m)
+            if m.fingerprint == fingerprint_of(kind, &cache.dependencies) && l.complete(kind) =>
+        {
             Status::Ready(m)
         }
         Some(m) => Status::Stale(m),
@@ -261,8 +297,40 @@ pub fn packages(kind: CacheKind, deps: &[String]) -> Result<Vec<Package>> {
                 })
             }
             CacheKind::Cargo => Ok(cargo_package(d)),
+            CacheKind::Cluster => {
+                let r = tutor_core::image_reference(d).map_err(anyhow::Error::msg)?;
+                Ok(Package {
+                    name: format!("{}/{}", r.registry, r.repository),
+                    version: r.tag,
+                    source: r.registry,
+                    pinned: true,
+                })
+            }
         })
         .collect()
+}
+
+/// Os pacotes de uma cache: as dependências e, num curso de cluster, o kind e a imagem do nó.
+pub fn cache_packages(kind: CacheKind, deps: &[String]) -> Result<Vec<Package>> {
+    let mut out = Vec::new();
+    if kind == CacheKind::Cluster {
+        let node =
+            tutor_core::image_reference(crate::kindbox::NODE_IMAGE).map_err(anyhow::Error::msg)?;
+        out.push(Package {
+            name: "kind".into(),
+            version: crate::kindbox::KIND_VERSION.into(),
+            source: "GitHub release (sha256-checked)".into(),
+            pinned: true,
+        });
+        out.push(Package {
+            name: format!("{}/{}", node.registry, node.repository),
+            version: node.tag,
+            source: node.registry,
+            pinned: true,
+        });
+    }
+    out.extend(packages(kind, deps)?);
+    Ok(out)
 }
 
 /// Uma linha de `[dependencies]` como pacote (o melhor que se consegue ler; uma linha que não
@@ -335,8 +403,11 @@ pub struct PlanStep {
     pub args: Vec<String>,
     /// Variáveis definidas para este comando (além do ambiente mínimo do avaliador).
     pub env: BTreeMap<String, String>,
-    /// Só o `cargo fetch` e o `pip install` usam a rede.
+    /// Só o `cargo fetch`, o `pip install`, o download do kind e os `podman pull` usam a rede.
     pub network: bool,
+    /// cluster: um ficheiro que a preparação descarrega ela própria e verifica pelo SHA-256 (o
+    /// kind), em vez de correr um programa.
+    pub download: Option<crate::kindbox::Download>,
 }
 
 /// A preparação de um curso: os comandos, a pasta onde correm e o texto exacto a aprovar.
@@ -406,14 +477,24 @@ pub fn plan_with(root: &Path, cache: &CourseCache, python: &Path) -> Result<Plan
         bail!("course `{}` has no dependencies to prepare", cache.key);
     }
     let l = layout(root, &cache.key)?;
-    let packages = packages(kind, &cache.dependencies)?;
+    let packages = cache_packages(kind, &cache.dependencies)?;
     let (cwd, steps, manifest, header) = match kind {
         CacheKind::Cargo => cargo_steps(&l, &cache.dependencies),
         CacheKind::Pip => pip_steps(&l, &cache.dependencies, python)?,
+        CacheKind::Cluster => cluster_steps(&l, &cache.dependencies)?,
     };
     let mut command = header;
     command.push_str(&format!("cd {}\n", quote(&cwd)));
     for s in &steps {
+        if let Some(d) = &s.download {
+            command.push_str(&format!(
+                "download {}\ncheck    sha256 {}\ninto     {}\n",
+                d.url,
+                d.sha256,
+                quote(&d.dest)
+            ));
+            continue;
+        }
         let vars: Vec<String> = s
             .env
             .iter()
@@ -445,6 +526,38 @@ pub fn plan_with(root: &Path, cache: &CourseCache, python: &Path) -> Result<Plan
 
 type Steps = (PathBuf, Vec<PlanStep>, String, String);
 
+fn cluster_steps(l: &Layout, deps: &[String]) -> Result<Steps> {
+    let sb = l.sandbox();
+    let podman = crate::kindbox::podman_program()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| "podman".into());
+    let steps = crate::kindbox::plan_steps(&sb, deps)?
+        .into_iter()
+        .map(|s| PlanStep {
+            program: if s.download.is_some() {
+                String::new()
+            } else {
+                podman.clone()
+            },
+            args: s.args,
+            env: BTreeMap::new(),
+            network: s.network,
+            download: s.download,
+        })
+        .collect();
+    let mut manifest = String::new();
+    for d in deps {
+        manifest.push_str(d.trim());
+        manifest.push('\n');
+    }
+    Ok((
+        sb.dir.clone(),
+        steps,
+        manifest,
+        crate::kindbox::plan_header(&sb, deps),
+    ))
+}
+
 fn cargo_steps(l: &Layout, deps: &[String]) -> Steps {
     let home = l.cargo_home.display().to_string();
     let target = l.target.display().to_string();
@@ -453,6 +566,7 @@ fn cargo_steps(l: &Layout, deps: &[String]) -> Steps {
         args: vec!["fetch".into()],
         env: BTreeMap::from([("CARGO_HOME".into(), home.clone())]),
         network: true,
+        download: None,
     };
     let warm = PlanStep {
         program: "cargo".into(),
@@ -462,6 +576,7 @@ fn cargo_steps(l: &Layout, deps: &[String]) -> Steps {
             ("CARGO_TARGET_DIR".into(), target),
         ]),
         network: false,
+        download: None,
     };
     let mut header = String::from("# Cargo.toml [dependencies] of the course\n");
     for d in deps {
@@ -496,6 +611,7 @@ fn pip_steps(l: &Layout, deps: &[String], python: &Path) -> Result<Steps> {
         ],
         env: BTreeMap::new(),
         network: false,
+        download: None,
     };
     let install = PlanStep {
         program: venv_python.clone(),
@@ -518,6 +634,7 @@ fn pip_steps(l: &Layout, deps: &[String], python: &Path) -> Result<Steps> {
         .collect(),
         env: quiet.clone(),
         network: true,
+        download: None,
     };
     let check = PlanStep {
         program: venv_python,
@@ -527,6 +644,7 @@ fn pip_steps(l: &Layout, deps: &[String], python: &Path) -> Result<Steps> {
             .collect(),
         env: quiet,
         network: false,
+        download: None,
     };
     let mut header = String::from(
         "# requirements.txt of the course: exact versions, sha256-checked, wheels only\n",
@@ -599,65 +717,111 @@ pub fn prepare(plan: &Plan) -> Result<Prepared> {
             std::fs::write(l.crate_dir.join("src/lib.rs"), "")?;
         }
         CacheKind::Pip => std::fs::write(&l.requirements, &plan.manifest)?,
+        CacheKind::Cluster => {
+            if crate::kindbox::podman_program().is_none() {
+                bail!("{}", crate::kindbox::PODMAN_HINT);
+            }
+            crate::kindbox::podman::init(&l.sandbox())?;
+        }
     }
     // A marca de antes deixa de valer: só uma preparação completa a volta a escrever.
     let _ = std::fs::remove_file(&l.marker);
 
     let mut output = String::new();
     let (mut fetch_secs, mut warm_secs) = (0.0, 0.0);
-    for (i, step) in plan.steps.iter().enumerate() {
-        let mut cmd = Command::new(&step.program);
-        cmd.args(&step.args).current_dir(&plan.cwd);
-        match plan.kind {
-            CacheKind::Cargo => configure_cargo_env(&mut cmd),
-            CacheKind::Pip => configure_python_env(&mut cmd, l),
-        }
-        if step.network {
-            cmd.env_remove("CARGO_NET_OFFLINE");
-            for key in FETCH_ENV_ALLOW {
-                if let Ok(v) = std::env::var(key) {
-                    cmd.env(key, v);
+    let sandbox = l.sandbox();
+    let result = (|| -> Result<Option<Prepared>> {
+        for (i, step) in plan.steps.iter().enumerate() {
+            if let Some(d) = &step.download {
+                let t0 = Instant::now();
+                output.push_str(&format!("$ download {} (sha256 {})\n", d.url, d.sha256));
+                let r = crate::kindbox::download_checked(d, &crate::lspinstall::http_fetch);
+                fetch_secs += t0.elapsed().as_secs_f64();
+                if let Err(e) = r {
+                    output.push_str(&e);
+                    output.push('\n');
+                    return Ok(Some(Prepared {
+                        ok: false,
+                        marker: None,
+                        output: output.clone(),
+                    }));
+                }
+                continue;
+            }
+            let mut cmd = match plan.kind {
+                CacheKind::Cluster => crate::kindbox::command(
+                    &sandbox,
+                    Path::new(&step.program),
+                    &step.args,
+                    step.network,
+                ),
+                _ => {
+                    let mut c = Command::new(&step.program);
+                    c.args(&step.args);
+                    c
+                }
+            };
+            cmd.current_dir(&plan.cwd);
+            match plan.kind {
+                CacheKind::Cargo => configure_cargo_env(&mut cmd),
+                CacheKind::Pip => configure_python_env(&mut cmd, l),
+                CacheKind::Cluster => {}
+            }
+            if step.network {
+                cmd.env_remove("CARGO_NET_OFFLINE");
+                for key in FETCH_ENV_ALLOW {
+                    if let Ok(v) = std::env::var(key) {
+                        cmd.env(key, v);
+                    }
                 }
             }
+            for (k, v) in &step.env {
+                cmd.env(k, v);
+            }
+            let timeout = if step.network {
+                FETCH_TIMEOUT
+            } else {
+                WARM_TIMEOUT
+            };
+            let shown = format!(
+                "{} {}",
+                Path::new(&step.program)
+                    .file_name()
+                    .map(|f| f.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| step.program.clone()),
+                step.args.join(" ")
+            );
+            let t0 = Instant::now();
+            let out = run_guarded(cmd, &l.dir, &format!("prepare-{i}"), timeout, None)
+                .with_context(|| format!("run `{shown}`"))?;
+            let secs = t0.elapsed().as_secs_f64();
+            if step.network {
+                fetch_secs += secs;
+            } else {
+                warm_secs += secs;
+            }
+            output.push_str(&format!("$ {shown}\n"));
+            output.push_str(&out.stdout);
+            output.push_str(&out.stderr);
+            if out.timed_out {
+                output.push_str(&format!("\ntimed out after {}s\n", timeout.as_secs()));
+            }
+            if out.timed_out || !out.status.map(|s| s.success()).unwrap_or(false) {
+                return Ok(Some(Prepared {
+                    ok: false,
+                    marker: None,
+                    output: output.clone(),
+                }));
+            }
         }
-        for (k, v) in &step.env {
-            cmd.env(k, v);
-        }
-        let timeout = if step.network {
-            FETCH_TIMEOUT
-        } else {
-            WARM_TIMEOUT
-        };
-        let shown = format!(
-            "{} {}",
-            Path::new(&step.program)
-                .file_name()
-                .map(|f| f.to_string_lossy().into_owned())
-                .unwrap_or_else(|| step.program.clone()),
-            step.args.join(" ")
-        );
-        let t0 = Instant::now();
-        let out = run_guarded(cmd, &l.dir, &format!("prepare-{i}"), timeout, None)
-            .with_context(|| format!("run `{shown}`"))?;
-        let secs = t0.elapsed().as_secs_f64();
-        if step.network {
-            fetch_secs += secs;
-        } else {
-            warm_secs += secs;
-        }
-        output.push_str(&format!("$ {shown}\n"));
-        output.push_str(&out.stdout);
-        output.push_str(&out.stderr);
-        if out.timed_out {
-            output.push_str(&format!("\ntimed out after {}s\n", timeout.as_secs()));
-        }
-        if out.timed_out || !out.status.map(|s| s.success()).unwrap_or(false) {
-            return Ok(Prepared {
-                ok: false,
-                marker: None,
-                output,
-            });
-        }
+        Ok(None)
+    })();
+    if plan.kind == CacheKind::Cluster {
+        // Nothing of the sandbox keeps running after the preparation (Podman's pause process).
+        crate::kindbox::podman::stop_pause(&sandbox);
+    }
+    if let Some(failed) = result? {
+        return Ok(failed);
     }
     let tool = match plan.kind {
         CacheKind::Cargo => {
@@ -672,9 +836,18 @@ pub fn prepare(plan: &Plan) -> Result<Prepared> {
             configure_python_env(&mut cmd, l);
             tool_version(cmd)
         }
+        CacheKind::Cluster => {
+            let v = crate::kindbox::versions(&sandbox);
+            crate::kindbox::podman::stop_pause(&sandbox);
+            format!(
+                "{} · {}",
+                v.get("kind").cloned().unwrap_or_default(),
+                v.get("podman").cloned().unwrap_or_default()
+            )
+        }
     };
     let marker = Marker {
-        fingerprint: fingerprint(&plan.dependencies),
+        fingerprint: fingerprint_of(plan.kind, &plan.dependencies),
         prepared_at: SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -707,6 +880,20 @@ pub(crate) fn course_timeout(build: &BuildEnv, default: Duration) -> Duration {
 
 /// As pastas da cache preparada de `build` (`None` num curso sem cache), recusando com
 /// [`NOT_PREPARED`] uma que não está pronta e com um erro claro uma de outro gestor de pacotes.
+/// O cluster de prática de um passo ao vivo de um curso de cluster preparado (`None` num curso
+/// sem cache); recusa com [`NOT_PREPARED`] um curso que não está pronto.
+pub fn cluster_sandbox_in(
+    root: Option<&Path>,
+    build: &BuildEnv,
+) -> Result<Option<crate::kindbox::Sandbox>> {
+    Ok(ready_layout(root, build, CacheKind::Cluster)?.map(|l| l.sandbox()))
+}
+
+/// [`cluster_sandbox_in`] na raiz das caches.
+pub fn cluster_sandbox(build: &BuildEnv) -> Result<Option<crate::kindbox::Sandbox>> {
+    cluster_sandbox_in(root().as_deref(), build)
+}
+
 fn ready_layout(root: Option<&Path>, build: &BuildEnv, want: CacheKind) -> Result<Option<Layout>> {
     let Some(cache) = &build.cache else {
         return Ok(None);
