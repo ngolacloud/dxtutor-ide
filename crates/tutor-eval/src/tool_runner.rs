@@ -74,7 +74,7 @@ impl LanguageRunner for ToolRunner {
     }
 
     fn check_project(&self, phase: &Phase, tree: &BTreeMap<String, String>) -> Result<Correctness> {
-        grade(phase, tree)
+        grade(phase, tree, &find_tool)
     }
 
     fn grades_support_files(&self) -> bool {
@@ -546,7 +546,12 @@ fn indent(s: &str) -> String {
 
 /// Avalia um passo de projecto: escreve a árvore do aluno, os ocultos (menos o [`CHECKS_FILE`]) e
 /// os ficheiros de apoio numa pasta nova, corre os comandos e as verificações, e diz tudo.
-fn grade(phase: &Phase, tree: &BTreeMap<String, String>) -> Result<Correctness> {
+/// `find` localiza cada ferramenta ([`find_tool`]; os testes injectam outra).
+fn grade(
+    phase: &Phase,
+    tree: &BTreeMap<String, String>,
+    find: &dyn Fn(Tool) -> Option<PathBuf>,
+) -> Result<Correctness> {
     let project = phase
         .project
         .as_ref()
@@ -560,7 +565,7 @@ fn grade(phase: &Phase, tree: &BTreeMap<String, String>) -> Result<Correctness> 
     // Uma ferramenta em falta: dizer o que instalar ANTES de correr o que quer que seja.
     let mut bins: BTreeMap<Tool, PathBuf> = BTreeMap::new();
     for tool in checks.tools() {
-        match find_tool(tool) {
+        match find(tool) {
             Some(b) => {
                 bins.insert(tool, b);
             }
@@ -937,6 +942,20 @@ mod tests {
             let e = f(bad).unwrap_err();
             assert!(e.contains(frag), "{bad}: {e}");
         }
+    }
+
+    #[test]
+    fn a_missing_tool_is_an_error_that_says_what_to_install() {
+        let checks = "[[run]]\ncmd = [\"kubectl\", \"kustomize\", \".\"]\nmessage = \"m\"\n";
+        let p = phase(&[("kustomization.yaml", "resources: []\n")], checks);
+        let e = grade(&p, &p.project.as_ref().unwrap().starter, &|_| None)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            e.contains("kubectl is not installed")
+                && e.contains("https://kubernetes.io/docs/tasks/tools/"),
+            "{e}"
+        );
     }
 
     #[test]
