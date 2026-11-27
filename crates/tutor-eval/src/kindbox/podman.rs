@@ -149,16 +149,34 @@ pub fn env(sb: &Sandbox, podman_dir: Option<&Path>, online: bool) -> BTreeMap<St
     e
 }
 
+/// A `catatonit` of this user whose `XDG_RUNTIME_DIR` is the sandbox's runtime folder.
+fn pause_by_environment(sb: &Sandbox) -> Option<i32> {
+    let want = format!("XDG_RUNTIME_DIR={}", sb.runtime.display());
+    std::fs::read_dir("/proc").ok()?.flatten().find_map(|e| {
+        let pid: i32 = e.file_name().to_str()?.parse().ok()?;
+        let comm = std::fs::read_to_string(format!("/proc/{pid}/comm")).ok()?;
+        if comm.trim() != "catatonit" {
+            return None;
+        }
+        let env = std::fs::read(format!("/proc/{pid}/environ")).ok()?;
+        env.split(|b| *b == 0)
+            .any(|kv| kv == want.as_bytes())
+            .then_some(pid)
+    })
+}
+
 /// Ends the sandbox's pause process (the one that keeps its user namespace), if it runs: after the
 /// cluster is deleted nothing of the sandbox stays running. Only a `catatonit` of this user whose
 /// pid file is in the sandbox's runtime folder is signalled.
 pub fn stop_pause(sb: &Sandbox) -> bool {
     let pid_file = sb.runtime.join("libpod").join("tmp").join("pause.pid");
-    let Some(pid) = std::fs::read_to_string(&pid_file)
+    let from_file = std::fs::read_to_string(&pid_file)
         .ok()
         .and_then(|s| s.trim().parse::<i32>().ok())
-        .filter(|p| *p > 1)
-    else {
+        .filter(|p| *p > 1);
+    // Without the pid file (its folder was removed under a running Podman), find the sandbox's
+    // pause process by the runtime folder in its environment.
+    let Some(pid) = from_file.or_else(|| pause_by_environment(sb)) else {
         return false;
     };
     let cmdline = std::fs::read(format!("/proc/{pid}/cmdline")).unwrap_or_default();

@@ -731,6 +731,12 @@ pub fn prepare(plan: &Plan) -> Result<Prepared> {
             let sb = l.sandbox();
             let lock = crate::kindbox::lock(&sb)?;
             crate::kindbox::delete_cluster(&sb)?;
+            // Deleting the last cluster removes the runtime folder: set it up again. The archive
+            // is written anew (`podman save` refuses to add to an existing docker-archive).
+            crate::kindbox::podman::init(&sb)?;
+            if sb.images.exists() {
+                std::fs::remove_file(&sb.images).context("remove the old image archive")?;
+            }
             Some(lock)
         }
         _ => None,
