@@ -37,7 +37,8 @@ const USAGE: &str =
     "usage: dxtutor-ide agent [-p] <request> [--cwd DIR] [--provider claude|codex|gemini|ollama] \
 [--model M] [--effort low|medium|high|xhigh|max] [--mode auto|assist|manual] [--resume ID] [--plan] \
 [--output text|json|stream-json]   (without a request, it is read from stdin)\n\
-       dxtutor-ide agent review [--base REF] [--post PR] [the options above]";
+       dxtutor-ide agent review [--base REF] [--post PR] [the options above]\n\
+       dxtutor-ide agent schedule add|list|run|remove …";
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Args {
@@ -115,7 +116,7 @@ pub fn parse(args: &[String]) -> Result<Args, String> {
 }
 
 /// The IDE's folders, as the app has them (`ao.ngolacloud.dxtutor-ide`): the keys' and the Project store's.
-fn config_dir() -> PathBuf {
+pub(crate) fn config_dir() -> PathBuf {
     std::env::var_os("DXTUTOR_CONFIG_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
@@ -128,7 +129,7 @@ fn config_dir() -> PathBuf {
         })
 }
 
-fn data_dir() -> PathBuf {
+pub(crate) fn data_dir() -> PathBuf {
     std::env::var_os("DXTUTOR_DATA_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
@@ -468,6 +469,10 @@ fn review(mut a: Args) -> i32 {
 pub fn from_args(args: &[String]) -> Option<i32> {
     if args.get(1).map(String::as_str) != Some("agent") {
         return None;
+    }
+    // H6c: scheduled agents
+    if args.get(2).map(String::as_str) == Some("schedule") {
+        return Some(crate::schedule::cli(&args[3..]));
     }
     let is_review = args.get(2).map(String::as_str) == Some("review");
     let rest = if is_review { &args[3..] } else { &args[2..] };

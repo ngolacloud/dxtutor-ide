@@ -1732,8 +1732,17 @@ plano é aprovado).
   projecto, e responde com `## Summary` / `## Findings` (`**high|medium|low** path:line — …`) / `## Verdict`; `--post N`
   comenta-a no PR N pelo `gh`. O workflow `.github/workflows/codev-review.yml` corre-a em cada PR do repositório (não de
   forks), ACONSELHADORA (nunca bloqueia), só com o segredo `ANTHROPIC_API_KEY` — sem ele diz que saltou.
-Testes: `cargo test -p dxtutor-ide headless` e `--test headless_agent` (o binário real contra um Ollama falso: escreve,
-recusa o `rm -rf`, responde, código 0; a revisão não muda nada e é comentada no PR por um `gh` falso).
+- **H6c — agentes agendados (`src-tauri/src/schedule.rs`): `dxtutor-ide agent schedule add --name N --when
+  hourly|daily@HH:MM|weekly@Mon@HH:MM --cwd DIR -p "…" [--write]` / `list` / `run <id>` / `remove <id>`.** O agendamento é
+  da PESSOA (no `schedules.json` da config da app), nunca de um ficheiro do projecto — um repositório nunca põe um agente
+  a correr sozinho. Instala-se como um timer do `systemd --user` (`dxtutor-agent-<id>.timer`, `Persistent=true`) que chama
+  `agent schedule run <id>` deste binário; só as formas de `when` acima chegam ao `OnCalendar=` (`on_calendar`). Só de
+  leitura por omissão (modo plano); `--write` = modo `auto`, com o que a política perguntar recusado. Cada execução fica
+  em `<data>/schedules/<id>/<hora>.json`, vai para a auditoria como qualquer sessão, e um `notify-send` (se existir) diz
+  como acabou. `DXTUTOR_SYSTEMCTL` aponta outro `systemctl` (os testes).
+Testes: `cargo test -p dxtutor-ide headless schedule` e `--test headless_agent` (o binário real contra um Ollama falso:
+escreve, recusa o `rm -rf`, responde, código 0; a revisão não muda nada e é comentada no PR por um `gh` falso; um agendamento
+instala o timer num `systemctl` falso, corre só de leitura, guarda a execução, notifica e sai).
 
 ## A ferramenta `ide` e as skills do IDE (H3/H4, `src-tauri/src/ide_tool.rs`, `ide_tool/ops.rs`, `tutor_agent::extensions`)
 
