@@ -204,6 +204,8 @@ pub struct Check {
     pub is: Option<ValueType>,
     #[serde(default)]
     pub same_as: Option<Ref>,
+    /// Cada valor está entre os valores de outro caminho — em TODOS os documentos que o `doc` da
+    /// referência escolhe (todos, sem `doc`).
     #[serde(default)]
     pub among: Option<Ref>,
     #[serde(default)]
@@ -861,6 +863,27 @@ fn resolve_ref<'a>(
     Ok(resolve(doc, &segs))
 }
 
+/// Os valores de `r` em TODOS os documentos que o seu `doc` escolhe (todos, sem `doc`): o
+/// conjunto de valores permitidos de um `among` (os nomes dos Services de um ficheiro com vários).
+fn resolve_pool<'a>(
+    docs: &'a BTreeMap<String, Result<Vec<Value>, String>>,
+    default_file: &str,
+    r: &Ref,
+) -> Result<Vec<&'a Value>, String> {
+    let file = r.file.as_deref().unwrap_or(default_file);
+    let all = match docs.get(file) {
+        None => return Err(format!("`{file}` is not available")),
+        Some(Err(e)) => return Err(e.clone()),
+        Some(Ok(d)) => d,
+    };
+    let segs = parse_path(&r.path)?;
+    Ok(all
+        .iter()
+        .filter(|d| r.doc.as_ref().is_none_or(|s| doc_matches(d, s)))
+        .flat_map(|d| resolve(d, &segs))
+        .collect())
+}
+
 fn evaluate_one(c: &Check, docs: &BTreeMap<String, Result<Vec<Value>, String>>) -> Outcome {
     let mut label = c.file.clone();
     if let Some(s) = &c.doc {
@@ -1059,7 +1082,7 @@ fn evaluate_one(c: &Check, docs: &BTreeMap<String, Result<Vec<Value>, String>>) 
         });
     }
     if let Some(r) = &c.among {
-        let pool = match resolve_ref(docs, &c.file, r) {
+        let pool = match resolve_pool(docs, &c.file, r) {
             Ok(o) => o,
             Err(e) => return fail(e),
         };
@@ -1318,6 +1341,19 @@ mod tests {
             &d
         )
         .ok);
+        // `among` junta os valores de todos os documentos que a referência escolhe.
+        assert!(one(
+            "all.yaml",
+            "doc = { kind = \"Service\" }\npath = \"metadata.name\"\namong = { path = \"metadata.name\" }",
+            &d
+        )
+        .ok);
+        let o = one(
+            "all.yaml",
+            "doc = { kind = \"Service\" }\npath = \"metadata.name\"\namong = { doc = { kind = \"Pod\" }, path = \"metadata.name\" }",
+            &d,
+        );
+        assert!(!o.ok && o.detail.contains("not one of"), "{o:?}");
         let o = one("bad.yaml", "path = \"kind\"\nexists = true", &d);
         assert!(!o.ok && o.detail.contains("line 3"), "{o:?}");
     }

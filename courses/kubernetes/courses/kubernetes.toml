@@ -1,0 +1,3636 @@
+# Kubernetes — the official dxtutor course for Kubernetes manifests (offline part).
+#
+# A TOOL course. The learner writes YAML; every challenge is a project step whose hidden
+# `checks.toml` declares structural checks and, for Kustomize, the offline command
+# `kubectl kustomize <dir>` (tutor_core::toolcheck has the allow-list). Grading never talks to a
+# cluster: commands run with an empty, temporary KUBECONFIG and HOME. Written against kubectl v1.36
+# (Kustomize v5.8). Running the manifests on a local cluster (kind on rootless Podman) is a later,
+# separate part.
+
+id = "kubernetes-basics"
+language = "yaml"
+category = "tool"
+subject = "kubernetes"
+title = "Kubernetes: Manifests That Mean What They Say"
+level = "beginner"
+summary = "Write Kubernetes manifests that the API server accepts and that do what you meant: Pods, Deployments, Services, configuration, probes, resources, namespaces, Ingress and Kustomize — graded offline."
+
+overview = '''
+**Kubernetes** runs containers on a cluster of machines and keeps them running. You do not start
+containers yourself: you describe the state you want in **manifests** — YAML documents for Pods,
+Deployments, Services and many other kinds — and Kubernetes' controllers make the cluster match,
+continuously. Knowing how to write those manifests correctly is the core skill of everyone who
+ships software to Kubernetes, from developers to platform engineers.
+
+This course teaches that skill **offline**. You write real manifests; hidden checks read your YAML the
+way a careful reviewer would — the right fields with the right types, selectors that really match
+their Pods, references to objects that exist — and the Kustomize units build your overlays with
+`kubectl kustomize`, locally. No cluster is needed and none is ever contacted: grading runs with an
+empty, temporary kubeconfig, so your own contexts are never read.
+
+What you will learn, in order:
+
+1. **objects** — `apiVersion`, `kind`, `metadata`, `spec`, and the YAML that carries them;
+2. **Pods** — containers, commands, ports and environment, with every type right;
+3. **Deployments** — labels, selectors, replicas and safe rolling updates;
+4. **Services** — a stable name and port in front of changing Pods;
+5. **ConfigMaps and Secrets** — configuration outside the image, without ever committing a secret;
+6. **probes** — readiness, liveness and startup;
+7. **resources** — requests, limits and quality of service;
+8. **namespaces** — scopes, references and quotas;
+9. **Ingress** — HTTP routes by host and path, with TLS;
+10. **Kustomize** — one base, many environments;
+11. **a capstone** — generated configuration, patches and an overlay, reviewed automatically.
+
+**What you need.** kubectl (https://kubernetes.io/docs/tasks/tools/) for the Kustomize units — the
+course was written against **kubectl v1.36**, whose built-in Kustomize is v5.8. The other units need
+nothing but the editor. Running these manifests on a local cluster (kind) is the hands-on part that
+follows this course.
+
+Official documentation: https://kubernetes.io/docs/ — the concepts pages linked in each unit match
+the API versions used here (`v1`, `apps/v1`, `networking.k8s.io/v1`).
+'''
+
+[[unit]]
+id = "k8s-u1-objects"
+title = "Objects: apiVersion, kind, metadata, spec"
+level = "basic"
+difficulty = 1
+intro = "Everything you give Kubernetes is an object written in YAML, with the same four top-level fields."
+concepts = '''
+Kubernetes is a **declarative** system. You do not tell it "start three containers"; you hand it a
+description of the state you want — *three replicas of this container, reachable under this name* —
+and its controllers work, continuously, to make the cluster match. That description is a set of
+**objects**, and you write each one as a YAML document.
+
+Every object, whatever it is, starts with the same four fields:
+
+| Field | What it says |
+|---|---|
+| `apiVersion` | which API group and version defines this kind: `v1` (the core group), `apps/v1`, `networking.k8s.io/v1` |
+| `kind` | what the object is: `Pod`, `Deployment`, `Service`, `ConfigMap`… |
+| `metadata` | who it is: `name` (required), `namespace`, `labels`, `annotations` |
+| `spec` | what you want: the desired state, different for every kind |
+
+A fifth field, `status`, is written by Kubernetes itself (what is actually running); you never write
+it in a manifest.
+
+**Names.** `metadata.name` must be unique for its kind inside a namespace. Most kinds want a
+DNS-1123 name: lowercase letters, digits and `-`, starting and ending with a letter or digit
+(`web`, `api-v2`). Uppercase letters and underscores are refused by the API server.
+
+**YAML is the syntax, the API is the meaning.** YAML is just nested maps (`key: value`), lists
+(`- item`) and scalars. Indentation is structure: two spaces per level is the Kubernetes
+convention, and tabs are not allowed. Keys are case-sensitive — `apiversion` is not
+`apiVersion`, and the API server rejects a field it does not know when it validates strictly. Several
+objects can live in one file, separated by a line with `---`.
+
+**Offline in this course.** Your manifests are graded on your machine, without a cluster: the hidden
+checks read the YAML you wrote, and later units run `kubectl kustomize`, which builds manifests
+locally. Nothing here ever talks to a cluster or reads your kubeconfig. (Even `kubectl apply
+--dry-run=client` asks the API server for its schema, so it is not used.) The course was written
+against **kubectl v1.36** and its built-in Kustomize v5.8.
+
+Official docs: https://kubernetes.io/docs/concepts/overview/working-with-objects/
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "k8s-c1-objects"
+title = "A manifest is a wish, written down"
+points = 5
+difficulty = 1
+intro = '''
+What a Kubernetes object is, and the four fields every one of them has.
+'''
+body = '''
+Open any Kubernetes manifest and you will find the same skeleton:
+
+```yaml
+apiVersion: v1        # the API that defines the kind
+kind: Pod             # what this object is
+metadata:
+  name: hello         # who it is
+spec: {}              # what you want (depends on the kind)
+```
+
+- `apiVersion` + `kind` together say **which schema** the rest of the document follows.
+- `metadata.name` identifies the object; it is the handle every command uses
+  (`kubectl get pod hello`).
+- `spec` is the **desired state**. Kubernetes compares it with what is running and acts on the
+  difference — that loop is what "declarative" means.
+
+In this unit you write your first objects and learn to read the errors a typo produces.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "k8s-d1-namespace"
+title = "The smallest object: a Namespace"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+A Namespace has no spec worth writing: the four-field skeleton is almost all of it.
+'''
+prompt = '''
+Type the manifest. A Namespace is a cluster-wide object that groups other objects; it needs only a name.
+'''
+target = '''
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: shop
+  labels:
+    team: payments
+'''
+line_comments = [
+  "`v1` is the core API group: Namespaces, Pods, Services and ConfigMaps live there.",
+  "The kind: this document describes a Namespace.",
+  "Identity of the object.",
+  "A DNS-1123 name: lowercase letters, digits and `-`.",
+  "Labels are free key/value pairs you attach to any object…",
+  "…so tools and selectors can find objects by meaning, not by name.",
+]
+explanation = "A Namespace is cluster-scoped, so it has no `metadata.namespace` itself. Other objects name it in their own `metadata.namespace`."
+
+[[unit.step]]
+kind = "drill"
+id = "k8s-d1-pod"
+title = "A first Pod"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+The Pod is the unit Kubernetes runs: one or more containers scheduled together.
+'''
+prompt = '''
+Type the manifest of a Pod with one container that prints a line and then sleeps.
+'''
+target = '''
+apiVersion: v1
+kind: Pod
+metadata:
+  name: hello
+spec:
+  containers:
+    - name: hello
+      image: busybox:1.36
+      command: ["sh", "-c", "echo hello && sleep 3600"]
+'''
+line_comments = [
+  "Pods are in the core group.",
+  "The smallest thing Kubernetes schedules onto a node.",
+  "Identity.",
+  "The Pod's name, unique in its namespace.",
+  "The desired state of the Pod.",
+  "A list: a Pod can run several containers that share network and volumes.",
+  "Each container has a name, unique inside the Pod.",
+  "The image, pinned to a version tag — never rely on `latest`.",
+  "`command` replaces the image's ENTRYPOINT; a YAML flow list is the same as a block list.",
+]
+explanation = "`kubectl apply -f pod.yaml` would create it on a cluster; here, the check is that the YAML is well formed and has the four fields."
+
+[[unit.step]]
+kind = "challenge"
+id = "k8s-p1-pod"
+title = "Fix the broken Pod"
+points = 30
+difficulty = 2
+intro = '''
+A manifest with the kind of typos that make the API server refuse it.
+'''
+instructions = '''
+`pod.yaml` was written in a hurry. The API server would refuse it. Fix it so that:
+
+- the top-level fields are exactly `apiVersion`, `kind`, `metadata` and `spec` (YAML keys are
+  case-sensitive);
+- it is a `Pod` in the core API (`v1`) named `hello`;
+- it has exactly one container, named `hello`, running the image `busybox:1.36`;
+- the container runs `sh -c "echo hello && sleep 3600"` as its `command` (a list of three strings).
+'''
+
+[unit.step.project]
+main = "pod.yaml"
+explanation = '''
+Four kinds of mistake were hiding here: a key with the wrong case (`apiversion`, `Name`), a kind
+with the wrong case (`pod`), a name that is not a DNS-1123 label (`Hello`), and a `command` written as
+one string instead of a list — Kubernetes would try to run a program literally named
+`sh -c "echo hello && sleep 3600"`. A container without a `name` is refused too.
+'''
+
+[unit.step.project.starter]
+"pod.yaml" = '''
+# Fix every mistake: the API server would refuse this manifest.
+apiversion: v1
+kind: pod
+metadata:
+  Name: Hello
+spec:
+  containers:
+    - image: busybox
+      command: sh -c "echo hello && sleep 3600"
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[check]]
+file = "pod.yaml"
+doc_count = 1
+message = "pod.yaml must contain exactly one object."
+
+[[check]]
+file = "pod.yaml"
+only_keys = ["apiVersion", "kind", "metadata", "spec"]
+message = "The top-level fields are apiVersion, kind, metadata and spec (keys are case-sensitive)."
+
+[[check]]
+file = "pod.yaml"
+path = "apiVersion"
+equals = "v1"
+message = "Pods are defined by the core API: apiVersion: v1."
+
+[[check]]
+file = "pod.yaml"
+path = "kind"
+equals = "Pod"
+message = "The kind is written Pod, with a capital P."
+
+[[check]]
+file = "pod.yaml"
+path = "metadata"
+only_keys = ["name", "namespace", "labels", "annotations"]
+message = "metadata knows name, namespace, labels and annotations (lowercase)."
+
+[[check]]
+file = "pod.yaml"
+path = "metadata.name"
+equals = "hello"
+message = "The Pod is named hello (names are lowercase DNS-1123 labels)."
+
+[[check]]
+file = "pod.yaml"
+path = "spec.containers"
+len = 1
+message = "The Pod has exactly one container."
+
+[[check]]
+file = "pod.yaml"
+path = "spec.containers[0].name"
+equals = "hello"
+message = "Every container needs a name; this one is hello."
+
+[[check]]
+file = "pod.yaml"
+path = "spec.containers[0].image"
+equals = "busybox:1.36"
+message = "Pin the image to a tag: busybox:1.36."
+
+[[check]]
+file = "pod.yaml"
+path = "spec.containers[0].command"
+equals = ["sh", "-c", "echo hello && sleep 3600"]
+message = "command is a list of strings: [\"sh\", \"-c\", \"echo hello && sleep 3600\"]."
+'''
+
+[unit.step.project.solution]
+"pod.yaml" = '''
+apiVersion: v1
+kind: Pod
+metadata:
+  name: hello
+spec:
+  containers:
+    - name: hello
+      image: busybox:1.36
+      command: ["sh", "-c", "echo hello && sleep 3600"]
+'''
+
+[[unit]]
+id = "k8s-u2-pods"
+title = "Pods: containers, ports, commands and environment"
+level = "basic"
+difficulty = 2
+intro = "What goes inside a Pod's spec: the containers, what they run, the ports they listen on and their environment."
+concepts = '''
+A **Pod** is a group of one or more containers that are always scheduled together, on the same node,
+sharing one network namespace (they reach each other on `localhost`) and the volumes the Pod
+declares. Most Pods run one main container; extra ones are helpers (a log shipper, a proxy).
+
+**`spec.containers`** is a list. Each entry has:
+
+- `name` — unique inside the Pod, used by `kubectl logs <pod> -c <name>`;
+- `image` — the OCI image, ideally pinned to a tag (`nginx:1.27`) or a digest;
+- `command` and `args` — override the image's `ENTRYPOINT` and `CMD`. `command` is the program,
+  `args` its arguments; both are **lists of strings**. Leave them out to run what the image
+  declares;
+- `ports` — a list of `containerPort` entries (an integer, 1–65535), optionally with a `name`
+  (≤ 15 lowercase characters) and a `protocol` (`TCP` by default). Declaring a port is documentation
+  plus a name others can refer to; it does not open or publish anything by itself;
+- `env` — a list of `{name, value}` pairs. Values are **strings**: write `"8000"`, not `8000`,
+  because the API refuses a number where it expects a string;
+- `workingDir` — the directory the process starts in.
+
+**Types matter.** YAML guesses types: `8000` is an integer, `"8000"` a string, `true` a boolean,
+`1.10` a float. Kubernetes fields have fixed types, so `containerPort: "8000"` and
+`value: 8000` are both refused. Quote environment values that look like numbers or booleans.
+
+**`restartPolicy`** applies to every container in the Pod: `Always` (the default), `OnFailure` or
+`Never`. A bare Pod is rarely what you deploy — if its node dies, nobody recreates it. Controllers
+such as Deployments (next unit) create Pods for you. You still need to know the Pod spec well,
+because every controller embeds one as its *template*.
+
+Official docs: https://kubernetes.io/docs/concepts/workloads/pods/
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "k8s-c2-pods"
+title = "Inside a Pod spec"
+points = 5
+difficulty = 2
+intro = '''
+The fields of a container that you will write in almost every manifest.
+'''
+body = '''
+A container entry answers four questions:
+
+1. **What image?** `image: python:3.12-slim`
+2. **What process?** `command: ["python", "-m", "http.server"]` and `args: ["8000"]`
+3. **Which ports?** `ports: [{name: http, containerPort: 8000}]`
+4. **What environment?** `env: [{name: APP_ENV, value: "dev"}]`
+
+Every value has a type the API checks: ports are integers, environment values are strings, `command`
+and `args` are lists. YAML's type guessing is the most common source of rejected manifests — this unit
+trains your eye for it.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "k8s-d2-ports-env"
+title = "Ports and environment"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+A web server with a named port and two environment variables.
+'''
+prompt = '''
+Type the Pod. Notice which values are quoted and which are not.
+'''
+target = '''
+apiVersion: v1
+kind: Pod
+metadata:
+  name: web
+spec:
+  containers:
+    - name: web
+      image: nginx:1.27
+      ports:
+        - name: http
+          containerPort: 80
+      env:
+        - name: TZ
+          value: Africa/Luanda
+        - name: WORKERS
+          value: "4"
+'''
+line_comments = [
+  "Core API.",
+  "A Pod.",
+  "Identity.",
+  "The name.",
+  "Desired state.",
+  "The list of containers.",
+  "The main container.",
+  "nginx, pinned to 1.27.",
+  "The ports this container listens on.",
+  "A port name (≤ 15 characters) that Services and probes can refer to.",
+  "An integer, never a quoted string.",
+  "Environment variables, as a list of name/value pairs.",
+  "The variable's name.",
+  "Its value: always a string.",
+  "A second variable…",
+  "…whose value looks like a number, so it MUST be quoted.",
+]
+explanation = "Without the quotes, `4` would be an integer and the API server would refuse the Pod: environment values are strings."
+
+[[unit.step]]
+kind = "drill"
+id = "k8s-d2-command"
+title = "Command and args"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+Overriding what the image runs.
+'''
+prompt = '''
+Type the Pod. `command` replaces the image ENTRYPOINT and `args` its CMD.
+'''
+target = '''
+apiVersion: v1
+kind: Pod
+metadata:
+  name: files
+spec:
+  restartPolicy: OnFailure
+  containers:
+    - name: server
+      image: python:3.12-slim
+      command: ["python", "-m", "http.server"]
+      args: ["8000"]
+      workingDir: /srv
+'''
+line_comments = [
+  "Core API.",
+  "A Pod.",
+  "Identity.",
+  "The name.",
+  "Desired state.",
+  "Restart the container only when it exits with an error.",
+  "The containers.",
+  "One container.",
+  "The official slim Python image.",
+  "The program and its fixed arguments.",
+  "The arguments appended after `command` — a string, inside a list.",
+  "The process starts in /srv, so it serves that folder.",
+]
+explanation = "Kubernetes runs `python -m http.server 8000` in `/srv`. With only `args`, the image's own ENTRYPOINT would get them."
+
+[[unit.step]]
+kind = "challenge"
+id = "k8s-p2-api-pod"
+title = "An API Pod"
+points = 30
+difficulty = 3
+intro = '''
+Write a Pod from a short specification, with every type right.
+'''
+instructions = '''
+Write `pod.yaml`: a Pod named `api` with one container named `api` that
+
+- runs the image `python:3.12-slim`;
+- runs the command `python -m http.server` with the argument `8000` (use `command` for the program
+  and `args` for `8000`);
+- declares one port named `http` on container port `8000`;
+- has the environment variables `APP_ENV` = `dev` and `PORT` = `8000` (a string!);
+- uses `restartPolicy: Always`.
+
+Use only the container fields named above.
+'''
+
+[unit.step.project]
+main = "pod.yaml"
+explanation = '''
+The two traps were the types: `containerPort` must be an integer and every environment `value` a
+string, so `PORT` needs quotes. `command` and `args` are both lists; Kubernetes runs them joined:
+`python -m http.server 8000`.
+'''
+
+[unit.step.project.starter]
+"pod.yaml" = '''
+apiVersion: v1
+kind: Pod
+metadata:
+  name: api
+spec:
+  containers:
+    - name: api
+      image: python:3.12-slim
+      # TODO: command, args, ports and env
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[check]]
+file = "pod.yaml"
+path = "metadata.name"
+equals = "api"
+message = "The Pod is named api."
+
+[[check]]
+file = "pod.yaml"
+path = "spec.restartPolicy"
+equals = "Always"
+message = "Set restartPolicy: Always."
+
+[[check]]
+file = "pod.yaml"
+path = "spec.containers"
+len = 1
+message = "One container."
+
+[[check]]
+file = "pod.yaml"
+path = "spec.containers[0]"
+only_keys = ["name", "image", "command", "args", "ports", "env"]
+message = "Use only name, image, command, args, ports and env in the container (check the spelling)."
+
+[[check]]
+file = "pod.yaml"
+path = "spec.containers[0].command"
+equals = ["python", "-m", "http.server"]
+message = "command is the program: [\"python\", \"-m\", \"http.server\"]."
+
+[[check]]
+file = "pod.yaml"
+path = "spec.containers[0].args"
+equals = ["8000"]
+message = "args is a list of strings: [\"8000\"]."
+
+[[check]]
+file = "pod.yaml"
+path = "spec.containers[0].ports"
+len = 1
+message = "Declare exactly one port."
+
+[[check]]
+file = "pod.yaml"
+path = "spec.containers[0].ports[0].containerPort"
+is = "integer"
+message = "containerPort is an integer, not a quoted string."
+
+[[check]]
+file = "pod.yaml"
+path = "spec.containers[0].ports[0].containerPort"
+equals = 8000
+message = "The container listens on port 8000."
+
+[[check]]
+file = "pod.yaml"
+path = "spec.containers[0].ports[0].name"
+equals = "http"
+message = "Name the port http."
+
+[[check]]
+file = "pod.yaml"
+path = "spec.containers[0].env"
+len = 2
+message = "Two environment variables: APP_ENV and PORT."
+
+[[check]]
+file = "pod.yaml"
+path = "spec.containers[0].env[name=APP_ENV].value"
+equals = "dev"
+message = "APP_ENV is dev."
+
+[[check]]
+file = "pod.yaml"
+path = "spec.containers[0].env[*].value"
+is = "string"
+message = "Environment values are strings: quote numbers such as \"8000\"."
+
+[[check]]
+file = "pod.yaml"
+path = "spec.containers[0].env[name=PORT].value"
+equals = "8000"
+message = "PORT is the string \"8000\"."
+'''
+
+[unit.step.project.solution]
+"pod.yaml" = '''
+apiVersion: v1
+kind: Pod
+metadata:
+  name: api
+spec:
+  restartPolicy: Always
+  containers:
+    - name: api
+      image: python:3.12-slim
+      command: ["python", "-m", "http.server"]
+      args: ["8000"]
+      ports:
+        - name: http
+          containerPort: 8000
+      env:
+        - name: APP_ENV
+          value: dev
+        - name: PORT
+          value: "8000"
+'''
+
+[[unit]]
+id = "k8s-u3-deployments"
+title = "Labels, selectors and Deployments"
+level = "basic"
+difficulty = 3
+intro = "Labels give objects meaning; a Deployment uses a selector over them to keep N copies of a Pod template running."
+concepts = '''
+**Labels** are key/value pairs in `metadata.labels`: `app: web`, `tier: frontend`, `env: prod`. They
+carry no behaviour by themselves; they exist so that **selectors** can pick objects by meaning. A
+selector `app=web,tier=frontend` matches every object that has *both* labels (a logical AND); extra
+labels on the object do not matter. The recommended common labels use a prefix:
+`app.kubernetes.io/name`, `app.kubernetes.io/part-of`… — keys with dots and slashes, which you
+must quote in some tools but which are plain keys in YAML.
+
+A **Deployment** (`apps/v1`) manages stateless Pods for you. Its spec has three parts that must agree:
+
+```yaml
+spec:
+  replicas: 3                 # how many Pods
+  selector:
+    matchLabels: {app: web}   # which Pods belong to this Deployment
+  template:                   # how to make one Pod
+    metadata:
+      labels: {app: web}      # MUST satisfy the selector
+    spec: {containers: [...]}
+```
+
+The **selector must match the template's labels** — the API server refuses a Deployment whose
+template would create Pods it does not select. The selector is also **immutable** after creation, so
+choose labels that identify the application, not the version (put `version: v2` on the template
+only if the selector does not include it).
+
+Behind the scenes the Deployment creates a **ReplicaSet** per template version and moves Pods from
+the old one to the new one when you change the template (a *rolling update*). The `strategy` field
+controls it: `RollingUpdate` (default) with `maxSurge` and `maxUnavailable` (numbers or
+percentages, default 25%), or `Recreate` (stop all, then start all). Changing only `replicas` scales
+without a new ReplicaSet.
+
+Official docs: https://kubernetes.io/docs/concepts/workloads/controllers/deployment/ and
+https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "k8s-c3-deployments"
+title = "From one Pod to a managed set"
+points = 5
+difficulty = 3
+intro = '''
+Why you almost never create bare Pods, and the one rule every Deployment must keep.
+'''
+body = '''
+A Deployment is a **controller**: it watches the cluster and creates or deletes Pods until the number
+of Pods matching its selector equals `replicas`. If a node dies, the Pods on it are recreated
+elsewhere; if you change the image, a new ReplicaSet rolls out gradually.
+
+The rule to remember: **`spec.selector.matchLabels` ⊆ `spec.template.metadata.labels`**. Every
+label in the selector must appear, with the same value, on the template. The template can carry more
+labels than the selector, never fewer.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "k8s-d3-labels"
+title = "Labels on a Pod"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+Adding meaning to an object with labels.
+'''
+prompt = '''
+Type the Pod with three labels, one of them a prefixed recommended label.
+'''
+target = '''
+apiVersion: v1
+kind: Pod
+metadata:
+  name: web-manual
+  labels:
+    app: web
+    tier: frontend
+    app.kubernetes.io/name: web
+spec:
+  containers:
+    - name: web
+      image: nginx:1.27
+'''
+line_comments = [
+  "Core API.",
+  "A Pod.",
+  "Identity, and now meaning.",
+  "The name says WHICH object; labels say WHAT it is.",
+  "A map of labels.",
+  "The application this Pod belongs to.",
+  "Its role in the system.",
+  "A recommended label: the key has a prefix with dots and a slash.",
+  "Desired state.",
+  "Containers.",
+  "One container.",
+  "Pinned image.",
+]
+explanation = "`kubectl get pods -l app=web,tier=frontend` would list this Pod: both labels match."
+
+[[unit.step]]
+kind = "drill"
+id = "k8s-d3-deployment"
+title = "A Deployment"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+Three replicas of the web Pod, kept alive by a controller.
+'''
+prompt = '''
+Type the Deployment. Check that the selector's labels appear in the template.
+'''
+target = '''
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27
+'''
+line_comments = [
+  "Deployments live in the `apps` group, version `v1`.",
+  "A controller for stateless Pods.",
+  "The Deployment's own identity…",
+  "…and name.",
+  "Desired state of the Deployment.",
+  "Keep three Pods running.",
+  "Which Pods count as \"mine\".",
+  "All of these labels must match.",
+  "The selector: app=web.",
+  "The Pod template the controller stamps out.",
+  "Metadata of each Pod.",
+  "Their labels…",
+  "…which satisfy the selector.",
+  "The Pod spec, exactly as in a bare Pod.",
+  "Containers.",
+  "One container.",
+  "Pinned image.",
+]
+explanation = "The Pods get generated names like `web-7d4b9c-x2k8p`: the Deployment name, the ReplicaSet hash and a random suffix."
+
+[[unit.step]]
+kind = "challenge"
+id = "k8s-p3-deployment"
+title = "A Deployment that rolls safely"
+points = 35
+difficulty = 4
+intro = '''
+Selector, template labels, replicas and a rolling-update strategy that never drops below capacity.
+'''
+instructions = '''
+Complete `deployment.yaml`: a Deployment named `web` in `apps/v1` that
+
+- runs **3** replicas;
+- selects its Pods with the labels `app: web` and `tier: frontend` (in `matchLabels`);
+- gives its Pod template those two labels plus `version: "1.27"` (a string label, not in the
+  selector, so the selector stays the same across versions);
+- runs one container `web` with the image `nginx:1.27` and a port named `http` on `80`;
+- rolls out with `strategy.type: RollingUpdate`, `maxUnavailable: 0` and `maxSurge: 1`.
+'''
+
+[unit.step.project]
+main = "deployment.yaml"
+explanation = '''
+With `maxUnavailable: 0` and `maxSurge: 1`, a rollout starts one new Pod, waits until it is ready,
+removes one old Pod, and repeats — capacity never drops. The starter's selector (`app: frontend`) did
+not match its template (`app: web`): the API server would have refused the Deployment.
+'''
+
+[unit.step.project.starter]
+"deployment.yaml" = '''
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[check]]
+file = "deployment.yaml"
+path = "apiVersion"
+equals = "apps/v1"
+message = "Deployments are in apps/v1."
+
+[[check]]
+file = "deployment.yaml"
+path = "kind"
+equals = "Deployment"
+message = "The kind is Deployment."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.replicas"
+equals = 3
+message = "Run 3 replicas."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.selector.matchLabels"
+equals = { app = "web", tier = "frontend" }
+message = "The selector is exactly app: web and tier: frontend."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.selector.matchLabels"
+selects = { path = "spec.template.metadata.labels" }
+message = "The template's labels must satisfy the selector, or the API server refuses the Deployment."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.template.metadata.labels.version"
+equals = "1.27"
+message = "Add the label version: \"1.27\" to the template (quoted: label values are strings)."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.selector.matchLabels.version"
+exists = false
+message = "Keep version out of the selector: a selector cannot change after creation."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.template.spec.containers[name=web].image"
+equals = "nginx:1.27"
+message = "The web container runs nginx:1.27."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.template.spec.containers[name=web].ports[name=http].containerPort"
+equals = 80
+message = "Declare the port http on 80."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.strategy.type"
+equals = "RollingUpdate"
+message = "Use the RollingUpdate strategy."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.strategy.rollingUpdate.maxUnavailable"
+equals = 0
+message = "maxUnavailable: 0 — never drop below 3 ready Pods during a rollout."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.strategy.rollingUpdate.maxSurge"
+equals = 1
+message = "maxSurge: 1 — start one extra Pod at a time."
+'''
+
+[unit.step.project.solution]
+"deployment.yaml" = '''
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: web
+      tier: frontend
+  template:
+    metadata:
+      labels:
+        app: web
+        tier: frontend
+        version: "1.27"
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27
+          ports:
+            - name: http
+              containerPort: 80
+'''
+
+[[unit]]
+id = "k8s-u4-services"
+title = "Services: a stable name in front of Pods"
+level = "intermediate"
+difficulty = 4
+intro = "Pods come and go with new IPs; a Service gives a set of Pods one stable name and port."
+concepts = '''
+Pods are disposable: a rollout replaces them, and every new Pod gets a new IP. Clients need something
+stable. A **Service** (`v1`) is that stable front: a name and a virtual IP that forward to **whatever
+Pods currently match its selector**.
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata: {name: web}
+spec:
+  selector: {app: web}        # plain map — not matchLabels!
+  ports:
+    - name: http
+      port: 80                # the port clients use on the Service
+      targetPort: http        # the Pod's port: a number or a container port NAME
+```
+
+- **`spec.selector`** is a plain map of labels (a Service has no `matchLabels`). It must match the
+  labels of the Pod **template**, not of the Deployment object.
+- **`port`** is what clients connect to; **`targetPort`** is where the Pods listen. Using the
+  container port's *name* (`http`) lets you change the number in the Deployment without touching the
+  Service. If `targetPort` is left out it equals `port`.
+- Inside the cluster, DNS resolves `web` (same namespace) or `web.<namespace>.svc.cluster.local`.
+
+**Types.** `ClusterIP` (the default) is reachable only inside the cluster. `NodePort` additionally
+opens the same port on every node, in the range 30000–32767 (`nodePort`, or let Kubernetes choose).
+`LoadBalancer` asks the cloud provider for an external load balancer. `ExternalName` is just a DNS
+alias. A Service with more than one port must name every port.
+
+A Service whose selector matches no Pod is valid but answers nobody — its Endpoints stay empty. That
+mismatch is the most common Kubernetes networking bug, and exactly what the checks of this unit look
+for across files.
+
+Official docs: https://kubernetes.io/docs/concepts/services-networking/service/
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "k8s-c4-services"
+title = "Selectors, ports and targetPorts"
+points = 5
+difficulty = 4
+intro = '''
+How a Service finds its Pods, and the two ports you must not confuse.
+'''
+body = '''
+Three things must line up between a Service and a Deployment:
+
+1. The Service's **`selector`** must be satisfied by the Deployment's **template labels**.
+2. The Service's **`targetPort`** must be a port the container really declares — by number or, better,
+   by name.
+3. Clients use the Service's **`port`**, which can differ from the container port (80 → 8080 is common).
+
+In this unit the checks read two files at once: the Deployment and your Service.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "k8s-d4-clusterip"
+title = "A ClusterIP Service"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+The default kind of Service, targeting a named port.
+'''
+prompt = '''
+Type the Service. It forwards port 80 to the Pods' port named `http`.
+'''
+target = '''
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+spec:
+  type: ClusterIP
+  selector:
+    app: web
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+'''
+line_comments = [
+  "Services are core objects.",
+  "A stable name in front of Pods.",
+  "Identity.",
+  "Other Pods will reach it as `web`.",
+  "Desired state.",
+  "The default: reachable only inside the cluster.",
+  "A plain label map (no matchLabels in a Service).",
+  "Every Pod with app=web becomes an endpoint.",
+  "One or more ports.",
+  "Port names are required when there is more than one port.",
+  "What clients connect to.",
+  "The container port, referenced by its name.",
+]
+explanation = "If the Deployment later moves its container from 80 to 8080 but keeps the name `http`, this Service still works."
+
+[[unit.step]]
+kind = "drill"
+id = "k8s-d4-nodeport"
+title = "A NodePort Service"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+Exposing a port on every node.
+'''
+prompt = '''
+Type the Service of type NodePort.
+'''
+target = '''
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-public
+spec:
+  type: NodePort
+  selector:
+    app: web
+  ports:
+    - port: 80
+      targetPort: 8080
+      nodePort: 30080
+'''
+line_comments = [
+  "Core API.",
+  "A Service.",
+  "Identity.",
+  "The name.",
+  "Desired state.",
+  "Also open a port on every node.",
+  "Which Pods.",
+  "app=web.",
+  "Ports.",
+  "The Service port inside the cluster.",
+  "The container port, by number this time.",
+  "The node port: must be in 30000–32767 (or leave it out to get one).",
+]
+explanation = "`curl http://<any-node-ip>:30080` would reach the Pods. On a cloud, `LoadBalancer` builds on top of this."
+
+[[unit.step]]
+kind = "challenge"
+id = "k8s-p4-service"
+title = "Put a Service in front of the API"
+points = 35
+difficulty = 5
+intro = '''
+Write a Service that really reaches the Pods of a Deployment you are given.
+'''
+instructions = '''
+`deployment.yaml` (read-only) runs the `api` Deployment. Write `service.yaml`: a Service named `api`
+that
+
+- is of type `ClusterIP`;
+- selects **exactly** the Pods of that Deployment — use the label the Deployment's selector uses,
+  and nothing that its Pod template does not carry;
+- exposes one port named `http` on port **80**, forwarding to the container port **by its name**.
+'''
+
+[unit.step.project]
+main = "service.yaml"
+readonly = ["deployment.yaml"]
+explanation = '''
+The starter selected `team: backend`, a label that is on the Deployment *object* but not on its Pod
+template — the Service would have had no endpoints. Selecting `app.kubernetes.io/name: api` and
+forwarding to the port named `http` reaches the Pods on 8000 even though clients use 80.
+'''
+
+[unit.step.project.starter]
+"deployment.yaml" = '''
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  labels:
+    team: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: api
+        app.kubernetes.io/part-of: shop
+    spec:
+      containers:
+        - name: api
+          image: python:3.12-slim
+          command: ["python", "-m", "http.server", "8000"]
+          ports:
+            - name: http
+              containerPort: 8000
+'''
+"service.yaml" = '''
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+spec:
+  selector:
+    team: backend
+  ports:
+    - port: 80
+      targetPort: 80
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[check]]
+file = "service.yaml"
+path = "kind"
+equals = "Service"
+message = "Write a Service."
+
+[[check]]
+file = "service.yaml"
+path = "metadata.name"
+equals = "api"
+message = "Name it api."
+
+[[check]]
+file = "service.yaml"
+path = "spec.type"
+equals = "ClusterIP"
+message = "Use type: ClusterIP."
+
+[[check]]
+file = "service.yaml"
+path = "spec.selector.matchLabels"
+exists = false
+message = "A Service selector is a plain label map, not matchLabels."
+
+[[check]]
+file = "service.yaml"
+path = "spec.selector"
+selects = { file = "deployment.yaml", path = "spec.template.metadata.labels" }
+message = "The selector must match the Deployment's Pod template labels (team: backend is on the Deployment object, not on its Pods)."
+
+[[check]]
+file = "service.yaml"
+path = "spec.selector"
+equals = { "app.kubernetes.io/name" = "api" }
+message = "Select with exactly the label the Deployment's selector uses: app.kubernetes.io/name: api."
+
+[[check]]
+file = "service.yaml"
+path = "spec.ports"
+len = 1
+message = "Expose one port."
+
+[[check]]
+file = "service.yaml"
+path = "spec.ports[0].name"
+equals = "http"
+message = "Name the port http."
+
+[[check]]
+file = "service.yaml"
+path = "spec.ports[0].port"
+equals = 80
+message = "Clients use port 80."
+
+[[check]]
+file = "service.yaml"
+path = "spec.ports[0].targetPort"
+is = "string"
+message = "Refer to the container port by its name, not its number."
+
+[[check]]
+file = "service.yaml"
+path = "spec.ports[0].targetPort"
+among = { file = "deployment.yaml", path = "spec.template.spec.containers[*].ports[*].name" }
+message = "targetPort must be the name of a port the container declares."
+'''
+
+[unit.step.project.solution]
+"service.yaml" = '''
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+'''
+
+[[unit]]
+id = "k8s-u5-config"
+title = "ConfigMaps and Secrets"
+level = "intermediate"
+difficulty = 5
+intro = "Configuration lives outside the image: plain settings in ConfigMaps, sensitive values in Secrets."
+concepts = '''
+The same image should run in development and in production; what changes is **configuration**.
+Kubernetes keeps it in two kinds of object:
+
+- a **ConfigMap** holds non-sensitive settings: `data` is a map of string keys to **string** values
+  (`LOG_LEVEL: info`, `WORKERS: "4"`), up to 1 MiB in total;
+- a **Secret** holds sensitive values (passwords, tokens, keys). In `data` the values are base64; in
+  `stringData` you write them as plain text and the API server encodes them. `type: Opaque` is the
+  generic type.
+
+**A Secret is not encrypted by being a Secret.** Base64 is an encoding, not encryption: anyone who can
+read the object can read the value. Protect Secrets with RBAC, enable encryption at rest in the
+cluster, and **never commit real values to Git** — keep manifests with placeholders, and inject real
+values from a secret manager (Vault, External Secrets, Sealed Secrets) at deploy time. This course
+only ever uses obvious placeholders such as `change-me`.
+
+**Consuming them in a Pod:**
+
+```yaml
+env:
+  - name: LOG_LEVEL
+    valueFrom:
+      configMapKeyRef: {name: app-config, key: LOG_LEVEL}
+  - name: DB_PASSWORD
+    valueFrom:
+      secretKeyRef: {name: db-credentials, key: password}
+envFrom:
+  - configMapRef: {name: app-config}      # every key becomes a variable
+volumes:
+  - name: config
+    configMap: {name: app-config}          # every key becomes a file
+```
+
+Names and keys must match exactly; a missing ConfigMap or key keeps the Pod from starting (unless
+`optional: true`). Environment variables are read once, at start; files mounted from a ConfigMap are
+updated in place (eventually) when the ConfigMap changes.
+
+Official docs: https://kubernetes.io/docs/concepts/configuration/configmap/ and
+https://kubernetes.io/docs/concepts/configuration/secret/
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "k8s-c5-config"
+title = "Configuration outside the image"
+points = 5
+difficulty = 5
+intro = '''
+ConfigMaps for settings, Secrets for sensitive values — and why a Secret is not a safe by itself.
+'''
+body = '''
+Think of three layers:
+
+1. the **image** — the same everywhere;
+2. a **ConfigMap** — settings that change per environment;
+3. a **Secret** — values that must not leak, referenced by name and key.
+
+The Pod points at them with `configMapKeyRef`, `secretKeyRef`, `envFrom` or a volume. Every reference
+is a *name* and a *key*, and both must exist. The real secret values never belong in a repository:
+the files you write here use placeholders only.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "k8s-d5-configmap"
+title = "A ConfigMap"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+Settings as data.
+'''
+prompt = '''
+Type the ConfigMap. Every value is a string.
+'''
+target = '''
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+data:
+  LOG_LEVEL: info
+  WORKERS: "4"
+  app.properties: |
+    cache.size=256
+    cache.ttl=60s
+'''
+line_comments = [
+  "Core API.",
+  "Non-sensitive configuration.",
+  "Identity.",
+  "Pods refer to it by this name.",
+  "Not `spec`: a ConfigMap keeps its content in `data`.",
+  "A key and its string value.",
+  "Quoted: `data` values must be strings.",
+  "A key can hold a whole file; `|` keeps the newlines.",
+  "The file's first line…",
+  "…and its second.",
+]
+explanation = "Mounted as a volume, this ConfigMap becomes three files: `LOG_LEVEL`, `WORKERS` and `app.properties`."
+
+[[unit.step]]
+kind = "drill"
+id = "k8s-d5-secret"
+title = "A Secret, with a placeholder"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+The shape of a Secret — never with a real value.
+'''
+prompt = '''
+Type the Secret. `stringData` takes plain text; the value is a placeholder you replace outside Git.
+'''
+target = '''
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-credentials
+type: Opaque
+stringData:
+  username: shop
+  password: change-me
+'''
+line_comments = [
+  "Core API.",
+  "Sensitive data — encoded, not encrypted.",
+  "Identity.",
+  "Referenced by secretKeyRef.",
+  "The generic Secret type.",
+  "Plain-text input; the API server stores it base64-encoded in `data`.",
+  "A non-secret part of the credential.",
+  "A PLACEHOLDER: the real value is injected at deploy time, never committed.",
+]
+explanation = "Anyone allowed to `get` this Secret can decode it. RBAC and encryption at rest are what protect it."
+
+[[unit.step]]
+kind = "challenge"
+id = "k8s-p5-config"
+title = "Wire configuration into a Deployment"
+points = 40
+difficulty = 6
+intro = '''
+Write a ConfigMap and point the Deployment's container at it and at a Secret.
+'''
+instructions = '''
+You are given `secret.yaml` (read-only, placeholders only). Complete the two other files:
+
+**`configmap.yaml`** — a ConfigMap named `app-config` with `LOG_LEVEL: info` and
+`FEATURE_SEARCH: "true"` (a string).
+
+**`deployment.yaml`** — in the `api` container:
+
+- `envFrom` loads **every** key of `app-config`;
+- an `env` variable `DB_USER` comes from the key `username` of the Secret `db-credentials`;
+- an `env` variable `DB_PASSWORD` comes from the key `password` of the same Secret.
+
+Use `valueFrom.secretKeyRef` for the two Secret values; do not copy any value into the Deployment.
+'''
+
+[unit.step.project]
+main = "deployment.yaml"
+readonly = ["secret.yaml"]
+explanation = '''
+The Deployment now holds only *references*. Rotating the password means changing the Secret (from a
+secret manager, not from Git) and restarting the Pods; the Deployment file never changes and never
+contains a credential. `envFrom` turns every ConfigMap key into a variable of the same name.
+'''
+
+[unit.step.project.starter]
+"secret.yaml" = '''
+# Placeholders only: real values are injected at deploy time, never committed.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-credentials
+type: Opaque
+stringData:
+  username: shop
+  password: change-me
+'''
+"configmap.yaml" = '''
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+data: {}
+'''
+"deployment.yaml" = '''
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      containers:
+        - name: api
+          image: python:3.12-slim
+          command: ["python", "-m", "http.server", "8000"]
+          env:
+            - name: DB_PASSWORD
+              value: change-me
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[check]]
+file = "configmap.yaml"
+path = "metadata.name"
+equals = "app-config"
+message = "The ConfigMap is named app-config."
+
+[[check]]
+file = "configmap.yaml"
+path = "data"
+equals = { LOG_LEVEL = "info", FEATURE_SEARCH = "true" }
+message = "data has LOG_LEVEL: info and FEATURE_SEARCH: \"true\" (a quoted string)."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.template.spec.containers[name=api].envFrom[*].configMapRef.name"
+among = { file = "configmap.yaml", path = "metadata.name" }
+message = "envFrom must load the ConfigMap app-config by its exact name."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.template.spec.containers[name=api].envFrom"
+len = 1
+message = "Use one envFrom entry, for app-config."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.template.spec.containers[name=api].env"
+len = 2
+message = "Two env variables: DB_USER and DB_PASSWORD."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.template.spec.containers[name=api].env[*].value"
+exists = false
+message = "No literal values in env: secrets come from the Secret, never copied into the Deployment."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.template.spec.containers[name=api].env[*].valueFrom.secretKeyRef.name"
+among = { file = "secret.yaml", path = "metadata.name" }
+message = "Both variables come from the Secret db-credentials (secretKeyRef.name)."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.template.spec.containers[name=api].env[name=DB_USER].valueFrom.secretKeyRef.key"
+equals = "username"
+message = "DB_USER comes from the key username."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.template.spec.containers[name=api].env[name=DB_PASSWORD].valueFrom.secretKeyRef.key"
+equals = "password"
+message = "DB_PASSWORD comes from the key password."
+
+[[check]]
+file = "secret.yaml"
+path = "stringData.password"
+equals = "change-me"
+message = "The Secret keeps its placeholder; real values are injected outside the repository."
+'''
+
+[unit.step.project.solution]
+"configmap.yaml" = '''
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+data:
+  LOG_LEVEL: info
+  FEATURE_SEARCH: "true"
+'''
+"deployment.yaml" = '''
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      containers:
+        - name: api
+          image: python:3.12-slim
+          command: ["python", "-m", "http.server", "8000"]
+          envFrom:
+            - configMapRef:
+                name: app-config
+          env:
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: password
+'''
+
+[[unit]]
+id = "k8s-u6-probes"
+title = "Health checks: liveness, readiness and startup probes"
+level = "intermediate"
+difficulty = 6
+intro = "Probes tell Kubernetes when a container is ready for traffic, when it is stuck, and when it has finished starting."
+concepts = '''
+A running process is not necessarily a working service. The kubelet asks each container three
+different questions, each configured as a **probe**:
+
+| Probe | Question | On failure |
+|---|---|---|
+| `readinessProbe` | Can it take traffic *now*? | Removed from the Service's endpoints (not restarted) |
+| `livenessProbe` | Is it stuck beyond repair? | The container is **restarted** |
+| `startupProbe` | Has it finished starting? | Liveness and readiness wait until it succeeds; after `failureThreshold` failures, restart |
+
+Each probe has one **handler**: `httpGet` (`path`, `port`; success is a status 200–399), `tcpSocket`
+(`port` accepts a connection), `exec` (`command` exits 0) or `grpc`. The `port` can be a number or a
+container port **name**.
+
+Timing fields (all integers, in seconds except the thresholds):
+
+- `initialDelaySeconds` (default 0) — wait before the first probe;
+- `periodSeconds` (default 10) — how often;
+- `timeoutSeconds` (default 1) — how long one probe may take;
+- `failureThreshold` (default 3) — consecutive failures before acting;
+- `successThreshold` (default 1; must be 1 for liveness and startup).
+
+**Good habits.** Readiness checks dependencies the container needs to answer requests; liveness
+checks only the process itself (a liveness probe that calls the database restarts every Pod when the
+database blips — a cascading failure). For a slow starter, prefer a `startupProbe` with
+`failureThreshold × periodSeconds` covering the worst start time, instead of a long
+`initialDelaySeconds` on liveness.
+
+Official docs: https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "k8s-c6-probes"
+title = "Three questions the kubelet asks"
+points = 5
+difficulty = 6
+intro = '''
+Readiness, liveness and startup: what each one does when it fails.
+'''
+body = '''
+- **Not ready** → no traffic, but the container keeps running.
+- **Not alive** → the container is killed and restarted.
+- **Not started yet** → the other two probes wait.
+
+A probe is a handler (`httpGet`, `tcpSocket`, `exec`, `grpc`) plus timing. Getting the handler's
+port right — ideally by the container port's name — and keeping liveness cheap are what matter most.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "k8s-d6-readiness"
+title = "A readiness probe"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+An HTTP readiness check on a named port.
+'''
+prompt = '''
+Type the container entry with its readiness probe.
+'''
+target = '''
+apiVersion: v1
+kind: Pod
+metadata:
+  name: web
+spec:
+  containers:
+    - name: web
+      image: nginx:1.27
+      ports:
+        - name: http
+          containerPort: 80
+      readinessProbe:
+        httpGet:
+          path: /
+          port: http
+        periodSeconds: 5
+        failureThreshold: 2
+'''
+line_comments = [
+  "Core API.",
+  "A Pod, to keep the drill short.",
+  "Identity.",
+  "The name.",
+  "Desired state.",
+  "Containers.",
+  "One container.",
+  "Pinned image.",
+  "Ports.",
+  "The port name…",
+  "…and number.",
+  "Is it ready for traffic?",
+  "Ask over HTTP; 200–399 means yes.",
+  "The URL path to request.",
+  "The port, by name.",
+  "Ask every 5 seconds.",
+  "Two failures in a row → removed from the endpoints.",
+]
+explanation = "While the probe fails, the Pod is `Running` but `0/1 READY`, and Services do not send it traffic."
+
+[[unit.step]]
+kind = "drill"
+id = "k8s-d6-liveness"
+title = "Liveness and startup"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+Restart a stuck process, but give it time to start.
+'''
+prompt = '''
+Type the probes. The startup probe allows up to 30 × 2 = 60 seconds to start.
+'''
+target = '''
+apiVersion: v1
+kind: Pod
+metadata:
+  name: worker
+spec:
+  containers:
+    - name: worker
+      image: busybox:1.36
+      command: ["sh", "-c", "touch /tmp/alive && sleep 3600"]
+      startupProbe:
+        exec:
+          command: ["cat", "/tmp/alive"]
+        periodSeconds: 2
+        failureThreshold: 30
+      livenessProbe:
+        exec:
+          command: ["cat", "/tmp/alive"]
+        periodSeconds: 10
+'''
+line_comments = [
+  "Core API.",
+  "A Pod.",
+  "Identity.",
+  "The name.",
+  "Desired state.",
+  "Containers.",
+  "One container.",
+  "Pinned image.",
+  "Creates a file the probes look for.",
+  "Has it started?",
+  "Run a command inside the container…",
+  "…exit code 0 means success.",
+  "Every 2 seconds…",
+  "…up to 30 times: 60 seconds to start.",
+  "Once started: is it still alive?",
+  "Same handler…",
+  "…same file.",
+  "Every 10 seconds.",
+]
+explanation = "Until the startup probe succeeds, the liveness probe does not run — so a slow start is never mistaken for a hang."
+
+[[unit.step]]
+kind = "challenge"
+id = "k8s-p6-probes"
+title = "Probes for the API"
+points = 40
+difficulty = 7
+intro = '''
+Give the API container the three probes, with handlers and timings that make sense.
+'''
+instructions = '''
+The `api` container listens on the port named `http` (8000) and serves `GET /healthz` (process
+health) and `GET /ready` (ready for traffic). Add to it:
+
+- a **`startupProbe`**: `httpGet` on `/healthz`, port `http`, `periodSeconds: 5` and
+  `failureThreshold: 24` (two minutes to start);
+- a **`livenessProbe`**: `httpGet` on `/healthz`, port `http`, `periodSeconds: 10`,
+  `timeoutSeconds: 2`;
+- a **`readinessProbe`**: `httpGet` on `/ready`, port `http`, `periodSeconds: 5`,
+  `failureThreshold: 2`.
+
+Refer to the port by its **name** in all three, and use only the fields listed (no
+`initialDelaySeconds`: the startup probe covers slow starts).
+'''
+
+[unit.step.project]
+main = "deployment.yaml"
+explanation = '''
+The startup probe gives the API up to two minutes; only then do liveness (is the process healthy?)
+and readiness (can it serve?) start. Liveness asks `/healthz` and never `/ready`: if a dependency of
+`/ready` goes down, the Pods leave the endpoints but are not restarted in a loop. Naming the port
+keeps all three probes right if the number changes.
+'''
+
+[unit.step.project.starter]
+"deployment.yaml" = '''
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      containers:
+        - name: api
+          image: ghcr.io/example/shop-api:2.4.1
+          ports:
+            - name: http
+              containerPort: 8000
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: 8000
+            initialDelaySeconds: 120
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[check]]
+file = "deployment.yaml"
+path = "spec.template.spec.containers[name=api].startupProbe"
+only_keys = ["httpGet", "periodSeconds", "failureThreshold"]
+message = "startupProbe uses httpGet, periodSeconds and failureThreshold only."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.template.spec.containers[name=api].startupProbe.httpGet.path"
+equals = "/healthz"
+message = "The startup probe asks /healthz."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.template.spec.containers[name=api].startupProbe.periodSeconds"
+equals = 5
+message = "startupProbe.periodSeconds: 5."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.template.spec.containers[name=api].startupProbe.failureThreshold"
+equals = 24
+message = "startupProbe.failureThreshold: 24 (24 × 5 s = two minutes to start)."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.template.spec.containers[name=api].livenessProbe"
+only_keys = ["httpGet", "periodSeconds", "timeoutSeconds"]
+message = "livenessProbe uses httpGet, periodSeconds and timeoutSeconds only (no initialDelaySeconds)."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.template.spec.containers[name=api].livenessProbe.httpGet.path"
+equals = "/healthz"
+message = "Liveness checks the process: /healthz, not /ready."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.template.spec.containers[name=api].livenessProbe.periodSeconds"
+equals = 10
+message = "livenessProbe.periodSeconds: 10."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.template.spec.containers[name=api].livenessProbe.timeoutSeconds"
+equals = 2
+message = "livenessProbe.timeoutSeconds: 2."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.template.spec.containers[name=api].readinessProbe"
+only_keys = ["httpGet", "periodSeconds", "failureThreshold"]
+message = "readinessProbe uses httpGet, periodSeconds and failureThreshold only."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.template.spec.containers[name=api].readinessProbe.httpGet.path"
+equals = "/ready"
+message = "Readiness asks /ready."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.template.spec.containers[name=api].readinessProbe.periodSeconds"
+equals = 5
+message = "readinessProbe.periodSeconds: 5."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.template.spec.containers[name=api].readinessProbe.failureThreshold"
+equals = 2
+message = "readinessProbe.failureThreshold: 2."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.template.spec.containers[name=api].startupProbe.httpGet.port"
+equals = "http"
+message = "startupProbe refers to the port by its name: port: http."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.template.spec.containers[name=api].livenessProbe.httpGet.port"
+equals = "http"
+message = "livenessProbe refers to the port by its name: port: http."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.template.spec.containers[name=api].readinessProbe.httpGet.port"
+equals = "http"
+message = "readinessProbe refers to the port by its name: port: http."
+'''
+
+[unit.step.project.solution]
+"deployment.yaml" = '''
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      containers:
+        - name: api
+          image: ghcr.io/example/shop-api:2.4.1
+          ports:
+            - name: http
+              containerPort: 8000
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            failureThreshold: 24
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 5
+            failureThreshold: 2
+'''
+
+[[unit]]
+id = "k8s-u7-resources"
+title = "Requests, limits and quality of service"
+level = "intermediate"
+difficulty = 7
+intro = "Requests reserve capacity for scheduling; limits cap what a container may use; together they decide its QoS class."
+concepts = '''
+Every container can declare `resources`:
+
+```yaml
+resources:
+  requests: {cpu: 250m, memory: 256Mi}   # what the scheduler reserves
+  limits:   {cpu: "1", memory: 512Mi}    # the most it may use
+```
+
+- **Requests** are used by the **scheduler**: a Pod goes only to a node with enough *unreserved*
+  capacity for the sum of its containers' requests. They are a reservation, not a cap.
+- **Limits** are enforced by the kernel (cgroups). Over its **CPU** limit a container is *throttled*
+  (it runs slower); over its **memory** limit it is **OOM-killed** and restarted.
+
+**Units.** CPU is in cores: `1`, `0.5` or `500m` (millicores; `1000m` = one core). Memory is in
+bytes with binary suffixes `Ki`, `Mi`, `Gi` (`256Mi` = 256 × 2²⁰ bytes) or decimal ones `k`, `M`, `G`.
+Beware: `256m` of memory means 0.256 *bytes* — a classic typo. Quote values that YAML could read as a
+number, such as `"1"`.
+
+**Quality of Service.** From requests and limits Kubernetes derives a class used when a node runs out
+of memory:
+
+- **Guaranteed** — every container has CPU and memory limits, and requests equal to them;
+- **Burstable** — at least one request or limit, but not Guaranteed;
+- **BestEffort** — nothing declared; first to be evicted.
+
+A common, safe default for web services: requests for CPU and memory, a memory limit equal to (or a
+little above) the memory request, and no CPU limit or a generous one (CPU limits can throttle
+latency-sensitive services). Databases and other critical singletons are often made Guaranteed.
+Namespace-level `LimitRange` and `ResourceQuota` objects can impose defaults and totals.
+
+Official docs: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "k8s-c7-resources"
+title = "Reserve, then cap"
+points = 5
+difficulty = 7
+intro = '''
+What the scheduler does with requests and the kernel with limits.
+'''
+body = '''
+- `requests` → **where** a Pod can run (scheduling).
+- `limits` → **how much** it may use (enforcement: CPU throttling, memory OOM-kill).
+- Requests = limits for every resource of every container → **Guaranteed**.
+
+Units are the usual source of bugs: `500m` CPU is half a core, `512Mi` memory is 512 mebibytes, and
+`512m` memory is a fraction of a byte.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "k8s-d7-burstable"
+title = "A Burstable container"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+Requests for both resources and a memory limit.
+'''
+prompt = '''
+Type the container's resources. This Pod is Burstable: it has requests, but they differ from its limits.
+'''
+target = '''
+apiVersion: v1
+kind: Pod
+metadata:
+  name: web
+spec:
+  containers:
+    - name: web
+      image: nginx:1.27
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          memory: 256Mi
+'''
+line_comments = [
+  "Core API.",
+  "A Pod.",
+  "Identity.",
+  "The name.",
+  "Desired state.",
+  "Containers.",
+  "One container.",
+  "Pinned image.",
+  "What this container reserves and may use.",
+  "Reserved for scheduling.",
+  "A tenth of a core.",
+  "128 mebibytes.",
+  "Enforced caps.",
+  "Above this the container is OOM-killed; no CPU limit means no throttling.",
+]
+explanation = "Burstable: it may use spare CPU and up to 256Mi of memory, but only 100m and 128Mi are guaranteed to it."
+
+[[unit.step]]
+kind = "drill"
+id = "k8s-d7-guaranteed"
+title = "A Guaranteed container"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+Requests equal to limits for both resources.
+'''
+prompt = '''
+Type the resources of a Guaranteed container.
+'''
+target = '''
+apiVersion: v1
+kind: Pod
+metadata:
+  name: db
+spec:
+  containers:
+    - name: postgres
+      image: postgres:16-alpine
+      resources:
+        requests:
+          cpu: "1"
+          memory: 1Gi
+        limits:
+          cpu: "1"
+          memory: 1Gi
+'''
+line_comments = [
+  "Core API.",
+  "A Pod.",
+  "Identity.",
+  "The name.",
+  "Desired state.",
+  "Containers.",
+  "One container.",
+  "Pinned image.",
+  "Resources.",
+  "Requests…",
+  "One core, quoted so YAML keeps it a string like the others.",
+  "One gibibyte.",
+  "…equal to the limits:",
+  "the same CPU…",
+  "…and the same memory: QoS class Guaranteed.",
+]
+explanation = "Under memory pressure, BestEffort Pods are evicted first, then Burstable ones; Guaranteed Pods last."
+
+[[unit.step]]
+kind = "challenge"
+id = "k8s-p7-resources"
+title = "Size the shop's containers"
+points = 40
+difficulty = 8
+intro = '''
+Give every container requests, cap memory, and make the database Guaranteed.
+'''
+instructions = '''
+`pods.yaml` holds two Pods. Add `resources` so that:
+
+- **every container of both Pods** has `requests.cpu` and `requests.memory`, and a `limits.memory`;
+- every memory value uses a **binary suffix** (`Mi` or `Gi`) and every CPU value is in millicores
+  (`250m`) or whole cores (`"1"`);
+- the `web` Pod's container requests `cpu: 100m`, `memory: 128Mi` and is limited to `memory: 256Mi`
+  (no CPU limit);
+- the `db` Pod is **Guaranteed**: its container's limits are exactly equal to its requests,
+  `cpu: 500m` and `memory: 1Gi`.
+'''
+
+[unit.step.project]
+main = "pods.yaml"
+explanation = '''
+The starter asked for a hundred cores (`cpu: "100"`) and 0.128 bytes of memory (`128m`) — both
+valid syntax, both wrong. The database is now Guaranteed (limits = requests), and the web Pod is
+Burstable with a memory cap but no CPU throttling.
+'''
+
+[unit.step.project.starter]
+"pods.yaml" = '''
+apiVersion: v1
+kind: Pod
+metadata:
+  name: web
+spec:
+  containers:
+    - name: web
+      image: nginx:1.27
+      resources:
+        requests:
+          cpu: "100"
+          memory: 128m
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: db
+spec:
+  containers:
+    - name: postgres
+      image: postgres:16-alpine
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[check]]
+file = "pods.yaml"
+doc_count = 2
+message = "Keep the two Pods, web and db."
+
+[[check]]
+file = "pods.yaml"
+doc = { kind = "Pod", name = "web" }
+path = "spec.containers[*].resources.requests.memory"
+matches = '^[0-9]+(Mi|Gi)$'
+message = "Memory uses a binary suffix such as 128Mi (128m would be a fraction of a byte)."
+
+[[check]]
+file = "pods.yaml"
+doc = { kind = "Pod", name = "web" }
+path = "spec.containers[*].resources.limits.memory"
+matches = '^[0-9]+(Mi|Gi)$'
+message = "Every container of web has a memory limit with a binary suffix."
+
+[[check]]
+file = "pods.yaml"
+doc = { kind = "Pod", name = "web" }
+path = "spec.containers[*].resources.requests.cpu"
+matches = '^([0-9]+m|[0-9]+)$'
+message = "CPU is in millicores (100m) or whole cores (\"1\"); \"100\" would be a hundred cores."
+
+[[check]]
+file = "pods.yaml"
+doc = { kind = "Pod", name = "web" }
+path = "spec.containers[name=web].resources"
+equals = { requests = { cpu = "100m", memory = "128Mi" }, limits = { memory = "256Mi" } }
+message = "web requests cpu: 100m and memory: 128Mi, with limits.memory: 256Mi and no CPU limit."
+
+[[check]]
+file = "pods.yaml"
+doc = { kind = "Pod", name = "db" }
+path = "spec.containers[*].resources.requests.memory"
+matches = '^[0-9]+(Mi|Gi)$'
+message = "Every container of db requests memory with a binary suffix."
+
+[[check]]
+file = "pods.yaml"
+doc = { kind = "Pod", name = "db" }
+path = "spec.containers[*].resources.requests.cpu"
+matches = '^([0-9]+m|[0-9]+)$'
+message = "Every container of db requests CPU (500m)."
+
+[[check]]
+file = "pods.yaml"
+doc = { kind = "Pod", name = "db" }
+path = "spec.containers[name=postgres].resources.requests"
+equals = { cpu = "500m", memory = "1Gi" }
+message = "db requests cpu: 500m and memory: 1Gi."
+
+[[check]]
+file = "pods.yaml"
+doc = { kind = "Pod", name = "db" }
+path = "spec.containers[name=postgres].resources.limits"
+same_as = { doc = { kind = "Pod", name = "db" }, path = "spec.containers[name=postgres].resources.requests" }
+message = "Guaranteed QoS: the limits are exactly the requests (cpu and memory)."
+'''
+
+[unit.step.project.solution]
+"pods.yaml" = '''
+apiVersion: v1
+kind: Pod
+metadata:
+  name: web
+spec:
+  containers:
+    - name: web
+      image: nginx:1.27
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          memory: 256Mi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: db
+spec:
+  containers:
+    - name: postgres
+      image: postgres:16-alpine
+      resources:
+        requests:
+          cpu: 500m
+          memory: 1Gi
+        limits:
+          cpu: 500m
+          memory: 1Gi
+'''
+
+[[unit]]
+id = "k8s-u8-namespaces"
+title = "Namespaces and quotas"
+level = "intermediate"
+difficulty = 8
+intro = "Namespaces divide one cluster into named spaces with their own names, policies and quotas."
+concepts = '''
+A **Namespace** is a scope for names: two Services called `web` can coexist in `shop` and in
+`blog`. Most objects are **namespaced** (Pods, Deployments, Services, ConfigMaps, Secrets,
+Ingresses); a few are **cluster-scoped** (Namespaces themselves, Nodes, PersistentVolumes,
+ClusterRoles, StorageClasses) and must not carry `metadata.namespace`.
+
+**Where an object goes.** `metadata.namespace` in the manifest wins; without it, `kubectl` uses the
+namespace of your current context (often `default`), or `-n <ns>`. Writing the namespace in every
+manifest of an application makes the files self-describing, and tools such as Kustomize can set it
+for a whole directory (unit 10).
+
+**References stay inside the namespace.** A Pod can only use ConfigMaps, Secrets and
+ServiceAccounts of its own namespace, and a Service selects Pods of its own namespace. Across
+namespaces, Pods talk through DNS: `api.shop.svc.cluster.local` (or simply `api.shop`).
+
+**Quotas and defaults.** A `ResourceQuota` caps the total a namespace may use — for example
+`requests.cpu: "4"`, `limits.memory: 8Gi`, `pods: "20"` (values in `hard` are quantities, written as
+strings). When a quota on CPU or memory exists, every new Pod in the namespace must declare those
+resources, or it is refused; a `LimitRange` can provide defaults so that it does not have to.
+
+Namespaces are also the unit for RBAC (Roles and RoleBindings) and NetworkPolicies. They are not a
+security boundary by themselves — they are the place where such boundaries are attached.
+
+Official docs: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/ and
+https://kubernetes.io/docs/concepts/policy/resource-quotas/
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "k8s-c8-namespaces"
+title = "One cluster, many spaces"
+points = 5
+difficulty = 8
+intro = '''
+Which objects live in a namespace, how references work, and what a quota adds.
+'''
+body = '''
+- Namespaced objects carry `metadata.namespace`; cluster-scoped ones must not.
+- References (a Pod → its ConfigMap, a Service → its Pods) never leave the namespace.
+- A `ResourceQuota` turns a namespace into a budget.
+
+In the challenge you put a whole application into its own namespace, in one file with several
+documents — so the checks pick each document by kind and name.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "k8s-d8-namespace-config"
+title = "A namespace and an object inside it"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+Two documents in one file, separated by `---`.
+'''
+prompt = '''
+Type both documents. The ConfigMap names its namespace.
+'''
+target = '''
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: blog
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: blog-config
+  namespace: blog
+data:
+  THEME: dark
+'''
+line_comments = [
+  "First document: the Namespace.",
+  "Cluster-scoped: no metadata.namespace here.",
+  "Identity.",
+  "The namespace's name.",
+  "A YAML document separator: a second object follows.",
+  "Second document.",
+  "A namespaced object.",
+  "Identity.",
+  "Unique inside its namespace only.",
+  "The namespace it lives in.",
+  "Settings.",
+  "One setting.",
+]
+explanation = "`kubectl apply -f` creates them in order, so the Namespace exists before the ConfigMap that needs it."
+
+[[unit.step]]
+kind = "drill"
+id = "k8s-d8-quota"
+title = "A ResourceQuota"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+A budget for a namespace.
+'''
+prompt = '''
+Type the quota. Quantities in `hard` are strings.
+'''
+target = '''
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: compute
+  namespace: blog
+spec:
+  hard:
+    requests.cpu: "2"
+    requests.memory: 4Gi
+    limits.memory: 8Gi
+    pods: "10"
+'''
+line_comments = [
+  "Core API.",
+  "Caps the totals of a namespace.",
+  "Identity.",
+  "The quota's name.",
+  "The namespace it limits.",
+  "Desired state.",
+  "The hard limits.",
+  "At most two cores requested in total.",
+  "At most 4 GiB of memory requested.",
+  "At most 8 GiB of memory limits.",
+  "At most ten Pods.",
+]
+explanation = "With this quota, a Pod in `blog` without CPU and memory requests is refused (unless a LimitRange gives defaults)."
+
+[[unit.step]]
+kind = "challenge"
+id = "k8s-p8-namespace"
+title = "Move the shop into its namespace"
+points = 40
+difficulty = 9
+intro = '''
+Put every object of the application in the shop namespace, with a quota.
+'''
+instructions = '''
+`app.yaml` holds the shop's objects. Make it a self-contained, namespaced application:
+
+- add, as the **first** document, a `Namespace` named `shop`;
+- put the existing `ConfigMap`, `Deployment` and `Service` (all named `web`) in the namespace `shop`
+  (and keep the Namespace itself without a namespace — it is cluster-scoped);
+- add a `ResourceQuota` named `budget` in `shop` with `hard` limits `requests.cpu: "2"`,
+  `requests.memory: 2Gi` and `pods: "10"`;
+- the Deployment's container already loads the ConfigMap — keep that reference working.
+
+The file must end up with exactly five documents.
+'''
+
+[unit.step.project]
+main = "app.yaml"
+explanation = '''
+A Namespace has to exist before anything is created in it, so it goes first. With the quota on
+`requests.cpu` and `requests.memory`, a Pod without requests would now be refused in `shop` — which is
+why the container's requests matter. The `envFrom` reference works because the ConfigMap and the
+Deployment share the namespace.
+'''
+
+[unit.step.project.starter]
+"app.yaml" = '''
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: web
+data:
+  GREETING: hello
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27
+          envFrom:
+            - configMapRef:
+                name: web
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+spec:
+  selector:
+    app: web
+  ports:
+    - port: 80
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[check]]
+file = "app.yaml"
+doc_count = 5
+message = "app.yaml has exactly five documents: Namespace, ResourceQuota, ConfigMap, Deployment and Service."
+
+[[check]]
+file = "app.yaml"
+doc = { kind = "Namespace", name = "shop" }
+path = "metadata.namespace"
+exists = false
+message = "A Namespace is cluster-scoped: it has no metadata.namespace."
+
+[[check]]
+file = "app.yaml"
+doc = { kind = "ConfigMap", name = "web" }
+path = "metadata.namespace"
+equals = "shop"
+message = "The ConfigMap web lives in shop."
+
+[[check]]
+file = "app.yaml"
+doc = { kind = "Deployment", name = "web" }
+path = "metadata.namespace"
+equals = "shop"
+message = "The Deployment web lives in shop (not default)."
+
+[[check]]
+file = "app.yaml"
+doc = { kind = "Service", name = "web" }
+path = "metadata.namespace"
+equals = "shop"
+message = "The Service web lives in shop."
+
+[[check]]
+file = "app.yaml"
+doc = { kind = "Deployment", name = "web", namespace = "shop" }
+path = "spec.template.spec.containers[*].envFrom[*].configMapRef.name"
+among = { doc = { kind = "ConfigMap", namespace = "shop" }, path = "metadata.name" }
+message = "The Deployment loads a ConfigMap of its own namespace by name."
+
+[[check]]
+file = "app.yaml"
+doc = { kind = "ResourceQuota" }
+path = "metadata"
+equals = { name = "budget", namespace = "shop" }
+message = "The ResourceQuota is budget, in shop."
+
+[[check]]
+file = "app.yaml"
+doc = { kind = "ResourceQuota", name = "budget" }
+path = "spec.hard"
+equals = { "requests.cpu" = "2", "requests.memory" = "2Gi", pods = "10" }
+message = "spec.hard is requests.cpu: \"2\", requests.memory: 2Gi and pods: \"10\"."
+
+[[check]]
+file = "app.yaml"
+doc = { kind = "Deployment", name = "web" }
+path = "spec.template.spec.containers[*].resources.requests.cpu"
+exists = true
+message = "With a CPU quota, every container must request CPU — keep the requests."
+'''
+
+[unit.step.project.solution]
+"app.yaml" = '''
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: shop
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: budget
+  namespace: shop
+spec:
+  hard:
+    requests.cpu: "2"
+    requests.memory: 2Gi
+    pods: "10"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: web
+  namespace: shop
+data:
+  GREETING: hello
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: shop
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27
+          envFrom:
+            - configMapRef:
+                name: web
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: shop
+spec:
+  selector:
+    app: web
+  ports:
+    - port: 80
+'''
+
+[[unit]]
+id = "k8s-u9-ingress"
+title = "Ingress: HTTP routes into the cluster"
+level = "advanced"
+difficulty = 9
+intro = "An Ingress routes external HTTP(S) requests, by host and path, to Services."
+concepts = '''
+A Service makes Pods reachable *inside* the cluster. To route outside HTTP traffic — by **host name**
+and **URL path** — to several Services behind one address, you write an **Ingress**
+(`networking.k8s.io/v1`):
+
+```yaml
+spec:
+  ingressClassName: nginx            # which controller handles it
+  tls:
+    - hosts: [shop.example.com]
+      secretName: shop-tls           # a kubernetes.io/tls Secret with the certificate
+  rules:
+    - host: shop.example.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: api            # a Service in the SAME namespace
+                port: {number: 8000} # or {name: http}
+```
+
+- An Ingress does nothing without an **Ingress controller** running in the cluster (ingress-nginx,
+  Traefik, HAProxy, a cloud load balancer…). `ingressClassName` says which one should handle it.
+- **`pathType`** is required: `Exact` (only that path), `Prefix` (that path and everything below it,
+  matched element by element: `/api` matches `/api` and `/api/orders`, not `/apiv2`) or
+  `ImplementationSpecific`.
+- When several paths match, the **longest** wins, so `/api` beats `/` for `/api/orders`.
+- The backend Service and port must exist, in the **same namespace** as the Ingress; the port is the
+  *Service* port (not the container port).
+- **TLS**: each entry lists hosts and the name of a Secret of type `kubernetes.io/tls`. Tools such as
+  cert-manager create that Secret for you; it is never written by hand into Git.
+
+The Gateway API (`gateway.networking.k8s.io`) is the newer, more expressive successor; the Ingress
+remains the most widely deployed and is stable.
+
+Official docs: https://kubernetes.io/docs/concepts/services-networking/ingress/
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "k8s-c9-ingress"
+title = "Host, path, backend"
+points = 5
+difficulty = 9
+intro = '''
+How an Ingress maps a request to a Service.
+'''
+body = '''
+For each request the controller looks at the **host** header, then the longest matching **path**, and
+sends it to that rule's **backend**: a Service name and a Service port.
+
+Three things to verify when you write one: the backend Service exists in the same namespace, the
+port is one the Service exposes, and every path has a `pathType`.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "k8s-d9-ingress"
+title = "A simple Ingress"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+One host, one path, one backend.
+'''
+prompt = '''
+Type the Ingress.
+'''
+target = '''
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: web
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: blog.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 80
+'''
+line_comments = [
+  "Ingresses are in the networking group.",
+  "HTTP routing into the cluster.",
+  "Identity.",
+  "The name.",
+  "Desired state.",
+  "The controller that should implement it.",
+  "Routing rules.",
+  "Requests for this host…",
+  "…over HTTP…",
+  "…are matched by path:",
+  "Everything…",
+  "…below `/` (required field).",
+  "Goes to…",
+  "…a Service…",
+  "…named web…",
+  "…on its port…",
+  "…80 (the Service port, not the container's).",
+]
+explanation = "Without an Ingress controller watching the class `nginx`, this object is stored but nothing routes."
+
+[[unit.step]]
+kind = "drill"
+id = "k8s-d9-tls"
+title = "TLS on an Ingress"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+Serving HTTPS with a certificate Secret.
+'''
+prompt = '''
+Type the Ingress with a TLS section. The backend port is referenced by name.
+'''
+target = '''
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: blog
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [blog.example.com]
+      secretName: blog-tls
+  rules:
+    - host: blog.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: blog
+                port:
+                  name: http
+'''
+line_comments = [
+  "Networking group.",
+  "An Ingress.",
+  "Identity.",
+  "The name.",
+  "Desired state.",
+  "The controller.",
+  "HTTPS termination.",
+  "The hosts the certificate covers…",
+  "…stored in this kubernetes.io/tls Secret (made by cert-manager, not by hand).",
+  "Rules.",
+  "The same host.",
+  "HTTP.",
+  "Paths.",
+  "Everything.",
+  "Prefix match.",
+  "Backend.",
+  "A Service.",
+  "Named blog.",
+  "Its port…",
+  "…by the Service port's name.",
+]
+explanation = "The controller presents the certificate from `blog-tls` for `blog.example.com` and forwards decrypted requests to the Service."
+
+[[unit.step]]
+kind = "challenge"
+id = "k8s-p9-ingress"
+title = "Route the shop"
+points = 45
+difficulty = 10
+intro = '''
+Send /api to the API and everything else to the web front, over HTTPS.
+'''
+instructions = '''
+`services.yaml` (read-only) defines the Services `web` (port 80) and `api` (port 8000, named
+`http`). Write `ingress.yaml`: an Ingress named `shop` that
+
+- uses the ingress class `nginx`;
+- terminates TLS for `shop.example.com` with the Secret `shop-tls`;
+- for the host `shop.example.com`, routes the path `/api` (pathType `Prefix`) to the Service `api`
+  on its port **named** `http`, and the path `/` (pathType `Prefix`) to the Service `web` on port
+  number `80`.
+
+Every backend must be a Service of `services.yaml`, on a port that Service exposes.
+'''
+
+[unit.step.project]
+main = "ingress.yaml"
+readonly = ["services.yaml"]
+explanation = '''
+The controller picks the longest matching path, so `/api/orders` goes to `api` and `/cart` to `web`.
+The starter pointed at a Service that does not exist (`shop-api`), on the container port instead of
+the Service port, and without a `pathType` — the API server refuses a path without one.
+'''
+
+[unit.step.project.starter]
+"services.yaml" = '''
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+spec:
+  selector:
+    app: web
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+spec:
+  selector:
+    app: api
+  ports:
+    - name: http
+      port: 8000
+'''
+"ingress.yaml" = '''
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: shop
+spec:
+  rules:
+    - host: shop.example.com
+      http:
+        paths:
+          - path: /api
+            backend:
+              service:
+                name: shop-api
+                port:
+                  number: 8080
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[check]]
+file = "ingress.yaml"
+path = "apiVersion"
+equals = "networking.k8s.io/v1"
+message = "Ingress is in networking.k8s.io/v1."
+
+[[check]]
+file = "ingress.yaml"
+path = "spec.ingressClassName"
+equals = "nginx"
+message = "Set ingressClassName: nginx."
+
+[[check]]
+file = "ingress.yaml"
+path = "spec.tls"
+equals = [{ hosts = ["shop.example.com"], secretName = "shop-tls" }]
+message = "One tls entry: hosts [shop.example.com] with secretName shop-tls."
+
+[[check]]
+file = "ingress.yaml"
+path = "spec.rules"
+len = 1
+message = "One rule, for shop.example.com."
+
+[[check]]
+file = "ingress.yaml"
+path = "spec.rules[0].host"
+equals = "shop.example.com"
+message = "The rule's host is shop.example.com."
+
+[[check]]
+file = "ingress.yaml"
+path = "spec.rules[0].http.paths"
+len = 2
+message = "Two paths: /api and /."
+
+[[check]]
+file = "ingress.yaml"
+path = "spec.rules[*].http.paths[*].pathType"
+one_of = ["Prefix"]
+message = "Every path needs pathType: Prefix here."
+
+[[check]]
+file = "ingress.yaml"
+path = "spec.rules[*].http.paths[*].backend.service.name"
+among = { file = "services.yaml", path = "metadata.name" }
+message = "Every backend must be a Service defined in services.yaml (web or api)."
+
+[[check]]
+file = "ingress.yaml"
+path = "spec.rules[0].http.paths[path=/api].backend.service"
+equals = { name = "api", port = { name = "http" } }
+message = "/api goes to the Service api on its port named http."
+
+[[check]]
+file = "ingress.yaml"
+path = "spec.rules[0].http.paths[path=/].backend.service"
+equals = { name = "web", port = { number = 80 } }
+message = "/ goes to the Service web on port number 80 (the Service port, not the container's 8080)."
+'''
+
+[unit.step.project.solution]
+"ingress.yaml" = '''
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: shop
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - shop.example.com
+      secretName: shop-tls
+  rules:
+    - host: shop.example.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  name: http
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 80
+'''
+
+[[unit]]
+id = "k8s-u10-kustomize"
+title = "Kustomize: one base, many environments"
+level = "advanced"
+difficulty = 10
+intro = "Kustomize builds environment-specific manifests from a shared base, without templates — and kubectl runs it locally."
+concepts = '''
+The same application runs in several environments that differ in a few places: the namespace, the
+number of replicas, the image tag, a label. Copying the manifests per environment drifts; templates
+(`{{ .Values.x }}`) make YAML that is no longer YAML. **Kustomize** takes a third path: plain manifests
+plus a `kustomization.yaml` that says how to *transform* them. It is built into kubectl:
+`kubectl kustomize <dir>` prints the result, `kubectl apply -k <dir>` applies it. Building is
+entirely **local** — which is why this course can grade it offline.
+
+A typical layout:
+
+```
+base/            deployment.yaml, service.yaml, kustomization.yaml
+overlays/prod/   kustomization.yaml   (resources: ["../../base"] + changes)
+```
+
+The fields you use most in an overlay (Kustomize v5):
+
+| Field | Effect |
+|---|---|
+| `resources` | files or directories to include (a base is a directory with its own kustomization) |
+| `namespace` | sets `metadata.namespace` on every namespaced object |
+| `namePrefix` / `nameSuffix` | renames every object — and updates references to them (a Deployment's ConfigMap, an Ingress backend) |
+| `labels` | adds labels; with `includeSelectors: true` also to selectors (the deprecated `commonLabels` always did, which breaks immutable selectors) |
+| `images` | changes an image's `newName`, `newTag` or `digest` wherever it is used |
+| `replicas` | sets `count` for a named workload |
+| `patches` | strategic-merge or JSON patches, from a file (`path`) or inline (`patch`) |
+| `configMapGenerator` / `secretGenerator` | generate objects with a content hash in the name, so changing a value rolls the Pods |
+
+`bases`, `commonLabels`, `patchesStrategicMerge` and `vars` are deprecated in v5: use `resources`,
+`labels`, `patches` and `replacements`. Remote bases (`github.com/...`) and Helm charts exist, but they
+fetch from the network; this course uses local files only.
+
+Official docs: https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/ and the
+reference at https://kubectl.docs.kubernetes.io/references/kustomize/kustomization/
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "k8s-c10-kustomize"
+title = "Transform, do not template"
+points = 5
+difficulty = 10
+intro = '''
+A base that never changes, and overlays that say only what differs.
+'''
+body = '''
+An overlay lists the base in `resources` and then only the **differences**: namespace, prefix, image
+tag, replicas, labels, patches. `kubectl kustomize overlays/prod` prints the final YAML — the
+challenges of this unit run exactly that command, offline, and check its output.
+
+Names change with `namePrefix`, and Kustomize rewrites the references to them; label selectors are
+left alone unless you ask (`includeSelectors: true`), because a Deployment's selector cannot change.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "k8s-d10-base"
+title = "A base kustomization"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+The kustomization of a base just lists its files.
+'''
+prompt = '''
+Type the base `kustomization.yaml`.
+'''
+target = '''
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - deployment.yaml
+  - service.yaml
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: shop
+    includeSelectors: false
+'''
+line_comments = [
+  "Kustomize's own schema (not a cluster API).",
+  "Tells kubectl how to build this directory.",
+  "The files and directories to include, in order.",
+  "A plain Kubernetes manifest.",
+  "Another one.",
+  "Labels to add to every object…",
+  "…as a list of label sets…",
+  "…here one recommended label.",
+  "Do NOT touch selectors (they are immutable once created).",
+]
+explanation = "`kubectl kustomize base` prints both manifests with the extra label in their metadata."
+
+[[unit.step]]
+kind = "drill"
+id = "k8s-d10-overlay"
+title = "An overlay"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+Production: a namespace, a prefix, a tag and more replicas.
+'''
+prompt = '''
+Type the overlay's `kustomization.yaml`.
+'''
+target = '''
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+namespace: prod
+namePrefix: prod-
+images:
+  - name: nginx
+    newTag: 1.27.3
+replicas:
+  - name: web
+    count: 3
+'''
+line_comments = [
+  "Kustomize schema.",
+  "An overlay is a kustomization too.",
+  "What to start from:",
+  "the base directory, by relative path.",
+  "Every namespaced object goes into prod.",
+  "web becomes prod-web — and references follow.",
+  "Image changes:",
+  "wherever the image nginx is used…",
+  "…use the tag 1.27.3.",
+  "Replica counts:",
+  "the workload named web (its name in the base)…",
+  "…runs 3 replicas.",
+]
+explanation = "The base is untouched; a staging overlay would be the same file with other values."
+
+[[unit.step]]
+kind = "challenge"
+id = "k8s-p10-overlay"
+title = "The production overlay"
+points = 45
+difficulty = 11
+intro = '''
+Write an overlay; the checks build it with kubectl kustomize and read the result.
+'''
+instructions = '''
+`base/` (read-only) has a Deployment and a Service named `web`. Write
+`overlays/prod/kustomization.yaml` so that `kubectl kustomize overlays/prod` produces:
+
+- every object in the namespace **`prod`**, named with the prefix **`prod-`**;
+- the image `nginx` with the tag **`1.27.3`**;
+- **4** replicas of the Deployment;
+- the label **`env: prod`** on every object's metadata, **without** touching selectors.
+
+Use the base as a resource (relative path); do not copy its files.
+'''
+run_command = "kubectl kustomize overlays/prod"
+
+[unit.step.project]
+main = "overlays/prod/kustomization.yaml"
+readonly = ["base/deployment.yaml", "base/service.yaml", "base/kustomization.yaml"]
+explanation = '''
+`labels` with `includeSelectors: false` adds `env: prod` to the metadata only; the deprecated
+`commonLabels` would also have changed the Deployment's selector — refused by the API server on an
+existing Deployment, because selectors are immutable. Note that `replicas` names the workload by its
+**base** name (`web`), before the prefix is applied.
+'''
+
+[unit.step.project.starter]
+"base/deployment.yaml" = '''
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27
+          ports:
+            - name: http
+              containerPort: 80
+'''
+"base/service.yaml" = '''
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+spec:
+  selector:
+    app: web
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+'''
+"base/kustomization.yaml" = '''
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - deployment.yaml
+  - service.yaml
+'''
+"overlays/prod/kustomization.yaml" = '''
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+# TODO: namespace, namePrefix, images, replicas and labels
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[run]]
+cmd = ["kubectl", "kustomize", "overlays/prod"]
+save = "rendered.yaml"
+message = "kubectl kustomize overlays/prod must build."
+
+[[check]]
+file = "overlays/prod/kustomization.yaml"
+path = "resources"
+contains = "../../base"
+message = "Use the base as a resource: ../../base."
+
+[[check]]
+file = "rendered.yaml"
+doc_count = 2
+message = "The build has the base's two objects."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Deployment" }
+path = "metadata.name"
+equals = "prod-web"
+message = "namePrefix: prod- renames the Deployment to prod-web."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Service" }
+path = "metadata.name"
+equals = "prod-web"
+message = "The Service is prod-web too."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Deployment" }
+path = "metadata.namespace"
+equals = "prod"
+message = "namespace: prod puts the Deployment in prod."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Service" }
+path = "metadata.namespace"
+equals = "prod"
+message = "The Service is in prod too."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Deployment" }
+path = "spec.replicas"
+equals = 4
+message = "The Deployment runs 4 replicas (replicas: [{name: web, count: 4}])."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Deployment" }
+path = "spec.template.spec.containers[name=web].image"
+equals = "nginx:1.27.3"
+message = "images: [{name: nginx, newTag: 1.27.3}] gives nginx:1.27.3."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Deployment" }
+path = "metadata.labels.env"
+equals = "prod"
+message = "Every object carries env: prod in its metadata."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Service" }
+path = "metadata.labels.env"
+equals = "prod"
+message = "The Service carries env: prod too."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Deployment" }
+path = "spec.selector.matchLabels"
+equals = { app = "web" }
+message = "Selectors stay app: web — add labels with includeSelectors: false (not commonLabels)."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Service" }
+path = "spec.selector"
+equals = { app = "web" }
+message = "The Service's selector stays app: web."
+'''
+
+[unit.step.project.solution]
+"overlays/prod/kustomization.yaml" = '''
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+namespace: prod
+namePrefix: prod-
+labels:
+  - pairs:
+      env: prod
+    includeSelectors: false
+images:
+  - name: nginx
+    newTag: 1.27.3
+replicas:
+  - name: web
+    count: 4
+'''
+
+[[unit]]
+id = "k8s-u11-capstone"
+title = "Capstone: ship the API to production"
+level = "advanced"
+difficulty = 11
+intro = "Everything together: generated configuration, a patch with probes and resources, and an overlay — built and checked offline."
+concepts = '''
+This last unit puts the pieces together the way a real repository does. The base describes the API
+once; the production overlay says what production needs on top of it:
+
+- **generated configuration** — a `configMapGenerator` with `behavior: merge` overrides the base's
+  values. The generated ConfigMap gets a **content hash** suffix (`api-config-7g2kf8h5m9`), and
+  Kustomize rewrites every reference to it (`envFrom`, `valueFrom`, volumes). Change a value and the
+  name changes, so the Deployment's template changes and the Pods roll — a ConfigMap edit can never
+  silently leave old Pods with old settings;
+- **a strategic-merge patch** — a partial Deployment in its own file (`patches: [{path: ...}]`) that
+  adds probes and resources to the container named `api`. Lists of containers are merged **by
+  name**, so the patch only needs the fields it adds;
+- **the overlay's own transformations** — namespace, prefix, image tag, replicas, labels.
+
+**Reviewing a build.** Before anything reaches a cluster, look at the output of `kubectl kustomize`:
+the namespace on every object, the final names, the image tags, and every reference pointing at an
+object that exists in the output. That review is what the hidden checks of the challenge automate —
+and what a CI job should do on every pull request, with tools such as kubeconform or
+`kubectl apply --dry-run=server` against a real cluster added on top.
+
+**Where to go next.** The same manifests can be applied to a local cluster (kind) to see the
+probes, the rollout and the quota at work; that is the hands-on part that comes after this offline
+course. For production delivery, GitOps tools (Argo CD, Flux) apply an overlay from Git continuously.
+
+Official docs: https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/ and
+https://kubectl.docs.kubernetes.io/references/kustomize/kustomization/configmapgenerator/
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "k8s-c11-capstone"
+title = "A review you can automate"
+points = 5
+difficulty = 11
+intro = '''
+What to verify in a build before it ever reaches a cluster.
+'''
+body = '''
+For every build of an overlay, verify:
+
+1. every namespaced object is in the right namespace;
+2. names carry the prefix, and references (ConfigMaps, Services) point at names in the output;
+3. images are pinned to the intended tags;
+4. containers have probes and resources.
+
+The challenge's checks do exactly this on the output of `kubectl kustomize`.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "k8s-d11-generator"
+title = "Generated configuration"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+A configMapGenerator that merges new values over the base.
+'''
+prompt = '''
+Type the overlay fragment that overrides the base's generated ConfigMap.
+'''
+target = '''
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+configMapGenerator:
+  - name: api-config
+    behavior: merge
+    literals:
+      - LOG_LEVEL=warn
+      - WORKERS=4
+'''
+line_comments = [
+  "Kustomize schema.",
+  "A kustomization.",
+  "Start from…",
+  "…the base.",
+  "Generated ConfigMaps:",
+  "the one the base already generates…",
+  "…merged with these values (create/replace/merge)…",
+  "…given as KEY=VALUE literals:",
+  "production logs less…",
+  "…and runs four workers.",
+]
+explanation = "The output ConfigMap is named `api-config-<hash>`; the Deployment's `envFrom` is rewritten to that exact name."
+
+[[unit.step]]
+kind = "drill"
+id = "k8s-d11-patch"
+title = "A strategic-merge patch"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+Adding resources to one container without repeating the Deployment.
+'''
+prompt = '''
+Type the patch file. Containers are merged by name.
+'''
+target = '''
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+spec:
+  template:
+    spec:
+      containers:
+        - name: api
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+'''
+line_comments = [
+  "The patch targets a Deployment…",
+  "…identified by kind…",
+  "…and…",
+  "…by its base name.",
+  "Only the path to what changes:",
+  "the Pod template…",
+  "…its spec…",
+  "…the containers list, merged by name:",
+  "the container api…",
+  "…gets resources:",
+  "requests…",
+  "…a quarter core…",
+  "…and 256 MiB;",
+  "limits…",
+  "…512 MiB of memory.",
+]
+explanation = "Listed in the overlay as `patches: [{path: resources.yaml}]`; every other field of the Deployment comes from the base."
+
+[[unit.step]]
+kind = "challenge"
+id = "k8s-p11-capstone"
+title = "Production, end to end"
+points = 50
+difficulty = 12
+intro = '''
+An overlay with generated config and a patch, verified on the built output.
+'''
+instructions = '''
+`base/` (read-only) has the `api` Deployment, its Service and a generated ConfigMap `api-config`
+(`LOG_LEVEL=debug`). Complete the production overlay in `overlays/prod/`:
+
+**`kustomization.yaml`** — namespace `shop`, prefix `prod-`, image `ghcr.io/example/shop-api` with
+tag `2.5.0`, **3** replicas of `api`, a `configMapGenerator` that **merges** `LOG_LEVEL=warn` into
+`api-config`, and the patch file below.
+
+**`probes.yaml`** — a strategic-merge patch for the Deployment `api` that gives its container `api`:
+
+- a `readinessProbe` and a `livenessProbe`, both `httpGet` on port `http`, paths `/ready` and
+  `/healthz`;
+- `resources` with `requests` `cpu: 250m`, `memory: 256Mi` and `limits` `memory: 512Mi`.
+
+The checks build `overlays/prod` with `kubectl kustomize` and inspect the result.
+'''
+run_command = "kubectl kustomize overlays/prod"
+
+[unit.step.project]
+main = "overlays/prod/kustomization.yaml"
+readonly = ["base/deployment.yaml", "base/service.yaml", "base/kustomization.yaml"]
+explanation = '''
+Because the ConfigMap's name carries a hash of its content, `LOG_LEVEL=warn` produces a new name and
+the Deployment's `envFrom` is rewritten to it: applying the overlay rolls the Pods with the new
+setting. The patch merges into the container *named* `api`, so the base's image, port and `envFrom`
+stay, and the probes and resources are added.
+'''
+
+[unit.step.project.starter]
+"base/deployment.yaml" = '''
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      containers:
+        - name: api
+          image: ghcr.io/example/shop-api:2.4.1
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: api-config
+'''
+"base/service.yaml" = '''
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+spec:
+  selector:
+    app: api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+'''
+"base/kustomization.yaml" = '''
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - deployment.yaml
+  - service.yaml
+configMapGenerator:
+  - name: api-config
+    literals:
+      - LOG_LEVEL=debug
+'''
+"overlays/prod/kustomization.yaml" = '''
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+namespace: shop
+# TODO: namePrefix, images, replicas, configMapGenerator (merge) and patches
+'''
+"overlays/prod/probes.yaml" = '''
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+spec:
+  template:
+    spec:
+      containers:
+        - name: api
+          # TODO: readinessProbe, livenessProbe and resources
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[run]]
+cmd = ["kubectl", "kustomize", "overlays/prod"]
+save = "rendered.yaml"
+message = "kubectl kustomize overlays/prod must build."
+
+[[check]]
+file = "rendered.yaml"
+doc_count = 3
+message = "The build has three objects: the ConfigMap, the Service and the Deployment."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "ConfigMap" }
+path = "metadata.name"
+matches = '^prod-api-config-[a-z0-9]{10}$'
+message = "The generated ConfigMap is prod-api-config-<hash>."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "ConfigMap" }
+path = "data"
+equals = { LOG_LEVEL = "warn" }
+message = "behavior: merge overrides LOG_LEVEL with warn."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "ConfigMap" }
+path = "metadata.namespace"
+equals = "shop"
+message = "The ConfigMap is in shop."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Deployment" }
+path = "metadata"
+contains = { name = "prod-api", namespace = "shop" }
+message = "The Deployment is prod-api in shop."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Service" }
+path = "metadata"
+contains = { name = "prod-api", namespace = "shop" }
+message = "The Service is prod-api in shop."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Deployment" }
+path = "spec.replicas"
+equals = 3
+message = "3 replicas of api."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Deployment" }
+path = "spec.template.spec.containers[name=api].image"
+equals = "ghcr.io/example/shop-api:2.5.0"
+message = "The image is ghcr.io/example/shop-api:2.5.0."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Deployment" }
+path = "spec.template.spec.containers[name=api].envFrom[*].configMapRef.name"
+among = { doc = { kind = "ConfigMap" }, path = "metadata.name" }
+message = "envFrom must point at the generated ConfigMap in the output (Kustomize rewrites the name)."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Deployment" }
+path = "spec.template.spec.containers[name=api].readinessProbe.httpGet"
+equals = { path = "/ready", port = "http" }
+message = "readinessProbe: httpGet /ready on port http."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Deployment" }
+path = "spec.template.spec.containers[name=api].livenessProbe.httpGet"
+equals = { path = "/healthz", port = "http" }
+message = "livenessProbe: httpGet /healthz on port http."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Deployment" }
+path = "spec.template.spec.containers[name=api].resources"
+equals = { requests = { cpu = "250m", memory = "256Mi" }, limits = { memory = "512Mi" } }
+message = "resources: requests cpu 250m / memory 256Mi, limits memory 512Mi."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Deployment" }
+path = "spec.template.spec.containers[name=api].ports[name=http].containerPort"
+equals = 8000
+message = "The patch must merge into the base container (by name), keeping its port."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Service" }
+path = "spec.selector"
+selects = { doc = { kind = "Deployment" }, path = "spec.template.metadata.labels" }
+message = "The Service still selects the Deployment's Pods."
+'''
+
+[unit.step.project.solution]
+"overlays/prod/kustomization.yaml" = '''
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+namespace: shop
+namePrefix: prod-
+images:
+  - name: ghcr.io/example/shop-api
+    newTag: 2.5.0
+replicas:
+  - name: api
+    count: 3
+configMapGenerator:
+  - name: api-config
+    behavior: merge
+    literals:
+      - LOG_LEVEL=warn
+patches:
+  - path: probes.yaml
+'''
+"overlays/prod/probes.yaml" = '''
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+spec:
+  template:
+    spec:
+      containers:
+        - name: api
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+'''
