@@ -59,8 +59,14 @@ const MAX_RUNS: usize = 24;
 pub fn graded_by_checks(language: &str) -> bool {
     matches!(
         language.trim().to_ascii_lowercase().as_str(),
-        "yaml" | "yml" | "dockerfile" | "containerfile"
+        "yaml" | "yml" | "dockerfile" | "containerfile" | "odoo"
     )
+}
+
+/// `true` se os passos de um curso nesta linguagem são módulos Odoo (Learn P3c): avaliados pela
+/// tabela `[odoo]` do [`CHECKS_FILE`] ([`crate::odootest`]), no sandbox de contentores.
+pub fn odoo_language(language: &str) -> bool {
+    language.trim().eq_ignore_ascii_case("odoo")
 }
 
 /// `true` se os ficheiros dos drills de um curso nesta linguagem são Containerfiles (os cursos de
@@ -85,6 +91,10 @@ pub struct Checks {
     /// Verificações AO VIVO no cluster de prática (Learn P3b, [`crate::livecheck`]), pela ordem.
     #[serde(default)]
     pub live: Vec<crate::livecheck::Live>,
+    /// A instalação e os testes de módulos Odoo (Learn P3c, [`crate::odootest`]): corre no sandbox
+    /// de contentores, depois dos `[[run]]` e antes das verificações estruturais.
+    #[serde(default)]
+    pub odoo: Option<crate::odootest::OdooTest>,
 }
 
 /// O que se espera do código de saída de um comando.
@@ -681,6 +691,9 @@ impl Checks {
         if self.needs_cluster() {
             out.insert(Tool::Kubectl);
         }
+        if self.odoo.is_some() {
+            out.insert(Tool::Podman);
+        }
         out
     }
 
@@ -727,12 +740,34 @@ impl Checks {
         files: &BTreeSet<String>,
         prepared: Option<&dyn Fn(&str) -> bool>,
     ) -> Vec<String> {
+        self.check_with_images(files, prepared, None)
+    }
+
+    /// [`Checks::check_with`] com a lista das imagens preparadas (a tabela `[odoo]` escolhe a do
+    /// Odoo da sua série e a do PostgreSQL).
+    pub fn check_with_images(
+        &self,
+        files: &BTreeSet<String>,
+        prepared: Option<&dyn Fn(&str) -> bool>,
+        images: Option<&[crate::build::ImageRef]>,
+    ) -> Vec<String> {
         let mut errs = Vec::new();
         let mut pods: Vec<(usize, crate::podcmd::PodCommand)> = Vec::new();
-        if self.runs.is_empty() && self.checks.is_empty() && self.live.is_empty() {
+        if self.runs.is_empty()
+            && self.checks.is_empty()
+            && self.live.is_empty()
+            && self.odoo.is_none()
+        {
             errs.push(format!(
-                "{CHECKS_FILE}: no [[check]], [[run]] or [[live]]: nothing would be verified"
+                "{CHECKS_FILE}: no [[check]], [[run]], [[live]] or [odoo]: nothing would be verified"
             ));
+        }
+        if let Some(o) = &self.odoo {
+            errs.extend(
+                o.check(files, images)
+                    .into_iter()
+                    .map(|e| format!("{CHECKS_FILE}: {e}")),
+            );
         }
         if self.checks.len() > MAX_CHECKS {
             errs.push(format!("{CHECKS_FILE}: more than {MAX_CHECKS} checks"));
@@ -1385,7 +1420,7 @@ pub fn check_step_with(
     match images {
         Some(imgs) => {
             let prepared = |r: &str| imgs.iter().any(|i| i.matches(r));
-            checks.check_with(&files, Some(&prepared))
+            checks.check_with_images(&files, Some(&prepared), Some(imgs))
         }
         None => checks.check(&files),
     }

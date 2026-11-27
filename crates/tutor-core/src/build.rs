@@ -145,7 +145,8 @@ impl CacheKind {
         match language.trim().to_ascii_lowercase().as_str() {
             "rust" | "rs" => Some(CacheKind::Cargo),
             "python" | "py" | "python3" => Some(CacheKind::Pip),
-            "dockerfile" | "containerfile" => Some(CacheKind::Images),
+            // O curso de Odoo (Learn P3c): as imagens do Odoo e do PostgreSQL, no mesmo sandbox.
+            "dockerfile" | "containerfile" | "odoo" => Some(CacheKind::Images),
             "yaml" | "yml" => Some(CacheKind::Cluster),
             _ => None,
         }

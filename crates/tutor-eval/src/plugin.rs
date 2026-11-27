@@ -1585,6 +1585,10 @@ pub fn run_course_program(
     if tutor_core::toolcheck::containerfile_language(&lang) {
         return Ok(crate::tool_runner::run_containerfile_program(code));
     }
+    // Um drill do curso de Odoo (Learn P3c) é Python, XML ou CSV de um módulo: lê-se (sem Odoo).
+    if tutor_core::toolcheck::odoo_language(&lang) {
+        return Ok(crate::odoo_check::run_odoo_drill(code));
+    }
     if tutor_core::toolcheck::graded_by_checks(&lang) {
         return Ok(crate::tool_runner::run_yaml_program(code));
     }

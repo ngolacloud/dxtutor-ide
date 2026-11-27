@@ -59,6 +59,9 @@ const OUTPUT_TAIL: usize = 3000;
 pub struct ToolRunner {
     /// Os ficheiros dos drills e os diagnósticos são de Containerfiles (não de YAML).
     pub containerfile: bool,
+    /// O curso de Odoo (Learn P3c): os ficheiros são Python/XML/CSV de módulos, sem diagnósticos
+    /// YAML (os erros vêm do Odoo, na avaliação).
+    pub odoo: bool,
 }
 
 impl ToolRunner {
@@ -66,6 +69,7 @@ impl ToolRunner {
     pub fn for_language(language: &str) -> Self {
         ToolRunner {
             containerfile: toolcheck::containerfile_language(language),
+            odoo: toolcheck::odoo_language(language),
         }
     }
 }
@@ -83,6 +87,9 @@ impl LanguageRunner for ToolRunner {
     }
 
     fn diagnostics(&self, student_code: &str) -> Result<Vec<Diagnostic>> {
+        if self.odoo {
+            return Ok(Vec::new());
+        }
         if self.containerfile {
             return Ok(match tutor_core::containerfile::parse(student_code) {
                 Ok(_) => Vec::new(),
@@ -639,6 +646,12 @@ fn grade(
         bail!("invalid checks in step `{}`: {}", phase.id, errs.join("; "));
     }
     let checks = Checks::parse(&project.tests[CHECKS_FILE]).map_err(anyhow::Error::msg)?;
+    // Um passo do Odoo Enterprise sem os addons Enterprise do utilizador: dizê-lo ANTES de
+    // arrancar o sandbox (o `dxt plugin test` salta-o com o motivo).
+    let enterprise = match &checks.odoo {
+        Some(o) => crate::odoo_check::enterprise_addons(o)?,
+        None => None,
+    };
 
     // Uma ferramenta em falta: dizer o que instalar ANTES de correr o que quer que seja.
     let mut bins: BTreeMap<Tool, PathBuf> = BTreeMap::new();
@@ -804,6 +817,42 @@ fn grade(
             };
             saved.insert(s.clone(), v);
         }
+    }
+
+    // O curso de Odoo (Learn P3c): instalar os módulos do passo e correr os testes num PostgreSQL e
+    // num Odoo do sandbox (`crate::odoo_check`).
+    if let Some(spec) = &checks.odoo {
+        let (Some(s), Some((_, env))) = (session.as_ref(), sandbox.as_ref()) else {
+            bail!(
+                "no container sandbox for the [odoo] checks of step `{}`",
+                phase.id
+            );
+        };
+        let timeout = spec
+            .timeout_secs
+            .map(Duration::from_secs)
+            .unwrap_or(env.timeout);
+        let run = crate::odoo_check::run(
+            s,
+            spec,
+            &base,
+            &work,
+            &env.images,
+            timeout,
+            enterprise.as_deref(),
+        )?;
+        report.push(format!(
+            "Odoo {}: PostgreSQL ready in {:.1} s, Odoo ran for {:.1} s{}.\n",
+            spec.version,
+            run.pg_secs,
+            run.odoo_secs,
+            if enterprise.is_some() {
+                " (with your Enterprise addons)"
+            } else {
+                ""
+            }
+        ));
+        outcomes.extend(crate::odoo_check::judge(spec, &run, timeout));
     }
 
     // Os documentos de cada ficheiro que as verificações lêem (o aluno, os ocultos, os guardados).
