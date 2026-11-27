@@ -18,6 +18,7 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 - [Vault — segredos, sessão e credenciais dinâmicas](#vault-segredos-sessao-e-credenciais-dinamicas) — 3 acções
 - [Deploy guiado — staging e produção](#deploy-guiado-staging-e-producao) — 3 acções
 - [Learning Track](#learning-track) — 5 acções
+- [Novo projecto: um projecto completo a partir dos templates do Delonix](#novo-projecto-um-projecto-completo-a-partir-dos-templates-do-delonix) — 1 acção
 
 ---
 
@@ -1888,6 +1889,49 @@ Um curso que usa bibliotecas de fora (o Seiva 0.2.0, o tokio e o axum; o Django 
 - Precisa de rede na preparação (crates.io e GitHub; o PyPI).
 
 <sub>Cobre: `lt-prepare`</sub>
+
+---
+
+## Novo projecto: um projecto completo a partir dos templates do Delonix
+
+Cria um projecto novo já completo — código, testes, Dockerfile, compose, CI, ADRs, runbooks e dotfiles — a partir dos mesmos templates do `delonix init -t` (Rust, Go, Node.js, FastAPI, Django, NestJS, Next.js, Laravel, nginx, Apache httpd, HAProxy, Odoo e WordPress), e abre-o logo como o teu workspace.
+
+<sub>Código: `crates/tutor-scaffold/src/lib.rs`, `src-tauri/src/commands/scaffold.rs`, `templates/projects/`, `scripts/sync-delonix-templates.sh`, `ui-app/src/features/newproject/` · revisto em 2026-11-27</sub>
+
+| Acção | Onde |
+|---|---|
+| [Criar um projecto novo](#criar-um-projecto-novo) | Boas-vindas › Começar › Novo projecto… · menu File › New Project… · paleta › File: New Project… |
+
+### Criar um projecto novo
+
+**Onde:** Boas-vindas › Começar › Novo projecto… · menu File › New Project… · paleta › File: New Project…
+
+Abre um diálogo com um cartão por template, agrupados em Linguagens, Frameworks, Servidores web e Aplicações. Escolhes um, dás o nome, a pasta onde fica e a versão, e o projecto é criado e aberto como workspace.
+
+**Como usar**
+
+1. Abre o Novo projecto e escolhe o cartão (por exemplo, FastAPI).
+2. Escreve o nome (letras minúsculas, dígitos e hífenes), confirma a pasta onde fica e a versão.
+3. Carrega em «Criar projecto» e confirma no diálogo, que mostra exactamente o que vai acontecer.
+4. O projecto abre-se como o teu workspace; o resumo diz como ficou o git e o lockfile.
+
+**Fluxo (por dentro)**
+
+1. Os templates são os do Delonix (`bins/delonix/templates`), copiados por `scripts/sync-delonix-templates.sh` para `templates/projects/` (o commit de origem fica em `SOURCE`) e embutidos no binário pelo crate `tutor-scaffold`.
+2. `project_new_plan` valida o nome (uma etiqueta DNS), a versão (as do `template.meta`) e a pasta (nova ou vazia), e diz o que vai acontecer; não escreve nada.
+3. `project_new` substitui os tokens (`__NAME__`, `__MODULE__`, `__PORT__`, `__TLS_PORT__`, `__TEMPLATE_VERSION__`, `__DISTROLESS_REGISTRY__`) nos conteúdos e nos caminhos, escreve o `.env` (0600) com segredos aleatórios a partir do `.env.tmpl`, gera o lockfile se o gestor de pacotes estiver instalado, faz `git init` em `main` e o commit `chore: scaffold`. Fica no registo de auditoria do projecto novo, antes e com o resultado.
+
+**Dicas**
+
+- O `.env` nunca entra no commit (o `.gitignore` do template exclui-o); os segredos são só deste projecto.
+
+**Limites**
+
+- Só na app desktop.
+- O certificado local dos templates com HTTPS (pasta `tls/`) não é gerado: cria-o com `scripts/tls.sh` ou com o `delonix init`.
+- Sem o gestor de pacotes (uv, pnpm, cargo, composer) instalado, o lockfile não é gerado e o resumo diz que comando correr.
+
+<sub>Cobre: `welcome:newProject`, `newproject:pick`, `newproject:create`, `newproject:parent`</sub>
 
 ---
 
