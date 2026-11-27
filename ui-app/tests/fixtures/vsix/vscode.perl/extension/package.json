@@ -1,0 +1,39 @@
+{
+  "name": "perl",
+  "displayName": "Perl Language Basics (built-in)",
+  "description": "Provides syntax highlighting and bracket matching in Perl files.",
+  "version": "1.95.3",
+  "publisher": "vscode",
+  "license": "SEE LICENSE IN LICENSE-vscode.txt",
+  "contributes": {
+    "languages": [
+      {
+        "id": "perl",
+        "aliases": [
+          "Perl",
+          "perl"
+        ],
+        "extensions": [
+          ".pl",
+          ".pm",
+          ".pod",
+          ".t",
+          ".PL",
+          ".psgi"
+        ],
+        "firstLine": "^#!.*\\bperl\\b",
+        "configuration": "./perl.language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "perl",
+        "scopeName": "source.perl",
+        "path": "./syntaxes/perl.tmLanguage.json",
+        "unbalancedBracketScopes": [
+          "variable.other.predefined.perl"
+        ]
+      }
+    ]
+  }
+}

@@ -51,7 +51,14 @@
 //! - `recipes` — how dxtutor can install it (see [`Recipe`], [`MANAGERS`] and
 //!   `tutor_eval::lspinstall`): the backend builds the exact command from them; nothing the UI
 //!   sends is run. Recipes from a project's `.dxtutor/lsp.json` are never offered.
-//! - `vscodeExtensions` — VS Code extensions that only start this server.
+//! - `vscodeExtensions` — VS Code extensions that only start this server. Installing one of them as a
+//!   VSIX also picks this server for the `vscodeLanguages` it contributes (below).
+//! - `vscodeLanguages` — VS Code language ids, beyond this server's own registry languages, that it
+//!   also serves when an installed VSIX named in `vscodeExtensions` contributes them (gopls: `go.mod`,
+//!   `go.sum`, `go.work`). A VSIX language that is not listed gets no server — the same extension may
+//!   contribute languages its server does not speak (`ms-python.python` brings `pip-requirements`,
+//!   which pyright would read as Python). A VSIX never brings a command of its own (see
+//!   `tutor_eval::langcontrib`).
 //!
 //! # Overrides (P2: [`parse_overlay`], [`apply_overlay`])
 //! A user file and a project's `.dxtutor/lsp.json` have the same shape: `version` (optional, 1),
@@ -416,6 +423,8 @@ pub struct Server {
     pub recipes: Vec<Recipe>,
     #[serde(default)]
     pub vscode_extensions: Vec<String>,
+    #[serde(default)]
+    pub vscode_languages: Vec<String>,
 }
 
 impl Server {
@@ -531,7 +540,7 @@ impl Registry {
 }
 
 /// The first line of a file (at most 1 KiB read), `None` if it cannot be read.
-fn first_line_of(path: &Path) -> Option<String> {
+pub fn first_line_of(path: &Path) -> Option<String> {
     use std::io::Read;
     let mut buf = [0u8; 1024];
     let n = std::fs::File::open(path).ok()?.read(&mut buf).ok()?;
@@ -720,6 +729,20 @@ pub fn validate(r: &Registry) -> Vec<String> {
                     "{at}: VS Code extension `{x}` is also mapped to `{other}`"
                 ));
             }
+        }
+        let mut vsl = HashSet::new();
+        for x in &s.vscode_languages {
+            if x.is_empty() || x.chars().any(char::is_whitespace) {
+                errs.push(format!("{at}: VS Code language `{x}` must be one word"));
+            }
+            if !vsl.insert(x.as_str()) {
+                errs.push(format!("{at}: VS Code language `{x}` listed twice"));
+            }
+        }
+        if !s.vscode_languages.is_empty() && s.vscode_extensions.is_empty() {
+            errs.push(format!(
+                "{at}: vscodeLanguages needs vscodeExtensions (only their VSIX can contribute them)"
+            ));
         }
     }
     errs
@@ -1058,7 +1081,8 @@ mod tests {
               "envOverride": "lower", "searchDirs": ["rel/dir", "/a/*/b/*"], "rootMarkers": ["a/b"],
               "readySignal": "Big", "initOptions": [1], "quirks": ["nope"],
               "vscodeExtensions": ["Pub.Ext"] },
-            { "id": "unused", "name": "U", "label": "u", "command": "u" }
+            { "id": "unused", "name": "U", "label": "u", "command": "u",
+              "vscodeLanguages": ["go mod", "x", "x"] }
           ]
         }"#;
         let errs = validate(&parse(bad).unwrap()).join("\n");
@@ -1084,6 +1108,9 @@ mod tests {
             "unknown quirk `nope`",
             "VS Code extension `Pub.Ext`",
             "server `unused`: no language uses it",
+            "VS Code language `go mod` must be one word",
+            "VS Code language `x` listed twice",
+            "vscodeLanguages needs vscodeExtensions",
         ] {
             assert!(errs.contains(want), "missing «{want}» in:\n{errs}");
         }

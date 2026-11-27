@@ -1235,6 +1235,8 @@ pub fn run() {
             lsp::lsp_server_log,
             lsp::lsp_server_stop,
             lsp::lsp_server_restart,
+            // LSP P4: the languages the installed VS Code extensions contribute
+            lsp::lsp_contributions,
             board::board_load,
             board::board_save,
             board::project_load,

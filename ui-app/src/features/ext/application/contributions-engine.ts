@@ -2,11 +2,17 @@
    Usa o que uma extensão VS Code contribui sem precisar de um extension host: lê do VSIX
    as gramáticas, temas, snippets e language-configuration; guarda-os; e serve ao editor o
    realce (TextMate «lite»), a expansão de snippets, o marcador de comentário e o tema de
-   cor activo. Importa só `domain/` e as portas abaixo: sem DOM, sem `window` (A7/A8). */
+   cor activo. Importa só `domain/` e as portas abaixo: sem DOM, sem `window` (A7/A8).
+   LSP P4: o editor pergunta por LINGUAGEM (o id que o registo de linguagens dá ao ficheiro — que inclui
+   as linguagens destas extensões, pela lista `languages()`), não pela extensão do ficheiro; as gramáticas
+   podem ser JSON ou uma property list XML (`.tmLanguage`); uma extensão desactivada não contribui nada;
+   instalar, remover ou ligar/desligar avisa `onChange`. */
 
 import type { ExtensionContributions, Contributes, FileRef, LanguageConfig } from "../domain/contributions";
-import { filesToRead, languageOf, parseLanguageConfig, resolveRelative, KNOWN_LANGUAGE_SERVERS } from "../domain/contributions";
+import { contributedLanguages, filesToRead, languagesOf, parseLanguageConfig, resolveRelative, KNOWN_LANGUAGE_SERVERS } from "../domain/contributions";
+import type { ContributedLanguage } from "../../lsp/domain/registry";
 import { parseJsonc } from "../domain/jsonc";
+import { looksLikeXml, parsePlist } from "../domain/plist";
 import { mergeThemes, themeToCss, type VsTheme } from "../domain/theme";
 import { parseSnippets, matchSnippet, expandSnippet, type Snippet, type Expansion } from "../domain/snippets";
 import { highlightLines, loadGrammar, type Grammar, type RawGrammar } from "../domain/textmate";
@@ -35,6 +41,10 @@ export interface ContribDeps {
   prefs: Prefs;
   /** Selector CSS do contentor do editor, onde o tema se aplica. */
   editorScope?: string;
+  /** A extensão está ligada? (por omissão, todas; uma desligada não contribui nada) */
+  active?: (extId: string) => boolean;
+  /** As contribuições mudaram (instalar, remover, `refresh` depois de ligar/desligar). */
+  onChange?: () => void;
 }
 
 export interface ThemeRef {
@@ -49,20 +59,28 @@ export interface ContribEngine {
   install(c: ExtensionContributions): boolean;
   remove(id: string): void;
   get(id: string): ExtensionContributions | undefined;
+  /** As linguagens das extensões instaladas e ligadas, juntadas por id (LSP P4). */
+  languages(): ContributedLanguage[];
+  /** Uma extensão foi ligada/desligada: volta a calcular o que contribui e avisa `onChange`. */
+  refresh(): void;
   themes(): ThemeRef[];
   activeTheme(): string | null;
   /** Aplica o tema `label` (ou volta ao tema do dxtutor com `null`). */
   applyTheme(label: string | null): void;
   /** Re-aplica o tema guardado (arranque). */
   restore(): void;
-  /** HTML por linha com a gramática da linguagem do ficheiro, ou `null` se não houver. */
-  highlight(fileExt: string, lines: string[]): string[] | null;
-  snippetsFor(fileExt: string): Snippet[];
+  /** HTML por linha com a gramática da linguagem `language` (o id), ou `null` se nenhuma extensão a traz. */
+  highlight(language: string, lines: string[]): string[] | null;
+  /** Os snippets da linguagem (e os de `*`; sem linguagem, só esses). */
+  snippetsFor(language: string | null): Snippet[];
   /** Expande o snippet cujo prefixo acaba em `lineBefore`; `null` se nenhum casar. */
-  expandAt(fileExt: string, lineBefore: string, ctx: { filename?: string; selectedText?: string; now?: Date }, indent: string, tab: string):
+  expandAt(language: string | null, lineBefore: string, ctx: { filename?: string; selectedText?: string; now?: Date }, indent: string, tab: string):
     | { prefix: string; expansion: Expansion }
     | null;
-  lineCommentFor(fileExt: string): string | null;
+  /** O comentário de linha do `language-configuration.json` da linguagem, se alguma extensão o traz. */
+  lineCommentFor(language: string | null): string | null;
+  /** O comentário de bloco (`["<!--", "-->"]`), idem. */
+  blockCommentFor(language: string | null): [string, string] | null;
   languageServerFor(extId: string): { language: string; server: string } | undefined;
 }
 
@@ -72,7 +90,15 @@ export function makeContribEngine(deps: ContribDeps): ContribEngine {
   const scope = deps.editorScope || ".ed";
   let all: ExtensionContributions[] | null = null;
   const grammarCache = new Map<string, Grammar>();
-  const list = () => (all ??= deps.store.load());
+  const stored = () => (all ??= deps.store.load());
+  /** As instaladas e ligadas: o que contribui. */
+  const list = () => stored().filter(c => !deps.active || deps.active(c.id));
+  let langs: ContributedLanguage[] | null = null;
+  const changed = () => {
+    langs = null;
+    grammarCache.clear();
+    deps.onChange?.();
+  };
 
   async function readJson(zip: JSZipArchive, path: string): Promise<unknown> {
     const f = zip.file(path);
@@ -93,9 +119,7 @@ export function makeContribEngine(deps: ContribDeps): ContribEngine {
   async function readFromVsix(zip: JSZipArchive, id: string, contributes: Contributes | undefined): Promise<ExtensionContributions> {
     const out: ExtensionContributions = {
       id,
-      languages: (contributes?.languages || [])
-        .filter(l => l.id)
-        .map(l => ({ id: l.id!, extensions: (l.extensions || []).filter(e => typeof e === "string") })),
+      languages: languagesOf(contributes),
       grammars: [],
       themes: [],
       snippets: [],
@@ -115,8 +139,13 @@ export function makeContribEngine(deps: ContribDeps): ContribEngine {
 
   async function readOne(zip: JSZipArchive, ref: FileRef, out: ExtensionContributions, themeMeta: Map<string, string>) {
     if (ref.kind === "grammar") {
-      if (!/\.json$/i.test(ref.zipPath)) throw new Error("only JSON grammars are supported (not .tmLanguage plist)");
-      const grammar = (await readJson(zip, ref.zipPath)) as RawGrammar;
+      // JSON (`.tmLanguage.json`) ou uma property list XML (`.tmLanguage`, `.plist`): decide o conteúdo
+      const f = zip.file(ref.zipPath);
+      if (!f) throw new Error(`${ref.zipPath} not found in the VSIX`);
+      const text = await f.async("string");
+      const grammar = (looksLikeXml(text) ? parsePlist(text) : parseJsonc(text)) as RawGrammar;
+      if (!grammar || typeof grammar !== "object" || Array.isArray(grammar) || !(grammar.patterns || grammar.repository))
+        throw new Error("not a TextMate grammar (no patterns)");
       out.grammars.push({ language: ref.language!, scopeName: ref.scopeName || grammar.scopeName || "source", grammar });
     } else if (ref.kind === "theme") {
       out.themes.push({ label: ref.label!, uiTheme: themeMeta.get(ref.label!) || "vs-dark", theme: await readTheme(zip, ref.zipPath) });
@@ -128,35 +157,34 @@ export function makeContribEngine(deps: ContribDeps): ContribEngine {
   }
 
   function install(c: ExtensionContributions): boolean {
-    const next = list().filter(x => x.id !== c.id).concat(c);
+    const next = stored().filter(x => x.id !== c.id).concat(c);
     all = next;
-    grammarCache.clear();
-    return deps.store.save(next);
+    const ok = deps.store.save(next);
+    changed();
+    return ok;
   }
 
   function remove(id: string): void {
     const removedActive = themes().some(t => t.extId === id && t.label === activeTheme());
-    all = list().filter(x => x.id !== id);
-    grammarCache.clear();
+    all = stored().filter(x => x.id !== id);
     deps.store.save(all);
     if (removedActive) applyTheme(null);
+    changed();
   }
 
-  const themes = (): ThemeRef[] => list().flatMap(c => c.themes.map(t => ({ extId: c.id, label: t.label, uiTheme: t.uiTheme })));
+  // os temas continuam a ser de todas as instaladas (a paleta só mostra os das ligadas, como antes)
+  const themes = (): ThemeRef[] => stored().flatMap(c => c.themes.map(t => ({ extId: c.id, label: t.label, uiTheme: t.uiTheme })));
   const activeTheme = (): string | null => deps.prefs.get(THEME_PREF);
 
   function applyTheme(label: string | null): void {
-    const found = label ? list().flatMap(c => c.themes).find(t => t.label === label) : undefined;
+    const found = label ? stored().flatMap(c => c.themes).find(t => t.label === label) : undefined;
     deps.style.set(found ? themeToCss(found.theme, scope) : "");
     deps.prefs.set(THEME_PREF, found ? label : null);
   }
 
   const restore = (): void => applyTheme(activeTheme());
 
-  const language = (fileExt: string) => languageOf(fileExt, list());
-
-  function highlight(fileExt: string, lines: string[]): string[] | null {
-    const lang = language(fileExt);
+  function highlight(lang: string, lines: string[]): string[] | null {
     if (!lang) return null;
     for (const c of list()) {
       const g = c.grammars.find(x => x.language === lang);
@@ -168,37 +196,39 @@ export function makeContribEngine(deps: ContribDeps): ContribEngine {
     return null;
   }
 
-  function snippetsFor(fileExt: string): Snippet[] {
-    const lang = language(fileExt);
-    return list().flatMap(c => c.snippets.filter(s => s.language === lang || s.language === "*").flatMap(s => s.snippets));
+  function snippetsFor(lang: string | null): Snippet[] {
+    return list().flatMap(c => c.snippets.filter(s => (lang !== null && s.language === lang) || s.language === "*").flatMap(s => s.snippets));
   }
 
-  function expandAt(fileExt: string, lineBefore: string, ctx: { filename?: string; selectedText?: string; now?: Date }, indent: string, tab: string) {
-    const m = matchSnippet(lineBefore, snippetsFor(fileExt));
+  function expandAt(lang: string | null, lineBefore: string, ctx: { filename?: string; selectedText?: string; now?: Date }, indent: string, tab: string) {
+    const m = matchSnippet(lineBefore, snippetsFor(lang));
     if (!m) return null;
     return { prefix: m.prefix, expansion: expandSnippet(m.snippet.body, ctx, indent, tab) };
   }
 
-  function lineCommentFor(fileExt: string): string | null {
-    const lang = language(fileExt);
-    let cfg: LanguageConfig | undefined;
-    for (const c of list()) cfg ??= c.configs.find(x => x.language === lang)?.config;
-    return cfg?.lineComment || null;
+  /** O primeiro `language-configuration.json` da linguagem que tem o campo pedido. */
+  function configWith<K extends keyof LanguageConfig>(lang: string | null, key: K): LanguageConfig[K] | undefined {
+    if (!lang) return undefined;
+    for (const c of list()) for (const x of c.configs) if (x.language === lang && x.config[key]) return x.config[key];
+    return undefined;
   }
 
   return {
     readFromVsix,
     install,
     remove,
-    get: id => list().find(c => c.id === id),
+    get: id => stored().find(c => c.id === id),
     themes,
     activeTheme,
     applyTheme,
     restore,
+    languages: () => (langs ??= contributedLanguages(list())),
+    refresh: changed,
     highlight,
     snippetsFor,
     expandAt,
-    lineCommentFor,
+    lineCommentFor: lang => configWith(lang, "lineComment") || null,
+    blockCommentFor: lang => configWith(lang, "blockComment") || null,
     languageServerFor: id => KNOWN_LANGUAGE_SERVERS[id.toLowerCase()],
   };
 }

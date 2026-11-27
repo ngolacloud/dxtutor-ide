@@ -34,6 +34,9 @@ export interface AppEvents {
   "agent:run": { active: boolean; label: string };
   /** A configuração de um provedor mudou (modelo, ligado/desligado). */
   "agent:providers": { provider: string };
+  /** As linguagens que os VSIX instalados contribuem mudaram (instalar, desinstalar, ligar/desligar; LSP P4):
+   *  o cliente LSP manda-as ao backend e fecha os documentos que perderam o servidor (features/lsp). */
+  "ext:languages": { count: number };
 }
 
 export type AppEvent = keyof AppEvents;

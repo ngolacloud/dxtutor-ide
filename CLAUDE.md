@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 336 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 337 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -869,8 +869,19 @@ forma declarativa é aplicado por código tipado em `features/ext/`, governado p
   diagnósticos); Shift+Alt+F formata sempre.
 - **Backend:** `vsix_fetch_open_vsx` e `vsix_search_open_vsx` (só open-vsx.org) e os servidores LSP das linguagens novas
   em `lsp.rs`.
+- **Linguagens de um VSIX (LSP P4):** lêem-se `extensions`, `filenames`, `filenamePatterns`, `firstLine` e `aliases`
+  (`languagesOf`; o primeiro alias é o nome) e as gramáticas em JSON ou em property list XML (`domain/plist.ts`, decide o
+  conteúdo). As das extensões LIGADAS, juntadas por id (`contributedLanguages`, o comentário do `language-configuration`),
+  entram POR BAIXO do registo de linguagens (`useContributed` em `lsp/domain/registry.ts`, posto pelo `ext.ts`): o editor
+  (barra de estado, `vsxHighlight` com o caminho, Ctrl+/ de linha ou de bloco, snippets) pergunta por LINGUAGEM, não pela
+  extensão do ficheiro. O registo ganha sempre (`languageConflicts` di-lo na página da extensão); o servidor é a regra do
+  LSP abaixo. Instalar, desinstalar ou ligar/desligar avisa `onChange` → bus `ext:languages`. Uma extensão instalada antes
+  guardou só `id`/`extensions` (a página pede para a reinstalar). Limitação conhecida do TextMate «lite»: regras que
+  acabam num `\n` ou num `(?!\G)` (o comentário do Perl) continuam na linha seguinte.
 - **Testes:** `ext.contributions.test.ts`, `ext.contrib-engine.test.ts` e
-  `ext.phase4-harness.test.ts`. A página de detalhe só muda para itens VSIX, por isso os
+  `ext.phase4-harness.test.ts`; do P4, `ext.vsix-languages.test.ts` (domínio e motor), `ext.vsix-editor.test.ts` (no
+  editor real) e `lsp.vsix.test.ts`, com VSIX reais em miniatura em `tests/fixtures/vsix/` (golang.go, Apache com
+  `.tmLanguage` plist, Perl, ms-python; MIT). A página de detalhe só muda para itens VSIX, por isso os
   goldens do catálogo ficam intactos.
 
 ## Nona feature: Testing real (`ui-app/src/features/testing/`)
@@ -920,7 +931,8 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
   `rootMarkers`, `readySignal`, `initOptions` (o jdtls), `oneShot` (o cliente de um pedido do `tutor_eval::lsp`
   pode arrancá-lo: rust/go/ts/python, nunca um JVM), `quirks` (só `nodePath` e `rustupProxy` mudam código; os
   outros registam o que já é genérico), `install` (SÓ texto, a instrução à mão quando nenhuma receita serve),
-  `recipes` (LSP P3, abaixo) e `vscodeExtensions` (o `KNOWN_LANGUAGE_SERVERS`). Leram-se daqui as
+  `recipes` (LSP P3, abaixo), `vscodeExtensions` (o `KNOWN_LANGUAGE_SERVERS`) e `vscodeLanguages` (LSP P4,
+  abaixo). Leram-se daqui as
   nove cópias antigas: `LANGS`/`server_cmd`/pistas/`init_options` do `lsp.rs`, a tabela do `tutor_eval::lsp`,
   `codeintel::outline_lang`, `languages.ts`, `server-status.ts`, `ext/domain/contributions.ts`, os comentários do
   `ext.ts`, o `OUTLINE_LANG` do explorador e os nomes da barra de estado (o `LANG` do `editor.ts` saiu, e com
@@ -934,6 +946,15 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
   --toolchain stable`, `~/.rustup/toolchains/*/bin`) ou de um binário no PATH que NÃO seja o proxy do rustup;
   sem nenhum, `lsp_server_status` diz «não instalado» (antes caía num `rust-analyzer` solto e o aviso nunca
   aparecia). Os resolvers que correm um programa (`rustup`, `go`) guardam só o que encontraram, nunca a falta.
+- **Linguagens dos VSIX instalados (LSP P4, `tutor_eval::langcontrib`).** Só se perguntam quando o registo não reconhece
+  o ficheiro pelo nome; dentro delas, nome inteiro → padrão mais comprido → extensão mais comprida; a primeira linha só
+  quando o nome não diz nada (a do registo primeiro). Uma linguagem com o id de uma do registo É essa. O servidor de uma
+  só do VSIX é o do registo que nomeia a extensão em `vscodeExtensions` E a linguagem em `vscodeLanguages` (o gopls:
+  `go.mod`/`go.sum`/`go.work`; o `pip-requirements` do `ms-python.python` fica sem servidor), e o id do VSIX é o
+  `languageId`. A UI (`registry.ts`, `glob.ts`) e o Rust têm as mesmas regras e os mesmos casos de teste; o backend
+  recebe a lista inteira por `lsp_contributions` antes de o cliente decidir a linguagem de um ficheiro
+  (`application/contributions.ts`, só quando mudou) e o cliente fecha os documentos que perderam o servidor
+  (`onLanguagesChanged`). Um VSIX nunca traz um comando: aprovação, overrides e receitas ficam iguais.
 - **Overrides do registo (LSP P2, `tutor_eval::lspconf`, `docs/lsp/overrides.md`).** Ordem: o registo embutido →
   o `lsp.json` do utilizador (`app_config_dir`, p.ex. `~/.config/ao.ngolacloud.dxtutor-ide/lsp.json`) → o
   `.dxtutor/lsp.json` da pasta aberta. Mesmo formato do registo (`languages[]`/`servers[]` por `id`), JSON com
