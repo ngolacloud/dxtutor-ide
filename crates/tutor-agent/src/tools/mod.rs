@@ -63,6 +63,8 @@ pub struct ToolsetOptions {
     /// Toolset 9: this session works on a Project issue, so it gets `finish_issue` (the other
     /// sessions do not pay for a tool they never use).
     pub issue: bool,
+    /// H1: the OS sandbox `bash` and `run_tests`/`lint` run in (`None`: not available here).
+    pub sandbox: Option<Arc<crate::os_sandbox::OsSandbox>>,
 }
 
 impl Default for ToolsetOptions {
@@ -74,6 +76,7 @@ impl Default for ToolsetOptions {
             files: None,
             version: TOOLSET_VERSION,
             issue: false,
+            sandbox: None,
         }
     }
 }
@@ -94,15 +97,22 @@ pub fn coding_tools(opts: &ToolsetOptions) -> Vec<Arc<dyn Tool>> {
         Arc::new(fs::Write { state }),
         Arc::new(exec::Bash {
             default_timeout: opts.bash_timeout,
+            sandbox: opts.sandbox.clone(),
+            // toolset 12: the `unsandboxed` parameter (a new schema: older sessions keep theirs)
+            escape: opts.version >= 12,
         }),
         Arc::new(git::GitStatus),
         Arc::new(git::GitDiff),
     ];
     if let Some(c) = opts.test_cmd.as_ref().filter(|c| !c.trim().is_empty()) {
-        v.push(Arc::new(exec::Verify::tests(c.trim())));
+        v.push(Arc::new(
+            exec::Verify::tests(c.trim()).sandboxed(opts.sandbox.clone()),
+        ));
     }
     if let Some(c) = opts.lint_cmd.as_ref().filter(|c| !c.trim().is_empty()) {
-        v.push(Arc::new(exec::Verify::lint(c.trim())));
+        v.push(Arc::new(
+            exec::Verify::lint(c.trim()).sandboxed(opts.sandbox.clone()),
+        ));
     }
     v
 }
@@ -120,8 +130,10 @@ pub fn coding_tools(opts: &ToolsetOptions) -> Vec<Arc<dyn Tool>> {
 /// 10 = `finish_issue` responde também a cada item da Definition of Done (Board B: o anfitrião
 /// dá a DoD do projecto; o Project verifica-a antes da Review);
 /// 11 = + as ferramentas do anfitrião das sessões de backlog (`backlog_propose`,
-/// `project_propose`; `/backlog` e `/project`), só nessas sessões — as outras ficam iguais.
-pub const TOOLSET_VERSION: u32 = 11;
+/// `project_propose`; `/backlog` e `/project`), só nessas sessões — as outras ficam iguais;
+/// 12 = o `bash` ganha `unsandboxed` (H1: correr um comando fora da sandbox do sistema, sempre
+/// com aprovação humana). A sandbox em si vale para todas as sessões (não muda o prefixo).
+pub const TOOLSET_VERSION: u32 = 12;
 
 /// O estado partilhado entre as ferramentas de fluxo e a sessão.
 #[derive(Clone, Default)]

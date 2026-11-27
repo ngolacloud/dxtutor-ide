@@ -395,6 +395,16 @@ impl Policy {
                 };
             }
         }
+        // H1: a command outside the OS sandbox is always the human's (every mode, no «allow always»)
+        if call.name == "bash"
+            && call.input.get("unsandboxed").and_then(|v| v.as_bool()) == Some(true)
+        {
+            return Verdict::Ask {
+                reason: "corre fora da sandbox: com rede e com o disco inteiro".into(),
+                dangerous: true,
+                suggested_rule: None,
+            };
+        }
         let manual = approval_for(self.mode, Action::Edit) == Approval::Ask;
         // edições: piso dos ficheiros protegidos, depois regras e modo
         if let Some(path) = call
@@ -499,6 +509,30 @@ mod tests {
             Verdict::Ask { .. } => "ask",
             Verdict::Deny { .. } => "deny",
         }
+    }
+
+    #[test]
+    fn a_command_outside_the_sandbox_is_always_the_humans() {
+        let out = call(
+            "bash",
+            false,
+            json!({"command": "npm install", "unsandboxed": true}),
+            Some("npm install"),
+        );
+        let mut rules = Rules::default();
+        rules.allow.push("bash:npm install".into());
+        for m in [Mode::Manual, Mode::Assist, Mode::Auto] {
+            let v = pol(m, rules.clone()).decide(&out);
+            assert_eq!(kind(&v), "ask!", "{m:?}");
+        }
+        // the same command in the sandbox follows the rules as before
+        let inside = call(
+            "bash",
+            false,
+            json!({"command": "npm install"}),
+            Some("npm install"),
+        );
+        assert_eq!(kind(&pol(Mode::Auto, rules).decide(&inside)), "allow");
     }
 
     #[test]

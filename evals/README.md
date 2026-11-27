@@ -53,3 +53,9 @@ an IaC plan to read), and long sessions that need compaction.
 
 While writing the suite, three runs showed that hidden tests must not share names with the tests an agent writes:
 Go acceptance tests live in an external `_test` package, and every hidden test uses names of its own.
+
+## H1 — the OS sandbox
+
+`results/1795744169-claude-opus-5-5.md`: the same 32 tasks with every command of the agent inside the bubblewrap
+sandbox (network off, writes confined to the project): **32 of 32**, $3.06, ~17 min — no loss against the baseline
+($3.03, 1049 s of agent time), and the report says how many tasks ran sandboxed (32 of 32).

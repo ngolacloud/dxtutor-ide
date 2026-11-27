@@ -246,6 +246,10 @@ pub struct TaskResult {
     pub tools: BTreeMap<String, u32>,
     /// Approvals the policy asked for and the run refused (nobody to say yes).
     pub refused: u32,
+    /// The notices the session gave (e.g. «no OS sandbox on this machine»).
+    pub notices: Vec<String>,
+    /// H1: the agent's commands ran in the OS sandbox (no notice said otherwise).
+    pub sandboxed: bool,
     pub check_output: String,
 }
 
@@ -275,6 +279,8 @@ pub fn run_task(t: &Task, cfg: &RunConfig) -> TaskResult {
         check_seconds: 0.0,
         tools: BTreeMap::new(),
         refused: 0,
+        notices: vec![],
+        sandboxed: false,
         check_output: String::new(),
     };
     let dir = match prepare(t, &cfg.scratch.join("projects"), false) {
@@ -342,6 +348,7 @@ pub fn run_task(t: &Task, cfg: &RunConfig) -> TaskResult {
                 }
                 AgentEvent::ToolStart { name, .. } => *r.tools.entry(name).or_default() += 1,
                 AgentEvent::Question { .. } => question = true,
+                AgentEvent::Notice { text } => r.notices.push(text),
                 _ => {}
             },
             &mut |req| {
@@ -368,6 +375,10 @@ pub fn run_task(t: &Task, cfg: &RunConfig) -> TaskResult {
         text = Some(NO_HUMAN.to_string());
     }
     r.agent_seconds = started.elapsed().as_secs_f64();
+    r.sandboxed = !r
+        .notices
+        .iter()
+        .any(|n| n.contains("sem sandbox") || n.contains("sandbox desligada"));
     r.cost_usd = priced.then_some(cost);
     codev_agent::close(&id);
     match check(t, &dir) {
@@ -443,6 +454,11 @@ pub fn markdown(model: &str, rs: &[TaskResult], s: &Summary) -> String {
         money(s.cost_usd),
         s.agent_seconds
     );
+    let sandboxed = rs.iter().filter(|r| r.sandboxed).count();
+    out.push_str(&format!(
+        "Commands in the OS sandbox: {sandboxed} of {} tasks.\n\n",
+        rs.len()
+    ));
     out.push_str("| Task | Lang | Kind | Solved | Outcome | Turns | Requests | Out tokens | Cost | Seconds | Refused |\n|---|---|---|---|---|---|---|---|---|---|---|\n");
     for r in rs {
         out.push_str(&format!(
@@ -512,6 +528,8 @@ mod tests {
             check_seconds: 1.0,
             tools: BTreeMap::new(),
             refused: 0,
+            notices: vec![],
+            sandboxed: true,
             check_output: String::new(),
         };
         let rs = vec![

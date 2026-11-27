@@ -290,7 +290,7 @@ export interface AgentGateway {
   permissions(root: string): Promise<Permissions>;
   savePermissions(root: string, rules: { allow: string[]; deny: string[] }): Promise<void>;
   extensions(root: string): Promise<ExtensionsStatus>;
-  trust(root: string, kind: "hooks" | "mcp"): Promise<void>;
+  trust(root: string, kind: "hooks" | "mcp" | "sandbox"): Promise<void>;
   /** `origin`: the human request (RF-G01); `text: null` («try again») keeps the last one. */
   send(session: string, text: string | null, origin?: AgentOrigin): Promise<void>;
   approve(session: string, toolUseId: string, allow: boolean, reason?: string, remember?: boolean): Promise<boolean>;
