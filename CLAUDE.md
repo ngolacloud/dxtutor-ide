@@ -809,6 +809,21 @@ cpp, sql.
   `timeout_secs` do curso dá o tempo limite de cada compilação. Testes: `cargo test -p tutor-core
   build`, `-p tutor-eval course_cache` e `--test course_cache_real` (git `file://`, sem rede),
   `tests/learn.prepare.test.ts`.
+- **Curso Django e cache pip (Learn P2a):** `courses/django/` (framework, avaliado em `python`, só no
+  backend; 9 unidades, um projecto Django com `manage.py` por unidade). A cache preparada tem um gestor
+  por linguagem (`tutor_core::CacheKind`: `cargo` para Rust, `pip` para Python). Num curso Python cada
+  linha de `[build] dependencies` é `nome==versão --hash=sha256:…` (`tutor_core::pip_requirement`, no
+  parse: sem intervalos, URLs, índices nem opções; todas as transitivas fixadas; sem `prepare` é erro).
+  Preparar = `python3 -m venv --clear <cache>/venv`, `pip install --require-hashes --only-binary=:all:
+  --no-cache-dir --index-url https://pypi.org/simple -r requirements.txt` com `PIP_CONFIG_FILE=/dev/null`
+  (a única ida à rede) e `pip check`; a avaliação põe o venv à frente do `PATH` com `PIP_NO_INDEX=1` e o
+  tempo limite do curso. Um projecto Python com `manage.py` na raiz corre com `manage.py test` (o
+  descritor Python; «no tests ran» também falha). O plano lista os pacotes (`Plan::packages`, nome,
+  versão, origem) e o diálogo de aprovação mostra-os antes do comando (`ApprovalRequest.list`), no Seiva
+  e no Django. O Django 5.2 LTS: actualizar = as três linhas fixadas (hash da roda no PyPI),
+  `dxt plugin prepare` e `dxt plugin test courses/django`. Testes: `cargo test -p tutor-core build`,
+  `-p tutor-eval course_cache` e `--test course_cache_pip_real` (índice `file://`, sem rede),
+  `tests/learn.prepare.test.ts`, `tests/approval.test.ts`.
 - **Cursos de ferramentas (Learn P2b, parte offline):** `courses/kubernetes/` (11 unidades, kubectl
   v1.36) e `courses/delonix/` (9 unidades, Delonix 0.2.0; o README do delonix ainda diz «0.1.x»),
   categoria `tool`, linguagem `yaml`, embutidos só no backend. Avaliam-se por verificações

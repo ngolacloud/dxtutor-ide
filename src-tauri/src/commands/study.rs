@@ -212,6 +212,12 @@ pub struct CoursePrepareDto {
     pub state: String,
     /// The exact commands to approve (empty when nothing to prepare).
     pub command: String,
+    /// The package manager of the course cache: `cargo` or `pip` (empty when nothing to
+    /// prepare).
+    pub kind: String,
+    /// The packages the preparation downloads (name, version, source, exact or not), listed in
+    /// the approval dialog: a third-party course can declare any dependency.
+    pub packages: Vec<tutor_eval::course_cache::Package>,
     /// The course cache folder (the approval's scope and the audit row's root).
     pub dir: String,
     /// Wall-clock limit (s) of each build of this course (0 = the evaluator's default).
@@ -230,6 +236,16 @@ fn prepare_dto(st: &study::PrepareStatus) -> CoursePrepareDto {
             .plan
             .as_ref()
             .map(|p| p.command.clone())
+            .unwrap_or_default(),
+        kind: st
+            .plan
+            .as_ref()
+            .map(|p| p.kind.as_str().to_string())
+            .unwrap_or_default(),
+        packages: st
+            .plan
+            .as_ref()
+            .map(|p| p.packages.clone())
             .unwrap_or_default(),
         dir: st
             .plan

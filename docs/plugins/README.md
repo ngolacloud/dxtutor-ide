@@ -369,13 +369,42 @@ seiva = 'git = "https://github.com/ngolacloud/seiva", tag = "v0.2.0"'
 - `${name}` in any dependency line (the course's or a step's) is replaced by `[build.vars]`; an
   undefined name makes the course invalid.
 - Every drill and challenge compiles with the course's lines plus its own `dependencies`.
-- `prepare = true` (Rust courses only): grading **never** uses the network. The dependencies are
+- `prepare = true` (Rust and Python courses): grading **never** uses the network. The dependencies are
   downloaded once, in an explicit step the learner approves — «Prepare course» in the app, or
   `dxt plugin prepare <folder>` — into a cache of the course (its own `CARGO_HOME` and a shared
   `target`, under `$DXTUTOR_COURSE_CACHE` or the user data folder, `dxtutor/course-cache/<course
   id>`), and built once. Each grading then runs `--offline` with that cache, its `Cargo.lock` and
   `timeout_secs`. Until then, grading answers `COURSE_NOT_PREPARED` and says what to do. When the
   course's dependency set changes, the cache is stale and has to be prepared again.
+- The dialog that asks to prepare a course lists every package it downloads (name, version and
+  source) before the commands: learners see what a course pulls in.
+
+**Python courses (pip).** A dependency line is a `requirements.txt` line, **pinned and hashed**,
+and every package the course needs must be listed, its dependencies included:
+
+```toml
+[build]
+prepare = true
+timeout_secs = 120
+dependencies = [
+  'Django==5.2.19 --hash=sha256:5965d974a5218a2b68a11dd1276434707f23886525c23f0598eccedaf4f4ca00',
+  'asgiref==3.12.1 --hash=sha256:fe386d1c2bff7259ea95929266d12a8cf9a8b5a1c2598402967d8792e7a7c094',
+  'sqlparse==0.6.1 --hash=sha256:3be5a72d04c873d690d7c6dedd33d6fae2ef82759881ceec02fc2efd0cba564f',
+]
+```
+
+- Only `name==version --hash=sha256:<64 hex>` (one or more hashes) is accepted: no ranges, extras,
+  markers, URLs, paths, `-e`, `-r` or index options. Take the hash of the wheel from PyPI
+  (`https://pypi.org/pypi/<name>/<version>/json`, the `digests` of the `py3-none-any` file).
+- Preparing creates a venv for the course (`python3 -m venv`) and runs `pip install
+  --require-hashes --only-binary=:all:` from PyPI (wheels only: no `setup.py` runs), without the
+  learner's pip configuration or cache, then `pip check`. A package that is not pinned, or whose
+  file does not match its hash, makes pip refuse, and the course stays unprepared.
+- Grading runs the descriptor's commands with the venv first on the `PATH` and `PIP_NO_INDEX=1`.
+  A project step with a `manage.py` at its root is graded with Django's runner,
+  `python manage.py test` (the official Django course, `courses/django/`).
+- Without `prepare = true`, a Python course cannot declare `dependencies` (nothing would install
+  them).
 
 ### Tool courses graded by checks: `language = "yaml"`
 

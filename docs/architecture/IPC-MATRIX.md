@@ -145,8 +145,8 @@ Núcleo do «cérebro» dxtutor (currículo/avaliação). **Nenhum consumido pel
 | `compile_pipeline` | `code: String` | `PipelineDto` | String | — | `features/hood` (A8) | **X** |
 | `trace_execution` | `language: String`, `code: String` | `ExecutionTraceDto` | String | — | `features/hood` (A8) | **X** |
 | `study_policy` | `mode: String`, `step_id: Option<String>` | `StudyPolicy` | — | — | — | R |
-| `course_prepare_status` | `course_id: String` | `CoursePrepareDto` (`needed`, `state` `not-needed`/`missing`/`stale`/`ready`, `command` exacto a aprovar, `dir` da cache do curso, `timeoutSecs`, tempos medidos) | String | — | `platform/tauri/learn.ts` | R |
-| `course_prepare` | `course_id: String`, `decision: {command, reason?, decidedAt?}` (o comando aprovado tem de ser o plano actual) | `CoursePreparedDto` (`ok`, fim da saída, estado novo) | String | — | `platform/tauri/learn.ts` | **X N W S** (a ÚNICA ida à rede do Learning Track: `cargo fetch` + primeira compilação para a cache do curso; auditado antes e com o resultado) |
+| `course_prepare_status` | `course_id: String` | `CoursePrepareDto` (`needed`, `state` `not-needed`/`missing`/`stale`/`ready`, `command` exacto a aprovar, `kind` `cargo`/`pip`, `packages` a descarregar `{name, version, source, pinned}` — listados no diálogo, `dir` da cache do curso, `timeoutSecs`, tempos medidos) | String | — | `platform/tauri/learn.ts` | R |
+| `course_prepare` | `course_id: String`, `decision: {command, reason?, decidedAt?}` (o comando aprovado tem de ser o plano actual) | `CoursePreparedDto` (`ok`, fim da saída, estado novo) | String | — | `platform/tauri/learn.ts` | **X N W S** (a ÚNICA ida à rede do Learning Track: `cargo fetch` + primeira compilação para a cache do curso, ou — curso Python — `venv` + `pip install --require-hashes` + `pip check`; auditado antes e com o resultado) |
 
 ## 4. Review de código — `commands/review.rs` (3)
 

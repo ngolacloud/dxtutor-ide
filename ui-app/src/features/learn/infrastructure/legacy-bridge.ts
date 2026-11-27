@@ -30,7 +30,7 @@ export const tauriCourseGateway: CourseGateway = {
 };
 
 const prepareStatus = (s: ipc.CoursePrepareDto): PrepareStatus => ({
-  needed: s.needed, state: s.state, command: s.command, dir: s.dir, timeoutSecs: s.timeoutSecs, fetchSecs: s.fetchSecs, warmSecs: s.warmSecs,
+  needed: s.needed, state: s.state, command: s.command, kind: s.kind ?? "", packages: s.packages ?? [], dir: s.dir, timeoutSecs: s.timeoutSecs, fetchSecs: s.fetchSecs, warmSecs: s.warmSecs,
 });
 
 /** O registo de auditoria das operações do IDE (`audit_record`). */

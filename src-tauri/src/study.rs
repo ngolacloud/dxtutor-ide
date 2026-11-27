@@ -551,10 +551,14 @@ mod tests {
             "minishop-fixture"
         );
         assert_eq!(
-            find_course(&courses, "python", Some("django"))
+            find_course(&courses, "python", Some("django")).unwrap().id,
+            "django-basics"
+        );
+        assert_eq!(
+            find_course(&courses, "python", Some("flask"))
                 .unwrap_err()
                 .to_string(),
-            "no course for `django`"
+            "no course for `flask`"
         );
     }
 
@@ -659,6 +663,60 @@ mod tests {
         let autonomous = serde_json::to_value(study_policy("tutor", Some("no-such-step"))).unwrap();
         let free = serde_json::to_value(study_policy("livre", None)).unwrap();
         assert!(autonomous.is_object() && free.is_object());
+    }
+
+    /// O curso Django embutido prepara-se com uma cache pip (Learn P2a): o estado diz o que
+    /// falta, o plano é o venv + `pip install --require-hashes` dos pacotes fixados, a lista dos
+    /// pacotes vai para o diálogo, e só o comando aprovado (o plano actual) corre.
+    #[test]
+    fn the_builtin_django_course_prepares_a_pip_cache() {
+        if tutor_eval::course_cache::host_python().is_none() {
+            return;
+        }
+        let courses = tutor_core::builtin_courses();
+        let django = find_course(&courses, "python", Some("django")).unwrap();
+        assert_eq!(django.id, "django-basics");
+        assert_eq!(
+            find_course(&courses, "python", None).unwrap().id,
+            "python-basics"
+        );
+        let tmp = tempfile::tempdir().unwrap();
+        let st = prepare_status_in(&courses, "django-basics", tmp.path()).unwrap();
+        assert!(st.needed);
+        assert_eq!(st.state, "missing");
+        assert_eq!(st.timeout_secs, 120);
+        let plan = st.plan.expect("a plan");
+        assert_eq!(plan.kind, tutor_core::CacheKind::Pip);
+        let names: Vec<String> = plan
+            .packages
+            .iter()
+            .map(|p| format!("{} {} {}", p.name, p.version, p.source))
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "Django 5.2.19 PyPI",
+                "asgiref 3.12.1 PyPI",
+                "sqlparse 0.6.1 PyPI"
+            ]
+        );
+        assert!(plan
+            .command
+            .contains("--require-hashes --only-binary=:all:"));
+        assert!(plan.command.contains("--index-url https://pypi.org/simple"));
+        assert!(plan.layout.dir.starts_with(tmp.path()));
+        // Only the command the human saw (the current plan) is accepted.
+        assert!(approved_plan_in(&courses, "django-basics", tmp.path(), &plan.command).is_ok());
+        let e = approved_plan_in(&courses, "django-basics", tmp.path(), "pip install evil")
+            .unwrap_err();
+        assert!(
+            e.to_string()
+                .contains("not this course's current preparation"),
+            "{e}"
+        );
+        // A course without a [build] has nothing to prepare.
+        let none = prepare_status_in(&courses, "python-basics", tmp.path()).unwrap();
+        assert_eq!((none.needed, none.state), (false, "not-needed"));
     }
 
     /// O curso Dxjs embutido avalia-se com os seus ficheiros de apoio: sem eles,

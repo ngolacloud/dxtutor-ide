@@ -111,7 +111,7 @@
   /* o diálogo de aprovação partilhado (app/approval.ts, r23 F1): a caixa é a .dlg-box, por cima do #dlg */
   #approval{position:fixed;inset:0;z-index:490;background:rgba(0,0,0,.6);display:grid;place-items:center;padding:16px}
   .appr-lede{color:var(--fg-dim)}.appr-scope{font-size:12px;color:var(--fg-dim)}.appr-scope span{color:var(--fg);font-weight:600}
-  .appr-cmd{white-space:pre-wrap;word-break:break-all}.appr-box .inp{width:100%}.appr-box code{font-family:var(--font-mono);text-transform:none;letter-spacing:0;color:var(--fg)}
+  .appr-cmd{white-space:pre-wrap;word-break:break-all}.appr-list{margin:0 0 6px;padding-left:18px;font-family:var(--font-mono);font-size:12px;word-break:break-all}.appr-note{margin:0 0 8px;font-size:12px;color:var(--fg-dim,inherit)}.appr-box .inp{width:100%}.appr-box code{font-family:var(--font-mono);text-transform:none;letter-spacing:0;color:var(--fg)}
   .appr-box .mini.pri.danger{background:var(--red)}.appr-box .mini.pri:disabled{opacity:.45;cursor:not-allowed}
   .pr-row{display:flex;gap:10px;align-items:baseline;padding:3px 0}.pr-row>span:first-child{width:120px;color:var(--fg-muted);flex:none}.pr-row code{font-family:var(--font-mono);font-size:11.5px;color:var(--accent-hover)}
   .pr-c{font-size:12px;color:var(--fg-dim);padding:1px 0}.pr-c code{font-family:var(--font-mono);color:var(--accent-hover);margin-right:6px}.pr-note{color:var(--fg-muted);font-size:11.5px;margin-top:10px!important}
