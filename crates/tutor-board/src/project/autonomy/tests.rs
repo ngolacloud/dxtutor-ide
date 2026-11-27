@@ -290,19 +290,35 @@ fn events_are_kept_and_only_actions_count_for_the_rate() {
         at,
     };
     // one review (its start and its end count once), a stop, a failed request, an integration
-    s.autonomy_event(ROOT, &ev("review", "started", "requested", T0)).unwrap();
-    s.autonomy_event(ROOT, &ev("review", "ok", "reviewed", T0 + 1)).unwrap();
-    s.autonomy_event(ROOT, &ev("review", "stopped", "paused", T0 + 2)).unwrap();
-    s.autonomy_event(ROOT, &ev("review", "failed", "request_failed", T0 + 3)).unwrap();
-    s.autonomy_event(ROOT, &ev("integrate", "stopped", "stale", T0 + 4)).unwrap();
-    s.autonomy_event(ROOT, &ev("integrate", "ok", "integrated", T0 + 5)).unwrap();
-    s.autonomy_event(ROOT, &ev("pr", "failed", "pr_failed", T0 + 6)).unwrap();
+    s.autonomy_event(ROOT, &ev("review", "started", "requested", T0))
+        .unwrap();
+    s.autonomy_event(ROOT, &ev("review", "ok", "reviewed", T0 + 1))
+        .unwrap();
+    s.autonomy_event(ROOT, &ev("review", "stopped", "paused", T0 + 2))
+        .unwrap();
+    s.autonomy_event(ROOT, &ev("review", "failed", "request_failed", T0 + 3))
+        .unwrap();
+    s.autonomy_event(ROOT, &ev("integrate", "stopped", "stale", T0 + 4))
+        .unwrap();
+    s.autonomy_event(ROOT, &ev("integrate", "ok", "integrated", T0 + 5))
+        .unwrap();
+    s.autonomy_event(ROOT, &ev("pr", "failed", "pr_failed", T0 + 6))
+        .unwrap();
     assert_eq!(s.autonomy_actions_since(ROOT, T0).unwrap(), 4);
     assert_eq!(s.autonomy_actions_since(ROOT, T0 + 4).unwrap(), 2);
     let all = s.autonomy_events(ROOT, Some("P-1"), 10).unwrap();
     assert_eq!(all.len(), 7);
-    assert_eq!((all[0].outcome.as_str(), all[0].audit.clone()), ("failed", vec![3, 4]));
-    assert_eq!(s.last_autonomy_event(ROOT, "P-1", "review").unwrap().unwrap().code, "request_failed");
+    assert_eq!(
+        (all[0].outcome.as_str(), all[0].audit.clone()),
+        ("failed", vec![3, 4])
+    );
+    assert_eq!(
+        s.last_autonomy_event(ROOT, "P-1", "review")
+            .unwrap()
+            .unwrap()
+            .code,
+        "request_failed"
+    );
     assert!(s.last_autonomy_event(ROOT, "P-2", "pr").unwrap().is_none());
 }
 

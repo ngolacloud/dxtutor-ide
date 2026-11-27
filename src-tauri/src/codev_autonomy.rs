@@ -61,8 +61,9 @@ pub struct Runtime {
     pub wbase: PathBuf,
     /// the `gh` program
     pub gh: String,
-    /// the environment the checks run with
-    pub env: Option<HashMap<String, String>>,
+    /// the environment the checks run with (asked when a review starts: the login shell's is
+    /// resolved lazily)
+    pub env: Arc<dyn Fn() -> Option<HashMap<String, String>> + Send + Sync>,
     pub reviewer: ReviewerFor,
     /// a review's steps (`codev-review://event`)
     pub review_emit: Emit,
@@ -371,9 +372,9 @@ impl Ctx<'_> {
             audit,
             at: now_ms(),
         };
-        if let Ok(id) = store(&self.rt.db).and_then(|mut s| {
-            s.autonomy_event(self.root, &e).map_err(|e| e.message)
-        }) {
+        if let Ok(id) = store(&self.rt.db)
+            .and_then(|mut s| s.autonomy_event(self.root, &e).map_err(|e| e.message))
+        {
             e.id = id;
         }
         let mut v = json!({"root": self.root, "event": e});
@@ -570,7 +571,7 @@ pub fn review_now(rt: &Runtime, root: &str, key: &str, trigger: Trigger) -> Step
         by,
         reviewer,
         lang,
-        rt.env.clone(),
+        (rt.env)(),
     ) {
         Ok(s) => s,
         Err(e) => {
@@ -618,7 +619,10 @@ pub fn review_now(rt: &Runtime, root: &str, key: &str, trigger: Trigger) -> Step
         ("reviewed", Some(o)) => (
             "stopped",
             if o == "not_met" { "not_met" } else { "unclear" },
-            r.verdict.as_ref().map(|v| v.summary.clone()).unwrap_or_default(),
+            r.verdict
+                .as_ref()
+                .map(|v| v.summary.clone())
+                .unwrap_or_default(),
         ),
         ("conflict", _) => ("stopped", "conflict", r.conflicts.join(", ")),
         ("checked", _) => (
@@ -633,7 +637,11 @@ pub fn review_now(rt: &Runtime, root: &str, key: &str, trigger: Trigger) -> Step
                 .join(", "),
         ),
         ("cancelled", _) => ("stopped", "cancelled", "the review was cancelled".into()),
-        (st, _) => ("failed", "review_failed", r.error.clone().unwrap_or_else(|| st.to_string())),
+        (st, _) => (
+            "failed",
+            "review_failed",
+            r.error.clone().unwrap_or_else(|| st.to_string()),
+        ),
     };
     let step = cx.record(
         Some(&d),
@@ -723,7 +731,15 @@ pub fn integrate_now(rt: &Runtime, root: &str, key: &str, trigger: Trigger) -> S
             Ok(i) => {
                 let detail = format!("{} is at {} ({})", i.target, i.commit, i.state);
                 let extra = json!({"integrated": i});
-                cx.record(Some(&d), "ok", "integrated", detail, review, taken(&sink), extra)
+                cx.record(
+                    Some(&d),
+                    "ok",
+                    "integrated",
+                    detail,
+                    review,
+                    taken(&sink),
+                    extra,
+                )
             }
             Err(e) if e.starts_with(tutor_protect::scan::BLOCKED) => cx.record(
                 Some(&d),
@@ -769,7 +785,15 @@ pub fn integrate_now(rt: &Runtime, root: &str, key: &str, trigger: Trigger) -> S
         Ok(o) => {
             let detail = format!("#{} {}", o.number, o.url);
             let extra = json!({"pr": o});
-            cx.record(Some(&d), "ok", "pr_opened", detail, review, taken(&sink), extra)
+            cx.record(
+                Some(&d),
+                "ok",
+                "pr_opened",
+                detail,
+                review,
+                taken(&sink),
+                extra,
+            )
         }
         Err(e) if e.starts_with(tutor_protect::scan::BLOCKED) => cx.record(
             Some(&d),

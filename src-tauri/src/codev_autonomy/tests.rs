@@ -68,7 +68,7 @@ fn rig(w: &World, replies: Option<Vec<tutor_agent::Response>>) -> Rig {
             ibase: w.ibase.clone(),
             wbase: w.wbase.clone(),
             gh: fake_gh(gh_dir.path()),
-            env: None,
+            env: Arc::new(|| None),
             reviewer: reviewer_for,
             review_emit: Arc::new(|_| {}),
             notify: Arc::new(move |v| t.lock().unwrap().push(v)),
@@ -170,7 +170,10 @@ fn a_delegated_issue_is_reviewed_and_integrated_through_the_gate() {
     let d = delegate(&w, &["review", "integrate"]);
     let r = rig(&w, Some(vec![verdict_call("v1", all_met()), say("done")]));
     let step = review_now(&r.rt, &w.root, &w.key, Trigger::SessionFinished).unwrap();
-    assert_eq!((step.outcome.as_str(), step.code.as_str()), ("ok", "reviewed"));
+    assert_eq!(
+        (step.outcome.as_str(), step.code.as_str()),
+        ("ok", "reviewed")
+    );
     assert_eq!(
         events(&w),
         vec![
@@ -300,7 +303,10 @@ fn the_grantor_must_still_have_the_role_when_it_acts() {
     .unwrap();
     let r = rig(&w, None);
     let s = review_now(&r.rt, &w.root, &w.key, Trigger::SessionFinished).unwrap();
-    assert_eq!((s.code.as_str(), s.delegation), ("grantor_role", Some(d.id)));
+    assert_eq!(
+        (s.code.as_str(), s.delegation),
+        ("grantor_role", Some(d.id))
+    );
     assert!(w.state().review.is_none());
     // a developer cannot grant one either
     let e = grant(
@@ -387,13 +393,18 @@ fn failing_checks_stop_it_and_the_reviewer_never_runs() {
         &w.root,
         "Ana",
         5,
-        serde_json::from_value(json!({"op": "settings", "checks": [{"name": "tests", "command": "exit 3"}]}))
-            .unwrap(),
+        serde_json::from_value(
+            json!({"op": "settings", "checks": [{"name": "tests", "command": "exit 3"}]}),
+        )
+        .unwrap(),
     )
     .unwrap();
     let r = rig(&w, None);
     review_now(&r.rt, &w.root, &w.key, Trigger::SessionFinished);
-    assert_eq!(events(&w).last().unwrap(), &ev("review", "stopped", "checks"));
+    assert_eq!(
+        events(&w).last().unwrap(),
+        &ev("review", "stopped", "checks")
+    );
     // the same tips are not reviewed again by the autonomy (no loop)
     let s = review_now(&r.rt, &w.root, &w.key, Trigger::SessionFinished).unwrap();
     assert_eq!(s.code, "already_reviewed");
@@ -411,7 +422,10 @@ fn a_stale_tip_stops_the_integration() {
     w.approve();
     delegate(&w, &["integrate"]);
     // a human's review, all met; then main moves
-    w.review(reviewer(scripted(vec![verdict_call("v1", all_met()), say("done")])));
+    w.review(reviewer(scripted(vec![
+        verdict_call("v1", all_met()),
+        say("done"),
+    ])));
     w.main_moves();
     let before = head(&w);
     let s = integrate_now(&rig(&w, None).rt, &w.root, &w.key, Trigger::ReviewDone).unwrap();
@@ -437,12 +451,18 @@ fn a_secret_scan_finding_stops_it_and_never_takes_a_humans_override() {
     g(Path::new(&wt.dir), &["commit", "-q", "-m", "db"]);
     w.approve();
     let d = delegate(&w, &["integrate"]);
-    w.review(reviewer(scripted(vec![verdict_call("v1", all_met()), say("done")])));
+    w.review(reviewer(scripted(vec![
+        verdict_call("v1", all_met()),
+        say("done"),
+    ])));
     // a human allowed their own next commit: the autonomy must not use it
     tutor_protect::scan::allow_once(w.p(), "a human's commit").unwrap();
     let before = head(&w);
     let s = integrate_now(&rig(&w, None).rt, &w.root, &w.key, Trigger::ReviewDone).unwrap();
-    assert_eq!((s.outcome.as_str(), s.code.as_str()), ("stopped", "secret_scan"));
+    assert_eq!(
+        (s.outcome.as_str(), s.code.as_str()),
+        ("stopped", "secret_scan")
+    );
     assert!(!s.detail.contains("u:p@"), "{}", s.detail);
     assert_eq!(head(&w), before);
     assert_eq!(
@@ -477,8 +497,10 @@ fn uncommitted_work_stops_it_and_the_humans_commit_lets_it_go() {
         &w.root,
         "Ana",
         5,
-        serde_json::from_value(json!({"op": "settings", "checks": [{"name": "tests", "command": "exit 1"}]}))
-            .unwrap(),
+        serde_json::from_value(
+            json!({"op": "settings", "checks": [{"name": "tests", "command": "exit 1"}]}),
+        )
+        .unwrap(),
     )
     .unwrap();
     let s = review_now(&r.rt, &w.root, &w.key, Trigger::Committed).unwrap();
@@ -528,7 +550,10 @@ fn integrate_and_pr_both_delegated_does_neither() {
         &ana(),
     )
     .unwrap();
-    w.review(reviewer(scripted(vec![verdict_call("v1", all_met()), say("done")])));
+    w.review(reviewer(scripted(vec![
+        verdict_call("v1", all_met()),
+        say("done"),
+    ])));
     let before = head(&w);
     let s = integrate_now(&rig(&w, None).rt, &w.root, &w.key, Trigger::ReviewDone).unwrap();
     assert_eq!(s.code, "ambiguous");
@@ -544,7 +569,10 @@ fn with_remote(w: &World) -> PathBuf {
         w._data.path(),
         &["init", "-q", "--bare", "-b", "main", "remote.git"],
     );
-    g(w.p(), &["remote", "add", "origin", &remote.display().to_string()]);
+    g(
+        w.p(),
+        &["remote", "add", "origin", &remote.display().to_string()],
+    );
     g(w.p(), &["push", "-q", "origin", "main"]);
     remote
 }
@@ -575,7 +603,11 @@ fn a_delegated_pr_pushes_the_issue_branch_and_carries_the_gates_evidence() {
     // the remote has the issue branch at exactly the reviewed tip; main moved nowhere, here or there
     assert_eq!(remote_ref(&remote, &w.branch), review.tips.head);
     assert_eq!(remote_ref(&remote, "main"), main_before);
-    assert_eq!(head(&w), local_before, "a pull request is not a local merge");
+    assert_eq!(
+        head(&w),
+        local_before,
+        "a pull request is not a local merge"
+    );
     // gh: a pull request into main from the issue branch, never a login, never a merge
     let args = std::fs::read_to_string(r.gh_dir.path().join("args")).unwrap();
     assert!(
@@ -585,11 +617,23 @@ fn a_delegated_pr_pushes_the_issue_branch_and_carries_the_gates_evidence() {
     assert!(!args.contains("login") && !args.contains("merge"), "{args}");
     // the body: the checks with the candidate's commit, the verdict per criterion, the approval
     let body = std::fs::read_to_string(r.gh_dir.path().join("body")).unwrap();
-    assert!(body.contains(&format!("passed on `{}`", review.candidate)), "{body}");
-    assert!(body.contains("| tests | `test -f src/pay.rs` | 0 |"), "{body}");
-    assert!(body.contains(&format!("| 1 | {} | met |", CRITERIA_1)), "{body}");
+    assert!(
+        body.contains(&format!("passed on `{}`", review.candidate)),
+        "{body}"
+    );
+    assert!(
+        body.contains("| tests | `test -f src/pay.rs` | 0 |"),
+        "{body}"
+    );
+    assert!(
+        body.contains(&format!("| 1 | {} | met |", CRITERIA_1)),
+        "{body}"
+    );
     assert!(body.contains("Recorded by Rita on"), "{body}");
-    assert!(body.contains(&format!("delegation #{} granted by Ana", d.id)), "{body}");
+    assert!(
+        body.contains(&format!("delegation #{} granted by Ana", d.id)),
+        "{body}"
+    );
     // recorded, audited as the delegation, and not opened twice for the same review
     let pr = ProjectStore::open(&w.db)
         .unwrap()
@@ -616,7 +660,10 @@ fn gh_signed_out_stops_it_before_anything_is_pushed() {
     let remote = with_remote(&w);
     w.approve();
     delegate(&w, &["pr"]);
-    w.review(reviewer(scripted(vec![verdict_call("v1", all_met()), say("done")])));
+    w.review(reviewer(scripted(vec![
+        verdict_call("v1", all_met()),
+        say("done"),
+    ])));
     let r = rig(&w, None);
     std::fs::write(r.gh_dir.path().join("signed-out"), "").unwrap();
     let s = integrate_now(&r.rt, &w.root, &w.key, Trigger::ReviewDone).unwrap();
@@ -624,7 +671,10 @@ fn gh_signed_out_stops_it_before_anything_is_pushed() {
     assert!(s.detail.contains("gh auth login"), "{}", s.detail);
     assert_eq!(remote_ref(&remote, &w.branch), "", "nothing was pushed");
     let args = std::fs::read_to_string(r.gh_dir.path().join("args")).unwrap();
-    assert!(!args.contains("pr create") && !args.contains("login"), "{args}");
+    assert!(
+        !args.contains("pr create") && !args.contains("login"),
+        "{args}"
+    );
 }
 
 #[test]
@@ -632,11 +682,22 @@ fn a_remote_branch_it_did_not_create_is_never_pushed() {
     let w = World::new();
     let remote = with_remote(&w);
     // someone pushed the issue branch's name first (main's commit)
-    g(w.p(), &["push", "-q", "origin", &format!("main:refs/heads/{}", w.branch)]);
+    g(
+        w.p(),
+        &[
+            "push",
+            "-q",
+            "origin",
+            &format!("main:refs/heads/{}", w.branch),
+        ],
+    );
     let theirs = remote_ref(&remote, &w.branch);
     w.approve();
     delegate(&w, &["pr"]);
-    w.review(reviewer(scripted(vec![verdict_call("v1", all_met()), say("done")])));
+    w.review(reviewer(scripted(vec![
+        verdict_call("v1", all_met()),
+        say("done"),
+    ])));
     let r = rig(&w, None);
     let s = integrate_now(&r.rt, &w.root, &w.key, Trigger::ReviewDone).unwrap();
     assert_eq!(s.code, "pr_blocked");
@@ -649,17 +710,34 @@ fn a_human_opens_the_pull_request_with_the_approved_text_only() {
     let w = World::new();
     let remote = with_remote(&w);
     w.approve();
-    w.review(reviewer(scripted(vec![verdict_call("v1", all_met()), say("done")])));
+    w.review(reviewer(scripted(vec![
+        verdict_call("v1", all_met()),
+        say("done"),
+    ])));
     let r = rig(&w, None);
     let ps = crate::codev_pr::state(&w.db, &w.root, &w.key, &r.rt.gh).unwrap();
-    let plan = ps.plan.clone().expect("the gate holds: a pull request can be opened");
-    assert!(plan.contains(" push --porcelain -- origin ") && !plan.contains("--force"), "{plan}");
+    let plan = ps
+        .plan
+        .clone()
+        .expect("the gate holds: a pull request can be opened");
+    assert!(
+        plan.contains(" push --porcelain -- origin ") && !plan.contains("--force"),
+        "{plan}"
+    );
     // another text: refused, nothing pushed
-    let e = crate::codev_pr::open_as(&w.db, &w.root, &w.key, "git push --force", By::human(Some(1)), &r.rt.gh)
-        .unwrap_err();
+    let e = crate::codev_pr::open_as(
+        &w.db,
+        &w.root,
+        &w.key,
+        "git push --force",
+        By::human(Some(1)),
+        &r.rt.gh,
+    )
+    .unwrap_err();
     assert!(e.contains("changed since the approval"), "{e}");
     assert_eq!(remote_ref(&remote, &w.branch), "");
-    let o = crate::codev_pr::open_as(&w.db, &w.root, &w.key, &plan, By::human(Some(1)), &r.rt.gh).unwrap();
+    let o = crate::codev_pr::open_as(&w.db, &w.root, &w.key, &plan, By::human(Some(1)), &r.rt.gh)
+        .unwrap();
     assert_eq!((o.number, o.created_branch), (42, true));
     let body = std::fs::read_to_string(r.gh_dir.path().join("body")).unwrap();
     assert!(body.contains("with dxtutor's approval dialog"), "{body}");
@@ -672,7 +750,9 @@ fn a_human_opens_the_pull_request_with_the_approved_text_only() {
         .filter(|a| a.call.as_deref() == Some("review.pr"))
         .collect();
     assert_eq!(rows.len(), 2);
-    assert!(rows.iter().all(|a| a.decided_by.as_deref() == Some("human:Ana")));
+    assert!(rows
+        .iter()
+        .all(|a| a.decided_by.as_deref() == Some("human:Ana")));
     // nothing autonomous happened
     assert!(events(&w).is_empty());
 }

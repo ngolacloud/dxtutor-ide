@@ -82,10 +82,6 @@ impl By {
     pub fn human(decided_at: Option<i64>) -> Self {
         By::Human { decided_at }
     }
-
-    pub fn delegated(&self) -> bool {
-        matches!(self, By::Delegation { .. })
-    }
 }
 
 /// One row of the audit log for a review action (origin `ide`, feature `codev`), as `by` decided
@@ -539,16 +535,16 @@ pub fn request_as(
     let c = match prepared {
         Err(e) => {
             let _ = audit_as(
-        db,
-        root,
-        &by,
-        key,
-        "review.request",
-        command,
-        &scope,
-        "failed",
-        Some(e.clone()),
-    );
+                db,
+                root,
+                &by,
+                key,
+                "review.request",
+                command,
+                &scope,
+                "failed",
+                Some(e.clone()),
+            );
             return Err(e);
         }
         Ok(gi::Prepared::Conflict(files)) => {
@@ -560,16 +556,16 @@ pub fn request_as(
                 Ok(id) => id,
                 Err(e) => {
                     let _ = audit_as(
-        db,
-        root,
-        &by,
-        key,
-        "review.request",
-        command,
-        &scope,
-        "failed",
-        Some(e.clone()),
-    );
+                        db,
+                        root,
+                        &by,
+                        key,
+                        "review.request",
+                        command,
+                        &scope,
+                        "failed",
+                        Some(e.clone()),
+                    );
                     return Err(e);
                 }
             };
@@ -603,16 +599,16 @@ pub fn request_as(
             running().lock().unwrap().remove(&job_key(root, key));
             let _ = gi::discard(Path::new(root), ibase, key);
             let _ = audit_as(
-        db,
-        root,
-        &by,
-        key,
-        "review.request",
-        command,
-        &scope,
-        "failed",
-        Some(e.clone()),
-    );
+                db,
+                root,
+                &by,
+                key,
+                "review.request",
+                command,
+                &scope,
+                "failed",
+                Some(e.clone()),
+            );
             return Err(e);
         }
     };
@@ -1288,16 +1284,16 @@ pub fn integrate_as(
     .map_err(|e| format!("not done: the audit log did not record it ({e})"))?;
     let fail = |e: String| {
         let _ = audit_as(
-        db,
-        root,
-        &by,
-        key,
-        "review.integrate",
-        command,
-        &scope,
-        "failed",
-        Some(tutor_protect::scan::summary(&e)),
-    );
+            db,
+            root,
+            &by,
+            key,
+            "review.integrate",
+            command,
+            &scope,
+            "failed",
+            Some(tutor_protect::scan::summary(&e)),
+        );
         e
     };
     let dir = Path::new(root);
@@ -1335,15 +1331,7 @@ pub fn integrate_as(
         }
     };
     let state = store(db)?
-        .record_integration(
-            root,
-            &who,
-            now_ms(),
-            key,
-            review.id,
-            &commit,
-            &tips.target,
-        )
+        .record_integration(root, &who, now_ms(), key, review.id, &commit, &tips.target)
         .map_err(|e| {
             format!(
                 "integrated as {commit}, but the Project did not record it: {}",
@@ -1356,16 +1344,16 @@ pub fn integrate_as(
         if let Ok(rm) = wt::remove_plan(dir, wbase, key) {
             let wscope = format!("worktree of {key}");
             if audit_as(
-        db,
-        root,
-        &by,
-        key,
-        "worktree.remove",
-        &rm.command,
-        &wscope,
-        "sent",
-        None,
-    )
+                db,
+                root,
+                &by,
+                key,
+                "worktree.remove",
+                &rm.command,
+                &wscope,
+                "sent",
+                None,
+            )
             .is_ok()
             {
                 let r = wt::remove(dir, wbase, key, Some(&rm.command));
@@ -1381,16 +1369,16 @@ pub fn integrate_as(
                     Err(e) => ("failed", Some(e.clone())),
                 };
                 let _ = audit_as(
-        db,
-        root,
-        &by,
-        key,
-        "worktree.remove",
-        &rm.command,
-        &wscope,
-        outcome,
-        reason,
-    );
+                    db,
+                    root,
+                    &by,
+                    key,
+                    "worktree.remove",
+                    &rm.command,
+                    &wscope,
+                    outcome,
+                    reason,
+                );
                 if let Ok(x) = r {
                     removed = x.removed;
                     kept = x.dirty;

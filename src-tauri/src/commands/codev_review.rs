@@ -14,7 +14,7 @@ use tauri::{Emitter, Manager};
 use crate::codev_review as uc;
 
 /// A pasta das worktrees temporárias de integração (`app_local_data_dir/integration/<repo>/<issue>`).
-fn ibase(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn ibase(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(app
         .path()
         .app_local_data_dir()
@@ -68,20 +68,10 @@ pub async fn codev_review_request(
         .map(|p| p.trim().to_string())
         .filter(|p| !p.is_empty())
         .unwrap_or_else(|| "claude".into());
-    let reviewer: uc::MakeReviewer = Box::new(move || {
-        let model = crate::codev_agent::resolve_model(&provider, model.as_deref());
-        let key = crate::keys::resolve(&config, &provider);
-        let host = tutor_llm::chat::ollama_host();
-        let p = crate::codev_agent::make_provider(
-            &provider,
-            key,
-            Some(&host),
-            crate::keys::anthropic_workspace_id(),
-        )?;
-        Ok((p, model))
-    });
+    let reviewer = reviewer_for(config, provider, model);
     let lang = tutor_agent::context::ReplyLang::from_ui(language.as_deref());
     let env = Some(crate::shellenv::get().clone());
+    let root_key = (root.trim().to_string(), key.trim().to_string());
     let started = blocking(move || {
         uc::request(
             &db,
@@ -101,10 +91,34 @@ pub async fn codev_review_request(
         std::thread::spawn(move || {
             job.run(std::sync::Arc::new(move |v| {
                 let _ = em.emit("codev-review://event", v);
-            }))
+            }));
+            // Multi Co-Dev, phase 5: with `integrate` (or `pr`) delegated, a review that met every
+            // criterion goes on through the gate (nothing happens without a delegation)
+            crate::codev_autonomy::review_done(&root_key.0, &root_key.1);
         });
     }
     Ok(started.id)
+}
+
+/// The reviewer of a review: the Co-Dev's provider and model, built only when it runs (after the
+/// checks passed). Also the autonomy's (phase 5), with the delegation's provider and model.
+pub(crate) fn reviewer_for(
+    config: PathBuf,
+    provider: String,
+    model: Option<String>,
+) -> uc::MakeReviewer {
+    Box::new(move || {
+        let model = crate::codev_agent::resolve_model(&provider, model.as_deref());
+        let key = crate::keys::resolve(&config, &provider);
+        let host = tutor_llm::chat::ollama_host();
+        let p = crate::codev_agent::make_provider(
+            &provider,
+            key,
+            Some(&host),
+            crate::keys::anthropic_workspace_id(),
+        )?;
+        Ok((p, model))
+    })
 }
 
 /// Pára a revisão a correr da issue (a verificação em curso é morta, o revisor pára).

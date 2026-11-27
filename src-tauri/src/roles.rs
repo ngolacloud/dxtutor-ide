@@ -164,13 +164,7 @@ pub fn delegation_check(
     me: &[&str],
 ) -> Result<(), String> {
     match scope {
-        "issue" => responsible_check(
-            roles,
-            assignee,
-            None,
-            me,
-            "delegar a autonomia desta issue",
-        ),
+        "issue" => responsible_check(roles, assignee, None, me, "delegar a autonomia desta issue"),
         "sprint" => check(
             roles,
             &["product_owner", "tech_lead"],
@@ -293,7 +287,10 @@ mod tests {
         assert!(delegation_check(Some(&dev), "issue", "Ana", &["Ana"]).is_ok());
         assert!(delegation_check(Some(&po), "issue", "Ana", &["Rui"]).is_ok());
         let e = delegation_check(Some(&dev), "issue", "Ana", &["Rui"]).unwrap_err();
-        assert!(e.contains("delegar a autonomia") && e.contains("Product Owner"), "{e}");
+        assert!(
+            e.contains("delegar a autonomia") && e.contains("Product Owner"),
+            "{e}"
+        );
         // without people: the assignee only (anyone when there is none)
         assert!(delegation_check(None, "issue", "Ana", &["Rui"]).is_err());
         assert!(delegation_check(None, "issue", "", &["Rui"]).is_ok());

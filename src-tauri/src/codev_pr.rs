@@ -193,8 +193,18 @@ pub fn open_as(
         "pull request {key} · {} → {} on {} ({})",
         push.branch, review.tips.target, push.remote, push.head
     );
-    audit_as(db, root, &by, key, "review.pr", command, &scope, "sent", None)
-        .map_err(|e| format!("not done: the audit log did not record it ({e})"))?;
+    audit_as(
+        db,
+        root,
+        &by,
+        key,
+        "review.pr",
+        command,
+        &scope,
+        "sent",
+        None,
+    )
+    .map_err(|e| format!("not done: the audit log did not record it ({e})"))?;
     let fail = |e: String| {
         let _ = audit_as(
             db,
