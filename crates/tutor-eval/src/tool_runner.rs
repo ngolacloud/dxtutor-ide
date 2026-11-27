@@ -393,7 +393,7 @@ fn tool_version(tool: Tool) -> std::result::Result<String, String> {
             out.stderr.trim()
         ));
     }
-    // kubectl: «Client Version: v1.36.6» + «Kustomize Version: v5.8.1»; delonix: «delonix 0.2.0»
+    // kubectl: «Client Version: v1.36.6» + «Kustomize Version: v5.8.1»; delonix: «delonix 0.2.1»
     // na primeira linha (as seguintes são o slogan e o commit).
     let lines: Vec<&str> = out
         .stdout
@@ -557,7 +557,7 @@ fn compose_guard(work: &Path, file: &str) -> std::result::Result<(), String> {
         };
         for (svc, s) in services {
             // delonix 0.2.0 (commit edba10a1c) panics in `topo_sort` on a `depends_on` that names
-            // no service; say it in words instead of showing the learner a panic.
+            // no service, and 0.2.1 refuses it (#1060); say it here, in the same words for both.
             let deps: Vec<&str> = match s.get("depends_on") {
                 Some(Value::Array(a)) => a.iter().filter_map(Value::as_str).collect(),
                 Some(Value::Object(m)) => m.keys().map(String::as_str).collect(),
@@ -1607,7 +1607,7 @@ mod tests {
         assert!(Tool::Kubectl
             .install_hint()
             .contains("https://kubernetes.io/docs/tasks/tools/"));
-        assert!(Tool::Delonix.install_hint().contains("0.2.0"));
+        assert!(Tool::Delonix.install_hint().contains("0.2.1"));
     }
 
     /// Com as ferramentas instaladas (como nesta máquina de desenvolvimento): os comandos reais

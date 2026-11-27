@@ -4,9 +4,10 @@
 # `checks.toml` declares structural checks and the host-free Delonix commands
 # `delonix manifest render -f <file>` and `delonix compose config -f <file> -p <project>`
 # (tutor_core::toolcheck has the allow-list; both were proven host-free from the Delonix source at
-# the commit of the 0.2.0 binary, edba10a1c, and measured with strace). Grading runs them with a
+# the commit of the 0.2.0 binary, edba10a1c, and measured with strace — again with the 0.2.1 binary,
+# whose only change to them is the depends_on validation of #1060). Grading runs them with a
 # clean environment and a temporary HOME and DELONIX_ROOT; it never touches the engine.
-# Written for Delonix 0.2.0 (the README still says "0.1.x line" in places).
+# Written for Delonix 0.2.1 (the README still says "0.1.x line" in places).
 
 id = "delonix-basics"
 language = "yaml"
@@ -45,9 +46,9 @@ What you will learn:
 8. **compose health and order** — healthchecks, conditions, anchors and profiles;
 9. **a capstone** — a whole project in one namespaced Stack.
 
-**Version.** The course is written for **Delonix 0.2.0** — what `delonix --version` reports. The
+**Version.** The course is written for **Delonix 0.2.1** — what `delonix --version` reports. The
 project's README still speaks of the "0.1.x line" in places; where the two differ, the course follows
-the 0.2.0 binary. Install it from https://ngolacloud.github.io/delonix/ (the installer is
+the 0.2.1 binary. Install it from https://ngolacloud.github.io/delonix/ (the installer is
 `https://github.com/ngolacloud/delonix/releases/latest/download/install.sh`).
 
 Official documentation: https://ngolacloud.github.io/delonix/ — the Kinds reference
@@ -96,9 +97,9 @@ validate` also resolves references against what already exists on the machine, s
 not use it for grading; run it yourself when you want that check.) `delonix explain <Kind>` gives a
 field reference.
 
-**Version.** This course is written for **Delonix 0.2.0** (the binary reports `delonix 0.2.0`). The
+**Version.** This course is written for **Delonix 0.2.1** (the binary reports `delonix 0.2.1`). The
 project's README still describes the "0.1.x line" in places; where they differ, the course follows
-what the 0.2.0 binary does.
+what the 0.2.1 binary does.
 
 Official docs: https://ngolacloud.github.io/delonix/ (the Kinds reference, `kinds.html`, and the
 `manifest` command page, `commands/manifest.html`).
@@ -218,7 +219,7 @@ intro = '''
 A manifest the engine refuses — find and fix every reason.
 '''
 instructions = '''
-`manifest.yaml` declares one Pod, but Delonix 0.2.0 refuses it. Fix it so that `delonix manifest
+`manifest.yaml` declares one Pod, but Delonix 0.2.1 refuses it. Fix it so that `delonix manifest
 render` loads it, and so that:
 
 - the apiVersion is the **current** compute group version, `compute.delonix.io/v1beta1`;
@@ -1265,12 +1266,12 @@ up in Git, in reviews and in CI logs. Use `fromEnvFile` with a file that is list
 or `fromEnv` fed by your CI's secret store. `delonix manifest render` prints Secret values as
 `<redacted>` — but that protects the screen, not the repository.
 
-**Consuming them.** In Delonix 0.2.0 a workload receives Configs and Secrets by name through the
+**Consuming them.** In Delonix 0.2.1 a workload receives Configs and Secrets by name through the
 `Container` Kind: `config: [<names>]` and `secret: [<names>]` inject every key as an environment
 variable, and `configFiles: true` / `secretFiles: true` deliver them as files instead — secrets in
 a read-only tmpfs at `/run/secrets`, so they never appear in the process environment or in
 `inspect`. The `Container` Kind still works but is on sunset in favour of `Application` (next unit),
-whose spec in 0.2.0 has no field for them yet; other Kinds name a Secret where they need one
+whose spec in 0.2.1 has no field for them yet; other Kinds name a Secret where they need one
 (`Image.pullSecret`, a CIFS `Volume`'s `passwordSecret`).
 
 Official docs: https://ngolacloud.github.io/delonix/kinds.html (Config, Secret) and

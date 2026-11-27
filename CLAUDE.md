@@ -905,17 +905,17 @@ cpp, sql.
   `-p tutor-eval course_cache` e `--test course_cache_pip_real` (índice `file://`, sem rede),
   `tests/learn.prepare.test.ts`, `tests/approval.test.ts`.
 - **Cursos de ferramentas (Learn P2b, parte offline):** `courses/kubernetes/` (11 unidades offline e 7 ao vivo, abaixo; kubectl
-  v1.36) e `courses/delonix/` (9 unidades, Delonix 0.2.0; o README do delonix ainda diz «0.1.x»),
+  v1.36) e `courses/delonix/` (9 unidades, Delonix 0.2.1; o README do delonix ainda diz «0.1.x»),
   categoria `tool`, linguagem `yaml`, embutidos só no backend. Avaliam-se por verificações
   (`tutor_core::toolcheck` = forma, lista permitida e avaliação; `tutor_eval::tool_runner` = YAML e
   comandos): cada desafio é um passo de projecto com um `checks.toml` oculto — `[[check]]` (caminho num
   documento + uma afirmação: `equals`, `matches`, `only_keys`, `selects`, `among`, `doc_count`…) e
   `[[run]]` SÓ de `kubectl kustomize <dir>`, `delonix manifest render -f` e `delonix compose config -f
-  -p` (provados sem rede nem motor no código do delonix em `edba10a1c` e medidos com `strace`;
+  -p` (provados sem rede nem motor no código do delonix em `edba10a1c` e medidos com `strace`, outra vez com o binário 0.2.1;
   `kubectl apply|create --dry-run=client -f` liga à API e `delonix manifest validate` lê os stores e
   varre cgroups do anfitrião: recusados). Sem shell, ambiente limpo, `HOME`/`XDG_*`/`DELONIX_ROOT` e
   um `KUBECONFIG` vazio temporários; guardas no Rust: kustomization sem rede nem Helm, compose com a
-  porta do anfitrião e sem `$`, `depends_on` desconhecido (o delonix 0.2.0 entra em pânico).
+  porta do anfitrião e sem `$`, `depends_on` desconhecido (o delonix 0.2.0 entra em pânico; a 0.2.1 recusa-o com outras palavras).
   Ferramenta em falta = erro com o que instalar; um drill YAML só se lê. `dxt plugin validate` valida
   os `checks.toml` e `dxt plugin test` diz a versão de cada ferramenta. Na UI, `EVALUATION_LANGUAGES`
   (o `yaml`: extensão e indentação, fora do tecto de 10). Testes: `cargo test -p tutor-core

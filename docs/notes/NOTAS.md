@@ -2168,7 +2168,7 @@ O curso oficial de Django 5.2 LTS: 9 unidades — vistas e URLs, modelos e migra
 
 **Onde:** Learning Track › «Choose what to learn» › «Frameworks & tools» › Kubernetes ou Delonix Engine
 
-Dois cursos de ferramentas em que se escreve YAML: o de Kubernetes (11 unidades, dos objectos e Pods ao Kustomize) e o do Delonix Engine 0.2.0 (9 unidades, dos manifestos e Pods aos ficheiros compose e a um projecto inteiro num Stack). Cada desafio é avaliado na tua máquina, sem cluster e sem tocar no motor de contentores.
+Dois cursos de ferramentas em que se escreve YAML: o de Kubernetes (11 unidades, dos objectos e Pods ao Kustomize) e o do Delonix Engine 0.2.1 (9 unidades, dos manifestos e Pods aos ficheiros compose e a um projecto inteiro num Stack). Cada desafio é avaliado na tua máquina, sem cluster e sem tocar no motor de contentores.
 
 **Como usar**
 
@@ -2185,7 +2185,7 @@ Dois cursos de ferramentas em que se escreve YAML: o de Kubernetes (11 unidades,
 
 **Dicas**
 
-- Precisas do kubectl para as unidades de Kustomize e do delonix 0.2.0 para o curso do Delonix; sem eles, o desafio diz o que instalar em vez de falhar.
+- Precisas do kubectl para as unidades de Kustomize e do delonix 0.2.1 (ou 0.2.0) para o curso do Delonix; sem eles, o desafio diz o que instalar em vez de falhar.
 - O relatório da avaliação mostra a saída do comando que falhou: é a mesma mensagem que verias no terminal.
 
 **Limites**
