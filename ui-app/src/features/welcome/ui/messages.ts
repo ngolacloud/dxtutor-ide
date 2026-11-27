@@ -4,7 +4,7 @@ import type { Messages } from "../../../app/i18n";
 
 export const WELCOME_UI_MESSAGES = {
   en: {
-    tab: "Welcome", start: "Start", newFile: "New File…", openFile: "Open File…", openFolder: "Open Folder…", clone: "Clone Git Repository…",
+    tab: "Welcome", start: "Start", newProject: "New Project…", newFile: "New File…", openFile: "Open File…", openFolder: "Open Folder…", clone: "Clone Git Repository…",
     cloning: "Cloning {url}…", cloningShort: "Cloning…", connect: "Connect to…", joinPair: "Join a PairCode Session…", desktopOnly: "Needs the desktop app",
     recent: "Recent", noRecentDesktop: "No folders opened yet — open one to start.", noRecentBrowser: "Recent folders appear here in the desktop app.",
     more: "More…", recentPh: "Open a recent folder", walkthroughs: "Walkthroughs", fresh: "New", progress: "{done} of {total}",
@@ -48,7 +48,7 @@ export const WELCOME_UI_MESSAGES = {
     "learn.tutor": "Ask the tutor", "learn.tutor.d": "Explanations at your level, next to the exercise.", "learn.tutor.a": "Open the tutor",
   },
   ptAO: {
-    tab: "Boas-vindas", start: "Começar", newFile: "Novo ficheiro…", openFile: "Abrir ficheiro…", openFolder: "Abrir pasta…", clone: "Clonar repositório git…",
+    tab: "Boas-vindas", start: "Começar", newProject: "Novo projecto…", newFile: "Novo ficheiro…", openFile: "Abrir ficheiro…", openFolder: "Abrir pasta…", clone: "Clonar repositório git…",
     cloning: "A clonar {url}…", cloningShort: "A clonar…", connect: "Ligar a…", joinPair: "Entrar numa sessão PairCode…", desktopOnly: "Precisa da app desktop",
     recent: "Recentes", noRecentDesktop: "Ainda não abriste nenhuma pasta — abre uma para começar.", noRecentBrowser: "As pastas recentes aparecem aqui na app desktop.",
     more: "Mais…", recentPh: "Abrir uma pasta recente", walkthroughs: "Guias", fresh: "Novo", progress: "{done} de {total}",

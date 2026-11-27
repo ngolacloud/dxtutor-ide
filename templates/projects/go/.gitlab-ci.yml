@@ -1,0 +1,11 @@
+# Same gate as .github/workflows/ci.yml.
+image: golang:__TEMPLATE_VERSION__
+
+stages:
+  - check
+
+check:
+  stage: check
+  script:
+    - go mod verify
+    - make fmt-check vet race build vuln
