@@ -136,7 +136,17 @@ impl<'a> PodSession<'a> {
 
     /// As saídas sem o id da corrida.
     pub(crate) fn tidy(&self, s: &str) -> String {
-        s.replace(&format!("localhost/dxtutor-{}/", self.run.id), "")
+        // O aviso do runc rootless quando um `RUN` pede capacidades ambientes (inofensivo, e repetido
+        // em cada passo da construção) não interessa ao aluno.
+        let kept: Vec<&str> = s
+            .lines()
+            .filter(|l| !l.contains("can't raise ambient capability"))
+            .collect();
+        let mut out = kept.join("\n");
+        if s.ends_with('\n') && !out.is_empty() {
+            out.push('\n');
+        }
+        out.replace(&format!("localhost/dxtutor-{}/", self.run.id), "")
             .replace(&format!("dx-{}-", self.run.id), "")
     }
 

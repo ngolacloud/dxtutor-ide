@@ -490,6 +490,10 @@ const KUBERNETES_BASICS: &str = include_str!("../../../courses/kubernetes/course
 /// Delonix Engine 0.2.0 (ferramenta, avaliada por verificações): só no backend, com os comandos
 /// do delonix que não tocam no motor (`manifest render`, `compose config`).
 const DELONIX_BASICS: &str = include_str!("../../../courses/delonix/courses/delonix.toml");
+/// Podman 4.9 (ferramenta, avaliada por verificações VIVAS no sandbox Podman rootless — Learn P3a):
+/// só no backend; as imagens base, fixadas pelo digest no `[build]`, puxam-se uma vez («Prepare
+/// course») e a avaliação nunca puxa.
+const PODMAN_BASICS: &str = include_str!("../../../courses/podman/courses/podman.toml");
 
 /// Todos os cursos guiados embebidos no binário.
 pub fn builtin_courses() -> Vec<Course> {
@@ -509,6 +513,7 @@ pub fn builtin_courses() -> Vec<Course> {
         parse("django-basics", DJANGO_BASICS),
         parse("kubernetes-basics", KUBERNETES_BASICS),
         parse("delonix-basics", DELONIX_BASICS),
+        parse("podman-basics", PODMAN_BASICS),
     ]
 }
 
@@ -1481,6 +1486,17 @@ mod tool_course_tests {
         units: usize,
         tools: &[crate::toolcheck::Tool],
     ) {
+        tool_course_in(id, "yaml", subject, prefix, units, tools)
+    }
+
+    fn tool_course_in(
+        id: &str,
+        language: &str,
+        subject: &str,
+        prefix: &str,
+        units: usize,
+        tools: &[crate::toolcheck::Tool],
+    ) {
         let c = load_course(id).unwrap_or_else(|| panic!("curso {id}"));
         assert_eq!(
             (
@@ -1489,7 +1505,7 @@ mod tool_course_tests {
                 c.subject.as_str(),
                 c.track()
             ),
-            ("yaml", CourseCategory::Tool, subject, subject)
+            (language, CourseCategory::Tool, subject, subject)
         );
         assert!(crate::toolcheck::graded_by_checks(&c.language));
         assert!(c.overview.len() > 1500, "overview");
@@ -1554,7 +1570,10 @@ mod tool_course_tests {
             let ch = u.steps.last().unwrap();
             let p = ch.project.as_ref().expect("desafio de projecto");
             assert!(p.check().is_empty(), "{}: {:?}", ch.id, p.check());
-            let errs = crate::toolcheck::check_step(p);
+            let images = crate::toolcheck::course_images(&c);
+            let prepared =
+                crate::toolcheck::containerfile_language(&c.language).then_some(images.as_slice());
+            let errs = crate::toolcheck::check_step_with(p, prepared);
             assert!(errs.is_empty(), "{}: {errs:?}", ch.id);
             assert!(c.phase(ch, Level::Basico).is_some());
         }
@@ -1587,5 +1606,37 @@ mod tool_course_tests {
         );
         let c = load_course("delonix-basics").unwrap();
         assert!(c.overview.contains("Delonix 0.2.0") && c.overview.contains("0.1.x"));
+    }
+
+    /// Os cursos de contentores (Learn P3a): `dockerfile`, comandos no sandbox Podman, imagens
+    /// fixadas pelo digest e preparadas uma vez.
+    fn container_course(id: &str, subject: &str, prefix: &str) {
+        tool_course_in(
+            id,
+            "dockerfile",
+            subject,
+            prefix,
+            10,
+            &[crate::toolcheck::Tool::Podman],
+        );
+        let c = load_course(id).unwrap();
+        assert!(c.build.prepare);
+        let images = crate::toolcheck::course_images(&c);
+        assert_eq!(images.len(), 3, "alpine, python and golang");
+        assert!(images.iter().all(|i| i.digest.starts_with("sha256:")));
+        assert!(c.overview.contains("Podman 4.9.3"));
+        for u in &c.units {
+            for d in u.steps.iter().filter(|s| s.kind == StepKind::Drill) {
+                let p = crate::containerfile::parse(&d.target)
+                    .unwrap_or_else(|e| panic!("{}: {e}", d.id));
+                crate::containerfile::guard(&p, &images)
+                    .unwrap_or_else(|e| panic!("{}: {e}", d.id));
+            }
+        }
+    }
+
+    #[test]
+    fn podman_is_a_container_course_graded_live() {
+        container_course("podman-basics", "podman", "pm-");
     }
 }

@@ -507,7 +507,8 @@ impl Sandbox {
         Ok(SandboxLock { _file: file })
     }
 
-    /// Remove o que tem a etiqueta `label` (`chave=valor`): contentores (com `-t 0`), volumes,
+    /// Remove o que tem a etiqueta `label` (`chave=valor`): contentores (com `-t 0`, e os seus
+    /// volumes anónimos, `-v`), volumes,
     /// redes e imagens; depois as imagens intermédias sem nome (`image prune`, só as pendentes) e os
     /// contentores de trabalho do buildah que um `build` interrompido deixou. Chamar com a tranca
     /// ([`Sandbox::lock`]) na mão: o `prune` e os contentores do buildah não têm etiqueta.
@@ -528,7 +529,7 @@ impl Sandbox {
         };
         let containers = note(
             "containers",
-            self.exec_ok(&["rm", "-f", "-t", "0", "--filter", &filter], t),
+            self.exec_ok(&["rm", "-f", "-v", "-t", "0", "--filter", &filter], t),
         );
         let volumes = note(
             "volumes",

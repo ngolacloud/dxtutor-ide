@@ -202,6 +202,7 @@ fn test(args: &[String]) -> Result<()> {
     while let Some(a) = it.next() {
         match a.as_str() {
             "--only" => only = it.next().map(String::as_str),
+            "--verbose" => VERBOSE.store(true, std::sync::atomic::Ordering::Relaxed),
             s if !s.starts_with("--") => dir = s,
             _ => {}
         }
@@ -407,6 +408,17 @@ fn package_list(pkgs: &[tutor_eval::course_cache::Package]) -> String {
         .join(", ")
 }
 
+/// `dxt plugin test --verbose`: print the grader's report of each project step's solution and
+/// starter (for course authors).
+static VERBOSE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn indent_report(s: &str) -> String {
+    s.lines()
+        .map(|l| format!("      {l}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn kind_name(k: tutor_core::StepKind) -> &'static str {
     match k {
         tutor_core::StepKind::Concept => "concept",
@@ -464,6 +476,12 @@ fn check_step(
             let good = tutor_eval::assess_project(&phase, &project.solution)
                 .map_err(|e| format!("evaluator error: {e}"))?;
             if !good.correctness.passed {
+                if VERBOSE.load(std::sync::atomic::Ordering::Relaxed) {
+                    println!(
+                        "    ── solution ──\n{}",
+                        indent_report(&good.correctness.raw)
+                    );
+                }
                 return Err(format!(
                     "reference solution files fail the tests: {}",
                     head(&good.correctness.raw)
@@ -471,6 +489,13 @@ fn check_step(
             }
             let starter = tutor_eval::assess_project(&phase, &Default::default())
                 .map_err(|e| format!("evaluator error: {e}"))?;
+            if VERBOSE.load(std::sync::atomic::Ordering::Relaxed) {
+                println!(
+                    "    ── solution ──\n{}\n    ── starter ──\n{}",
+                    indent_report(&good.correctness.raw),
+                    indent_report(&starter.correctness.raw)
+                );
+            }
             if starter.correctness.passed {
                 return Err("the starter files already pass the tests (they prove nothing)".into());
             }
