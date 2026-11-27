@@ -66,8 +66,13 @@ export const agentHistory = (sessionId: string): Promise<unknown> => invoke<unkn
 
 /** Envia uma mensagem (`text: null` repete a partir do histórico). Responde por eventos. */
 /** `origin`: the human request the turn answers (`{kind, issue?, scope?}`, RF-G01). */
-export const sendAgent = (sessionId: string, text: string | null, origin?: { kind: string; issue?: string; scope?: string[] }): Promise<void> =>
-  invoke<void>("codev_agent_send", { sessionId, text, origin: origin ?? null });
+/** `images` (H5c): the images attached to the message, in base64 (the backend checks each). */
+export const sendAgent = (
+  sessionId: string,
+  text: string | null,
+  origin?: { kind: string; issue?: string; scope?: string[] },
+  images?: Array<{ name: string; data: string }>,
+): Promise<void> => invoke<void>("codev_agent_send", { sessionId, text, origin: origin ?? null, images: images?.length ? images : null });
 
 /** `driver`: who drives a PairCode session when the human decides (RF-P04; `null` outside one). */
 export const approveAgent = (sessionId: string, toolUseId: string, allow: boolean, reason?: string, remember?: boolean, driver?: string | null): Promise<boolean> =>

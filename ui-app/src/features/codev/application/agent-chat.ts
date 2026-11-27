@@ -5,7 +5,7 @@
    pedidos de aprovação (com razão e «permitir sempre» quando a política o oferece) e o
    custo. Sem DOM, sem window, sem Tauri — tudo pelas portas (`AgentChatDeps`). */
 
-import type { AgentChatDeps, CardRef, ToolRef } from "./ports";
+import type { AgentChatDeps, AgentImage, CardRef, ToolRef } from "./ports";
 import { ptCopy, type CodevCopy } from "./messages";
 import type { AgentEvent, ApprovalRequest } from "../domain/agent-events";
 import { ago, callDiff, describeCall, describeSession, isNoToolsError, originFor, outcomeNotice, parseTodos, summarizeResult } from "../domain/agent-events";
@@ -316,9 +316,9 @@ export function makeAgentChat(deps: AgentChatDeps) {
 
   /** Envia uma mensagem do utilizador e espera pelo fim do turno. `false` se o modelo não
    *  tem tool calling nativo — quem chama reenvia pelo harness antigo. */
-  async function send(q: string): Promise<boolean> {
+  async function send(q: string, images?: AgentImage[]): Promise<boolean> {
     let fallback = false;
-    presenter.userMessage(q);
+    presenter.userMessage(images?.length ? `${q}\n\n🖼 ${images.map((i) => i.name).join(", ")}` : q);
     const card = presenter.thinking(deps.speaker());
     presenter.beginRun("Agente Co-Dev");
     deps.run?.turnStarted();
@@ -344,7 +344,10 @@ export function makeAgentChat(deps: AgentChatDeps) {
         // the backend reads the disk: save what the editor shows first
         (deps.flush ? deps.flush() : Promise.resolve())
           .catch(() => undefined)
-          .then(() => gateway.send(id, q, issueKey ? { ...originFor(issueKey), ...issueExtra } : originFor(null)))
+          .then(() => {
+            const origin = issueKey ? { ...originFor(issueKey), ...issueExtra } : originFor(null);
+            return images?.length ? gateway.send(id, q, origin, images) : gateway.send(id, q, origin);
+          })
           .catch((e: unknown) => {
           presenter.liveError(card, false, undefined, e instanceof Error ? e.message : String(e));
           resolve();

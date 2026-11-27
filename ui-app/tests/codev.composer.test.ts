@@ -83,6 +83,7 @@ test("anexos: menções e ficheiros entram no pedido; comandos «/» vão sozinh
 function setup() {
   document.body.innerHTML = '<div id="ag-compose"><textarea id="ag-input"></textarea></div>';
   const sent: string[] = [];
+  const sentImages: Array<Array<{ name: string; data: string }>> = [];
   const toasts: string[] = [];
   const dictLang = { v: "pt" };
   const dict = { ready: true, recording: false, text: "olá mundo", calls: [] as string[] };
@@ -105,7 +106,10 @@ function setup() {
   };
   const state = { running: false, mode: "assist", provider: "claude", model: "claude-opus-5-5", effort: "high" as Effort, ctx: true };
   const host: ComposerHost = {
-    send: (q) => sent.push(q),
+    send: (q, images) => {
+      sent.push(q);
+      sentImages.push(images ?? []);
+    },
     stop: () => sent.push("<stop>"),
     running: () => state.running,
     mode: () => state.mode,
@@ -152,7 +156,7 @@ function setup() {
   const enter = (shiftKey = false) =>
     $("#ag-input").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", shiftKey, bubbles: true }));
   const click = (s: string) => $(s).dispatchEvent(new MouseEvent("click", { bubbles: true }));
-  return { host, state, sent, toasts, dict, dictLang, $, type, enter, click };
+  return { host, state, sent, sentImages, toasts, dict, dictLang, $, type, enter, click };
 }
 
 beforeEach(() => {
@@ -415,4 +419,51 @@ test("RF-S02: o menu «/» muda a velocidade de escrita", () => {
   expect(t.$("#cc-pop .cc-list").textContent).toContain("Velocidade de escrita no editor");
   f.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
   expect(pace).toBe("slow"); // the palette in the test harness runs the first item
+});
+
+/* ───── H5c: images ───── */
+
+const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 1]);
+
+function paste(t: ReturnType<typeof setup>, files: File[]): void {
+  const ev = new Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(ev, "clipboardData", { value: { files } });
+  t.$("#ag-input").dispatchEvent(ev);
+}
+const settle = () => new Promise((r) => setTimeout(r, 30));
+
+test("imagens: colar uma captura anexa-a; segue com a mensagem, à parte do texto", async () => {
+  const t = setup();
+  paste(t, [new File([PNG], "ecra.png", { type: "image/png" })]);
+  await settle();
+  expect(_composerState().attachments.map((a) => [a.kind, a.name])).toEqual([["image", "ecra.png"]]);
+  expect(t.$("#cc-atts").textContent).toContain("ecra.png");
+  t.type("o que falha aqui?");
+  t.enter();
+  expect(t.sent).toEqual(["o que falha aqui?"]); // the text does not carry the bytes
+  expect(t.sentImages[0]).toEqual([{ name: "ecra.png", data: "iVBORw0KGgoAAQ==" }]);
+  expect(_composerState().attachments).toHaveLength(0);
+});
+
+test("imagens: só PNG/JPEG/GIF/WebP até 3,75 MB; com o Co-Dev a trabalhar esperam; um /comando não as leva", async () => {
+  const t = setup();
+  paste(t, [new File([new Uint8Array(10)], "x.bmp", { type: "image/bmp" })]);
+  paste(t, [new File([new Uint8Array(3_750_001)], "big.png", { type: "image/png" })]);
+  await settle();
+  expect(_composerState().attachments).toHaveLength(0);
+  expect(t.toasts.join(" | ")).toMatch(/x\.bmp.*PNG.*\| big\.png/);
+  paste(t, [new File([PNG], "a.png", { type: "image/png" })]);
+  await settle();
+  t.state.running = true;
+  t.type("vê isto");
+  t.enter();
+  expect(t.sent).toEqual([]); // nothing queued: the images wait for a turn of their own
+  expect(_composerState().attachments).toHaveLength(1);
+  expect(t.$<HTMLTextAreaElement>("#ag-input").value).toBe("vê isto");
+  t.state.running = false;
+  t.type("/test");
+  t.enter();
+  expect(t.sent).toEqual(["/test"]);
+  expect(t.sentImages[0]).toEqual([]);
+  expect(_composerState().attachments).toHaveLength(1); // still attached for the next message
 });

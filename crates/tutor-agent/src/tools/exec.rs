@@ -303,6 +303,7 @@ impl Tool for Bash {
         let mut out = with_hint(ToolOutput {
             is_error: !r.ok(),
             content: r.render(),
+            images: vec![],
         });
         if let Some(sb) = &self.sandbox {
             let refused = sb.take_denied();
@@ -379,6 +380,7 @@ impl Tool for Verify {
         with_hint(ToolOutput {
             is_error: !r.ok(),
             content: format!("$ {}\n{}", self.command, r.render()),
+            images: vec![],
         })
     }
 }

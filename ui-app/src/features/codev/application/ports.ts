@@ -30,6 +30,12 @@ import type { LinesCheck, PlanPlace } from "../domain/plan-order";
 import type { LiveSession, SubagentStep } from "../domain/agent-map";
 import type { BacklogProposal } from "../domain/backlog";
 
+/** H5c: an image attached to a message — its name and bytes in base64 (the backend reads the type and checks the size). */
+export interface AgentImage {
+  name: string;
+  data: string;
+}
+
 /* ───────── infrastructure-shaped values the use cases pass around ───────── */
 
 /** A provider card as the council/live-chat read it (colour, name, on-state). */
@@ -293,8 +299,9 @@ export interface AgentGateway {
   savePermissions(root: string, rules: { allow: string[]; deny: string[] }): Promise<void>;
   extensions(root: string): Promise<ExtensionsStatus>;
   trust(root: string, kind: "hooks" | "mcp" | "sandbox"): Promise<void>;
-  /** `origin`: the human request (RF-G01); `text: null` («try again») keeps the last one. */
-  send(session: string, text: string | null, origin?: AgentOrigin): Promise<void>;
+  /** `origin`: the human request (RF-G01); `text: null` («try again») keeps the last one; `images` (H5c) go with the
+   *  message. */
+  send(session: string, text: string | null, origin?: AgentOrigin, images?: AgentImage[]): Promise<void>;
   approve(session: string, toolUseId: string, allow: boolean, reason?: string, remember?: boolean): Promise<boolean>;
   cancel(session: string): Promise<boolean>;
   setMode(session: string, mode: string): Promise<boolean>;

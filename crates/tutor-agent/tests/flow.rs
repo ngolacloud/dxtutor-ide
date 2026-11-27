@@ -715,7 +715,35 @@ fn toolset_9_offers_finish_issue_only_to_issue_sessions_and_keeps_8_as_it_was() 
     n15.push("web_fetch".to_string());
     assert_eq!(names(&tools(15, true)), n15);
     assert_eq!(bash(15), bash(14));
-    assert_eq!(tutor_agent::tools::TOOLSET_VERSION, 15);
+    // toolset 16 (H5c): the same tools; only `read`'s description says images come back — 15 keeps its own
+    assert_eq!(names(&tools(16, true)), n15);
+    let read = |v: u32| {
+        tools(v, false)
+            .into_iter()
+            .find(|t| t.name() == "read")
+            .unwrap()
+    };
+    assert_eq!(read(16).input_schema(), read(15).input_schema());
+    assert!(
+        !read(15).description().contains("imagem") && read(16).description().contains("imagem")
+    );
+    // an image read: an image back in 16, «binary» in 15
+    let d = tempfile::tempdir().unwrap();
+    std::fs::write(
+        d.path().join("shot.png"),
+        [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 0, 1, 2],
+    )
+    .unwrap();
+    let c = ctx(d.path());
+    let o16 = read(16).run(&json!({"path": "shot.png"}), &c);
+    assert!(
+        !o16.is_error && o16.images.len() == 1 && o16.images[0].media_type == "image/png",
+        "{}",
+        o16.content
+    );
+    let o15 = read(15).run(&json!({"path": "shot.png"}), &c);
+    assert!(o15.is_error && o15.images.is_empty());
+    assert_eq!(tutor_agent::tools::TOOLSET_VERSION, 16);
 }
 
 #[test]

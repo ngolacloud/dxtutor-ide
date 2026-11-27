@@ -63,6 +63,7 @@ import type {
   Sampler,
   ToolHost,
   RuntimeTool,
+  AgentImage,
 } from "./application/ports";
 import type { CommandRules } from "./domain/policy";
 import { currentLocale, translator } from "../../app/i18n";
@@ -70,9 +71,11 @@ import { makeLocalProposals, type ProposalResult } from "./application/local-pro
 import { services } from "../../app/services";
 import { workspaceProjects } from "../../app/workspace-projects";
 import { CODEV_ENGINE_MESSAGES } from "./application/messages";
+import { CODEV_IMAGE_MESSAGES } from "./ui/image-messages";
 
 /* os textos dos casos de uso na língua da interface, e a língua em que o modelo responde (i18n dos motores) */
 const copy = translator(CODEV_ENGINE_MESSAGES);
+const imageCopy = translator(CODEV_IMAGE_MESSAGES);
 const replyLanguage = currentLocale;
 import type { Decision, Mode } from "./domain/types";
 
@@ -461,10 +464,14 @@ services.codevReview = {
 /** Conversa livre: o agente v2 quando disponível (desktop + pasta real + Claude/Codex/
  *  Gemini/Ollama), senão o harness antigo (protótipo, a flag `dx2.codevLegacy`, ou um modelo
  *  sem tool calling nativo — descoberto no 1.º pedido, a mensagem é reenviada por aqui). */
-const chat = async (q: string): Promise<void> => {
+const chat = async (q: string, images?: AgentImage[]): Promise<void> => {
   const c = agentChat();
-  if (!c.available()) return liveChat(q);
-  if (await c.send(q)) return;
+  // H5c: images go only to the agent v2 (the old harness is text): said, and the text goes on
+  if (!c.available()) {
+    if (images?.length) bridge.toast(imageCopy("imagesNeedAgent"));
+    return liveChat(q);
+  }
+  if (await c.send(q, images)) return;
   return liveChat(q, { echoed: true }); // o agente já mostrou a mensagem
 };
 
