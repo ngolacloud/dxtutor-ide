@@ -486,6 +486,18 @@ fn compose_guard(work: &Path, file: &str) -> std::result::Result<(), String> {
             continue;
         };
         for (svc, s) in services {
+            // delonix 0.2.0 (commit edba10a1c) panics in `topo_sort` on a `depends_on` that names
+            // no service; say it in words instead of showing the learner a panic.
+            let deps: Vec<&str> = match s.get("depends_on") {
+                Some(Value::Array(a)) => a.iter().filter_map(Value::as_str).collect(),
+                Some(Value::Object(m)) => m.keys().map(String::as_str).collect(),
+                _ => Vec::new(),
+            };
+            if let Some(d) = deps.iter().find(|d| !services.contains_key(**d)) {
+                return Err(format!(
+                    "service `{svc}` depends on `{d}`, which is not a service of `{file}`"
+                ));
+            }
             let Some(ports) = s.get("ports").and_then(Value::as_array) else {
                 continue;
             };
@@ -912,6 +924,14 @@ mod tests {
             (
                 "services:\n  web:\n    ports: [\"${PORT:-80}\"]\n",
                 "interpolation",
+            ),
+            (
+                "services:\n  web:\n    image: x\n    depends_on: [api]\n",
+                "depends on `api`",
+            ),
+            (
+                "services:\n  web:\n    image: x\n    depends_on:\n      db:\n        condition: service_started\n",
+                "depends on `db`",
             ),
         ] {
             let e = f(bad).unwrap_err();
