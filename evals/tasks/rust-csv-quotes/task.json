@@ -1,0 +1,9 @@
+{
+  "id": "rust-csv-quotes",
+  "title": "CSV fields with quotes and commas",
+  "language": "rust",
+  "category": "bugfix",
+  "prompt": "Importing customer files breaks on lines like `42,\"Smith, John\",\"He said \"\"hi\"\"\"`: `split_csv_line` in src/lib.rs\nsplits on every comma. Make it follow RFC 4180 for a single line: fields may be quoted, a quoted field may contain\ncommas, and `\"\"` inside quotes is a literal quote. Unquoted fields are returned as they are. An unterminated quote\nreturns `Err(CsvError::UnterminatedQuote)`.",
+  "check": "cargo test --quiet --offline 2>&1",
+  "test": "cargo test --quiet --offline"
+}

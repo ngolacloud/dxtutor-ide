@@ -1,0 +1,9 @@
+{
+  "id": "rust-semver-order",
+  "title": "Semantic version ordering with pre-releases",
+  "language": "rust",
+  "category": "feature",
+  "prompt": "`Version` in src/lib.rs parses `MAJOR.MINOR.PATCH` but releases now carry pre-release tags (`1.0.0-alpha.1`,\n`1.0.0-rc.2`). Make `Version::parse` accept an optional pre-release and implement `Ord` following the SemVer 2.0\nprecedence rules (a pre-release sorts before its release; dot-separated identifiers compare numerically when both\nare numbers, lexically otherwise, numbers before text; a longer list wins when all earlier ones are equal).\nBuild metadata after `+` is ignored for ordering.",
+  "check": "cargo test --quiet --offline 2>&1",
+  "test": "cargo test --quiet --offline"
+}

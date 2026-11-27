@@ -1,0 +1,9 @@
+{
+  "id": "js-paginate",
+  "title": "Paginate API results",
+  "language": "javascript",
+  "category": "feature",
+  "prompt": "Implement `paginate(items, page, size)` in src/paginate.js for the orders API: pages start at 1; it returns\n`{ items, page, size, total, pages }` where `pages` is at least 1 (an empty list has one empty page). `page` and `size`\nmay arrive as strings from the query string; they must be positive integers (size at most 100), otherwise it throws a\n`RangeError`. A page past the last returns an empty `items` with the real `pages`.",
+  "check": "node --test 2>&1",
+  "test": "node --test"
+}

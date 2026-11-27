@@ -1,0 +1,9 @@
+{
+  "id": "go-parse-kv",
+  "title": "Connection strings with quoted values",
+  "language": "go",
+  "category": "bugfix",
+  "prompt": "`ParseKV` in config/kv.go reads connection strings like `host=db.local; user=app; password=\"p;w=d\"; port = 5432` but\nbreaks when a quoted value contains `;` or `=`, keeps the spaces around keys and values, and silently accepts a pair\nwith no `=`. Fix it: pairs are separated by `;`, whitespace around keys and values is trimmed, a value in double quotes\nmay contain `;`, `=` and `\\\"` (an escaped quote), empty pairs are ignored, and a pair without `=`, an empty key or an\nunterminated quote returns an error.",
+  "check": "go test ./... 2>&1",
+  "test": "go test ./..."
+}

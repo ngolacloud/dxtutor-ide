@@ -99,6 +99,7 @@ fn a_prepared_course_grades_offline_against_its_cache() {
     let deps = vec![dep];
     let cache = CourseCache {
         key: "fixture-course".into(),
+        language: "rust".into(),
         dependencies: deps.clone(),
     };
     let build = BuildEnv {
@@ -125,7 +126,7 @@ fn a_prepared_course_grades_offline_against_its_cache() {
     let done = course_cache::prepare(&plan).unwrap();
     assert!(done.ok, "{}", done.output);
     let marker = done.marker.expect("marker");
-    assert!(marker.cargo.starts_with("cargo "), "{marker:?}");
+    assert!(marker.tool.starts_with("cargo "), "{marker:?}");
     assert!(course_cache::status(&root, &cache).unwrap().is_ready());
     assert!(
         plan.layout.cargo_home.join("git").is_dir(),
@@ -238,6 +239,7 @@ fn a_prepared_course_grades_offline_against_its_cache() {
     // 7. the course changed its dependencies: stale until prepared again
     let changed = CourseCache {
         key: cache.key.clone(),
+        language: "rust".into(),
         dependencies: vec![format!("{} # v2", deps[0])],
     };
     assert!(matches!(

@@ -16,6 +16,9 @@
 //!   functional approval a person records on an issue ([`Op::ApproveFunctional`]).
 //! - The files each Co-Dev session claims (Multi Co-Dev, phase 3, [`claims`]) and the issue branch
 //!   a session's worktree checks out ([`branches::branch_name`]).
+//! - The reviews of an issue branch and the integration gate (Multi Co-Dev, phase 4,
+//!   [`integration`]); an integration is recorded by [`ProjectStore::record_integration`], never
+//!   by an [`Op`] (the interface cannot claim one).
 
 pub mod backlog;
 pub mod branches;
@@ -25,6 +28,7 @@ pub mod deploys;
 pub mod evidence;
 pub mod incidents;
 pub mod insights;
+pub mod integration;
 pub mod methods;
 pub mod plan;
 pub mod reports;
@@ -738,6 +742,20 @@ pub fn default_prefix(root: &str) -> String {
 
 const DAY_MS: i64 = 86_400_000;
 
+/// What the integration gate reads from the project about one issue ([`ProjectStore::gate_facts`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct GateData {
+    pub checks: Vec<Check>,
+    pub criteria: Vec<String>,
+    pub functional: Option<FunctionalApproval>,
+    pub functional_criteria: Option<Vec<String>>,
+    /// the branch recorded on the issue
+    pub branch: Option<String>,
+    pub title: String,
+    /// the project's Definition of Done
+    pub dod: Vec<String>,
+}
+
 pub struct ProjectStore {
     conn: Connection,
 }
@@ -912,6 +930,146 @@ impl ProjectStore {
     /// Every file claim of the project, by path.
     pub fn claims(&self, root: &str) -> Result<Vec<claims::Claim>, ProjectError> {
         claims::list(&self.conn, root)
+    }
+
+    /// Multi Co-Dev (phase 4): records a new review of an issue branch; returns its id.
+    pub fn review_insert(
+        &mut self,
+        root: &str,
+        r: &integration::Review,
+    ) -> Result<i64, ProjectError> {
+        integration::insert(&self.conn, root, r)
+    }
+
+    /// Writes back what a review learned (checks, findings, verdict, state).
+    pub fn review_update(
+        &mut self,
+        root: &str,
+        r: &integration::Review,
+        now: i64,
+    ) -> Result<(), ProjectError> {
+        integration::update(&self.conn, root, r, now)
+    }
+
+    /// The newest review of issue `key`.
+    pub fn review_latest(
+        &self,
+        root: &str,
+        key: &str,
+    ) -> Result<Option<integration::Review>, ProjectError> {
+        integration::latest(&self.conn, root, key)
+    }
+
+    /// One review by id.
+    pub fn review(&self, root: &str, id: i64) -> Result<Option<integration::Review>, ProjectError> {
+        integration::get(&self.conn, root, id)
+    }
+
+    /// What the gate reads from the project about issue `key`, in one read: the mandatory checks,
+    /// the acceptance criteria, the functional approval and the criteria it was given for, the
+    /// issue's branch, title and the project's DoD.
+    pub fn gate_facts(&self, root: &str, key: &str) -> Result<GateData, ProjectError> {
+        let (title, branch): (String, Option<String>) = self
+            .conn
+            .query_row(
+                "SELECT title, branch FROM issues WHERE root = ?1 AND key = ?2",
+                params![root, key],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?
+            .ok_or_else(|| err("not_found", format!("a issue {key} não existe")))?;
+        let (.., dod) = settings(&self.conn, root)?;
+        Ok(GateData {
+            checks: self.checks(root)?,
+            criteria: criteria_texts(&self.conn, root, key)?,
+            functional: functional_of(&self.conn, root, key)?,
+            functional_criteria: functional_criteria(&self.conn, root, key)?,
+            branch: branch
+                .map(|b| b.trim().to_string())
+                .filter(|b| !b.is_empty()),
+            title,
+            dod,
+        })
+    }
+
+    /// Multi Co-Dev (phase 4): issue `key` was integrated — review `review` landed as `commit` on
+    /// `target`. In one transaction: the review is marked, the commit is linked to the issue, the
+    /// activity says it, and the issue walks towards Done one step at a time by the normal move rules
+    /// (WIP, test-first, the DoD — never overridden); where a rule refuses, it stays and a `held`
+    /// entry says why. Returns where the issue ended. Called by the backend after the merge, never
+    /// from an [`Op`].
+    pub fn record_integration(
+        &mut self,
+        root: &str,
+        actor: &str,
+        now: i64,
+        key: &str,
+        review: i64,
+        commit: &str,
+        target: &str,
+    ) -> Result<String, ProjectError> {
+        let tx = self.conn.transaction()?;
+        let n = tx.execute(
+            "UPDATE integration_reviews SET state = 'integrated', updated = ?4 WHERE root = ?1 AND id = ?2 AND key = ?3 AND state = 'reviewed'",
+            params![root, review, key, now],
+        )?;
+        if n == 0 {
+            return Err(err(
+                "invalid",
+                format!("a revisão {review} de {key} não está revista"),
+            ));
+        }
+        tx.execute(
+            "INSERT OR IGNORE INTO issue_links (root, key, kind, ref, title, at) VALUES (?1, ?2, 'commit', ?3, ?4, ?5)",
+            params![root, key, commit, format!("integrada em {target}"), now],
+        )?;
+        log(
+            &tx,
+            root,
+            key,
+            now,
+            actor,
+            "integrated",
+            None,
+            None,
+            &format!("integrada em {target} ({commit})"),
+        )?;
+        let mut state = issue_row(&tx, root, key)?.state;
+        while let Some(next) = STATES
+            .iter()
+            .position(|s| *s == state)
+            .and_then(|i| STATES.get(i + 1))
+        {
+            let m = move_check(&tx, root, key, next)?;
+            if !m.broken.is_empty() {
+                let why: Vec<String> = m.broken.iter().map(|b| b.message.clone()).collect();
+                log(
+                    &tx,
+                    root,
+                    key,
+                    now,
+                    actor,
+                    "held",
+                    None,
+                    None,
+                    &format!("fica em «{state}»: {}", why.join("; ")),
+                )?;
+                break;
+            }
+            let mut note = format!("integrada em {target}");
+            for x in &m.notes {
+                note.push_str("; ");
+                note.push_str(x);
+            }
+            do_move(&tx, root, actor, now, key, &state, next, "moved", &note)?;
+            state = next.to_string();
+        }
+        tx.execute(
+            "UPDATE projects SET updated = ?2 WHERE root = ?1",
+            params![root, now],
+        )?;
+        tx.commit()?;
+        Ok(state)
     }
 
     /// The project's mandatory checks (the integration gate, Multi Co-Dev phases 2 and 4); empty
@@ -1482,6 +1640,8 @@ fn functional_of(
     )
 }
 
+/// Records (or drops) the functional approval, with the criteria it was given for (Multi Co-Dev,
+/// phase 4: the gate checks that they are still the issue's).
 fn set_functional(
     c: &Connection,
     root: &str,
@@ -1489,11 +1649,33 @@ fn set_functional(
     a: Option<&FunctionalApproval>,
     now: i64,
 ) -> rusqlite::Result<()> {
+    let criteria = match a {
+        Some(_) => Some(serde_json::to_string(&criteria_texts(c, root, key)?).unwrap_or_default()),
+        None => None,
+    };
     c.execute(
-        "UPDATE issues SET functional_by = ?3, functional_at = ?4, functional_note = ?5, updated = ?6 WHERE root = ?1 AND key = ?2",
-        params![root, key, a.map(|a| &a.by), a.map(|a| a.at), a.map(|a| &a.note), now],
+        "UPDATE issues SET functional_by = ?3, functional_at = ?4, functional_note = ?5, functional_criteria = ?6, updated = ?7 WHERE root = ?1 AND key = ?2",
+        params![root, key, a.map(|a| &a.by), a.map(|a| a.at), a.map(|a| &a.note), criteria, now],
     )?;
     Ok(())
+}
+
+/// The criteria the functional approval of `key` was given for (`None`: no approval, or one whose
+/// criteria were not recorded).
+fn functional_criteria(
+    c: &Connection,
+    root: &str,
+    key: &str,
+) -> rusqlite::Result<Option<Vec<String>>> {
+    let v: Option<String> = c
+        .query_row(
+            "SELECT functional_criteria FROM issues WHERE root = ?1 AND key = ?2 AND functional_by IS NOT NULL",
+            params![root, key],
+            |r| r.get(0),
+        )
+        .optional()?
+        .flatten();
+    Ok(v.and_then(|s| serde_json::from_str(&s).ok()))
 }
 
 /// The functional approval (or its withdrawal) in the audit log, in the same transaction: origin

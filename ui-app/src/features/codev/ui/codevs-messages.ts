@@ -1,4 +1,4 @@
-/* Textos da faixa «Co-Devs» (Multi Co-Dev, fases 2 e 3 — texto novo, sem par no motor de tradução): en + ptAO. */
+/* Textos da faixa «Co-Devs» (Multi Co-Dev, fases 2, 3 e 4 — texto novo, sem par no motor de tradução): en + ptAO. */
 import type { Messages } from "../../../app/i18n";
 
 export const CODEVS_MESSAGES = {
@@ -25,6 +25,7 @@ export const CODEVS_MESSAGES = {
     gone: "its folder is gone",
     keptTitle: "A Co-Dev worktree with no open session ({path}): start {key} again to carry on in it",
     cleanup: "Clean up this worktree (the branch stays)",
+    integrate: "Review & integrate {key}: the mandatory checks on the merge, the Co-Dev reviewer and the functional approval",
   },
   ptAO: {
     title: "Co-Devs",
@@ -49,5 +50,6 @@ export const CODEVS_MESSAGES = {
     gone: "a pasta dela desapareceu",
     keptTitle: "Uma worktree do Co-Dev sem sessão aberta ({path}): começa {key} de novo para continuar nela",
     cleanup: "Limpar esta worktree (o ramo fica)",
+    integrate: "Rever e integrar {key}: as verificações obrigatórias no merge, o revisor Co-Dev e a aprovação funcional",
   },
 } satisfies Messages<string>;

@@ -1,0 +1,9 @@
+{
+  "id": "go-queue-empty",
+  "title": "Dequeue on an empty queue panics",
+  "language": "go",
+  "category": "bugfix",
+  "prompt": "The job worker crashes when the queue is empty: `Dequeue` in queue/queue.go panics. Make `Dequeue` return\n`(value, true)` or `(zero value, false)` when empty, keep FIFO order, and make sure dequeued items are not kept alive by\nthe underlying slice (memory grows in production): after many enqueue/dequeue cycles the backing array must not keep\ngrowing without bound — reuse or compact it. Keep `Len`, and add an unexported `capacity() int` that returns the\ncapacity of the backing slice (the memory test reads it).",
+  "check": "go test ./... 2>&1",
+  "test": "go test ./..."
+}

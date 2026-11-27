@@ -1,0 +1,9 @@
+{
+  "id": "py-slugify",
+  "title": "Slugs with accents and long titles",
+  "language": "python",
+  "category": "bugfix",
+  "prompt": "Blog post URLs come out wrong: `slugify` in app/text.py drops accented letters (\"Café\" becomes \"caf\"), leaves double\ndashes and can end with a dash after cutting to `max_len`. Fix it: accents are transliterated to ASCII (\"Café à\nLuanda\" → \"cafe-a-luanda\"), any run of non-alphanumerics becomes one dash, no dash at the start or end, and cutting to\n`max_len` never leaves a trailing dash. Keep the signature.",
+  "check": "python3 -m unittest discover -s tests -q 2>&1",
+  "test": "python3 -m unittest discover -s tests -q"
+}

@@ -1362,6 +1362,55 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
         await sh("git", ["-C", dir, "worktree", "remove", "--force", "--", w.dir], { cwd: dir }).catch(() => undefined);
       }
     });
+    // Multi Co-Dev, fase 4: a porta de integração contra o git real, sem modelo — uma verificação que falha (o revisor
+    // não corre), depois verde (o revisor sem provedor não dá veredicto: nenhum pedido sai), a aprovação funcional, e o
+    // «Integrate» recusado no Rust porque a condição do revisor não vale; o ramo por omissão fica onde estava.
+    await step("integration", async () => {
+      const raw = window.__TAURI__!.core.invoke as (c: string, a?: Record<string, unknown>) => Promise<unknown>;
+      // a failure names the command that failed (and its op)
+      const inv = (c: string, a?: Record<string, unknown>) => raw(c, a).catch((e) => { throw new Error(`${c}${a && "op" in a ? ` ${(a.op as { op?: string }).op}` : ""}: ${String((e as { message?: string })?.message ?? e)}`); });
+      const root = R.root as string, dir = root.replace(/\/$/, "");
+      type Cond = { ok: boolean; code: string; items: string[] };
+      type St = { running: boolean; request: string | null; integrate: string | null; gate: { checks: Cond; reviewer: Cond; functional: Cond; ok: boolean }; review: { candidate: string; state: string; error: string | null } | null };
+      const pc = projectClient(inv as <T>(c: string, a?: Record<string, unknown>) => Promise<T>);
+      const p = (await pc.apply(root, { op: "create_issue", title: "Selftest integration" })) as { issues: Array<{ key: string; title: string }>; checks?: unknown };
+      const key = p.issues.filter((i) => i.title === "Selftest integration").slice(-1)[0].key;
+      await pc.apply(root, { op: "set_acceptance", key, items: [{ text: "Given the selftest When it runs Then SELFTEST-IG.txt exists", done: false }] });
+      const savedChecks = await inv("project_checks", { root });
+      const plan = await inv("codev_worktree_plan", { root, key }) as { command: string };
+      const w = await inv("codev_worktree_create", { root, key, command: plan.command, decidedAt: 1 }) as { dir: string; branch: string };
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+      const state = () => inv("codev_review_state", { root, key }) as Promise<St>;
+      const review = async (): Promise<St> => {
+        const s = await state();
+        await inv("codev_review_request", { root, key, command: s.request, decidedAt: 1, provider: "selftest-none", model: null, language: "en" });
+        for (let i = 0; i < 240; i++) { const x = await state(); if (!x.running) return x; await wait(250); }
+        throw new Error("the review did not finish");
+      };
+      try {
+        await sh("sh", ["-c", `printf 'selftest\n' > "${w.dir}/SELFTEST-IG.txt"`], { cwd: dir });
+        await inv("codev_worktree_commit", { root, key, message: `${key}: selftest integration` });
+        const mainBefore = (await sh("git", ["-C", dir, "rev-parse", "HEAD"], { cwd: dir })).stdout.trim();
+        await pc.apply(root, { op: "settings", checks: [{ name: "selftest", command: "echo red >&2; exit 7" }] });
+        const red = await review();
+        await pc.apply(root, { op: "settings", checks: [{ name: "selftest", command: "test -f SELFTEST-IG.txt" }] });
+        const green = await review();
+        await pc.apply(root, { op: "approve_functional", key, note: "selftest" });
+        const after = await state();
+        const refused = await inv("codev_review_integrate", { root, key, command: `git -C ${dir} merge --ff-only ${green.review?.candidate}`, decidedAt: 1 })
+          .then(() => "integrated", (e) => String(e));
+        const mainAfter = (await sh("git", ["-C", dir, "rev-parse", "HEAD"], { cwd: dir })).stdout.trim();
+        return {
+          redChecks: red.gate.checks.code, redReviewer: red.gate.reviewer.code,
+          greenChecks: green.gate.checks.code, noVerdict: green.gate.reviewer.code, reviewError: green.review?.error ?? null,
+          functional: after.gate.functional.code, gateOpen: after.gate.ok, integrateOffered: after.integrate !== null,
+          refusedInRust: refused.includes("the gate does not hold") && refused.includes("reviewer: no_verdict"), mainUntouched: mainBefore === mainAfter,
+        };
+      } finally {
+        await pc.apply(root, { op: "settings", checks: Array.isArray(savedChecks) ? savedChecks : [] }).catch(() => undefined);
+        await sh("git", ["-C", dir, "worktree", "remove", "--force", "--", w.dir], { cwd: dir }).catch(() => undefined);
+      }
+    });
     // A10: as lacunas aprovadas, contra o repositório temporário e esta máquina — o mapa de onboarding,
     // o diff de um ramo contra outro (git_diff_range), o relatório de dependências (sem rede), e onde
     // anexar o depurador (os processos locais e o adaptador; a lista de contentores, só de leitura).

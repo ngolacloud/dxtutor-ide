@@ -15,6 +15,8 @@ use crate::gitx::{self, git, Stash, StashOp, Worktree, WorktreeOp};
 
 /// Multi Co-Dev, phase 3: a worktree per Co-Dev issue session.
 pub mod codev;
+/// Multi Co-Dev, phase 4: the reviewed merge of an issue branch into the default branch.
+pub mod integrate;
 
 // ───── refs: the sidebar ─────
 

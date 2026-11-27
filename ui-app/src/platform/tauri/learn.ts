@@ -159,12 +159,25 @@ export const getCourse = (language: string, subject?: string): Promise<CourseDto
 export const submitStep = (stepId: string, code: string, language: string, files?: Record<string, string>): Promise<StepAssessment> =>
   invoke<StepAssessment>("submit_step", files ? { stepId, code, language, files } : { stepId, code, language });
 
+/** Um pacote que a preparação de um curso descarrega: nome, versão (ou requisito/ref git) e origem. */
+export interface CoursePackageDto {
+  name: string;
+  version: string;
+  source: string;
+  /** A versão é exacta (pip sempre; cargo com `=x.y.z`, tag ou commit). */
+  pinned: boolean;
+}
+
 /** Estado da preparação de um curso que se avalia offline contra uma cache (`course_prepare_status`). */
 export interface CoursePrepareDto {
   needed: boolean;
   state: "not-needed" | "missing" | "stale" | "ready";
   /** Os comandos exactos a aprovar (construídos no backend). */
   command: string;
+  /** O gestor de pacotes da cache: `cargo` ou `pip` (vazio sem nada a preparar). */
+  kind: "cargo" | "pip" | "";
+  /** Os pacotes que a preparação descarrega (o diálogo de aprovação lista-os). */
+  packages: CoursePackageDto[];
   /** A pasta da cache do curso. */
   dir: string;
   timeoutSecs: number;

@@ -1,5 +1,5 @@
 /* Textos novos da porta de integração (Multi Co-Dev, fase 2): as verificações obrigatórias nas Settings
-   e a aprovação funcional no painel da issue — nascem com chave (ADR-0004, U6b): en + ptAO, sem pares
+   e a aprovação funcional no painel da issue, e (fase 4) a secção «Integração» que abre o painel de revisão — nascem com chave (ADR-0004, U6b): en + ptAO, sem pares
    no motor de tradução. */
 import type { Messages } from "../../../app/i18n";
 
@@ -7,7 +7,7 @@ export const PROJECT_GATE_MESSAGES = {
   en: {
     checksLabel: "Mandatory checks (one per line: name: command)",
     checksHint: "A change is integrated only when every mandatory check passes on the current commit, the Co-Dev reviewer confirms the acceptance criteria and the responsible person records the functional approval.",
-    checksDefault: "None set: the detected test command holds — {cmd}",
+    checksDefault: "None set. Integrating needs at least one: the detected test command is {cmd} (the «Review & integrate» panel can set it).",
     checksNone: "None set and no test command was detected in this folder.",
     functional: "Functional approval",
     functionalBy: "Approved by {by} · {when}",
@@ -18,11 +18,14 @@ export const PROJECT_GATE_MESSAGES = {
     nobody: "no assignee",
     revoke: "Withdraw",
     revokeTitle: "Withdraw the approval, with a reason (recorded and audited)",
+    integration: "Integration",
+    integrationHint: "Branch {branch}: the mandatory checks on the candidate, the Co-Dev reviewer and this approval decide whether it lands.",
+    integrationOpen: "Review & integrate…",
   },
   ptAO: {
     checksLabel: "Verificações obrigatórias (uma por linha: nome: comando)",
     checksHint: "Uma alteração só é integrada quando todas as verificações obrigatórias passam no commit actual, o revisor Co-Dev confirma os critérios de aceitação e o responsável regista a aprovação funcional.",
-    checksDefault: "Nenhuma definida: vale o comando de testes detectado — {cmd}",
+    checksDefault: "Nenhuma definida. Integrar precisa de pelo menos uma: o comando de testes detectado é {cmd} (o painel «Rever e integrar» pode defini-lo).",
     checksNone: "Nenhuma definida e nenhum comando de testes detectado nesta pasta.",
     functional: "Aprovação funcional",
     functionalBy: "Aprovada por {by} · {when}",
@@ -33,5 +36,8 @@ export const PROJECT_GATE_MESSAGES = {
     nobody: "sem responsável",
     revoke: "Retirar",
     revokeTitle: "Retirar a aprovação, com um motivo (fica registado e auditado)",
+    integration: "Integração",
+    integrationHint: "Ramo {branch}: as verificações obrigatórias no candidato, o revisor Co-Dev e esta aprovação decidem se entra.",
+    integrationOpen: "Rever e integrar…",
   },
 } satisfies Messages<string>;

@@ -71,6 +71,8 @@ export interface ApprovalRequest {
   title: string;
   command: string;
   scope?: string;
+  /** os pacotes que a preparação descarrega, item a item */
+  list?: { heading: string; items: string[]; note?: string };
 }
 
 /** O humano decide; nada corre sem ele (ligado a `requestApproval` na composição). */

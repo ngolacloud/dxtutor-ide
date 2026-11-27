@@ -1,0 +1,9 @@
+{
+  "id": "devops-makefile",
+  "title": "A Makefile for CI",
+  "language": "make",
+  "category": "devops",
+  "prompt": "CI needs one entry point. Add a `Makefile` with the targets `test` (runs the unit tests with\n`python3 -m unittest discover -s tests`), `lint` (byte-compiles every `.py` file under `app/` and `tests/` with\n`python3 -m py_compile` and fails on a syntax error), `check` (lint then test) and `clean` (removes `__pycache__`\nfolders). Targets that are not files must be `.PHONY`, and `make` with no target runs `check`.",
+  "check": "python3 check_make.py 2>&1",
+  "test": "python3 -m unittest discover -s tests"
+}

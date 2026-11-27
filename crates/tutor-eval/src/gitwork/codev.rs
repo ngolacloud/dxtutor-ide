@@ -38,11 +38,11 @@ pub fn check_key(key: &str) -> Result<&str, String> {
     }
 }
 
-fn canon(p: &Path) -> PathBuf {
+pub(crate) fn canon(p: &Path) -> PathBuf {
     std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
 }
 
-fn trimmed(root: &Path, args: &[&str]) -> Option<String> {
+pub(crate) fn trimmed(root: &Path, args: &[&str]) -> Option<String> {
     git(root, args)
         .ok()
         .map(|s| s.trim().to_string())
@@ -82,7 +82,7 @@ pub fn location(root: &Path, base: &Path, key: &str) -> Result<PathBuf, String> 
 }
 
 /// The project folder inside the repository (`""` when the project is the repository's top).
-fn prefix(root: &Path) -> String {
+pub(crate) fn prefix(root: &Path) -> String {
     git(root, &["rev-parse", "--show-prefix"])
         .map(|s| s.trim().trim_end_matches('/').to_string())
         .unwrap_or_default()
@@ -113,7 +113,7 @@ fn shown(root: &Path, steps: &[Vec<String>]) -> String {
         .join("\n")
 }
 
-fn q(s: &str) -> String {
+pub(crate) fn q(s: &str) -> String {
     if !s.is_empty()
         && s.chars()
             .all(|c| c.is_ascii_alphanumeric() || "_./:=@%+,-".contains(c))
@@ -291,7 +291,7 @@ pub struct WorktreeInfo {
     pub changed: Vec<Changed>,
 }
 
-fn strip<'a>(prefix: &str, p: &'a str) -> Option<&'a str> {
+pub(crate) fn strip<'a>(prefix: &str, p: &'a str) -> Option<&'a str> {
     if prefix.is_empty() {
         Some(p)
     } else {

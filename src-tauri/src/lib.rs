@@ -19,11 +19,13 @@ mod bridge;
 pub mod codeintel;
 pub mod codev;
 pub mod codev_agent;
+mod codev_review;
 mod codev_worktree;
 mod commands;
 pub mod debug;
 pub mod devcontainer;
 pub mod dictation;
+pub mod eval;
 mod fsops;
 pub mod gitops;
 mod keys;
@@ -73,6 +75,9 @@ use commands::codev_agent::{
     codev_agent_permissions, codev_agent_review, codev_agent_rewind, codev_agent_save_permissions,
     codev_agent_send, codev_agent_sessions, codev_agent_set_mode, codev_agent_set_plan,
     codev_agent_start, codev_agent_trust,
+};
+use commands::codev_review::{
+    codev_review_cancel, codev_review_integrate, codev_review_request, codev_review_state,
 };
 use commands::codev_worktree::{
     codev_claims, codev_worktree_commit, codev_worktree_create, codev_worktree_file,
@@ -1056,6 +1061,11 @@ pub fn run() {
             codev_worktree_file,
             codev_worktree_commit,
             codev_claims,
+            // Multi Co-Dev, fase 4 — a revisão Co-Dev assistida e a porta de integração (commands/codev_review.rs)
+            codev_review_state,
+            codev_review_request,
+            codev_review_cancel,
+            codev_review_integrate,
             dictation_status,
             dictation_start,
             dictation_stop,

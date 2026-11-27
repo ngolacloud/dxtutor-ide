@@ -1,0 +1,9 @@
+{
+  "id": "rust-parse-duration",
+  "title": "Durations with units",
+  "language": "rust",
+  "category": "feature",
+  "prompt": "`parse_duration` in src/lib.rs only understands plain seconds (\"90\"). Config files now use units: make it accept\ncombinations of `h`, `m`, `s` and `ms` such as \"1h30m\", \"45s\", \"250ms\" or \"2h5s\" (plain numbers stay seconds). Empty\ninput, unknown units, a unit without a number and repeated units must return `Err(ParseError)`.",
+  "check": "cargo test --quiet --offline 2>&1",
+  "test": "cargo test --quiet --offline"
+}

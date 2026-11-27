@@ -1,0 +1,9 @@
+{
+  "id": "rust-ring-buffer",
+  "title": "Ring buffer overwrites the wrong slot",
+  "language": "rust",
+  "category": "bugfix",
+  "prompt": "Our metrics `RingBuffer` (src/lib.rs) keeps the last N samples, but once it is full the samples come back in the\nwrong order and old ones survive. Fix it so `push` on a full buffer drops the oldest sample and `to_vec` returns the\nsamples oldest first. Keep the public API.",
+  "check": "cargo test --quiet --offline 2>&1",
+  "test": "cargo test --quiet --offline"
+}

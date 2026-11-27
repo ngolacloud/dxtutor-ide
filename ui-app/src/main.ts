@@ -95,3 +95,5 @@ import "./features/vault/index"; /* r23 F4c: o separador Vault e o #st-vault (s�
 import "./features/deploy/index"; /* r23 F4c2: o deploy guiado (services.deploy; a infra abre-o no Promote) */
 import "./features/lsp/index";
 import "./features/comments/index";
+/* Multi Co-Dev fase 4: o painel «Rever e integrar» (services.integration; a faixa «Co-Devs» e o Project abrem-no) */
+import "./features/integration/index";
