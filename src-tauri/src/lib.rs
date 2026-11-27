@@ -28,6 +28,7 @@ pub mod dictation;
 pub mod eval;
 mod fsops;
 pub mod gitops;
+pub mod ide_tool;
 mod keys;
 mod llm;
 mod lsp;

@@ -80,6 +80,7 @@ pub async fn codev_agent_start(
             serde_json::json!({ "session": sid.get(), "proposal": p }),
         );
     });
+    let project_root = std::path::PathBuf::from(root.trim());
     let spec = StartSpec {
         root,
         model,
@@ -95,6 +96,11 @@ pub async fn codev_agent_start(
             std::sync::Arc::new(crate::backlog::BacklogProposeTool { emit: emit.clone() }),
             std::sync::Arc::new(crate::backlog::ProjectProposeTool { emit }),
         ],
+        // H3: `ide` — what the IDE knows, read by action (the Project's folder is `root`)
+        host_tools_v13: vec![std::sync::Arc::new(crate::ide_tool::IdeTool {
+            root: project_root,
+            db: crate::board::db_path(&app).ok(),
+        })],
         trust_store: tutor_agent::trust::default_store(),
         user_mcp: tutor_agent::mcp::user_config(),
         provider,

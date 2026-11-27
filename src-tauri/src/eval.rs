@@ -299,6 +299,11 @@ pub fn run_task(t: &Task, cfg: &RunConfig) -> TaskResult {
         provider: Some(cfg.provider.clone()),
         sessions_base: Some(cfg.scratch.join("sessions")),
         host_tools_v8: vec![std::sync::Arc::new(crate::codeintel::OutlineTool)],
+        // H3: the same `ide` tool as the app (no Project store in an evaluation)
+        host_tools_v13: vec![std::sync::Arc::new(crate::ide_tool::IdeTool {
+            root: dir.clone(),
+            db: None,
+        })],
         ollama_host: Some(tutor_llm::chat::ollama_host()),
         lang: Some("en".into()),
         ..Default::default()

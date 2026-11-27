@@ -318,9 +318,14 @@ mod tests {
     fn core_only_when_there_are_no_instruction_files() {
         let d = tempfile::tempdir().unwrap();
         let s = system_prompt(d.path());
-        assert_eq!(s.len(), 1);
-        assert!(s[0].cache, "o breakpoint fica no último bloco");
+        // the core and (H3) the index of the IDE's skills
+        assert_eq!(s.len(), 2);
+        assert!(
+            !s[0].cache && s[1].cache,
+            "o breakpoint fica no último bloco"
+        );
         assert!(!s[0].text.contains("<instructions"));
+        assert!(s[1].text.contains("- project-board: "));
     }
 
     #[test]
@@ -331,8 +336,8 @@ mod tests {
         std::fs::create_dir_all(d.path().join(".dxtutor")).unwrap();
         std::fs::write(d.path().join(".dxtutor/regras.md"), "x".repeat(60 * 1024)).unwrap();
         let s = system_prompt(d.path());
-        assert_eq!(s.len(), 2);
-        assert!(!s[0].cache && s[1].cache);
+        assert_eq!(s.len(), 3, "core, instructions, the IDE's skills");
+        assert!(!s[0].cache && !s[1].cache && s[2].cache);
         let p = &s[1].text;
         let (a, c) = (
             p.find("file=\"AGENTS.md\"").unwrap(),

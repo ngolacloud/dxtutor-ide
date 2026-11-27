@@ -68,6 +68,8 @@ pub struct StartSpec {
     /// Toolset 11: as ferramentas das sessões de backlog (`backlog_propose`, `project_propose`),
     /// só nas sessões com `backlog`.
     pub host_tools_v11: Vec<Arc<dyn Tool>>,
+    /// Toolset 13 (H3): the host tools of every session from this version (`ide`).
+    pub host_tools_v13: Vec<Arc<dyn Tool>>,
     /// Ficheiro de confiança (hooks/MCP do projecto). `None` = nada é confiado (o adaptador
     /// passa `~/.config/dxtutor/trusted.json`).
     pub trust_store: Option<PathBuf>,
@@ -1101,11 +1103,13 @@ fn session_host_tools(spec: &StartSpec, meta: &SessionMeta) -> Vec<Arc<dyn Tool>
     // toolset 11: only the sessions that started as backlog sessions (never an older one)
     let backlog = toolset >= 11 && meta.scopes.iter().any(|s| s == session::SCOPE_BACKLOG);
     let v11 = spec.host_tools_v11.iter().filter(|_| backlog);
+    let v13 = spec.host_tools_v13.iter().filter(|_| toolset >= 13);
     spec.host_tools
         .iter()
         .chain(v4)
         .chain(v8)
         .chain(v11)
+        .chain(v13)
         .cloned()
         .collect()
 }
@@ -3009,7 +3013,7 @@ pub fn extensions_status(
     servers.dedup();
     ExtensionsStatus {
         commands: extensions::all_commands(&root),
-        skills: extensions::skills(&root),
+        skills: extensions::all_skills(&root),
         hooks: file(HOOKS_FILE),
         mcp: file(mcp::PROJECT_FILE),
         sandbox: file(tutor_agent::os_sandbox::CONFIG_FILE),
@@ -3517,6 +3521,7 @@ mod tests {
                 Arc::new(T("backlog_propose")),
                 Arc::new(T("project_propose")),
             ],
+            host_tools_v13: vec![Arc::new(T("ide"))],
             backlog: true,
             ..Default::default()
         };
@@ -3541,6 +3546,17 @@ mod tests {
         assert_eq!(names(11, &[]), ["lsp_diagnostics"]);
         assert_eq!(names(10, &["backlog"]), ["lsp_diagnostics"]);
         assert_eq!(names(5, &[]), ["lsp_diagnostics"]);
+        // H3: `ide` in every session from toolset 13 (an older one resumes without it)
+        assert_eq!(names(13, &[]), ["lsp_diagnostics", "ide"]);
+        assert_eq!(
+            names(13, &["backlog"]),
+            [
+                "lsp_diagnostics",
+                "backlog_propose",
+                "project_propose",
+                "ide"
+            ]
+        );
     }
 
     #[test]

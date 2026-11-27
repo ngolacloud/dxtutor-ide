@@ -704,7 +704,10 @@ fn toolset_9_offers_finish_issue_only_to_issue_sessions_and_keeps_8_as_it_was() 
     };
     assert!(bash(11)["properties"].get("unsandboxed").is_none());
     assert_eq!(bash(12)["properties"]["unsandboxed"]["type"], "boolean");
-    assert_eq!(tutor_agent::tools::TOOLSET_VERSION, 12);
+    // toolset 13 (H3): `ide` is the host's — the core tools and schemas stay as in 12
+    assert_eq!(names(&tools(13, true)), n9i);
+    assert_eq!(bash(13), bash(12));
+    assert_eq!(tutor_agent::tools::TOOLSET_VERSION, 13);
 }
 
 #[test]
