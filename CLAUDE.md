@@ -1682,6 +1682,16 @@ ou SSE (`sse_messages` lê até à resposta, um pedido do servidor pelo meio é 
 cabeçalho vazio. A ligação é do IDE, fora da sandbox dos comandos. Sem OAuth por agora. Testes: `cargo test -p
 tutor-agent mcp::` (um servidor HTTP falso: sessão, SSE, cabeçalhos, `DELETE`).
 
+## Sub-agentes que escrevem (H5f, `tutor_agent::tools::subwork`, conjunto 17)
+
+O `task` ganha o papel `implementer`: o sub-agente trabalha numa worktree git temporária feita de uma FOTOGRAFIA do
+projecto como está (HEAD + mudanças por commitar + ficheiros novos que o git não ignora, com um índice privado: o
+índice e o stash do humano não mudam), só com `read`/`glob`/`grep`/`edit`/`write`/`git_status`/`git_diff` — nada corre
+comandos sem um humano. No fim, o que mudou volta como patch (`git diff --binary` contra a fotografia), guardado em
+`<git dir>/dxtutor/patches/task-<ms>.patch` (o `.git` lê-se de dentro da sandbox), e a worktree sai. O projecto NÃO
+muda: o Co-Dev aplica o patch com `git apply` (pede aprovação) ou refaz com `edit`. Os outros papéis continuam só de
+leitura. Testes: `cargo test -p tutor-agent subwork --test flow`.
+
 ## A ferramenta `ide` e as skills do IDE (H3/H4, `src-tauri/src/ide_tool.rs`, `ide_tool/ops.rs`, `tutor_agent::extensions`)
 
 Decisão D4: o Co-Dev chega ao que o IDE sabe por UMA ferramenta, `ide`, com `action` e `args`, decidida no Rust. Uma

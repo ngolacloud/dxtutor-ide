@@ -211,7 +211,27 @@ pub struct Task {
     /// Toolset 5: the sub-agent may take a role (reviewer, tester, architect), each with its
     /// own brief (A3 HARNESS-06). All of them only read.
     pub roles: bool,
+    /// Toolset 17 (H5f): the role `implementer` writes — in a worktree of its own (`subwork`), never in the project.
+    pub implementer: bool,
 }
+
+const IMPLEMENTER_PROMPT: &str = "És um sub-agente implementador do Co-Dev do dxtutor IDE. Trabalhas numa cópia \
+do projecto só tua (uma worktree git com o estado actual, mudanças por commitar incluídas): o que alterares não chega \
+ao projecto sem o Co-Dev principal o aplicar. Tens read, glob, grep, edit, write, git_status e git_diff — não corres \
+comandos nem testes. Faz só o que te pedem, com o menor número de alterações, lendo cada ficheiro antes de o editar. \
+No fim responde com um relatório curto: o que mudaste (ficheiros e porquê), o que ficou por fazer e o que deve ser \
+testado.";
+
+/// The tools of an implementer: files only (no command runs without a human there).
+const IMPLEMENTER_TOOLS: &[&str] = &[
+    "read",
+    "glob",
+    "grep",
+    "edit",
+    "write",
+    "git_status",
+    "git_diff",
+];
 
 /// The briefs of the roles (all read-only: a sub-agent runs without asking for approval).
 fn role_brief(role: &str) -> &'static str {
@@ -241,6 +261,13 @@ impl Tool for Task {
         "task"
     }
     fn description(&self) -> &str {
+        if self.implementer {
+            return "Delega a um sub-agente com contexto próprio: uma investigação só de leitura (procurar onde algo \
+                    está implementado, mapear um módulo, recolher factos dispersos) ou, com o papel `implementer`, uma \
+                    alteração feita numa cópia do projecto só dele — o projecto não muda: volta o relatório e o patch \
+                    (e onde ficou guardado), que aplicas com `git apply` (precisa de aprovação) ou refazes com edit. \
+                    Vários `task` no mesmo turno correm em paralelo.";
+        }
         "Delega uma investigação só de leitura a um sub-agente com contexto próprio (procurar \
          onde algo está implementado, mapear um módulo, recolher factos dispersos). Devolve o \
          relatório dele. Vários `task` no mesmo turno correm em paralelo."
@@ -262,9 +289,16 @@ impl Tool for Task {
             "properties": {
                 "description": {"type": "string", "description": "3-6 palavras"},
                 "prompt": {"type": "string", "description": "o que fazer, com o contexto necessário"},
-                "role": {
-                    "enum": ["explorer", "reviewer", "tester", "architect"],
-                    "description": "explorer (por omissão): investiga; reviewer: revê as alterações em curso; tester: mapeia os testes e o que falta testar; architect: mapeia módulos e propõe opções de desenho"
+                "role": if self.implementer {
+                    json!({
+                        "enum": ["explorer", "reviewer", "tester", "architect", "implementer"],
+                        "description": "explorer (por omissão): investiga; reviewer: revê as alterações em curso; tester: mapeia os testes e o que falta testar; architect: mapeia módulos e propõe opções de desenho; implementer: faz uma alteração numa cópia do projecto e devolve o patch"
+                    })
+                } else {
+                    json!({
+                        "enum": ["explorer", "reviewer", "tester", "architect"],
+                        "description": "explorer (por omissão): investiga; reviewer: revê as alterações em curso; tester: mapeia os testes e o que falta testar; architect: mapeia módulos e propõe opções de desenho"
+                    })
                 }
             },
             "required": ["description", "prompt"],
@@ -289,9 +323,25 @@ impl Tool for Task {
         progress: &(dyn Fn(SubagentStep) + Sync),
     ) -> ToolOutput {
         let prompt = input["prompt"].as_str().unwrap_or_default();
+        // H5f: an implementer works in a worktree of its own, with the file tools
+        let implementer = self.implementer && input["role"] == "implementer";
+        let work = if implementer {
+            match super::subwork::SubWork::start(&ctx.root) {
+                Ok(w) => Some(w),
+                Err(e) => return ToolOutput::err(format!("o implementador não arrancou: {e}")),
+            }
+        } else {
+            None
+        };
         let tools: Vec<Arc<dyn Tool>> = coding_tools(&ToolsetOptions::default())
             .into_iter()
-            .filter(|t| t.read_only())
+            .filter(|t| {
+                if implementer {
+                    IMPLEMENTER_TOOLS.contains(&t.name())
+                } else {
+                    t.read_only()
+                }
+            })
             .collect();
         let mut cfg = AgentConfig::new(self.spec.model.clone());
         cfg.effort = self.spec.effort;
@@ -304,12 +354,20 @@ impl Tool for Task {
         progress(SubagentStep::Started {
             role: role.to_string(),
         });
+        let brief = if implementer {
+            IMPLEMENTER_PROMPT
+        } else {
+            role_brief(role)
+        };
         cfg.system = vec![SystemBlock {
-            text: format!("{} {}", role_brief(role), self.spec.lang.reply_rule()),
+            text: format!("{brief} {}", self.spec.lang.reply_rule()),
             cache: true,
         }];
         let child_ctx = ToolCtx {
-            root: PathBuf::from(&ctx.root),
+            root: work
+                .as_ref()
+                .map(|w| w.dir.clone())
+                .unwrap_or_else(|| PathBuf::from(&ctx.root)),
             cancel: ctx.cancel.clone(),
         };
         let child = Agent::new(self.spec.provider.clone(), tools, cfg, child_ctx);
@@ -334,9 +392,54 @@ impl Tool for Task {
                 } => progress(SubagentStep::ToolResult { id, name, is_error }),
                 _ => {}
             },
-            &mut |_| Decision::Allow, // só ferramentas de leitura
+            // read-only tools, or (implementer) files in a worktree no one else sees
+            &mut |_| Decision::Allow,
         );
         let report = t.last().map(|m| m.text()).unwrap_or_default();
+        if let Some(w) = work {
+            let id = format!(
+                "task-{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis())
+                    .unwrap_or(0)
+            );
+            let changes = match w.changes(&id) {
+                Ok(c) => c,
+                Err(e) => {
+                    return ToolOutput::err(format!(
+                        "as alterações do implementador perderam-se: {e}"
+                    ))
+                }
+            };
+            drop(w);
+            let summary = format!(
+                "[sub-agente implementador: {} mensagens, {} tokens de entrada, {} de saída]",
+                t.len(),
+                usage.0,
+                usage.1
+            );
+            let head = match &r {
+                Ok(_) => report.trim().to_string(),
+                Err(e) => format!("o implementador falhou: {e}"),
+            };
+            return match changes.saved {
+                None => ToolOutput::ok(format!("{head}\n\nNenhum ficheiro mudou.\n\n{summary}")),
+                Some(path) => {
+                    let mut diff = changes.patch.clone();
+                    if diff.chars().count() > 15_000 {
+                        diff = diff.chars().take(15_000).collect::<String>()
+                            + "\n… (o resto está no patch)";
+                    }
+                    ToolOutput::ok(format!(
+                        "{head}\n\nO projecto NÃO mudou. Alterações do implementador:\n{}\n\nPatch: {}\nPara as manter, aplica-o na raiz do projecto com `git apply {}` (pede aprovação) e corre os testes; ou refá-las com edit. Revê-as antes.\n\n```diff\n{diff}\n```\n\n{summary}",
+                        changes.stat,
+                        path.display(),
+                        path.display()
+                    ))
+                }
+            };
+        }
         match r {
             Ok(_) if !report.trim().is_empty() => ToolOutput::ok(format!(
                 "{report}\n\n[sub-agente: {} mensagens, {} tokens de entrada, {} de saída]",

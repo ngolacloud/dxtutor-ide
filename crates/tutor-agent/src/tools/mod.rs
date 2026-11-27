@@ -10,6 +10,7 @@ pub mod flow;
 mod fs;
 mod git;
 mod search;
+pub mod subwork;
 pub mod web;
 
 use std::collections::HashMap;
@@ -140,7 +141,8 @@ pub fn coding_tools(opts: &ToolsetOptions) -> Vec<Arc<dyn Tool>> {
 ///      cada uma com o seu nível — leitura, acção (aprovação + auditoria) ou só do humano.
 /// 15 = + `web_fetch` (H5a: ler uma página; o domínio decide-se na política de permissões).
 /// 16 = o `read` devolve imagens (H5c: PNG, JPEG, GIF, WebP como imagem; a descrição di-lo).
-pub const TOOLSET_VERSION: u32 = 16;
+/// 17 = o `task` ganha o papel `implementer` (H5f: altera numa worktree só dele e devolve um patch).
+pub const TOOLSET_VERSION: u32 = 17;
 
 /// O estado partilhado entre as ferramentas de fluxo e a sessão.
 #[derive(Clone, Default)]
@@ -196,6 +198,7 @@ pub fn agent_tools(
             v.push(Arc::new(flow::Task {
                 spec,
                 roles: version >= 5,
+                implementer: version >= 17,
             }));
         }
     }
