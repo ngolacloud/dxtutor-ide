@@ -30,7 +30,7 @@ pub fn control_of(tool: &str, call: &str) -> Option<&'static str> {
     })
 }
 
-fn when(ms: i64) -> String {
+pub(crate) fn when(ms: i64) -> String {
     // UTC, without a date crate: civil from days (Howard Hinnant's algorithm)
     let secs = ms.div_euclid(1000);
     let days = secs.div_euclid(86_400);

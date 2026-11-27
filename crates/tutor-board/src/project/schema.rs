@@ -451,6 +451,80 @@ const MIGRATIONS: &[&str] = &[
         SELECT json_group_array(a.text ORDER BY a.ord) FROM acceptance a
         WHERE a.root = issues.root AND a.key = issues.key
     ) WHERE functional_by IS NOT NULL;",
+    // 20 — Multi Co-Dev, phase 5: delegated autonomy and pull requests. What a human delegated
+    //      (`autonomy_delegations`: an issue or a sprint, the actions — `review`, `integrate`, `pr` —,
+    //      the reviewer's model, who granted it and when, the expiry, the revocation), every step the
+    //      autonomy took or refused (`autonomy_events`, with the audit rows it wrote), the app-wide
+    //      kill switch (`autonomy_switch`, one row), the remote branches dxtutor created by a push
+    //      (`remote_branches`: it never pushes to one it did not create) and the pull requests it
+    //      opened (`integration_prs`).
+    "CREATE TABLE autonomy_delegations (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        root           TEXT NOT NULL,
+        scope          TEXT NOT NULL,
+        target         TEXT NOT NULL,
+        actions        TEXT NOT NULL,
+        provider       TEXT,
+        model          TEXT,
+        language       TEXT,
+        note           TEXT NOT NULL DEFAULT '',
+        granted_by     TEXT NOT NULL,
+        granted_email  TEXT NOT NULL DEFAULT '',
+        granted_at     INTEGER NOT NULL,
+        expires_at     INTEGER NOT NULL,
+        revoked_by     TEXT,
+        revoked_at     INTEGER,
+        revoke_reason  TEXT
+    );
+    CREATE INDEX idx_autonomy_delegations ON autonomy_delegations(root, scope, target);
+    CREATE TABLE autonomy_events (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        root        TEXT NOT NULL,
+        key         TEXT NOT NULL,
+        delegation  INTEGER,
+        action      TEXT NOT NULL,
+        trigger     TEXT NOT NULL,
+        outcome     TEXT NOT NULL,
+        code        TEXT NOT NULL,
+        detail      TEXT NOT NULL DEFAULT '',
+        review      INTEGER,
+        audit       TEXT NOT NULL DEFAULT '[]',
+        at          INTEGER NOT NULL
+    );
+    CREATE INDEX idx_autonomy_events ON autonomy_events(root, key, id);
+    CREATE TABLE autonomy_switch (
+        id      INTEGER PRIMARY KEY CHECK (id = 1),
+        paused  INTEGER NOT NULL DEFAULT 0,
+        by      TEXT,
+        at      INTEGER,
+        reason  TEXT
+    );
+    CREATE TABLE remote_branches (
+        root     TEXT NOT NULL,
+        url      TEXT NOT NULL,
+        branch   TEXT NOT NULL,
+        actor    TEXT NOT NULL,
+        at       INTEGER NOT NULL,
+        PRIMARY KEY (root, url, branch)
+    );
+    CREATE TABLE integration_prs (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        root        TEXT NOT NULL,
+        key         TEXT NOT NULL,
+        review      INTEGER NOT NULL,
+        remote      TEXT NOT NULL,
+        url         TEXT NOT NULL,
+        branch      TEXT NOT NULL,
+        head        TEXT NOT NULL,
+        base        TEXT NOT NULL,
+        target      TEXT NOT NULL,
+        number      INTEGER NOT NULL,
+        pr_url      TEXT NOT NULL,
+        actor       TEXT NOT NULL,
+        delegation  INTEGER,
+        at          INTEGER NOT NULL
+    );
+    CREATE INDEX idx_integration_prs ON integration_prs(root, key, id);",
 ];
 
 /// The schema version this code expects.
@@ -697,5 +771,30 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM integration_reviews", [], |r| r.get(0))
             .unwrap();
         assert_eq!(n, 0);
+    }
+    /// Migration 20: the autonomy's tables start empty and the kill switch is off (no row).
+    #[test]
+    fn migration_20_starts_with_no_delegation_and_autonomy_on() {
+        let mut c = Connection::open_in_memory().unwrap();
+        migrate(&mut c).unwrap();
+        for t in [
+            "autonomy_delegations",
+            "autonomy_events",
+            "autonomy_switch",
+            "remote_branches",
+            "integration_prs",
+        ] {
+            let n: i64 = c
+                .query_row(&format!("SELECT COUNT(*) FROM {t}"), [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(n, 0, "{t}");
+        }
+        // one switch row at most
+        c.execute("INSERT INTO autonomy_switch (id, paused) VALUES (1, 1)", [])
+            .unwrap();
+        assert!(c
+            .execute("INSERT INTO autonomy_switch (id, paused) VALUES (2, 1)", [])
+            .is_err());
+        assert_eq!(SCHEMA_VERSION, 20);
     }
 }
