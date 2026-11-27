@@ -33,15 +33,42 @@ pub const DEFAULT_MODEL: &str = "claude-opus-5-5";
 /// simples (a forma documentada); as restantes com os blocos tal como estão.
 fn wire_message(m: &crate::types::Message) -> Value {
     if m.role == Role::System {
-        let text: Vec<&str> = m
-            .content
-            .iter()
-            .filter_map(|b| b["text"].as_str())
-            .collect();
-        json!({ "role": "system", "content": text.join("\n") })
+        json!({ "role": "system", "content": system_text(m) })
     } else {
         json!({ "role": m.role, "content": m.content })
     }
+}
+
+fn system_text(m: &crate::types::Message) -> String {
+    let text: Vec<&str> = m
+        .content
+        .iter()
+        .filter_map(|b| b["text"].as_str())
+        .collect();
+    text.join("\n")
+}
+
+/// As mensagens no formato da API, com as `system` seguidas juntas numa só (separadas por uma
+/// linha em branco): o modo, o modo plano e as notas dos hooks chegam no mesmo turno, e a API só
+/// aceita uma `system` depois de uma do utilizador. Junta-as aqui, não no histórico, para que as
+/// conversas já gravadas assim também sigam.
+fn wire_messages(ms: &[crate::types::Message]) -> Vec<(Role, Value)> {
+    let mut out: Vec<(Role, Value)> = Vec::with_capacity(ms.len());
+    for m in ms {
+        if m.role == Role::System {
+            if let Some((Role::System, prev)) = out.last_mut() {
+                let joined = format!(
+                    "{}\n\n{}",
+                    prev["content"].as_str().unwrap_or_default(),
+                    system_text(m)
+                );
+                prev["content"] = Value::String(joined);
+                continue;
+            }
+        }
+        out.push((m.role, wire_message(m)));
+    }
+    out
 }
 
 /// O corpo JSON do pedido. Recusa, antes de sair, pedidos que a API rejeitaria.
@@ -55,21 +82,18 @@ pub fn body(req: &Request) -> Result<Value, ProviderError> {
             "a primeira mensagem tem de ser do utilizador".into(),
         ));
     }
+    let wire = wire_messages(&req.messages);
     // mensagens `system` a meio: depois de uma do utilizador, e últimas ou seguidas do assistente
-    for (i, m) in req.messages.iter().enumerate() {
-        if m.role != Role::System {
+    for (i, (role, _)) in wire.iter().enumerate() {
+        if *role != Role::System {
             continue;
         }
-        if i == 0 || req.messages[i - 1].role != Role::User {
+        if i == 0 || wire[i - 1].0 != Role::User {
             return Err(ProviderError::InvalidRequest(
                 "uma mensagem system tem de vir depois de uma do utilizador".into(),
             ));
         }
-        if req
-            .messages
-            .get(i + 1)
-            .is_some_and(|n| n.role != Role::Assistant)
-        {
+        if wire.get(i + 1).is_some_and(|n| n.0 != Role::Assistant) {
             return Err(ProviderError::InvalidRequest(
                 "uma mensagem system tem de ser a última ou ser seguida do assistente".into(),
             ));
@@ -88,7 +112,7 @@ pub fn body(req: &Request) -> Result<Value, ProviderError> {
         "model": req.model,
         "max_tokens": req.max_tokens,
         "stream": true,
-        "messages": req.messages.iter().map(wire_message).collect::<Vec<_>>(),
+        "messages": wire.into_iter().map(|(_, m)| m).collect::<Vec<_>>(),
         "thinking": {
             "type": "adaptive",
             "display": match req.thinking { ThinkingDisplay::Summarized => "summarized", ThinkingDisplay::Omitted => "omitted" },
@@ -438,6 +462,29 @@ mod tests {
         bad.messages.push(Message::system("x"));
         bad.messages.push(Message::user_text("y"));
         assert!(body(&bad).is_err());
+    }
+
+    #[test]
+    fn system_notes_of_one_turn_go_as_one_message() {
+        // o modo e o modo plano (ou uma nota de hook) no primeiro turno: antes, a segunda `system`
+        // não vinha depois de uma do utilizador e o pedido era recusado antes de sair
+        let mut r = req();
+        r.messages.push(Message::system("Modo: Auto."));
+        r.messages.push(Message::system("Modo plano activo."));
+        let b = body(&r).unwrap();
+        let ms = b["messages"].as_array().unwrap();
+        assert_eq!(ms.len(), 2);
+        assert_eq!(
+            ms[1],
+            json!({"role": "system", "content": "Modo: Auto.\n\nModo plano activo."})
+        );
+        // seguidas do assistente e de um turno novo: continua válida
+        r.messages
+            .push(Message::assistant(vec![json!({"type":"text","text":"ok"})]));
+        r.messages.push(Message::user_text("continua"));
+        r.messages.push(Message::system("nota"));
+        let b = body(&r).unwrap();
+        assert_eq!(b["messages"].as_array().unwrap().len(), 5);
     }
 
     #[test]
