@@ -340,7 +340,10 @@ pub fn grade_in(
             // Um curso preparado uma vez avalia-se offline contra a sua cache: sem ela, a recusa
             // diz o que fazer (preparar o curso), antes de compilar o que quer que seja.
             if let Some(cache) = &phase.build.cache {
-                prepared_or_refuse(cache)?;
+                // Num curso de cluster só os passos ao vivo usam a cache (os outros são offline).
+                if tutor_core::livecheck::phase_needs_cache(&phase) {
+                    prepared_or_refuse(cache)?;
+                }
             }
             let assessment = match submission {
                 Submission::Code(code) => tutor_eval::assess(&phase, code),
@@ -463,6 +466,68 @@ pub fn approved_plan_in(
         ));
     }
     Ok(plan)
+}
+
+// ── O cluster de prática (Learn P3b) ─────────────────────────────────────────────────────
+
+/// `true` quando o curso tem passos que se verificam ao vivo no cluster de prática.
+pub fn course_is_live(course: &Course) -> bool {
+    course
+        .units
+        .iter()
+        .flat_map(|u| &u.steps)
+        .filter_map(|s| s.project.as_ref())
+        .any(tutor_core::livecheck::step_is_live)
+}
+
+/// O cluster de prática do curso `course_id` (`None` num curso sem passos ao vivo) e se a sua
+/// cache está pronta.
+pub fn cluster_of(
+    courses: &[Course],
+    course_id: &str,
+    root: &std::path::Path,
+) -> Result<Option<(tutor_eval::kindbox::Sandbox, bool)>, StudyError> {
+    let course = courses
+        .iter()
+        .find(|c| c.id == course_id)
+        .ok_or_else(|| StudyError::NoCourseId(course_id.to_string()))?;
+    if !course_is_live(course) {
+        return Ok(None);
+    }
+    let Some(cache) = course_cache_of(courses, course_id)? else {
+        return Ok(None);
+    };
+    fn err(e: impl std::fmt::Display) -> StudyError {
+        StudyError::Eval(e.to_string())
+    }
+    let sb = tutor_eval::course_cache::layout(root, &cache.key)
+        .map_err(err)?
+        .sandbox();
+    let ready = tutor_eval::course_cache::status(root, &cache)
+        .map_err(err)?
+        .is_ready();
+    Ok(Some((sb, ready)))
+}
+
+/// Uma vez por processo: de minuto a minuto, apaga os clusters de prática parados há 20 minutos e
+/// os que uma execução anterior deixou (só os `dxtutor-*` das caixas do dxtutor). A preparação do
+/// curso, aprovada, diz que é assim.
+pub fn start_cluster_reaper() {
+    static STARTED: std::sync::Once = std::sync::Once::new();
+    STARTED.call_once(|| {
+        std::thread::spawn(|| loop {
+            if let Some(root) = tutor_eval::course_cache::root() {
+                let idle = std::time::Duration::from_secs(tutor_eval::kindbox::IDLE_SECS);
+                for gone in tutor_eval::kindbox::cleanup(&root, idle) {
+                    eprintln!(
+                        "dxtutor: deleted the practice cluster {} of course {} (idle or left behind)",
+                        gone.cluster, gone.course
+                    );
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_secs(60));
+        });
+    });
 }
 
 // ── Sugestão (a regra offline curada; o provedor LLM fica no adaptador) ──────────────

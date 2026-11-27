@@ -72,6 +72,9 @@ pub struct Checks {
     /// Verificações estruturais, pela ordem.
     #[serde(default, rename = "check")]
     pub checks: Vec<Check>,
+    /// Verificações AO VIVO no cluster de prática (Learn P3b, [`crate::livecheck`]), pela ordem.
+    #[serde(default)]
+    pub live: Vec<crate::livecheck::Live>,
 }
 
 /// O que se espera do código de saída de um comando.
@@ -171,7 +174,9 @@ impl ValueType {
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Check {
-    /// O ficheiro (do aluno, oculto, ou guardado por um `[[run]]`).
+    /// O ficheiro (do aluno, oculto, ou guardado por um `[[run]]`/`[[live]]`). Vazio no `until`
+    /// de um `[[live]]` (o documento é a saída do comando).
+    #[serde(default)]
     pub file: String,
     /// O documento (obrigatório quando o ficheiro tem mais de um, salvo em `doc_count`).
     #[serde(default)]
@@ -590,22 +595,52 @@ impl Checks {
         toml::from_str(raw).map_err(|e| format!("{CHECKS_FILE}: {e}"))
     }
 
-    /// As ferramentas que os comandos destas verificações usam.
+    /// As ferramentas que os comandos destas verificações usam (as verificações ao vivo correm o
+    /// `kubectl`).
     pub fn tools(&self) -> BTreeSet<Tool> {
-        self.runs
+        let mut out: BTreeSet<Tool> = self
+            .runs
             .iter()
             .filter_map(|r| parse_command(&r.cmd).ok())
             .map(|c| c.tool())
-            .collect()
+            .collect();
+        if self.needs_cluster() {
+            out.insert(Tool::Kubectl);
+        }
+        out
+    }
+
+    /// `true` quando o passo se verifica (também) ao vivo, no cluster de prática.
+    pub fn needs_cluster(&self) -> bool {
+        !self.live.is_empty()
+    }
+
+    /// Os ficheiros que as entradas `[[live]]` guardam.
+    pub fn live_saves(&self) -> BTreeSet<String> {
+        self.live.iter().filter_map(|l| l.save.clone()).collect()
+    }
+
+    /// `true` se a verificação lê uma saída de um `[[live]]` (corre depois das verificações ao
+    /// vivo; as outras correm antes, sem cluster).
+    pub fn is_post_live(&self, c: &Check) -> bool {
+        let saves = self.live_saves();
+        std::iter::once(c.file.as_str())
+            .chain(
+                [&c.same_as, &c.among, &c.selects]
+                    .into_iter()
+                    .flatten()
+                    .map(|r| r.file.as_deref().unwrap_or(c.file.as_str())),
+            )
+            .any(|f| saves.contains(f))
     }
 
     /// Erros de forma (vazio = válidas). `files` são os ficheiros que existem na pasta de
     /// trabalho (os do aluno e os ocultos); os guardados pelos `[[run]]` juntam-se aqui.
     pub fn check(&self, files: &BTreeSet<String>) -> Vec<String> {
         let mut errs = Vec::new();
-        if self.runs.is_empty() && self.checks.is_empty() {
+        if self.runs.is_empty() && self.checks.is_empty() && self.live.is_empty() {
             errs.push(format!(
-                "{CHECKS_FILE}: no [[check]] and no [[run]]: nothing would be verified"
+                "{CHECKS_FILE}: no [[check]], [[run]] or [[live]]: nothing would be verified"
             ));
         }
         if self.checks.len() > MAX_CHECKS {
@@ -615,6 +650,20 @@ impl Checks {
             errs.push(format!("{CHECKS_FILE}: more than {MAX_RUNS} runs"));
         }
         let mut known = files.clone();
+        let live_errs = {
+            let mut k = known.clone();
+            for r in &self.runs {
+                if let Some(save) = &r.save {
+                    k.insert(save.clone());
+                }
+            }
+            let errs = crate::livecheck::check_live(&self.live, &mut k);
+            for save in self.live_saves() {
+                known.insert(save);
+            }
+            errs
+        };
+        errs.extend(live_errs);
         for (n, r) in self.runs.iter().enumerate() {
             let at = format!("{CHECKS_FILE}: run #{}", n + 1);
             match parse_command(&r.cmd) {
@@ -668,53 +717,11 @@ impl Checks {
                     "{at}: `message` is empty (tell the learner what is wrong)"
                 ));
             }
-            if let Err(e) = parse_path(&c.path) {
-                errs.push(format!("{at}: {e}"));
-            }
-            let a = c.assertions();
-            if a.len() != 1 {
-                errs.push(format!(
-                    "{at}: needs exactly one assertion, has {}{}",
-                    a.len(),
-                    if a.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" ({})", a.join(", "))
-                    }
-                ));
-            }
-            if c.doc_count.is_some() && !c.path.is_empty() {
-                errs.push(format!(
-                    "{at}: `doc_count` counts documents: leave `path` empty"
-                ));
-            }
-            if let Some(re) = &c.matches {
-                if let Err(e) = regex::Regex::new(re) {
-                    errs.push(format!("{at}: `matches` is not a valid regex: {e}"));
-                }
-            }
-            if let Some(keys) = &c.only_keys {
-                if keys.is_empty() {
-                    errs.push(format!("{at}: `only_keys` is empty"));
-                }
-            }
-            if let Some(list) = &c.one_of {
-                if list.is_empty() {
-                    errs.push(format!("{at}: `one_of` is empty"));
-                }
-            }
-            let values = c
-                .equals
-                .iter()
-                .chain(c.contains.iter())
-                .chain(c.one_of.iter().flatten());
-            for v in values {
-                if !plain_value(v) {
-                    errs.push(format!(
-                        "{at}: dates are not YAML values here; quote them as strings"
-                    ));
-                }
-            }
+            errs.extend(
+                check_assertion_form(c)
+                    .into_iter()
+                    .map(|e| format!("{at}: {e}")),
+            );
             for r in [&c.same_as, &c.among, &c.selects].into_iter().flatten() {
                 let f = r.file.as_deref().unwrap_or(&c.file);
                 if !known.contains(f) {
@@ -735,6 +742,59 @@ impl Checks {
     pub fn evaluate(&self, docs: &BTreeMap<String, Result<Vec<Value>, String>>) -> Vec<Outcome> {
         self.checks.iter().map(|c| evaluate_one(c, docs)).collect()
     }
+}
+
+/// Erros de forma da AFIRMAÇÃO de uma verificação (o caminho, exactamente uma afirmação, a
+/// expressão regular, listas vazias, datas), sem o ficheiro nem a mensagem: o `until` de um
+/// `[[live]]` tem a mesma forma.
+pub fn check_assertion_form(c: &Check) -> Vec<String> {
+    let mut errs = Vec::new();
+    if let Err(e) = parse_path(&c.path) {
+        errs.push(e);
+    }
+    let a = c.assertions();
+    if a.len() != 1 {
+        errs.push(format!(
+            "needs exactly one assertion, has {}{}",
+            a.len(),
+            if a.is_empty() {
+                String::new()
+            } else {
+                format!(" ({})", a.join(", "))
+            }
+        ));
+    }
+    if c.doc_count.is_some() && !c.path.is_empty() {
+        errs.push("`doc_count` counts documents: leave `path` empty".into());
+    }
+    if let Some(re) = &c.matches {
+        if let Err(e) = regex::Regex::new(re) {
+            errs.push(format!("`matches` is not a valid regex: {e}"));
+        }
+    }
+    if c.only_keys.as_ref().is_some_and(|k| k.is_empty()) {
+        errs.push("`only_keys` is empty".into());
+    }
+    if c.one_of.as_ref().is_some_and(|l| l.is_empty()) {
+        errs.push("`one_of` is empty".into());
+    }
+    let values = c
+        .equals
+        .iter()
+        .chain(c.contains.iter())
+        .chain(c.one_of.iter().flatten());
+    for v in values {
+        if !plain_value(v) {
+            errs.push("dates are not YAML values here; quote them as strings".into());
+        }
+    }
+    errs
+}
+
+/// Avalia UMA verificação estrutural sobre `docs` (a do `until` de um `[[live]]`, ou as
+/// verificações antes e depois das ao vivo).
+pub fn evaluate_check(c: &Check, docs: &BTreeMap<String, Result<Vec<Value>, String>>) -> Outcome {
+    evaluate_one(c, docs)
 }
 
 // ── Avaliação ────────────────────────────────────────────────────────────────────────────
@@ -1431,6 +1491,53 @@ mod tests {
         ] {
             assert!(parse_command(&argv(bad)).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn live_entries_split_the_checks_into_before_and_after_the_cluster() {
+        let raw = r#"
+[[live]]
+cmd = ["kubectl", "apply", "-f", "web.yaml"]
+message = "apply"
+
+[[live]]
+cmd = ["kubectl", "get", "deploy", "web", "-o", "json"]
+save = "live.json"
+until = { path = "status.readyReplicas", equals = 2 }
+timeout_secs = 30
+message = "ready"
+
+[[check]]
+file = "web.yaml"
+path = "kind"
+equals = "Deployment"
+message = "pre"
+
+[[check]]
+file = "live.json"
+path = "status.replicas"
+equals = 2
+message = "post"
+
+[[check]]
+file = "web.yaml"
+path = "spec.replicas"
+same_as = { file = "live.json", path = "status.replicas" }
+message = "post by reference"
+"#;
+        let c = Checks::parse(raw).expect("parses");
+        assert!(c.needs_cluster());
+        assert_eq!(c.tools(), BTreeSet::from([Tool::Kubectl]));
+        assert!(c
+            .check(&BTreeSet::from(["web.yaml".to_string()]))
+            .is_empty());
+        let post: Vec<bool> = c.checks.iter().map(|k| c.is_post_live(k)).collect();
+        assert_eq!(post, [false, true, true]);
+        let offline = Checks::parse(
+            "[[check]]\nfile = \"a.yaml\"\npath = \"kind\"\nexists = true\nmessage = \"m\"\n",
+        )
+        .unwrap();
+        assert!(!offline.needs_cluster() && offline.tools().is_empty());
     }
 
     #[test]

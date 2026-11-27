@@ -79,7 +79,7 @@ export const FRAMEWORK_CATALOG: readonly Subject[] = [
   { id: "delonix", name: "Delonix Engine", icon: "🌺", category: "tool", docs: "https://ngolacloud.github.io/delonix/", install: "The delonix 0.2.0 binary from its official releases. Grading runs only delonix manifest render and delonix compose config, which read your files and never touch the engine.", repo: official("delonix") },
   { id: "docker", name: "Docker", icon: "🐳", category: "tool", docs: "https://docs.docker.com/", install: "Docker Engine.", repo: official("docker") },
   { id: "podman", name: "Podman", icon: "🦭", category: "tool", docs: "https://docs.podman.io/", install: "Podman, rootless.", repo: official("podman") },
-  { id: "kubernetes", name: "Kubernetes", icon: "☸️", category: "tool", docs: "https://kubernetes.io/docs/", install: "kubectl (https://kubernetes.io/docs/tasks/tools/), for the Kustomize units. No cluster: grading is offline and never reads your kubeconfig. Running the manifests on kind with rootless Podman is a later part.", repo: official("kubernetes") },
+  { id: "kubernetes", name: "Kubernetes", icon: "☸️", category: "tool", docs: "https://kubernetes.io/docs/", install: "kubectl (https://kubernetes.io/docs/tasks/tools/), for the Kustomize and live units. No cluster for units 1–11: grading is offline and never reads your kubeconfig. Units 12–18 run on the course's own practice cluster (kind on rootless Podman 4.9+, prepared once).", repo: official("kubernetes") },
   { id: "odoo", name: "Odoo", icon: "🟪", category: "framework", docs: "https://www.odoo.com/documentation/", install: "Odoo 18 to 20, Community edition, with PostgreSQL. Enterprise only with an Odoo licence.", repo: official("odoo") },
 ];
 

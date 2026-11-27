@@ -22,9 +22,11 @@ dxt plugin — course plugins
                                   check a plugin folder (--strict: warnings fail too)
   dxt plugin new <id> <Name> <ext> [dir]
                                   create a new course plugin skeleton
-  dxt plugin test [dir] [--only <unit-id-prefix>]
+  dxt plugin test [dir] [--only <unit-id-prefix>] [--keep-cluster]
                                   run every drill, and grade every challenge with its
-                                  reference solution (must pass) and starter (must fail)
+                                  reference solution (must pass) and starter (must fail);
+                                  live Kubernetes steps run in the course's practice cluster,
+                                  which is deleted at the end unless it existed before
   dxt plugin prepare [dir]        download (network) and build once the dependencies of a
                                   course with `[build] prepare = true`, into its course cache;
                                   grading then runs offline against it
@@ -198,10 +200,12 @@ fn new(args: &[String]) -> Result<()> {
 fn test(args: &[String]) -> Result<()> {
     let mut dir = ".";
     let mut only: Option<&str> = None;
+    let mut keep_cluster = false;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
             "--only" => only = it.next().map(String::as_str),
+            "--keep-cluster" => keep_cluster = true,
             s if !s.starts_with("--") => dir = s,
             _ => {}
         }
@@ -214,7 +218,11 @@ fn test(args: &[String]) -> Result<()> {
         }
         bail!("the plugin is not valid; fix it first (dxt plugin validate)");
     }
-    // A course graded offline against a prepared cache: say so once, before any step fails.
+    // A course graded offline against a prepared cache: say so once, before any step fails. A
+    // cluster course whose cache is not ready (or whose machine cannot run the practice cluster)
+    // still tests its offline steps; its live steps are skipped with the reason.
+    let mut live_skip: std::collections::BTreeMap<String, String> = Default::default();
+    let mut live_clusters: Vec<(String, tutor_eval::kindbox::Sandbox, bool)> = Vec::new();
     for course in &report.courses {
         let Some(cache) = course
             .units
@@ -235,9 +243,41 @@ fn test(args: &[String]) -> Result<()> {
                     m.tool
                 );
                 if let Some(kind) = cache.kind() {
-                    let pkgs = tutor_eval::course_cache::packages(kind, &cache.dependencies)?;
+                    let pkgs = tutor_eval::course_cache::cache_packages(kind, &cache.dependencies)?;
                     println!("  dependencies: {}", package_list(&pkgs));
                 }
+                if cache.kind() == Some(tutor_core::CacheKind::Cluster) {
+                    let sb = tutor_eval::course_cache::layout(&root, &cache.key)?.sandbox();
+                    let support = tutor_eval::kindbox::probe();
+                    if support.ok {
+                        let existed = tutor_eval::kindbox::status(&sb)
+                            .map(|s| s.exists)
+                            .unwrap_or(false);
+                        live_clusters.push((course.id.clone(), sb, existed));
+                    } else {
+                        live_skip.insert(
+                            course.id.clone(),
+                            format!(
+                                "{} {}",
+                                support.reason.unwrap_or_default(),
+                                support.fix.unwrap_or_default()
+                            ),
+                        );
+                    }
+                }
+            }
+            other if cache.kind() == Some(tutor_core::CacheKind::Cluster) => {
+                live_skip.insert(
+                    course.id.clone(),
+                    format!(
+                        "the practice cluster {} — run `dxt plugin prepare {dir}` to test the live steps",
+                        if matches!(other, tutor_eval::course_cache::Status::Stale(_)) {
+                            "changed since it was prepared"
+                        } else {
+                            "is not prepared"
+                        }
+                    ),
+                );
             }
             other => bail!(
                 "course `{}` {}: run `dxt plugin prepare {dir}` first (it downloads its dependencies once)",
@@ -250,6 +290,40 @@ fn test(args: &[String]) -> Result<()> {
             ),
         }
     }
+    // The practice clusters, created (or reused) once before the live steps, with the times.
+    for (id, sb, existed) in &live_clusters {
+        let v = tutor_eval::kindbox::versions(sb);
+        println!(
+            "{id} — live steps in the practice cluster {} ({} · node {} · {})",
+            sb.name,
+            v.get("kind").cloned().unwrap_or_default(),
+            v.get("node").cloned().unwrap_or_default(),
+            v.get("podman").cloned().unwrap_or_default()
+        );
+        let kubectl = tutor_eval::tool_runner::find_tool(tutor_core::toolcheck::Tool::Kubectl)
+            .ok_or_else(|| anyhow!("kubectl is not installed"))?;
+        let _lock = tutor_eval::kindbox::lock(sb)?;
+        match tutor_eval::kindbox::ensure(sb, &kubectl) {
+            Ok(e) if e.created => println!(
+                "  cluster created in {:.1} s, step images loaded in {:.1} s{}",
+                e.create_secs,
+                e.load_secs,
+                memory_note(sb)
+            ),
+            Ok(_) => println!(
+                "  cluster reused (it existed before this run{}): it is kept",
+                memory_note(sb)
+            ),
+            Err(err) => {
+                live_skip.insert(
+                    id.clone(),
+                    format!("the practice cluster did not start: {err}"),
+                );
+            }
+        }
+        let _ = existed;
+    }
+    let mut skipped = Vec::<String>::new();
     let (mut passed, mut failed) = (0usize, Vec::<String>::new());
     for course in &report.courses {
         // O que avalia o curso, para o relatório dizer com que versão da ferramenta passou.
@@ -301,11 +375,32 @@ fn test(args: &[String]) -> Result<()> {
             }
             println!("{}", unit.id);
             for step in &unit.steps {
+                let live = step
+                    .project
+                    .as_ref()
+                    .is_some_and(tutor_core::livecheck::step_is_live);
+                if live {
+                    if let Some(why) = live_skip.get(&course.id) {
+                        println!(
+                            "  - {:<9} {} skipped (live): {why}",
+                            kind_name(step.kind),
+                            step.id
+                        );
+                        skipped.push(step.id.clone());
+                        continue;
+                    }
+                }
+                let t0 = std::time::Instant::now();
                 let verdict = check_step(course, step);
+                let took = if live {
+                    format!(" [{:.0} s]", t0.elapsed().as_secs_f64())
+                } else {
+                    String::new()
+                };
                 match &verdict {
                     Ok(what) => {
                         passed += 1;
-                        println!("  ✓ {:<9} {} {what}", kind_name(step.kind), step.id);
+                        println!("  ✓ {:<9} {} {what}{took}", kind_name(step.kind), step.id);
                     }
                     Err(why) => {
                         println!("  ✗ {:<9} {} — {why}", kind_name(step.kind), step.id);
@@ -315,7 +410,33 @@ fn test(args: &[String]) -> Result<()> {
             }
         }
     }
-    println!("\n{passed} ok, {} failed", failed.len());
+    // The clusters this run created are deleted (a cluster that existed before is the app's).
+    for (id, sb, existed) in &live_clusters {
+        if *existed || keep_cluster {
+            continue;
+        }
+        let mem = memory_note(sb);
+        let _lock = tutor_eval::kindbox::lock(sb)?;
+        match tutor_eval::kindbox::delete_cluster(sb) {
+            Ok(d) => println!(
+                "{id} — practice cluster {} deleted in {:.1} s{mem}",
+                sb.name, d.secs
+            ),
+            Err(e) => println!(
+                "{id} — could not delete the practice cluster {}: {e}",
+                sb.name
+            ),
+        }
+    }
+    if skipped.is_empty() {
+        println!("\n{passed} ok, {} failed", failed.len());
+    } else {
+        println!(
+            "\n{passed} ok, {} failed, {} skipped (live steps that could not run here)",
+            failed.len(),
+            skipped.len()
+        );
+    }
     if !failed.is_empty() {
         bail!("{} step(s) failed", failed.len());
     }
@@ -356,6 +477,7 @@ fn prepare(args: &[String]) -> Result<()> {
         let network = match plan.kind {
             tutor_core::CacheKind::Cargo => "cargo fetch",
             tutor_core::CacheKind::Pip => "pip install",
+            tutor_core::CacheKind::Cluster => "the kind download and podman pull",
         };
         println!(
             "{} — preparing (network: {network} only)\ndownloads: {}\n{}\n",
@@ -384,6 +506,13 @@ fn prepare(args: &[String]) -> Result<()> {
         println!("Nothing to prepare: no course in {dir} has `[build] prepare = true`.");
     }
     Ok(())
+}
+
+/// ` · node memory 612 MiB` (what the practice cluster's node uses now), or nothing.
+fn memory_note(sb: &tutor_eval::kindbox::Sandbox) -> String {
+    tutor_eval::kindbox::memory_bytes(sb)
+        .map(|b| format!(" · node memory {} MiB", b / (1024 * 1024)))
+        .unwrap_or_default()
 }
 
 /// `Django 5.2.19 (PyPI), asgiref 3.12.1 (PyPI)` — the packages a preparation downloads.

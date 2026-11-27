@@ -170,7 +170,7 @@ fn the_build_table_is_checked() {
     );
     let errs = errors_of(d.path());
     assert!(
-        errs.contains("only available for courses graded in rust (cargo) or python (pip)"),
+        errs.contains("only available for courses graded in rust (cargo), python (pip) or yaml"),
         "{errs}"
     );
     // a python course pins every package with its hash (pip --require-hashes), never a range

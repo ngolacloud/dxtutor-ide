@@ -1,11 +1,15 @@
-# Kubernetes — the official dxtutor course for Kubernetes manifests (offline part).
+# Kubernetes — the official dxtutor course for Kubernetes manifests.
 #
 # A TOOL course. The learner writes YAML; every challenge is a project step whose hidden
 # `checks.toml` declares structural checks and, for Kustomize, the offline command
-# `kubectl kustomize <dir>` (tutor_core::toolcheck has the allow-list). Grading never talks to a
-# cluster: commands run with an empty, temporary KUBECONFIG and HOME. Written against kubectl v1.36
-# (Kustomize v5.8). Running the manifests on a local cluster (kind on rootless Podman) is a later,
-# separate part.
+# `kubectl kustomize <dir>` (tutor_core::toolcheck has the allow-list). Units 1–11 are graded
+# OFFLINE: commands run with an empty, temporary KUBECONFIG and HOME and never talk to a cluster.
+# Units 12–18 are LIVE (Learn P3b, tutor_core::livecheck): the learner's manifests are applied to a
+# fresh namespace of the course's practice cluster — kind v0.33.0 on rootless Podman, Kubernetes
+# v1.36.4, its own storage and kubeconfig, on an internal network (tutor_eval::kindbox) — and
+# verified with read-only kubectl queries. The images below are the only ones a live step may use:
+# «Prepare course» downloads them once, by digest, with kind and the node image.
+# Written against kubectl v1.36 (Kustomize v5.8).
 
 id = "kubernetes-basics"
 language = "yaml"
@@ -13,7 +17,7 @@ category = "tool"
 subject = "kubernetes"
 title = "Kubernetes: Manifests That Mean What They Say"
 level = "beginner"
-summary = "Write Kubernetes manifests that the API server accepts and that do what you meant: Pods, Deployments, Services, configuration, probes, resources, namespaces, Ingress and Kustomize — graded offline."
+summary = "Write Kubernetes manifests that the API server accepts and that do what you meant: Pods, Deployments, Services, configuration, probes, resources, namespaces, Ingress and Kustomize — graded offline, then run for real in a practice cluster (kind on rootless Podman)."
 
 overview = '''
 **Kubernetes** runs containers on a cluster of machines and keeps them running. You do not start
@@ -40,16 +44,41 @@ What you will learn, in order:
 8. **namespaces** — scopes, references and quotas;
 9. **Ingress** — HTTP routes by host and path, with TLS;
 10. **Kustomize** — one base, many environments;
-11. **a capstone** — generated configuration, patches and an overlay, reviewed automatically.
+11. **a capstone** — generated configuration, patches and an overlay, reviewed automatically;
+12. **on a real cluster** — a Deployment that rolls out and is upgraded;
+13. **Services with endpoints** — a selector that picks exactly the right Pods;
+14. **probes at work** — a slow start survived, a readiness failure recovered;
+15. **Jobs** — work that runs to completion;
+16. **configuration mounted** — a ConfigMap as files and as environment;
+17. **limits enforced** — a quota, Guaranteed Pods and an out-of-memory kill;
+18. **rollback** — a bad release detected and undone without losing capacity.
 
-**What you need.** kubectl (https://kubernetes.io/docs/tasks/tools/) for the Kustomize units — the
-course was written against **kubectl v1.36**, whose built-in Kustomize is v5.8. The other units need
-nothing but the editor. Running these manifests on a local cluster (kind) is the hands-on part that
-follows this course.
+**What you need.** kubectl (https://kubernetes.io/docs/tasks/tools/) for the Kustomize units and the
+live units — the course was written against **kubectl v1.36**, whose built-in Kustomize is v5.8. The
+offline units need nothing but the editor; the live units also need Podman (below).
 
 Official documentation: https://kubernetes.io/docs/ — the concepts pages linked in each unit match
 the API versions used here (`v1`, `apps/v1`, `networking.k8s.io/v1`).
+
+**On a real cluster (units 12–18).** The last seven units run your manifests for real, in the
+course's own **practice cluster**: a one-node Kubernetes v1.36.4 made with **kind** on **rootless
+Podman**. Each check applies your files to a fresh namespace, waits for what you asked for — a
+rollout, Pods ready, a Job complete, a Service with endpoints, a container killed for using too much
+memory — and reads the result with `kubectl get`. Prepare the course once («Prepare course»: it
+downloads kind, the node image and the three images the units use, about 1 GB); the cluster is then
+created when you first check a live step (about a minute), uses about 900 MB of memory, and is
+deleted after 20 minutes without use or with «Delete cluster». It never uses your kubeconfig or your
+containers, and it cannot download anything while grading. Live units need **Podman 4.9+** (rootless,
+cgroup v2); without it, units 1–11 still work.
 '''
+
+[build]
+prepare = true
+dependencies = [
+  "docker.io/library/nginx:1.27.5-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10",
+  "docker.io/library/nginx:1.28.0-alpine@sha256:30f1c0d78e0ad60901648be663a710bdadf19e4c10ac6782c235200619158284",
+  "docker.io/library/busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec",
+]
 
 [[unit]]
 id = "k8s-u1-objects"
@@ -3633,4 +3662,2447 @@ spec:
               memory: 256Mi
             limits:
               memory: 512Mi
+'''
+
+# ── On a real cluster (live units, Learn P3b) ─────────────────────────────────────────────
+
+[[unit]]
+id = "k8s-u12-rollout"
+title = "On a real cluster: a Deployment rolls out"
+level = "advanced"
+difficulty = 12
+intro = "Your manifests meet a real API server, scheduler and kubelet: watch a Deployment roll out, then upgrade it."
+concepts = '''
+Until now every manifest was checked by reading it. From this unit on, your files are **applied to a
+real cluster** and the checks look at what Kubernetes actually did.
+
+**The practice cluster.** It is a one-node Kubernetes v1.36.4 made with **kind** ("Kubernetes in
+Docker", here on rootless **Podman**): the node is a container that runs the control plane — API
+server, scheduler, controller manager, etcd — and a kubelet with containerd. dxtutor keeps it apart
+from everything else on your machine: its own Podman storage, its own kubeconfig (yours is never
+read), and an internal network, so it cannot download images while grading — the images the units
+use were downloaded once, by digest, when you prepared the course, and loaded into the node.
+
+**A fresh namespace per check.** Every time you check a live step, the grader creates a namespace
+(`dxt-<step>-<random>`), applies your files there with `kubectl apply -f`, waits for what the step
+asks, reads the result with `kubectl get … -o json`, and deletes the namespace. So leave
+`metadata.namespace` out of your manifests: the namespace is the grader's choice.
+
+**What happens on apply.** The API server validates the Deployment and stores it. The Deployment
+controller creates a **ReplicaSet** for the Pod template; the ReplicaSet creates the Pods; the
+scheduler puts each Pod on the node; the kubelet pulls (here: finds) the image and starts the
+containers; when the readiness probe passes, the Pod is **Ready** and counts as *available*.
+`kubectl rollout status deployment/web` waits for exactly that: every desired replica updated and
+available.
+
+**An upgrade is a new ReplicaSet.** Change anything in the Pod template — the image tag, say — and
+the Deployment creates a *second* ReplicaSet and moves replicas from the old one to the new one,
+within the limits of the strategy: `maxSurge` extra Pods at most, `maxUnavailable` fewer available
+Pods at most. The old ReplicaSet stays, scaled to 0, so that a rollback is instant. Each change of the
+template is a **revision** (`kubectl rollout history`); the annotation
+`deployment.kubernetes.io/revision` on the Deployment says which one is live.
+
+**Readiness gates the rollout.** With `maxUnavailable: 0`, a new Pod must be Ready before an old one
+is removed. A readiness probe is what tells Kubernetes "ready": without one, a Pod counts as ready
+as soon as its container starts, even if the program inside needs seconds to listen.
+
+Official docs: https://kubernetes.io/docs/concepts/workloads/controllers/deployment/ and
+https://kind.sigs.k8s.io/
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "k8s-c12-cluster"
+title = "Apply, then look"
+points = 5
+difficulty = 1
+intro = '''
+How a live check works, and what you can do on your own machine to follow it.
+'''
+body = '''
+A live check is the loop every Kubernetes engineer runs by hand:
+
+```sh
+kubectl apply -f deployment.yaml          # tell the API server what you want
+kubectl rollout status deployment/web     # wait until the cluster has it
+kubectl get deployment web -o json        # look at what is really there
+```
+
+The grader runs the same commands — only commands from a short allow-list, always against the
+practice cluster and a namespace of its own — and checks fields of the JSON it gets back, such as
+`status.readyReplicas`.
+
+Before the cluster is touched, the same structural checks as in the offline units read your YAML: a
+mistake you could see without a cluster is reported at once, and the live part only runs when they
+pass.
+
+The first live check creates the cluster (about a minute); later checks reuse it.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "k8s-d12-deployment"
+title = "A Deployment to apply"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+The smallest Deployment worth rolling out: replicas, a selector, and a probe that says "ready".
+'''
+prompt = '''
+Type the manifest. It uses one of the images the practice cluster already has.
+'''
+target = '''
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27.5-alpine
+          ports:
+            - name: http
+              containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+'''
+line_comments = [
+  "Deployments live in apps/v1.",
+  "The kind.",
+  "Identity…",
+  "…no namespace: the grader picks one.",
+  "Desired state:",
+  "two Pods.",
+  "Which Pods are mine?",
+  "Those whose labels match…",
+  "…app: web.",
+  "The Pod template:",
+  "its metadata…",
+  "…carries the labels…",
+  "…that the selector matches.",
+  "Its spec:",
+  "the containers.",
+  "One container, web…",
+  "…running an image the practice cluster has.",
+  "It listens on…",
+  "…a port named http…",
+  "…number 80.",
+  "Ready means:",
+  "an HTTP GET…",
+  "…of / …",
+  "…on the port named http answers 200–399.",
+]
+explanation = "Applied, this creates one ReplicaSet and two Pods; `kubectl rollout status` returns when both are Ready."
+
+[[unit.step]]
+kind = "drill"
+id = "k8s-d12-strategy"
+title = "An upgrade that never drops a Pod"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+The strategy block that decides how an upgrade moves from the old Pods to the new ones.
+'''
+prompt = '''
+Type the strategy fragment of a Deployment spec.
+'''
+target = '''
+spec:
+  replicas: 3
+  minReadySeconds: 2
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+'''
+line_comments = [
+  "Part of a Deployment's spec:",
+  "three replicas.",
+  "A new Pod counts as available only after 2 s Ready.",
+  "Keep five old ReplicaSets for rollbacks.",
+  "How to replace Pods:",
+  "gradually (the other type, Recreate, stops everything first).",
+  "The limits:",
+  "never fewer available Pods than replicas…",
+  "…and at most one extra Pod while upgrading.",
+]
+explanation = "With these numbers an upgrade of 3 replicas runs at most 4 Pods and always keeps 3 available."
+
+[[unit.step]]
+kind = "challenge"
+id = "k8s-p12-rollout"
+title = "Roll out, then upgrade"
+points = 40
+difficulty = 13
+intro = '''
+Your Deployment is applied to the practice cluster, rolled out, upgraded to a new image and rolled
+out again.
+'''
+instructions = '''
+Write `deployment.yaml`: a Deployment named `web` (`apps/v1`, no namespace) that
+
+- runs **3** replicas of Pods labelled `app: web` (the selector's `matchLabels` and the template);
+- runs one container `web` with the image `nginx:1.27.5-alpine` and a port named `http` on `80`;
+- has a `readinessProbe` that does an `httpGet` of `/` on the port `http`;
+- upgrades with `strategy.type: RollingUpdate`, `maxUnavailable: 0` and `maxSurge: 1`, and keeps
+  `revisionHistoryLimit: 5`.
+
+**Live.** The check applies your file to a fresh namespace of the practice cluster and waits for the
+rollout. Then it upgrades the image to `nginx:1.28.0-alpine` — a hidden `kustomization.yaml` changes
+only the tag of your Deployment, so your strategy and probe stay — applies that, and waits again. It
+reads the Deployment and its ReplicaSets: 3 ready Pods on the new image, revision 2, and the old
+ReplicaSet kept at 0 replicas. (Prepare the course once; this needs Podman.)
+'''
+
+[unit.step.project]
+main = "deployment.yaml"
+explanation = '''
+The upgrade created a second ReplicaSet and, one Pod at a time (`maxSurge: 1`), started a new Pod,
+waited until its readiness probe passed, and only then removed an old one (`maxUnavailable: 0`). The
+first ReplicaSet is still there with 0 replicas: `kubectl rollout undo` would scale it back up
+instantly. The Deployment's `deployment.kubernetes.io/revision` annotation went from 1 to 2.
+'''
+
+[unit.step.project.starter]
+"deployment.yaml" = '''
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27.5-alpine
+'''
+
+[unit.step.project.tests]
+"kustomization.yaml" = '''
+# Hidden: the upgrade. Only the image tag of the learner's Deployment changes.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - deployment.yaml
+images:
+  - name: nginx
+    newTag: 1.28.0-alpine
+'''
+"checks.toml" = '''
+[[check]]
+file = "deployment.yaml"
+doc_count = 1
+message = "deployment.yaml holds exactly one object: the Deployment."
+
+[[check]]
+file = "deployment.yaml"
+path = "kind"
+equals = "Deployment"
+message = "The object is a Deployment (apps/v1)."
+
+[[check]]
+file = "deployment.yaml"
+path = "metadata.name"
+equals = "web"
+message = "Name the Deployment web."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.replicas"
+equals = 3
+message = "Run 3 replicas."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.selector.matchLabels"
+selects = { path = "spec.template.metadata.labels" }
+message = "The selector must match the template's labels."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.template.spec.containers[name=web].image"
+equals = "nginx:1.27.5-alpine"
+message = "The container web runs nginx:1.27.5-alpine (the upgrade changes that tag)."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.template.spec.containers[name=web].readinessProbe.httpGet.port"
+equals = "http"
+message = "Add a readinessProbe with an httpGet on the port named http."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.strategy.rollingUpdate.maxUnavailable"
+equals = 0
+message = "maxUnavailable: 0 — never fewer than 3 available Pods during the upgrade."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.strategy.rollingUpdate.maxSurge"
+equals = 1
+message = "maxSurge: 1 — one extra Pod at a time."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.revisionHistoryLimit"
+equals = 5
+message = "Keep revisionHistoryLimit: 5."
+
+[[run]]
+cmd = ["kubectl", "kustomize", "."]
+save = "upgrade.yaml"
+message = "The hidden upgrade (your Deployment with the image tag 1.28.0-alpine) must build."
+
+[[live]]
+cmd = ["kubectl", "apply", "-f", "deployment.yaml"]
+message = "The API server must accept your Deployment."
+
+[[live]]
+cmd = ["kubectl", "rollout", "status", "deployment/web", "--timeout=120s"]
+message = "The first rollout must finish: 3 replicas updated and available."
+
+[[live]]
+cmd = ["kubectl", "apply", "-f", "upgrade.yaml"]
+message = "The upgrade (image nginx:1.28.0-alpine) must be accepted."
+
+[[live]]
+cmd = ["kubectl", "rollout", "status", "deployment/web", "--timeout=120s"]
+message = "The upgrade must roll out: 3 Pods on the new image, all Ready."
+
+[[live]]
+cmd = ["kubectl", "get", "deployment", "web", "-o", "json"]
+save = "live-deployment.json"
+message = "The Deployment must be readable."
+
+[[live]]
+cmd = ["kubectl", "get", "replicasets", "-l", "app=web", "-o", "json"]
+until = { path = "items", len = 2 }
+timeout_secs = 30
+save = "live-replicasets.json"
+message = "The upgrade must leave two ReplicaSets: the new one and the old one, kept for rollbacks."
+
+[[check]]
+file = "live-deployment.json"
+path = "status.readyReplicas"
+equals = 3
+message = "After the upgrade, 3 Pods are Ready."
+
+[[check]]
+file = "live-deployment.json"
+path = "status.updatedReplicas"
+equals = 3
+message = "All 3 Pods run the new template."
+
+[[check]]
+file = "live-deployment.json"
+path = "spec.template.spec.containers[name=web].image"
+equals = "nginx:1.28.0-alpine"
+message = "The live Deployment runs nginx:1.28.0-alpine."
+
+[[check]]
+file = "live-deployment.json"
+path = 'metadata.annotations["deployment.kubernetes.io/revision"]'
+equals = "2"
+message = "The upgrade is revision 2."
+
+[[check]]
+file = "live-replicasets.json"
+path = "items[*].status.replicas"
+one_of = [0, 3]
+message = "One ReplicaSet runs the 3 Pods and the old one is scaled to 0."
+'''
+
+[unit.step.project.solution]
+"deployment.yaml" = '''
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 3
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27.5-alpine
+          ports:
+            - name: http
+              containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+'''
+
+[[unit]]
+id = "k8s-u13-endpoints"
+title = "Services with endpoints"
+level = "advanced"
+difficulty = 13
+intro = "A Service is only as good as its selector: see which Pods it really sends traffic to."
+concepts = '''
+A Service has no Pods of its own. It has a **selector**, and the control plane keeps a list of the
+Pods that match it — the Service's **endpoints** — up to date as Pods come and go. Traffic sent to the
+Service's stable virtual IP (or its DNS name, `web.<namespace>.svc`) is spread over those endpoints.
+
+**EndpointSlices.** Since Kubernetes 1.21 the endpoints live in **EndpointSlice** objects
+(`discovery.k8s.io/v1`), labelled `kubernetes.io/service-name: <service>`. Each slice lists
+addresses with a `conditions.ready` flag, and the ports, already resolved: a Service whose
+`targetPort` is the *name* `http` gets the *number* each Pod declares for its port named `http`. The
+older `Endpoints` object is deprecated (v1.33+). Read the slices with
+`kubectl get endpointslices -l kubernetes.io/service-name=web -o json`.
+
+**Only Ready Pods receive traffic.** A Pod that matches the selector but fails its readiness probe
+is listed with `ready: false` and gets no traffic. That is how a rolling update hands traffic over
+safely, and why readiness probes matter.
+
+**A selector is a filter, not a name.** It selects *every* Pod in the namespace whose labels
+include all of its key/value pairs — Pods of the Deployment you meant, and also any other Pod that
+happens to carry the same labels: a debugging Pod, an old version, another team's worker. Two labels
+(`app: web`, `tier: frontend`) are safer than one. The selector of a Service can be changed later
+(unlike a Deployment's), but every change moves traffic at once.
+
+**Named ports.** Point `targetPort` at the container port's **name**. If a new version moves the
+program from port 80 to 8080, only the Pod template changes; the Service keeps working.
+
+Official docs: https://kubernetes.io/docs/concepts/services-networking/service/ and
+https://kubernetes.io/docs/concepts/services-networking/endpoint-slices/
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "k8s-c13-endpoints"
+title = "Who is behind the Service?"
+points = 5
+difficulty = 1
+intro = '''
+Reading a Service's endpoints tells you exactly which Pods it would send traffic to.
+'''
+body = '''
+```sh
+kubectl get endpointslices -l kubernetes.io/service-name=web -o json
+```
+
+returns something like:
+
+```json
+{"items": [{
+  "ports": [{"name": "http", "port": 80, "protocol": "TCP"}],
+  "endpoints": [
+    {"addresses": ["10.244.0.7"], "conditions": {"ready": true}, "targetRef": {"kind": "Pod", "name": "web-7c9…"}},
+    {"addresses": ["10.244.0.8"], "conditions": {"ready": true}, "targetRef": {"kind": "Pod", "name": "web-7c9…"}}
+  ]
+}]}
+```
+
+Count the endpoints: if there are more than the Deployment's replicas, the selector is catching
+Pods you did not mean. In this unit's challenge, a stranger Pod shares one of your labels — the
+check counts the endpoints to see whether your Service keeps it out.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "k8s-d13-service"
+title = "A Service by port name"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+Two labels in the selector, and the target port by name.
+'''
+prompt = '''
+Type the Service.
+'''
+target = '''
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+spec:
+  selector:
+    app: web
+    tier: frontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+'''
+line_comments = [
+  "Services are in the core API.",
+  "The kind.",
+  "Identity…",
+  "…its DNS name inside the namespace.",
+  "Desired state:",
+  "send traffic to Pods with…",
+  "…this label…",
+  "…and this one.",
+  "Ports:",
+  "one, named http…",
+  "…on the Service's port 80…",
+  "…to the Pods' port named http.",
+]
+explanation = "The EndpointSlice of this Service lists the Pods that carry both labels, with port 80 resolved from each Pod's port named http."
+
+[[unit.step]]
+kind = "drill"
+id = "k8s-d13-labels"
+title = "Labels the selector can see"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+The Pod template of a Deployment carries the labels a Service selects.
+'''
+prompt = '''
+Type the template fragment.
+'''
+target = '''
+template:
+  metadata:
+    labels:
+      app: web
+      tier: frontend
+  spec:
+    containers:
+      - name: web
+        image: nginx:1.27.5-alpine
+        ports:
+          - name: http
+            containerPort: 80
+'''
+line_comments = [
+  "A Deployment's Pod template:",
+  "its metadata…",
+  "…its labels:",
+  "the application…",
+  "…and its tier.",
+  "Its spec:",
+  "the containers.",
+  "One container…",
+  "…with a prepared image.",
+  "Its ports:",
+  "the name a Service's targetPort can use…",
+  "…and the number it stands for.",
+]
+explanation = "Both labels must also be in the Deployment's selector, and the Service's selector picks Pods by the same labels."
+
+[[unit.step]]
+kind = "challenge"
+id = "k8s-p13-endpoints"
+title = "A Service that selects exactly its Pods"
+points = 40
+difficulty = 14
+intro = '''
+Your Deployment and Service are applied next to a stranger Pod that shares one of their labels.
+'''
+instructions = '''
+Complete `app.yaml` (two documents):
+
+- a Deployment `web` with **2** replicas whose Pods are labelled `app: web` and `tier: frontend`
+  (selector and template), one container `web` with the image `nginx:1.27.5-alpine`, a port named
+  `http` on `80`, and a `readinessProbe` (`httpGet` of `/` on `http`);
+- a Service `web` that selects **both** labels and maps its port `80` (named `http`) to the target
+  port **named** `http`.
+
+**Live.** The check first applies a hidden Pod `stranger`, labelled `app: web` and `tier: backend`
+(it runs nginx too, so it is Ready). Then it applies your file, waits for the rollout, and reads the
+Service's EndpointSlice: it must list exactly your 2 Pods — Ready, on port 80 — and not the stranger.
+(Prepare the course once; this needs Podman.)
+'''
+
+[unit.step.project]
+main = "app.yaml"
+explanation = '''
+The stranger Pod carries `app: web`, so a Service that selected only `app: web` would have sent it a
+third of the traffic. With `tier: frontend` in the selector, the EndpointSlice lists the Deployment's
+two Pods only. The port in the slice is `80`: the Service's `targetPort: http` was resolved to the
+number each Pod declares for its port named `http`.
+'''
+
+[unit.step.project.starter]
+"app.yaml" = '''
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27.5-alpine
+          ports:
+            - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+spec:
+  selector:
+    app: web
+  ports:
+    - port: 80
+      targetPort: 80
+'''
+
+[unit.step.project.tests]
+"stranger.yaml" = '''
+# Hidden: a Pod that shares one label with the learner's Pods.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: stranger
+  labels:
+    app: web
+    tier: backend
+spec:
+  containers:
+    - name: stranger
+      image: nginx:1.27.5-alpine
+      ports:
+        - name: http
+          containerPort: 80
+'''
+"checks.toml" = '''
+[[check]]
+file = "app.yaml"
+doc_count = 2
+message = "app.yaml holds two objects: the Deployment and the Service."
+
+[[check]]
+file = "app.yaml"
+doc = { kind = "Deployment", name = "web" }
+path = "spec.selector.matchLabels"
+equals = { app = "web", tier = "frontend" }
+message = "The Deployment selects app: web and tier: frontend."
+
+[[check]]
+file = "app.yaml"
+doc = { kind = "Deployment", name = "web" }
+path = "spec.selector.matchLabels"
+selects = { doc = { kind = "Deployment", name = "web" }, path = "spec.template.metadata.labels" }
+message = "The template carries the labels the Deployment selects."
+
+[[check]]
+file = "app.yaml"
+doc = { kind = "Deployment", name = "web" }
+path = "spec.template.spec.containers[name=web].ports[name=http].containerPort"
+equals = 80
+message = "The container declares a port named http on 80."
+
+[[check]]
+file = "app.yaml"
+doc = { kind = "Deployment", name = "web" }
+path = "spec.template.spec.containers[name=web].readinessProbe.httpGet.port"
+equals = "http"
+message = "The container has a readinessProbe on the port named http."
+
+[[check]]
+file = "app.yaml"
+doc = { kind = "Service", name = "web" }
+path = "spec.ports[name=http].targetPort"
+equals = "http"
+message = "The Service targets the port by its name, http."
+
+[[live]]
+cmd = ["kubectl", "apply", "-f", "stranger.yaml"]
+message = "The stranger Pod must be created."
+
+[[live]]
+cmd = ["kubectl", "wait", "--for=condition=Ready", "pod/stranger", "--timeout=60s"]
+message = "The stranger Pod must be Ready (it is what your selector has to ignore)."
+
+[[live]]
+cmd = ["kubectl", "apply", "-f", "app.yaml"]
+message = "The API server must accept your Deployment and Service."
+
+[[live]]
+cmd = ["kubectl", "rollout", "status", "deployment/web", "--timeout=120s"]
+message = "The Deployment must roll out: 2 Ready Pods."
+
+[[live]]
+cmd = ["kubectl", "get", "endpointslices", "-l", "kubernetes.io/service-name=web", "-o", "json"]
+until = { path = "items[*].endpoints[*].conditions.ready", equals = true }
+timeout_secs = 45
+save = "live-slices.json"
+message = "The Service's endpoints must become Ready."
+
+[[check]]
+file = "live-slices.json"
+path = "items"
+len = 1
+message = "The Service has one EndpointSlice."
+
+[[check]]
+file = "live-slices.json"
+path = "items[0].endpoints"
+len = 2
+message = "Exactly 2 endpoints: your 2 Pods, not the stranger (select both labels)."
+
+[[check]]
+file = "live-slices.json"
+path = "items[0].endpoints[*].targetRef.name"
+matches = "^web-"
+message = "Every endpoint is a Pod of the Deployment web."
+
+[[check]]
+file = "live-slices.json"
+path = "items[0].ports[name=http].port"
+equals = 80
+message = "The endpoints' port http resolves to 80."
+'''
+
+[unit.step.project.solution]
+"app.yaml" = '''
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: web
+      tier: frontend
+  template:
+    metadata:
+      labels:
+        app: web
+        tier: frontend
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27.5-alpine
+          ports:
+            - name: http
+              containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+spec:
+  selector:
+    app: web
+    tier: frontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+'''
+
+[[unit]]
+id = "k8s-u14-probes-live"
+title = "Probes at work: a slow start and a recovery"
+level = "advanced"
+difficulty = 14
+intro = "Watch the kubelet run your probes: survive a slow start, drop out of traffic while busy, come back without a restart."
+concepts = '''
+In the probes unit you wrote probes; here the kubelet runs them, every `periodSeconds`, and acts on
+the result. The three probes answer three different questions, and mixing them up is one of the most
+common causes of outages.
+
+**startupProbe — "has it finished starting?"** While it has not succeeded, the other two probes do
+not run. It gets `failureThreshold × periodSeconds` seconds in total; if it never succeeds in that
+time, the container is killed and restarted. Use it for programs that need a while to start (load a
+model, warm a cache, run migrations), instead of a long `initialDelaySeconds` on the liveness probe.
+
+**livenessProbe — "is it stuck?"** After startup, each failure counts; `failureThreshold` failures in
+a row and the kubelet **kills and restarts** the container (`restartCount` goes up). It should only
+fail when a restart would help — a deadlock, not a busy moment. A liveness probe that runs during a
+slow start without a startup probe kills the container before it ever starts: a *crash loop* you
+created yourself (`CrashLoopBackOff`).
+
+**readinessProbe — "should it get traffic now?"** Failing it never restarts anything: the Pod's
+`Ready` condition becomes `False`, it is taken out of every Service's endpoints, and when the probe
+passes again it is put back. Overloaded, waiting for a dependency, draining before shutdown: those
+are readiness failures.
+
+**Probe handlers.** `httpGet` (status 200–399 passes), `tcpSocket` (the port accepts a connection),
+`grpc`, and `exec` (a command inside the container; exit code 0 passes). `exec` probes cost a
+process each time; keep them cheap.
+
+**Watching it.** `kubectl wait --for=condition=Ready pod/x` waits until the Pod is Ready;
+`--for=condition=Ready=false` waits until it is not. `status.containerStatuses[].restartCount`
+counts restarts — after a recovery that only readiness handled, it is still 0.
+
+Official docs: https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "k8s-c14-probes"
+title = "Three probes, three reactions"
+points = 5
+difficulty = 1
+intro = '''
+What the kubelet does when each probe fails.
+'''
+body = '''
+| Probe fails… | the kubelet… | you see |
+|---|---|---|
+| startup, beyond `failureThreshold × periodSeconds` | kills and restarts the container | `restartCount` +1 |
+| liveness, `failureThreshold` times in a row | kills and restarts the container | `restartCount` +1 |
+| readiness | marks the Pod not Ready; Services stop sending traffic | `READY 0/1`, no restart |
+
+In the challenge the program takes about 12 seconds to start, is busy (not ready) for about 10
+seconds a little later, and recovers by itself. The right probes make Kubernetes wait for the start,
+stop traffic while it is busy, and send it again afterwards — **without a single restart**.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "k8s-d14-startup"
+title = "Time to start"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+A startup probe that allows up to 40 seconds.
+'''
+prompt = '''
+Type the container's startup probe.
+'''
+target = '''
+startupProbe:
+  exec:
+    command: ["cat", "/tmp/healthy"]
+  periodSeconds: 2
+  failureThreshold: 20
+'''
+line_comments = [
+  "Has the program finished starting?",
+  "Run a command inside the container…",
+  "…that succeeds once the file exists.",
+  "Ask every 2 seconds…",
+  "…up to 20 times: 40 seconds to start.",
+]
+explanation = "Until this probe passes, liveness and readiness do not run, so the slow start is never mistaken for a hang."
+
+[[unit.step]]
+kind = "drill"
+id = "k8s-d14-readiness"
+title = "Busy is not broken"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+A liveness probe and a readiness probe that look at different things.
+'''
+prompt = '''
+Type the two probes.
+'''
+target = '''
+livenessProbe:
+  exec:
+    command: ["cat", "/tmp/healthy"]
+  periodSeconds: 2
+  failureThreshold: 1
+readinessProbe:
+  exec:
+    command: ["cat", "/tmp/ready"]
+  periodSeconds: 2
+  failureThreshold: 1
+'''
+line_comments = [
+  "Is the program stuck?",
+  "It is alive while this file exists…",
+  "…(it never goes away after startup).",
+  "Every 2 seconds;",
+  "one failure restarts the container.",
+  "Should it get traffic now?",
+  "It is ready while this other file exists…",
+  "…(it goes away while busy).",
+  "Every 2 seconds;",
+  "one failure takes it out of the endpoints — no restart.",
+]
+explanation = "Because readiness looks at its own file, being busy only removes the Pod from traffic; liveness keeps seeing a healthy program."
+
+[[unit.step]]
+kind = "challenge"
+id = "k8s-p14-probes"
+title = "Survive the start, recover from the rush"
+points = 45
+difficulty = 15
+intro = '''
+The kubelet runs your probes for real: the Pod must start, drop out of traffic, recover — and never
+restart.
+'''
+instructions = '''
+`pod.yaml` has a Pod `worker` whose container `app` (image `busybox:1.37.0`) behaves like a real
+program: it needs about **12 seconds** to start (then it creates `/tmp/healthy` and `/tmp/ready`),
+runs for 15 seconds, is **busy for about 10 seconds** (it removes `/tmp/ready`), and then is ready
+again. `/tmp/healthy` stays as long as the program runs. Keep its `command`; add three probes, all
+`exec` with `cat` and `periodSeconds: 2`:
+
+- a `startupProbe` on `/tmp/healthy` with `failureThreshold: 20` (40 seconds to start);
+- a `livenessProbe` on `/tmp/healthy` with `failureThreshold: 1`;
+- a `readinessProbe` on `/tmp/ready` with `failureThreshold: 1`.
+
+**Live.** The check applies the Pod and waits for it to become Ready, then not Ready (the busy
+moment), then Ready again, and reads it: no restart at all. (Prepare the course once; this needs
+Podman.)
+'''
+
+[unit.step.project]
+main = "pod.yaml"
+explanation = '''
+The startup probe held the liveness probe back for the 12-second start; without it, a liveness probe
+that fails once would have killed the program over and over (`CrashLoopBackOff`). When `/tmp/ready`
+disappeared, only the readiness probe failed: the Pod became not Ready — a Service would have stopped
+sending it traffic — and came back by itself. `restartCount` stayed 0 because liveness looks at a
+different file.
+'''
+
+[unit.step.project.starter]
+"pod.yaml" = '''
+apiVersion: v1
+kind: Pod
+metadata:
+  name: worker
+spec:
+  containers:
+    - name: app
+      image: busybox:1.37.0
+      command: ["sh", "-c", "sleep 12; touch /tmp/healthy /tmp/ready; sleep 15; rm /tmp/ready; sleep 10; touch /tmp/ready; sleep 3600"]
+      livenessProbe:
+        exec:
+          command: ["cat", "/tmp/healthy"]
+        periodSeconds: 2
+        failureThreshold: 1
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[check]]
+file = "pod.yaml"
+path = "spec.containers[name=app].command[2]"
+equals = "sleep 12; touch /tmp/healthy /tmp/ready; sleep 15; rm /tmp/ready; sleep 10; touch /tmp/ready; sleep 3600"
+message = "Keep the container's command as it is: it is the program the probes watch."
+
+[[check]]
+file = "pod.yaml"
+path = "spec.containers[name=app].startupProbe.exec.command"
+equals = ["cat", "/tmp/healthy"]
+message = "Add a startupProbe that runs cat /tmp/healthy."
+
+[[check]]
+file = "pod.yaml"
+path = "spec.containers[name=app].startupProbe.failureThreshold"
+equals = 20
+message = "The startupProbe allows 20 failures (40 s at 2 s each)."
+
+[[check]]
+file = "pod.yaml"
+path = "spec.containers[name=app].livenessProbe.exec.command"
+equals = ["cat", "/tmp/healthy"]
+message = "The livenessProbe runs cat /tmp/healthy."
+
+[[check]]
+file = "pod.yaml"
+path = "spec.containers[name=app].readinessProbe.exec.command"
+equals = ["cat", "/tmp/ready"]
+message = "Add a readinessProbe that runs cat /tmp/ready."
+
+[[check]]
+file = "pod.yaml"
+path = "spec.containers[name=app].readinessProbe.failureThreshold"
+equals = 1
+message = "The readinessProbe fails after one failed check."
+
+[[check]]
+file = "pod.yaml"
+path = "spec.containers[name=app].readinessProbe.periodSeconds"
+equals = 2
+message = "All probes run every 2 seconds."
+
+[[live]]
+cmd = ["kubectl", "apply", "-f", "pod.yaml"]
+message = "The API server must accept the Pod."
+
+[[live]]
+cmd = ["kubectl", "wait", "--for=condition=Ready", "pod/worker", "--timeout=90s"]
+message = "The Pod must become Ready after its slow start (without being killed during it)."
+
+[[live]]
+cmd = ["kubectl", "wait", "--for=condition=Ready=false", "pod/worker", "--timeout=60s"]
+message = "While the program is busy, the readiness probe must take the Pod out of traffic."
+
+[[live]]
+cmd = ["kubectl", "wait", "--for=condition=Ready", "pod/worker", "--timeout=60s"]
+message = "When the program is no longer busy, the Pod must be Ready again by itself."
+
+[[live]]
+cmd = ["kubectl", "get", "pod", "worker", "-o", "json"]
+save = "live-pod.json"
+message = "The Pod must be readable."
+
+[[check]]
+file = "live-pod.json"
+path = "status.containerStatuses[name=app].restartCount"
+equals = 0
+message = "No restart: liveness never failed (the startupProbe covered the start, readiness the busy moment)."
+
+[[check]]
+file = "live-pod.json"
+path = "status.containerStatuses[name=app].ready"
+equals = true
+message = "The container ends up ready."
+'''
+
+[unit.step.project.solution]
+"pod.yaml" = '''
+apiVersion: v1
+kind: Pod
+metadata:
+  name: worker
+spec:
+  containers:
+    - name: app
+      image: busybox:1.37.0
+      command: ["sh", "-c", "sleep 12; touch /tmp/healthy /tmp/ready; sleep 15; rm /tmp/ready; sleep 10; touch /tmp/ready; sleep 3600"]
+      startupProbe:
+        exec:
+          command: ["cat", "/tmp/healthy"]
+        periodSeconds: 2
+        failureThreshold: 20
+      livenessProbe:
+        exec:
+          command: ["cat", "/tmp/healthy"]
+        periodSeconds: 2
+        failureThreshold: 1
+      readinessProbe:
+        exec:
+          command: ["cat", "/tmp/ready"]
+        periodSeconds: 2
+        failureThreshold: 1
+'''
+
+[[unit]]
+id = "k8s-u15-jobs"
+title = "Jobs: work that finishes"
+level = "advanced"
+difficulty = 15
+intro = "Not everything runs forever: a Job runs Pods until enough of them succeed, retries the failures, and stops."
+concepts = '''
+A Deployment keeps Pods running forever: if one exits, it is restarted. Batch work — a migration, a
+report, a backup, a batch of images to resize — must instead **run to completion and stop**. That is
+a **Job** (`batch/v1`).
+
+**Completions and parallelism.** A Job is done when `completions` Pods have exited successfully (exit
+code 0). `parallelism` says how many may run at the same time. `completions: 3, parallelism: 2` runs
+two Pods, then a third as soon as one finishes.
+
+**Retries.** A Pod that exits with an error counts as a failure; the Job creates a new Pod (with an
+exponential back-off) until `backoffLimit` failures, and then gives up with the condition `Failed`.
+`activeDeadlineSeconds` bounds the whole Job's run time.
+
+**restartPolicy.** A Job's Pod template must say `restartPolicy: Never` (each retry is a new Pod — the
+failed ones stay for their logs) or `OnFailure` (the kubelet restarts the container in the same Pod).
+`Always`, the Pod default, is refused for a Job.
+
+**Finished.** When the Job succeeds, its condition `Complete` becomes `True` and `status.succeeded`
+counts the successful Pods. `kubectl wait --for=condition=Complete job/x` waits for that;
+`kubectl logs job/x` prints the output of one of its Pods. Finished Jobs stay until you delete them,
+or until `ttlSecondsAfterFinished` passes.
+
+**CronJob** (`batch/v1`) creates a Job on a schedule (`"*/5 * * * *"`), with `concurrencyPolicy` and
+the history limits; its `jobTemplate` is a Job spec.
+
+Official docs: https://kubernetes.io/docs/concepts/workloads/controllers/job/
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "k8s-c15-jobs"
+title = "Done means exit code 0"
+points = 5
+difficulty = 1
+intro = '''
+How a Job decides it is finished.
+'''
+body = '''
+```yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: report
+spec:
+  completions: 3       # three successful Pods…
+  parallelism: 2       # …at most two at a time
+  backoffLimit: 2      # give up after two failed Pods
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: report
+          image: busybox:1.37.0
+          command: ["sh", "-c", "echo done"]
+```
+
+`kubectl get job report` shows `COMPLETIONS 0/3`, `1/3`, … `3/3`. Then the `Complete` condition is
+`True`, `status.succeeded` is 3, and the Pods stay (in `Completed` state) with their logs.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "k8s-d15-job"
+title = "A Job that counts"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+A one-shot Job: one Pod, one result.
+'''
+prompt = '''
+Type the Job.
+'''
+target = '''
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: answer
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: answer
+          image: busybox:1.37.0
+          command: ["sh", "-c", "echo answer=$((6*7))"]
+'''
+line_comments = [
+  "Jobs are in batch/v1.",
+  "The kind.",
+  "Identity…",
+  "…the Job's name.",
+  "Desired state:",
+  "retry at most once.",
+  "The Pod template:",
+  "its spec:",
+  "a failed Pod is not restarted; a new one is made.",
+  "The containers:",
+  "one container…",
+  "…with a prepared image…",
+  "…that prints a result and exits 0.",
+]
+explanation = "`kubectl logs job/answer` prints `answer=42`; the Job is Complete with `status.succeeded: 1`."
+
+[[unit.step]]
+kind = "drill"
+id = "k8s-d15-cronjob"
+title = "On a schedule"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+A CronJob makes a Job every five minutes.
+'''
+prompt = '''
+Type the CronJob.
+'''
+target = '''
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ping
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: ping
+              image: busybox:1.37.0
+              command: ["sh", "-c", "date"]
+'''
+line_comments = [
+  "CronJobs are in batch/v1 too.",
+  "The kind.",
+  "Identity…",
+  "…the name.",
+  "Desired state:",
+  "every five minutes (cron syntax, quoted).",
+  "Skip a run while the previous one is still running.",
+  "The Job to create each time:",
+  "its spec…",
+  "…its Pod template…",
+  "…and the Pod spec:",
+  "restart the container in place on failure.",
+  "The containers:",
+  "one container…",
+  "…with a prepared image…",
+  "…that prints the date.",
+]
+explanation = "Each run creates a Job named `ping-<time>`; `successfulJobsHistoryLimit` (default 3) keeps the last few."
+
+[[unit.step]]
+kind = "challenge"
+id = "k8s-p15-job"
+title = "Three results, two at a time"
+points = 40
+difficulty = 16
+intro = '''
+Your Job runs in the practice cluster until three Pods have succeeded.
+'''
+instructions = '''
+Write `job.yaml`: a Job `sum` (`batch/v1`) that
+
+- needs **3** completions with a parallelism of **2**, and gives up after **2** failed Pods
+  (`backoffLimit`);
+- may run for at most **120** seconds in total (`activeDeadlineSeconds`);
+- runs Pods with `restartPolicy: Never` and one container `sum` with the image `busybox:1.37.0` and
+  the command `["sh", "-c", "echo total=$((20+22))"]`.
+
+**Live.** The check applies the Job, waits for its `Complete` condition, reads it (3 succeeded, no
+failure) and reads its logs, which must say `total=42`. (Prepare the course once; this needs Podman.)
+'''
+
+[unit.step.project]
+main = "job.yaml"
+explanation = '''
+The Job controller started two Pods, then a third when one finished; each printed `total=42` and
+exited with 0. After the third success the `Complete` condition became `True`. The Pods stay, in the
+`Completed` state, so `kubectl logs job/sum` can still read one of them. With `restartPolicy: Always`
+(the starter's mistake) the API server refuses the Job: a Job's Pods must be allowed to finish.
+'''
+
+[unit.step.project.starter]
+"job.yaml" = '''
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sum
+spec:
+  template:
+    spec:
+      restartPolicy: Always
+      containers:
+        - name: sum
+          image: busybox:1.37.0
+          command: ["sh", "-c", "echo total=$((20+22))"]
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[check]]
+file = "job.yaml"
+path = "kind"
+equals = "Job"
+message = "The object is a Job (batch/v1)."
+
+[[check]]
+file = "job.yaml"
+path = "spec.completions"
+equals = 3
+message = "The Job needs 3 completions."
+
+[[check]]
+file = "job.yaml"
+path = "spec.parallelism"
+equals = 2
+message = "At most 2 Pods run at the same time."
+
+[[check]]
+file = "job.yaml"
+path = "spec.backoffLimit"
+equals = 2
+message = "Give up after 2 failed Pods (backoffLimit: 2)."
+
+[[check]]
+file = "job.yaml"
+path = "spec.activeDeadlineSeconds"
+equals = 120
+message = "Bound the Job to 120 seconds (activeDeadlineSeconds)."
+
+[[check]]
+file = "job.yaml"
+path = "spec.template.spec.restartPolicy"
+equals = "Never"
+message = "A Job's Pods use restartPolicy: Never here (Always is refused for a Job)."
+
+[[check]]
+file = "job.yaml"
+path = "spec.template.spec.containers[name=sum].command"
+equals = ["sh", "-c", "echo total=$((20+22))"]
+message = "The container sum runs sh -c \"echo total=$((20+22))\"."
+
+[[live]]
+cmd = ["kubectl", "apply", "-f", "job.yaml"]
+message = "The API server must accept the Job."
+
+[[live]]
+cmd = ["kubectl", "wait", "--for=condition=Complete", "job/sum", "--timeout=120s"]
+message = "The Job must complete: three Pods exiting with 0."
+
+[[live]]
+cmd = ["kubectl", "get", "job", "sum", "-o", "json"]
+save = "live-job.json"
+message = "The Job must be readable."
+
+[[live]]
+cmd = ["kubectl", "logs", "job/sum"]
+output_contains = ["total=42"]
+message = "The Job's Pods print total=42."
+
+[[check]]
+file = "live-job.json"
+path = "status.succeeded"
+equals = 3
+message = "3 Pods succeeded."
+
+[[check]]
+file = "live-job.json"
+path = "status.failed"
+exists = false
+message = "No Pod failed."
+
+[[check]]
+file = "live-job.json"
+path = "status.conditions[type=Complete].status"
+equals = "True"
+message = "The Job's Complete condition is True."
+'''
+
+[unit.step.project.solution]
+"job.yaml" = '''
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sum
+spec:
+  completions: 3
+  parallelism: 2
+  backoffLimit: 2
+  activeDeadlineSeconds: 120
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: sum
+          image: busybox:1.37.0
+          command: ["sh", "-c", "echo total=$((20+22))"]
+'''
+
+[[unit]]
+id = "k8s-u16-config-live"
+title = "Configuration, mounted"
+level = "advanced"
+difficulty = 16
+intro = "A ConfigMap reaches the program twice: as a file in a volume and as an environment variable."
+concepts = '''
+In the ConfigMaps unit you wrote configuration as data. Here a program **reads** it, and the logs
+prove what it saw.
+
+**Two ways in.** A container can receive a ConfigMap
+
+- as **files**, through a `configMap` volume mounted at a path: each key becomes a file whose content
+  is the value (`items` picks keys and file names; without it, every key becomes a file);
+- as **environment variables**: one by one with `env[].valueFrom.configMapKeyRef`, or every key at
+  once with `envFrom[].configMapRef`.
+
+**When changes arrive.** Mounted files are updated by the kubelet some time after the ConfigMap
+changes (up to about a minute, unless the volume uses `subPath`, which never updates). Environment
+variables are read once, when the container starts: a change needs a new Pod — which is why
+Kustomize's generated ConfigMaps put a hash in the name, so that a change rolls the Deployment.
+
+**Missing configuration.** A Pod that references a ConfigMap (or a key) that does not exist does not
+start: its container waits in `CreateContainerConfigError` until it appears, unless the reference
+says `optional: true`. Apply the ConfigMap with, or before, the workload.
+
+**Secrets work the same way** (`secret` volumes, `secretKeyRef`, `secretRef`), with the values stored
+base64-encoded and, in a real cluster, with access controlled by RBAC and ideally encrypted at rest.
+Never commit a real secret to a manifest.
+
+**Reading what the program saw.** A Job that prints its configuration and exits makes the check
+simple: wait for `Complete`, then `kubectl logs job/<name>`.
+
+Official docs: https://kubernetes.io/docs/concepts/configuration/configmap/ and
+https://kubernetes.io/docs/tasks/configure-pod-container/configure-pod-configmap/
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "k8s-c16-config"
+title = "Files and variables"
+points = 5
+difficulty = 1
+intro = '''
+The same ConfigMap, consumed in two ways.
+'''
+body = '''
+```yaml
+volumes:
+  - name: config
+    configMap:
+      name: app-config
+      items:
+        - key: app.conf      # this key…
+          path: app.conf     # …becomes /etc/app/app.conf
+containers:
+  - name: app
+    volumeMounts:
+      - name: config
+        mountPath: /etc/app
+        readOnly: true
+    env:
+      - name: MODE
+        valueFrom:
+          configMapKeyRef:
+            name: app-config
+            key: MODE
+```
+
+The program sees a file `/etc/app/app.conf` and a variable `$MODE`. In the challenge it prints
+both, and the check reads its logs.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "k8s-d16-configmap"
+title = "A file inside a ConfigMap"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+A key whose value is a whole file, and a short one.
+'''
+prompt = '''
+Type the ConfigMap. The `|` keeps the line breaks of the file.
+'''
+target = '''
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+data:
+  MODE: production
+  app.conf: |
+    greeting=hello
+    workers=2
+'''
+line_comments = [
+  "Core API.",
+  "A ConfigMap.",
+  "Identity…",
+  "…the name Pods refer to.",
+  "The data, key by key:",
+  "a short value, for an environment variable;",
+  "a whole file, kept line by line:",
+  "its first line…",
+  "…and its second.",
+]
+explanation = "Mounted as a volume, `app.conf` becomes a file with these two lines; `MODE` can feed an environment variable."
+
+[[unit.step]]
+kind = "drill"
+id = "k8s-d16-mount"
+title = "Mount and reference"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+The Pod spec fragment that consumes it.
+'''
+prompt = '''
+Type the volume, the mount and the variable.
+'''
+target = '''
+volumes:
+  - name: config
+    configMap:
+      name: app-config
+containers:
+  - name: app
+    image: busybox:1.37.0
+    volumeMounts:
+      - name: config
+        mountPath: /etc/app
+        readOnly: true
+    env:
+      - name: MODE
+        valueFrom:
+          configMapKeyRef:
+            name: app-config
+            key: MODE
+'''
+line_comments = [
+  "The Pod's volumes:",
+  "one, named config…",
+  "…filled from a ConfigMap…",
+  "…this one (every key becomes a file).",
+  "The containers:",
+  "one container…",
+  "…with a prepared image.",
+  "Where volumes appear in it:",
+  "the volume config…",
+  "…at /etc/app…",
+  "…read-only.",
+  "Environment variables:",
+  "MODE…",
+  "…comes from…",
+  "…a key of a ConfigMap:",
+  "this ConfigMap…",
+  "…this key.",
+]
+explanation = "The program finds `/etc/app/MODE` and `/etc/app/app.conf`, and `$MODE` set to `production`."
+
+[[unit.step]]
+kind = "challenge"
+id = "k8s-p16-config"
+title = "Prove what the program read"
+points = 40
+difficulty = 17
+intro = '''
+A Job prints the configuration it received; the check reads its logs in the practice cluster.
+'''
+instructions = '''
+`show.yaml` (read-only) is a Job `show-config` whose container prints `/etc/app/app.conf` and the
+variable `MODE`, then exits. Make it work:
+
+1. In `config.yaml`, write a ConfigMap `app-config` with two keys: `MODE` = `production`, and
+   `app.conf` = a file with the two lines `greeting=hello` and `workers=2`.
+2. In `show.yaml` you may not change anything; it already mounts the ConfigMap `app-config` at
+   `/etc/app` and reads `MODE` from it with `configMapKeyRef` — read it to see how.
+
+**Live.** The check applies `config.yaml`, then `show.yaml`, waits for the Job to complete and reads
+its logs: they must show both lines of the file and `MODE=production`. (Prepare the course once;
+this needs Podman.)
+'''
+
+[unit.step.project]
+main = "config.yaml"
+readonly = ["show.yaml"]
+explanation = '''
+The kubelet created the file `/etc/app/app.conf` from the key `app.conf` (and `/etc/app/MODE` from
+the other key, since the volume has no `items`) and set `MODE` from `configMapKeyRef` before starting
+the container. Had `config.yaml` been missing a key, the container would have waited in
+`CreateContainerConfigError` and the Job would never have completed.
+'''
+
+[unit.step.project.starter]
+"config.yaml" = '''
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+data:
+  MODE: development
+'''
+"show.yaml" = '''
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: show-config
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 120
+  template:
+    spec:
+      restartPolicy: Never
+      volumes:
+        - name: config
+          configMap:
+            name: app-config
+      containers:
+        - name: show
+          image: busybox:1.37.0
+          command: ["sh", "-c", "cat /etc/app/app.conf && echo MODE=$MODE"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/app
+              readOnly: true
+          env:
+            - name: MODE
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: MODE
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[check]]
+file = "config.yaml"
+path = "kind"
+equals = "ConfigMap"
+message = "config.yaml holds a ConfigMap."
+
+[[check]]
+file = "config.yaml"
+path = "metadata.name"
+equals = "app-config"
+message = "Name it app-config: the Job refers to that name."
+
+[[check]]
+file = "config.yaml"
+path = "data"
+only_keys = ["MODE", "app.conf"]
+message = "The ConfigMap has the keys MODE and app.conf, and no others."
+
+[[check]]
+file = "config.yaml"
+path = "data.MODE"
+equals = "production"
+message = "MODE is production."
+
+[[check]]
+file = "config.yaml"
+path = "data[\"app.conf\"]"
+matches = '\Agreeting=hello\nworkers=2\n?\z'
+message = "app.conf is the two lines greeting=hello and workers=2 (use a | block)."
+
+[[live]]
+cmd = ["kubectl", "apply", "-f", "config.yaml"]
+message = "The API server must accept the ConfigMap."
+
+[[live]]
+cmd = ["kubectl", "apply", "-f", "show.yaml"]
+message = "The Job must be accepted."
+
+[[live]]
+cmd = ["kubectl", "wait", "--for=condition=Complete", "job/show-config", "--timeout=90s"]
+message = "The Job must complete: its container found the file and the variable and exited with 0."
+
+[[live]]
+cmd = ["kubectl", "logs", "job/show-config"]
+output_contains = ["greeting=hello", "workers=2", "MODE=production"]
+message = "The program printed the mounted file and MODE=production."
+
+[[live]]
+cmd = ["kubectl", "get", "configmap", "app-config", "-o", "json"]
+save = "live-config.json"
+message = "The ConfigMap must be readable."
+
+[[check]]
+file = "live-config.json"
+path = "data.MODE"
+equals = "production"
+message = "The live ConfigMap has MODE: production."
+'''
+
+[unit.step.project.solution]
+"config.yaml" = '''
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+data:
+  MODE: production
+  app.conf: |
+    greeting=hello
+    workers=2
+'''
+
+[[unit]]
+id = "k8s-u17-limits-live"
+title = "Limits, enforced"
+level = "advanced"
+difficulty = 17
+intro = "A quota refuses what does not fit, Guaranteed Pods get what they asked for, and a container over its memory limit is killed."
+concepts = '''
+Requests and limits were numbers in the resources unit. In a real cluster three different
+components act on them.
+
+**The scheduler reads requests.** A Pod goes on a node only if the node's free *allocatable*
+CPU and memory cover the Pod's requests. Requests are a reservation, not a cap.
+
+**The kernel enforces limits.** The kubelet writes the limits into the container's cgroup. Over its
+**CPU** limit, a container is *throttled* (it runs slower). Over its **memory** limit, the kernel's
+out-of-memory killer **kills** it: the container's last state says `reason: OOMKilled`, exit code
+137. Memory is not compressible; a memory limit is a hard wall.
+
+**The API server enforces quotas.** A **ResourceQuota** in a namespace caps the total of what its
+Pods may request and limit (`requests.memory`, `limits.memory`, `requests.cpu`, `pods`, …). When a
+quota covers a resource, every new Pod must state it — a Pod without `limits.memory` is refused — and
+a Pod that would push the total over the quota is refused at creation (`exceeded quota`). For a
+Deployment, the ReplicaSet simply cannot create the extra Pods, and the rollout never finishes. A
+**LimitRange** can give defaults to Pods that state nothing.
+
+**Quality of service.** From requests and limits, each Pod gets a class: **Guaranteed** (every
+container has requests equal to limits for CPU and memory), **Burstable** (some requests or limits),
+**BestEffort** (none). Under memory pressure, the kubelet evicts BestEffort Pods first and
+Guaranteed ones last. `status.qosClass` says which.
+
+**Terminated Pods leave the quota.** A Pod that failed or completed no longer counts against it.
+
+Official docs: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/ and
+https://kubernetes.io/docs/concepts/policy/resource-quotas/
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "k8s-c17-limits"
+title = "Who enforces what"
+points = 5
+difficulty = 1
+intro = '''
+The scheduler, the kernel and the API server each enforce a different number.
+'''
+body = '''
+| Number | Enforced by | Over it… |
+|---|---|---|
+| `requests` | the scheduler | the Pod stays `Pending` until a node has room |
+| `limits.cpu` | the kernel (cgroup) | the container is throttled |
+| `limits.memory` | the kernel (cgroup) | the container is killed: `OOMKilled`, exit 137 |
+| a ResourceQuota | the API server | the Pod is refused: `exceeded quota` |
+
+In the challenge a quota is already in the namespace when your files arrive. Your Deployment must
+fit it with Guaranteed Pods, and a deliberately greedy Pod must be stopped by its memory limit.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "k8s-d17-quota"
+title = "A quota for the namespace"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+Totals for every Pod in the namespace together.
+'''
+prompt = '''
+Type the ResourceQuota.
+'''
+target = '''
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: team-quota
+spec:
+  hard:
+    pods: "4"
+    requests.memory: 320Mi
+    limits.memory: 320Mi
+'''
+line_comments = [
+  "Core API.",
+  "A ResourceQuota.",
+  "Identity…",
+  "…its name.",
+  "Desired state:",
+  "the hard caps, summed over all Pods:",
+  "at most 4 Pods (quoted: quota values are quantities);",
+  "at most 320 MiB of memory requested…",
+  "…and at most 320 MiB of memory limits.",
+]
+explanation = "With `requests.memory` and `limits.memory` in the quota, every Pod in the namespace must state both, or it is refused."
+
+[[unit.step]]
+kind = "drill"
+id = "k8s-d17-guaranteed"
+title = "Guaranteed"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+Requests equal to limits, for CPU and memory.
+'''
+prompt = '''
+Type the container's resources.
+'''
+target = '''
+resources:
+  requests:
+    cpu: 100m
+    memory: 96Mi
+  limits:
+    cpu: 100m
+    memory: 96Mi
+'''
+line_comments = [
+  "The container's resources:",
+  "what it reserves —",
+  "a tenth of a core…",
+  "…and 96 MiB;",
+  "what it may use at most —",
+  "the same CPU…",
+  "…and the same memory: QoS class Guaranteed.",
+]
+explanation = "Every container of the Pod needs requests equal to limits for both resources for the Pod to be Guaranteed."
+
+[[unit.step]]
+kind = "challenge"
+id = "k8s-p17-limits"
+title = "Fit the quota, stop the hog"
+points = 45
+difficulty = 18
+intro = '''
+A quota is waiting in the namespace. Your Deployment must fit it, and a memory hog must be killed by
+its limit.
+'''
+instructions = '''
+The namespace already has a hidden ResourceQuota `team-quota`: at most `pods: 4`, `requests.memory:
+320Mi` and `limits.memory: 320Mi`.
+
+1. In `api.yaml`, the Deployment `api` (2 replicas, image `nginx:1.27.5-alpine`) must get
+   **Guaranteed** Pods: give its container `api` requests and limits of `cpu: 100m` and
+   `memory: 96Mi`.
+2. In `hog.yaml`, the Pod `hog` (with `restartPolicy: Never`) runs a program that tries to use
+   200 MiB of memory. Give its container `hog` requests of `cpu: 50m`, `memory: 32Mi` and limits of
+   `cpu: 100m`, `memory: 64Mi`, so the kernel stops it.
+
+Together: 2 × 96Mi + 64Mi = 256Mi of limits, within the quota.
+
+**Live.** The check applies the quota, your Deployment (it must roll out: every Pod admitted by the
+quota) and the hog, then waits until the hog is terminated, and reads the Pods: the `api` Pods are
+`Guaranteed`, and the hog was `OOMKilled` without a restart. (Prepare the course once; this needs
+Podman.)
+'''
+
+[unit.step.project]
+main = "api.yaml"
+explanation = '''
+The quota admitted the two `api` Pods (192Mi of limits) and the hog (64Mi) because each stated its
+memory requests and limits and the total stayed under 320Mi; the starter's three 128Mi replicas would
+have hit `exceeded quota` on the third Pod. The kernel killed the hog as soon as it went over 64 MiB:
+its container's state says `OOMKilled`, exit code 137, and with `restartPolicy: Never` it stays
+`Failed` instead of restarting.
+'''
+
+[unit.step.project.starter]
+"api.yaml" = '''
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      containers:
+        - name: api
+          image: nginx:1.27.5-alpine
+          resources:
+            requests:
+              memory: 128Mi
+            limits:
+              memory: 128Mi
+'''
+"hog.yaml" = '''
+apiVersion: v1
+kind: Pod
+metadata:
+  name: hog
+spec:
+  restartPolicy: Never
+  containers:
+    - name: hog
+      image: busybox:1.37.0
+      command: ["sh", "-c", "head -c 200m /dev/zero | tail"]
+'''
+
+[unit.step.project.tests]
+"quota.yaml" = '''
+# Hidden: the namespace's quota.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: team-quota
+spec:
+  hard:
+    pods: "4"
+    requests.memory: 320Mi
+    limits.memory: 320Mi
+'''
+"checks.toml" = '''
+[[check]]
+file = "api.yaml"
+path = "spec.replicas"
+equals = 2
+message = "Keep the Deployment at 2 replicas."
+
+[[check]]
+file = "api.yaml"
+path = "spec.template.spec.containers[name=api].resources.requests"
+equals = { cpu = "100m", memory = "96Mi" }
+message = "The api container requests cpu: 100m and memory: 96Mi."
+
+[[check]]
+file = "api.yaml"
+path = "spec.template.spec.containers[name=api].resources.limits"
+same_as = { path = "spec.template.spec.containers[name=api].resources.requests" }
+message = "Its limits equal its requests (Guaranteed)."
+
+[[check]]
+file = "hog.yaml"
+path = "spec.restartPolicy"
+equals = "Never"
+message = "Keep restartPolicy: Never on the hog."
+
+[[check]]
+file = "hog.yaml"
+path = "spec.containers[name=hog].command"
+equals = ["sh", "-c", "head -c 200m /dev/zero | tail"]
+message = "Keep the hog's command: it is what the memory limit must stop."
+
+[[check]]
+file = "hog.yaml"
+path = "spec.containers[name=hog].resources.requests"
+equals = { cpu = "50m", memory = "32Mi" }
+message = "The hog requests cpu: 50m and memory: 32Mi."
+
+[[check]]
+file = "hog.yaml"
+path = "spec.containers[name=hog].resources.limits"
+equals = { cpu = "100m", memory = "64Mi" }
+message = "The hog is limited to cpu: 100m and memory: 64Mi."
+
+[[live]]
+cmd = ["kubectl", "apply", "-f", "quota.yaml"]
+message = "The quota must be created."
+
+[[live]]
+cmd = ["kubectl", "get", "resourcequota", "team-quota", "-o", "json"]
+until = { path = "status.hard.pods", equals = "4" }
+timeout_secs = 30
+message = "The quota must be active before your Pods arrive."
+
+[[live]]
+cmd = ["kubectl", "apply", "-f", "api.yaml"]
+message = "The API server must accept the Deployment."
+
+[[live]]
+cmd = ["kubectl", "rollout", "status", "deployment/api", "--timeout=120s"]
+message = "The Deployment must roll out: the quota admits both Pods."
+
+[[live]]
+cmd = ["kubectl", "apply", "-f", "hog.yaml"]
+message = "The quota must admit the hog (it states its requests and limits, and fits)."
+
+[[live]]
+cmd = ["kubectl", "get", "pod", "hog", "-o", "json"]
+until = { path = "status.phase", equals = "Failed" }
+timeout_secs = 90
+save = "live-hog.json"
+message = "The hog must be stopped by its memory limit."
+
+[[live]]
+cmd = ["kubectl", "get", "pods", "-l", "app=api", "-o", "json"]
+save = "live-api.json"
+message = "The api Pods must be readable."
+
+[[check]]
+file = "live-hog.json"
+path = "status.containerStatuses[name=hog].state.terminated.reason"
+equals = "OOMKilled"
+message = "The kernel killed the hog for going over its memory limit (OOMKilled)."
+
+[[check]]
+file = "live-hog.json"
+path = "status.containerStatuses[name=hog].restartCount"
+equals = 0
+message = "With restartPolicy: Never, the hog was not restarted."
+
+[[check]]
+file = "live-api.json"
+path = "items"
+len = 2
+message = "The quota admitted both api Pods."
+
+[[check]]
+file = "live-api.json"
+path = "items[*].status.qosClass"
+equals = "Guaranteed"
+message = "The api Pods are Guaranteed."
+'''
+
+[unit.step.project.solution]
+"api.yaml" = '''
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      containers:
+        - name: api
+          image: nginx:1.27.5-alpine
+          resources:
+            requests:
+              cpu: 100m
+              memory: 96Mi
+            limits:
+              cpu: 100m
+              memory: 96Mi
+'''
+"hog.yaml" = '''
+apiVersion: v1
+kind: Pod
+metadata:
+  name: hog
+spec:
+  restartPolicy: Never
+  containers:
+    - name: hog
+      image: busybox:1.37.0
+      command: ["sh", "-c", "head -c 200m /dev/zero | tail"]
+      resources:
+        requests:
+          cpu: 50m
+          memory: 32Mi
+        limits:
+          cpu: 100m
+          memory: 64Mi
+'''
+
+[[unit]]
+id = "k8s-u18-rollback"
+title = "Rollback: a bad release, undone"
+level = "advanced"
+difficulty = 18
+intro = "A release that never becomes ready: detect it quickly, keep serving with the old Pods, and roll back."
+concepts = '''
+Sooner or later a release is broken: the new Pods crash, or start but never pass their readiness
+probe. What happens next depends on choices you made in the Deployment *before* the release.
+
+**A bad rollout stalls safely — if you let it.** With `maxUnavailable: 0`, the controller removes an
+old Pod only after a new one is Ready. New Pods that never become Ready therefore never replace
+anything: the old Pods keep serving at full capacity and the rollout simply stops making progress.
+With the default `maxUnavailable: 25%`, a quarter of the old Pods would be removed first and the
+service would run with less capacity until someone noticed.
+
+**Detecting it: the progress deadline.** `progressDeadlineSeconds` (default 600, ten minutes) is how
+long a rollout may go without progress before the Deployment's condition `Progressing` turns
+`False` with `reason: ProgressDeadlineExceeded`. `kubectl rollout status` then fails with
+"exceeded its progress deadline" — the signal a pipeline uses to stop and roll back. A short deadline
+detects a bad release in seconds instead of minutes. The controller does **not** roll back by
+itself; it only reports.
+
+**Rolling back.** `kubectl rollout undo deployment/web` makes the previous revision's Pod template the
+current one again (as a new revision number) and rolls out back to it — instantly, because the old
+ReplicaSet still exists, scaled down or, here, still running. `--to-revision=N` picks an older one;
+`kubectl rollout history` lists them. How many old ReplicaSets are kept is `revisionHistoryLimit`
+(default 10); with 0, there is nothing to roll back to.
+
+**Afterwards, fix the source.** `rollout undo` changes the live object only: the next `kubectl apply`
+of the broken manifest would break it again. Revert the change in Git, too.
+
+Official docs: https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#rolling-back-a-deployment
+and https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#failed-deployment
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "k8s-c18-rollback"
+title = "Stall, detect, undo"
+points = 5
+difficulty = 1
+intro = '''
+The three settings that turn a bad release into a non-event.
+'''
+body = '''
+| Setting | Without it | With it |
+|---|---|---|
+| `maxUnavailable: 0` | old Pods are removed before the new ones are Ready | capacity never drops |
+| `progressDeadlineSeconds: 20` | 10 minutes before anyone is told | `ProgressDeadlineExceeded` after 20 s |
+| `revisionHistoryLimit` ≥ 1 | nothing to roll back to | `rollout undo` is instant |
+
+```sh
+kubectl rollout status deployment/web     # error: … exceeded its progress deadline
+kubectl rollout undo deployment/web       # back to the previous revision
+kubectl rollout status deployment/web     # successfully rolled out
+```
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "k8s-d18-deadline"
+title = "Fail fast"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+The Deployment fields that make a bad release harmless and visible.
+'''
+prompt = '''
+Type the fragment of the Deployment spec.
+'''
+target = '''
+spec:
+  replicas: 3
+  progressDeadlineSeconds: 20
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+'''
+line_comments = [
+  "Part of a Deployment's spec:",
+  "three replicas.",
+  "Report a stalled rollout after 20 s without progress.",
+  "Keep three old ReplicaSets to roll back to.",
+  "How to replace Pods:",
+  "gradually,",
+  "within limits:",
+  "remove an old Pod only after a new one is Ready…",
+  "…one new Pod at a time.",
+]
+explanation = "A release whose Pods never become Ready stalls with 3 old Pods still serving, and is reported after 20 seconds."
+
+[[unit.step]]
+kind = "drill"
+id = "k8s-d18-probe"
+title = "The probe that catches it"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+Without a readiness probe, a broken release counts as ready the moment it starts.
+'''
+prompt = '''
+Type the container fragment.
+'''
+target = '''
+containers:
+  - name: web
+    image: nginx:1.27.5-alpine
+    ports:
+      - name: http
+        containerPort: 80
+    readinessProbe:
+      httpGet:
+        path: /
+        port: http
+      periodSeconds: 2
+      failureThreshold: 1
+'''
+line_comments = [
+  "The Pod template's containers:",
+  "the web server…",
+  "…on a prepared image.",
+  "It listens on…",
+  "…a port named http…",
+  "…number 80.",
+  "Ready means:",
+  "an HTTP GET…",
+  "…of the page…",
+  "…on that port succeeds,",
+  "asked every 2 seconds;",
+  "one failure and it is not Ready.",
+]
+explanation = "A release that breaks the page never passes this probe, so with `maxUnavailable: 0` it never replaces a working Pod."
+
+[[unit.step]]
+kind = "challenge"
+id = "k8s-p18-rollback"
+title = "Ship a bad release without an outage"
+points = 50
+difficulty = 19
+intro = '''
+A broken release hits your Deployment in the practice cluster. It must stall with full capacity, be
+detected within seconds, and be rolled back.
+'''
+instructions = '''
+Write `deployment.yaml`: a Deployment `web` with **3** replicas of Pods labelled `app: web`, one
+container `web` (image `nginx:1.27.5-alpine`, a port named `http` on `80`) with a `readinessProbe`
+(`httpGet` of `/` on `http`, `periodSeconds: 2`, `failureThreshold: 1`), and the settings that make a
+bad release safe:
+
+- `strategy.type: RollingUpdate` with `maxUnavailable: 0` and `maxSurge: 1`;
+- `progressDeadlineSeconds: 20`;
+- `revisionHistoryLimit: 3`.
+
+**Live.** The check applies your Deployment and waits for it. Then a hidden `kustomization.yaml`
+makes the "bad release" from your file — the image `nginx:1.28.0-alpine` and a readiness probe on
+`/healthz`, a page nginx does not have (404) — and applies it. `kubectl rollout status` must fail with
+"exceeded its progress deadline" while all 3 old Pods stay available. Then the check runs
+`kubectl rollout undo deployment/web` and waits: the Deployment must be back on
+`nginx:1.27.5-alpine` with 3 Ready Pods. (Prepare the course once; this needs Podman.)
+'''
+
+[unit.step.project]
+main = "deployment.yaml"
+explanation = '''
+The bad release created one new Pod (`maxSurge: 1`) that never passed its probe, so no old Pod was
+removed (`maxUnavailable: 0`): `availableReplicas` stayed 3 the whole time. After 20 seconds without
+progress the `Progressing` condition became `False` (`ProgressDeadlineExceeded`) and `rollout status`
+failed. `rollout undo` brought back the previous template as a new revision (3) and removed the
+broken Pod. Remember: the next `kubectl apply` of the broken manifest would break it again — revert it
+in Git too.
+'''
+
+[unit.step.project.starter]
+"deployment.yaml" = '''
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27.5-alpine
+          ports:
+            - name: http
+              containerPort: 80
+'''
+
+[unit.step.project.tests]
+"kustomization.yaml" = '''
+# Hidden: the bad release, made from the learner's Deployment (only the image and the probe path change).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - deployment.yaml
+images:
+  - name: nginx
+    newTag: 1.28.0-alpine
+patches:
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: web
+      spec:
+        template:
+          spec:
+            containers:
+              - name: web
+                readinessProbe:
+                  httpGet:
+                    path: /healthz
+'''
+"checks.toml" = '''
+[[check]]
+file = "deployment.yaml"
+path = "spec.replicas"
+equals = 3
+message = "Run 3 replicas."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.selector.matchLabels"
+selects = { path = "spec.template.metadata.labels" }
+message = "The selector must match the template's labels."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.template.spec.containers[name=web].image"
+equals = "nginx:1.27.5-alpine"
+message = "The good release runs nginx:1.27.5-alpine."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.template.spec.containers[name=web].readinessProbe.httpGet"
+equals = { path = "/", port = "http" }
+message = "The readinessProbe does an httpGet of / on the port named http."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.template.spec.containers[name=web].readinessProbe.periodSeconds"
+equals = 2
+message = "The readinessProbe runs every 2 seconds."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.strategy.rollingUpdate.maxUnavailable"
+equals = 0
+message = "maxUnavailable: 0 — a broken Pod must never replace a working one."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.strategy.rollingUpdate.maxSurge"
+equals = 1
+message = "maxSurge: 1 — one new Pod at a time."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.progressDeadlineSeconds"
+equals = 20
+message = "progressDeadlineSeconds: 20 — report a stalled rollout quickly."
+
+[[check]]
+file = "deployment.yaml"
+path = "spec.revisionHistoryLimit"
+equals = 3
+message = "revisionHistoryLimit: 3 — keep something to roll back to."
+
+[[run]]
+cmd = ["kubectl", "kustomize", "."]
+save = "bad-release.yaml"
+message = "The hidden bad release (your Deployment with the new image and a probe on /healthz) must build."
+
+[[live]]
+cmd = ["kubectl", "apply", "-f", "deployment.yaml"]
+message = "The API server must accept your Deployment."
+
+[[live]]
+cmd = ["kubectl", "rollout", "status", "deployment/web", "--timeout=120s"]
+message = "The good release must roll out: 3 Ready Pods."
+
+[[live]]
+cmd = ["kubectl", "apply", "-f", "bad-release.yaml"]
+message = "The bad release must be accepted (it is valid; it just never becomes ready)."
+
+[[live]]
+cmd = ["kubectl", "rollout", "status", "deployment/web", "--timeout=90s"]
+expect = "failure"
+output_contains = ["exceeded its progress deadline"]
+message = "The bad release must stall and be reported by the progress deadline (progressDeadlineSeconds: 20)."
+
+[[live]]
+cmd = ["kubectl", "get", "deployment", "web", "-o", "json"]
+save = "live-stalled.json"
+message = "The stalled Deployment must be readable."
+
+[[live]]
+cmd = ["kubectl", "rollout", "undo", "deployment/web"]
+message = "kubectl rollout undo must roll back to the previous revision."
+
+[[live]]
+cmd = ["kubectl", "rollout", "status", "deployment/web", "--timeout=120s"]
+message = "The rollback must roll out: 3 Ready Pods on the good release."
+
+[[live]]
+cmd = ["kubectl", "get", "deployment", "web", "-o", "json"]
+save = "live-rolled-back.json"
+message = "The rolled-back Deployment must be readable."
+
+[[check]]
+file = "live-stalled.json"
+path = "status.availableReplicas"
+equals = 3
+message = "During the bad release, all 3 old Pods stayed available (maxUnavailable: 0)."
+
+[[check]]
+file = "live-stalled.json"
+path = "status.conditions[type=Progressing].reason"
+equals = "ProgressDeadlineExceeded"
+message = "The Deployment reported ProgressDeadlineExceeded."
+
+[[check]]
+file = "live-rolled-back.json"
+path = "spec.template.spec.containers[name=web].image"
+equals = "nginx:1.27.5-alpine"
+message = "After the rollback, the Deployment runs nginx:1.27.5-alpine again."
+
+[[check]]
+file = "live-rolled-back.json"
+path = "spec.template.spec.containers[name=web].readinessProbe.httpGet.path"
+equals = "/"
+message = "After the rollback, the readiness probe asks for / again."
+
+[[check]]
+file = "live-rolled-back.json"
+path = "status.readyReplicas"
+equals = 3
+message = "After the rollback, 3 Pods are Ready."
+
+[[check]]
+file = "live-rolled-back.json"
+path = 'metadata.annotations["deployment.kubernetes.io/revision"]'
+equals = "3"
+message = "The rollback is a new revision (3) with the template of revision 1."
+'''
+
+[unit.step.project.solution]
+"deployment.yaml" = '''
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 3
+  progressDeadlineSeconds: 20
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27.5-alpine
+          ports:
+            - name: http
+              containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 2
+            failureThreshold: 1
 '''

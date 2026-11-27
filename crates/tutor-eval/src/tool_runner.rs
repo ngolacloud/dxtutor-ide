@@ -29,7 +29,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
 use serde_json::Value;
@@ -74,7 +74,7 @@ impl LanguageRunner for ToolRunner {
     }
 
     fn check_project(&self, phase: &Phase, tree: &BTreeMap<String, String>) -> Result<Correctness> {
-        grade(phase, tree, &find_tool)
+        grade(phase, tree, &find_tool, &open_kind_cluster)
     }
 
     fn grades_support_files(&self) -> bool {
@@ -551,6 +551,7 @@ fn grade(
     phase: &Phase,
     tree: &BTreeMap<String, String>,
     find: &dyn Fn(Tool) -> Option<PathBuf>,
+    open_cluster: OpenCluster,
 ) -> Result<Correctness> {
     let project = phase
         .project
@@ -569,6 +570,9 @@ fn grade(
             Some(b) => {
                 bins.insert(tool, b);
             }
+            None if tool == Tool::Kubectl && checks.needs_cluster() => bail!(
+                "kubectl is not installed. Install kubectl v1.36 (https://kubernetes.io/docs/tasks/tools/) and open the course again: the live steps talk to the course's practice cluster with it (its own kubeconfig, never yours)."
+            ),
             None => bail!("{}", tool.install_hint()),
         }
     }
@@ -602,6 +606,7 @@ fn grade(
     let mut report: Vec<String> = Vec::new();
     let mut outcomes: Vec<Outcome> = Vec::new();
     let mut saved: BTreeMap<String, std::result::Result<Vec<Value>, String>> = BTreeMap::new();
+    let mut raw_saved: BTreeMap<String, String> = BTreeMap::new();
 
     for run in &checks.runs {
         let cmd = toolcheck::parse_command(&run.cmd).map_err(anyhow::Error::msg)?;
@@ -656,6 +661,7 @@ fn grade(
         });
         if let Some(s) = &run.save {
             let v = if out.ok {
+                raw_saved.insert(s.clone(), out.stdout.clone());
                 load_docs(s, &out.stdout)
             } else {
                 Err(format!("`{shown}` failed, so `{s}` has no content"))
@@ -665,7 +671,7 @@ fn grade(
     }
 
     // Os documentos de cada ficheiro que as verificações lêem (o aluno, os ocultos, os guardados).
-    let mut docs: BTreeMap<String, std::result::Result<Vec<Value>, String>> = saved;
+    let mut docs: BTreeMap<String, std::result::Result<Vec<Value>, String>> = saved.clone();
     let wanted: BTreeSet<&str> = checks
         .checks
         .iter()
@@ -686,9 +692,48 @@ fn grade(
             docs.insert(f.to_string(), load_docs(f, text));
         }
     }
-    outcomes.extend(checks.evaluate(&docs));
+    // As verificações que não precisam do cluster primeiro; as que lêem uma saída ao vivo depois.
+    let (post, pre): (Vec<&toolcheck::Check>, Vec<&toolcheck::Check>) =
+        checks.checks.iter().partition(|c| checks.is_post_live(c));
+    outcomes.extend(pre.iter().map(|c| toolcheck::evaluate_check(c, &docs)));
+    let mut header: Vec<String> = Vec::new();
+    if checks.needs_cluster() {
+        if outcomes.iter().any(|o| !o.ok) {
+            outcomes.push(Outcome {
+                ok: false,
+                label: "live checks in the practice cluster".into(),
+                detail: "not run: fix the checks above first — they need no cluster".into(),
+            });
+        } else {
+            // Os ficheiros guardados pelos `[[run]]` também se podem aplicar.
+            for (name, out) in &raw_saved {
+                if !written.contains_key(name) {
+                    write_new(&work, name, out)?;
+                    written.insert(name.clone(), out.clone());
+                }
+            }
+            let kubectl = bins
+                .get(&Tool::Kubectl)
+                .cloned()
+                .context("kubectl was not found")?;
+            let cluster = open_cluster(phase, &kubectl)?;
+            header.push(cluster.describe());
+            let live = live::run(cluster.as_ref(), phase, &checks, &work, &written)?;
+            header.push(format!(
+                "namespace {} (deleted after grading)",
+                live.namespace
+            ));
+            outcomes.extend(live.outcomes);
+            docs.extend(live.saved);
+            outcomes.extend(post.iter().map(|c| toolcheck::evaluate_check(c, &docs)));
+        }
+    }
 
     let failed = outcomes.iter().filter(|o| !o.ok).count();
+    report.extend(header.iter().map(|h| format!("· {h}")));
+    if !header.is_empty() {
+        report.push(String::new());
+    }
     for o in &outcomes {
         if o.ok {
             report.push(format!("✓ {}", o.label));
@@ -717,6 +762,383 @@ fn grade(
         },
         raw: report.join("\n"),
     })
+}
+
+// ── Ao vivo (Learn P3b) ──────────────────────────────────────────────────────────────────
+
+/// The practice cluster a live step runs against (the real one is [`KindCluster`]; the tests use
+/// a scripted one).
+pub(crate) trait LiveCluster {
+    /// One line for the report (the cluster, whether it was created now, the versions).
+    fn describe(&self) -> String;
+    /// The prepared images: the only ones a manifest may use.
+    fn images(&self) -> Vec<tutor_core::ImageRef>;
+    /// Runs `kubectl <args>` against the practice cluster, in `namespace` when given, from `cwd`.
+    fn kubectl(
+        &self,
+        namespace: Option<&str>,
+        args: &[String],
+        cwd: &Path,
+        timeout: Duration,
+    ) -> Result<RunOutput>;
+}
+
+/// Opens the practice cluster of a phase (creating it when needed).
+pub(crate) type OpenCluster<'a> = &'a dyn Fn(&Phase, &Path) -> Result<Box<dyn LiveCluster>>;
+
+/// The course's kind cluster, locked for this grading (another process waits).
+struct KindCluster {
+    sb: crate::kindbox::Sandbox,
+    kubectl: PathBuf,
+    images: Vec<tutor_core::ImageRef>,
+    ensured: crate::kindbox::Ensured,
+    _lock: crate::kindbox::Lock,
+}
+
+impl LiveCluster for KindCluster {
+    fn describe(&self) -> String {
+        let how = if self.ensured.created {
+            format!(
+                "created now in {:.0} s (images loaded in {:.0} s)",
+                self.ensured.create_secs, self.ensured.load_secs
+            )
+        } else {
+            "reused".to_string()
+        };
+        format!(
+            "practice cluster {} (kind {} on rootless Podman, Kubernetes {}): {how}",
+            self.sb.name,
+            crate::kindbox::KIND_VERSION,
+            node_version()
+        )
+    }
+
+    fn images(&self) -> Vec<tutor_core::ImageRef> {
+        self.images.clone()
+    }
+
+    fn kubectl(
+        &self,
+        namespace: Option<&str>,
+        args: &[String],
+        cwd: &Path,
+        timeout: Duration,
+    ) -> Result<RunOutput> {
+        let mut cmd = crate::kindbox::kubectl(&self.sb, &self.kubectl, namespace, args);
+        cmd.current_dir(cwd);
+        let r = crate::kindbox::run(cmd, timeout)?;
+        Ok(RunOutput {
+            ok: r.ok,
+            stdout: r.stdout,
+            stderr: if r.timed_out {
+                format!(
+                    "{}\nexceeded the {} s time limit",
+                    r.stderr,
+                    timeout.as_secs()
+                )
+            } else {
+                r.stderr
+            },
+        })
+    }
+}
+
+impl Drop for KindCluster {
+    fn drop(&mut self) {
+        crate::kindbox::touch(&self.sb);
+    }
+}
+
+/// `v1.36.4` from the pinned node image.
+fn node_version() -> String {
+    tutor_core::image_reference(crate::kindbox::NODE_IMAGE)
+        .map(|r| r.tag)
+        .unwrap_or_default()
+}
+
+/// The images a phase's course prepared.
+fn prepared_images(phase: &Phase) -> Vec<tutor_core::ImageRef> {
+    phase
+        .build
+        .cache
+        .iter()
+        .flat_map(|c| &c.dependencies)
+        .filter_map(|d| tutor_core::image_reference(d).ok())
+        .collect()
+}
+
+/// The real [`OpenCluster`]: the course's prepared sandbox (or `COURSE_NOT_PREPARED`), locked,
+/// with its cluster running (or `LIVE_UNAVAILABLE` when this machine cannot run it).
+fn open_kind_cluster(phase: &Phase, kubectl: &Path) -> Result<Box<dyn LiveCluster>> {
+    let Some(sb) = crate::course_cache::cluster_sandbox(&phase.build)? else {
+        bail!(
+            "step `{}` has live checks, but its course prepares no practice cluster (add `[build] prepare = true` with the images it uses)",
+            phase.id
+        );
+    };
+    let lock = crate::kindbox::lock(&sb)?;
+    let ensured = crate::kindbox::ensure(&sb, kubectl)?;
+    Ok(Box::new(KindCluster {
+        images: prepared_images(phase),
+        sb,
+        kubectl: kubectl.to_path_buf(),
+        ensured,
+        _lock: lock,
+    }))
+}
+
+mod live {
+    use super::*;
+    use tutor_core::livecheck::{self, LiveCommand};
+
+    /// What the live part of a grading gave.
+    pub(super) struct LiveResult {
+        pub namespace: String,
+        pub outcomes: Vec<Outcome>,
+        pub saved: BTreeMap<String, std::result::Result<Vec<Value>, String>>,
+    }
+
+    const QUICK: Duration = Duration::from_secs(60);
+    const POLL: Duration = Duration::from_secs(2);
+
+    fn s(x: &str) -> String {
+        x.to_string()
+    }
+
+    /// Creates the grading namespace, runs the `[[live]]` entries in order (stopping at the first
+    /// that fails: the rest would only fail for the same reason) and deletes the namespace.
+    pub(super) fn run(
+        cluster: &dyn LiveCluster,
+        phase: &Phase,
+        checks: &Checks,
+        work: &Path,
+        written: &BTreeMap<String, String>,
+    ) -> Result<LiveResult> {
+        let ns = crate::kindbox::namespace_for(&phase.id);
+        // Namespaces an interrupted grading left behind go first (this cluster is locked for us).
+        let _ = cluster.kubectl(
+            None,
+            &[
+                s("delete"),
+                s("namespace"),
+                s("-l"),
+                s(crate::kindbox::GRADING_LABEL),
+                s("--wait=false"),
+                s("--ignore-not-found"),
+            ],
+            work,
+            QUICK,
+        );
+        let made = cluster.kubectl(
+            None,
+            &[s("create"), s("namespace"), ns.clone()],
+            work,
+            QUICK,
+        )?;
+        if !made.ok {
+            bail!(
+                "could not create the grading namespace {ns}: {}",
+                made.stderr.trim()
+            );
+        }
+        let result = run_in(cluster, &ns, checks, work, written);
+        let _ = cluster.kubectl(
+            None,
+            &[s("delete"), s("namespace"), ns.clone(), s("--wait=false")],
+            work,
+            QUICK,
+        );
+        let (outcomes, saved) = result?;
+        Ok(LiveResult {
+            namespace: ns,
+            outcomes,
+            saved,
+        })
+    }
+
+    type Docs = BTreeMap<String, std::result::Result<Vec<Value>, String>>;
+
+    fn run_in(
+        cluster: &dyn LiveCluster,
+        ns: &str,
+        checks: &Checks,
+        work: &Path,
+        written: &BTreeMap<String, String>,
+    ) -> Result<(Vec<Outcome>, Docs)> {
+        let _ = cluster.kubectl(
+            None,
+            &[
+                s("label"),
+                s("namespace"),
+                ns.to_string(),
+                format!("{}=true", crate::kindbox::GRADING_LABEL),
+            ],
+            work,
+            QUICK,
+        );
+        // A new namespace gets its `default` service account a moment later; a Pod applied
+        // before it exists is refused.
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            let r = cluster.kubectl(
+                Some(ns),
+                &[
+                    s("get"),
+                    s("serviceaccount"),
+                    s("default"),
+                    s("-o"),
+                    s("name"),
+                ],
+                work,
+                QUICK,
+            )?;
+            if r.ok || Instant::now() >= deadline {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(500));
+        }
+        let images = cluster.images();
+        let mut outcomes = Vec::new();
+        let mut saved: Docs = BTreeMap::new();
+        let mut stopped = false;
+        for entry in &checks.live {
+            let cmd = livecheck::parse_live_command(&entry.cmd).map_err(anyhow::Error::msg)?;
+            let shown = cmd.display();
+            if stopped {
+                outcomes.push(Outcome {
+                    ok: false,
+                    label: shown,
+                    detail: "not run: an earlier live check failed".into(),
+                });
+                continue;
+            }
+            if let LiveCommand::Apply { file } = &cmd {
+                let problems = match written.get(file) {
+                    None => vec![format!("`{file}` is not a file of the step")],
+                    Some(text) => match load_docs(file, text) {
+                        Err(e) => vec![e],
+                        Ok(docs) => livecheck::manifest_problems(file, &docs, &images),
+                    },
+                };
+                if !problems.is_empty() {
+                    outcomes.push(Outcome {
+                        ok: false,
+                        label: shown,
+                        detail: format!("{} (not applied: {})", entry.message, problems.join("; ")),
+                    });
+                    stopped = true;
+                    continue;
+                }
+            }
+            let (out, until_detail) = match &entry.until {
+                Some(until) => poll_until(cluster, ns, &cmd, until, entry.timeout_secs, work)?,
+                None => {
+                    let timeout = cmd
+                        .wait_secs()
+                        .map(|w| Duration::from_secs(w + 30))
+                        .unwrap_or(QUICK);
+                    (cluster.kubectl(Some(ns), &cmd.args(), work, timeout)?, None)
+                }
+            };
+            let both = format!("{}\n{}", out.stdout, out.stderr);
+            let status_ok = match entry.expect {
+                Expect::Success => out.ok,
+                Expect::Failure => !out.ok,
+            };
+            let missing: Vec<&String> = entry
+                .output_contains
+                .iter()
+                .filter(|t| !both.contains(t.as_str()))
+                .collect();
+            let ok = status_ok && missing.is_empty() && until_detail.is_none();
+            let mut detail = String::new();
+            if !ok {
+                let why = if let Some(d) = &until_detail {
+                    d.clone()
+                } else if !status_ok {
+                    match entry.expect {
+                        Expect::Success => "it failed".to_string(),
+                        Expect::Failure => {
+                            "it succeeded, but the cluster should refuse this".to_string()
+                        }
+                    }
+                } else {
+                    format!(
+                        "the output lacks {}",
+                        missing
+                            .iter()
+                            .map(|t| format!("`{t}`"))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                };
+                detail = format!("{} ({why})\n{}", entry.message, indent(&tail(&both)));
+                stopped = true;
+            }
+            outcomes.push(Outcome {
+                ok,
+                label: shown.clone(),
+                detail,
+            });
+            if let Some(name) = &entry.save {
+                let v = if out.ok {
+                    load_docs(name, &out.stdout)
+                } else {
+                    Err(format!("`{shown}` failed, so `{name}` has no content"))
+                };
+                saved.insert(name.clone(), v);
+            }
+        }
+        Ok((outcomes, saved))
+    }
+
+    /// Repeats a `get … -o json` until `until` holds or the time runs out. The last output is
+    /// returned; the detail says why it never held (`None` when it did).
+    fn poll_until(
+        cluster: &dyn LiveCluster,
+        ns: &str,
+        cmd: &LiveCommand,
+        until: &toolcheck::Check,
+        timeout_secs: Option<u64>,
+        work: &Path,
+    ) -> Result<(RunOutput, Option<String>)> {
+        let limit = Duration::from_secs(timeout_secs.unwrap_or(livecheck::DEFAULT_WAIT_SECS));
+        let deadline = Instant::now() + limit;
+        let mut probe = until.clone();
+        probe.file = String::new();
+        if probe.message.trim().is_empty() {
+            probe.message = "the condition did not hold".into();
+        }
+        loop {
+            let out = cluster.kubectl(Some(ns), &cmd.args(), work, QUICK)?;
+            let why = if out.ok {
+                let mut docs: Docs = BTreeMap::new();
+                docs.insert(String::new(), load_docs("output", &out.stdout));
+                let o = toolcheck::evaluate_check(&probe, &docs);
+                if o.ok {
+                    return Ok((out, None));
+                }
+                o.detail
+            } else {
+                out.stderr.trim().to_string()
+            };
+            if Instant::now() >= deadline {
+                let path = if until.path.is_empty() {
+                    "the object".to_string()
+                } else {
+                    format!("`{}`", until.path)
+                };
+                return Ok((
+                    out,
+                    Some(format!(
+                        "after {} s, {path} still did not match: {why}",
+                        limit.as_secs()
+                    )),
+                ));
+            }
+            std::thread::sleep(POLL);
+        }
+    }
 }
 
 /// Cria `rel` (um caminho seguro) dentro de `root`, sem substituir nada.
@@ -948,9 +1370,14 @@ mod tests {
     fn a_missing_tool_is_an_error_that_says_what_to_install() {
         let checks = "[[run]]\ncmd = [\"kubectl\", \"kustomize\", \".\"]\nmessage = \"m\"\n";
         let p = phase(&[("kustomization.yaml", "resources: []\n")], checks);
-        let e = grade(&p, &p.project.as_ref().unwrap().starter, &|_| None)
-            .unwrap_err()
-            .to_string();
+        let e = grade(
+            &p,
+            &p.project.as_ref().unwrap().starter,
+            &|_| None,
+            &no_cluster,
+        )
+        .unwrap_err()
+        .to_string();
         assert!(
             e.contains("kubectl is not installed")
                 && e.contains("https://kubernetes.io/docs/tasks/tools/"),
@@ -1006,5 +1433,279 @@ mod tests {
                 assert!(!v.is_empty(), "{t:?}");
             }
         }
+    }
+
+    fn no_cluster(_: &Phase, _: &Path) -> Result<Box<dyn LiveCluster>> {
+        panic!("the practice cluster must not be opened here")
+    }
+
+    type Reply = Box<dyn Fn(&[String], usize) -> RunOutput>;
+
+    /// A scripted practice cluster: records every kubectl call (namespace, args) and answers with
+    /// `reply(args, how many times these args were seen before)`.
+    struct Scripted {
+        calls: Calls,
+        reply: Reply,
+    }
+
+    impl LiveCluster for Scripted {
+        fn describe(&self) -> String {
+            "practice cluster dxtutor-test: reused".into()
+        }
+        fn images(&self) -> Vec<tutor_core::ImageRef> {
+            vec![tutor_core::image_reference(
+                "docker.io/library/nginx:1.27.5-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10",
+            )
+            .unwrap()]
+        }
+        fn kubectl(
+            &self,
+            namespace: Option<&str>,
+            args: &[String],
+            _cwd: &Path,
+            _timeout: Duration,
+        ) -> Result<RunOutput> {
+            let mut calls = self.calls.lock().unwrap();
+            let seen = calls.iter().filter(|(_, a)| a == args).count();
+            calls.push((namespace.map(str::to_string), args.to_vec()));
+            Ok((self.reply)(args, seen))
+        }
+    }
+
+    fn ok(stdout: &str) -> RunOutput {
+        RunOutput {
+            ok: true,
+            stdout: stdout.into(),
+            stderr: String::new(),
+        }
+    }
+
+    const LIVE_CHECKS: &str = r#"
+[[check]]
+file = "web.yaml"
+path = "kind"
+equals = "Deployment"
+message = "A Deployment."
+
+[[live]]
+cmd = ["kubectl", "apply", "-f", "web.yaml"]
+message = "The API server must accept it."
+
+[[live]]
+cmd = ["kubectl", "rollout", "status", "deployment/web", "--timeout=90s"]
+message = "It must roll out."
+
+[[live]]
+cmd = ["kubectl", "get", "deploy", "web", "-o", "json"]
+until = { path = "status.readyReplicas", equals = 2 }
+timeout_secs = 20
+save = "live.json"
+message = "Two replicas must be ready."
+
+[[check]]
+file = "live.json"
+path = "spec.replicas"
+equals = 2
+message = "Two replicas."
+"#;
+
+    const WEB: &str = "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\nspec:\n  replicas: 2\n  template:\n    spec:\n      containers:\n        - name: web\n          image: nginx:1.27.5-alpine\n";
+
+    type Calls = std::sync::Arc<std::sync::Mutex<Vec<(Option<String>, Vec<String>)>>>;
+
+    fn grade_live(files: &[(&str, &str)], checks: &str, reply: Reply) -> (Correctness, Calls) {
+        let p = phase(files, checks);
+        let calls: Calls = Default::default();
+        let shared = calls.clone();
+        let cell = std::sync::Mutex::new(Some(reply));
+        let open = move |_: &Phase, _: &Path| -> Result<Box<dyn LiveCluster>> {
+            let reply = cell.lock().unwrap().take().expect("opened once");
+            Ok(Box::new(Scripted {
+                calls: shared.clone(),
+                reply,
+            }))
+        };
+        let tree: BTreeMap<String, String> = files
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        let r = grade(&p, &tree, &|_| Some(PathBuf::from("/usr/bin/true")), &open).unwrap();
+        (r, calls)
+    }
+
+    #[test]
+    fn a_live_step_runs_in_a_fresh_namespace_waits_and_checks_the_saved_output() {
+        let (r, calls) = grade_live(
+            &[("web.yaml", WEB)],
+            LIVE_CHECKS,
+            Box::new(|args, seen| {
+                if args.first().map(String::as_str) == Some("get") && args[1] == "deployments" {
+                    // ready on the second look
+                    let ready = if seen == 0 { 1 } else { 2 };
+                    return ok(&format!(
+                        "{{\"spec\": {{\"replicas\": 2}}, \"status\": {{\"readyReplicas\": {ready}}}}}"
+                    ));
+                }
+                ok("done")
+            }),
+        );
+        assert!(r.passed, "{}", r.raw);
+        assert!(
+            r.raw.contains("· practice cluster dxtutor-test: reused"),
+            "{}",
+            r.raw
+        );
+        assert!(r
+            .raw
+            .contains("✓ kubectl rollout status deployments/web --timeout=90s"));
+        assert!(r.raw.contains("✓ live.json › spec.replicas"), "{}", r.raw);
+        let calls = calls.lock().unwrap();
+        let words: Vec<String> = calls
+            .iter()
+            .map(|(ns, a)| format!("{}|{}", ns.as_deref().unwrap_or("-"), a.join(" ")))
+            .collect();
+        let ns = calls
+            .iter()
+            .find_map(|(_, a)| (a[0] == "create").then(|| a[2].clone()))
+            .expect("a namespace was created");
+        assert!(ns.starts_with("dxt-t-"), "{ns}");
+        assert_eq!(
+            words[0],
+            "-|delete namespace -l dxtutor.io/grading --wait=false --ignore-not-found"
+        );
+        assert_eq!(words[1], format!("-|create namespace {ns}"));
+        assert_eq!(
+            words[2],
+            format!("-|label namespace {ns} dxtutor.io/grading=true")
+        );
+        assert_eq!(words[3], format!("{ns}|get serviceaccount default -o name"));
+        assert_eq!(words[4], format!("{ns}|apply -f web.yaml"));
+        assert_eq!(
+            words[5],
+            format!("{ns}|rollout status deployments/web --timeout=90s")
+        );
+        assert_eq!(words[6], format!("{ns}|get deployments web -o json"));
+        assert_eq!(words[7], words[6], "polled again until ready");
+        assert_eq!(
+            words.last().unwrap(),
+            &format!("-|delete namespace {ns} --wait=false")
+        );
+        // Every command of the step ran in the grading namespace; only the grader's own
+        // namespace housekeeping ran outside it.
+        for (n, a) in calls.iter() {
+            assert!(
+                n.as_deref() == Some(ns.as_str())
+                    || ["create", "delete", "label"].contains(&a[0].as_str()),
+                "{a:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_manifest_that_would_leave_the_sandbox_is_not_applied() {
+        let bad = WEB.replace("nginx:1.27.5-alpine", "nginx:latest");
+        let (r, calls) = grade_live(&[("web.yaml", &bad)], LIVE_CHECKS, Box::new(|_, _| ok("")));
+        assert!(!r.passed);
+        assert!(
+            r.raw.contains("not applied") && r.raw.contains("no version tag"),
+            "{}",
+            r.raw
+        );
+        assert!(
+            r.raw.contains("not run: an earlier live check failed"),
+            "{}",
+            r.raw
+        );
+        let calls = calls.lock().unwrap();
+        assert!(
+            !calls.iter().any(|(_, a)| a[0] == "apply"),
+            "nothing applied"
+        );
+        assert_eq!(
+            calls.last().unwrap().1[0],
+            "delete",
+            "the namespace is still deleted"
+        );
+    }
+
+    #[test]
+    fn a_failed_check_without_cluster_keeps_the_cluster_closed() {
+        let p = phase(&[("web.yaml", "kind: Pod\n")], LIVE_CHECKS);
+        let r = grade(
+            &p,
+            &p.project.as_ref().unwrap().starter,
+            &|_| Some(PathBuf::from("/usr/bin/true")),
+            &no_cluster,
+        )
+        .unwrap();
+        assert!(!r.passed);
+        assert!(
+            r.raw.contains("✗ live checks in the practice cluster"),
+            "{}",
+            r.raw
+        );
+        assert!(r.raw.contains("fix the checks above first"), "{}", r.raw);
+    }
+
+    #[test]
+    fn a_live_command_can_be_expected_to_fail_and_a_wait_can_time_out() {
+        let checks = r#"
+[[live]]
+cmd = ["kubectl", "apply", "-f", "web.yaml"]
+message = "apply"
+
+[[live]]
+cmd = ["kubectl", "rollout", "status", "deploy/web", "--timeout=20s"]
+expect = "failure"
+output_contains = ["exceeded its progress deadline"]
+message = "The bad rollout must hit its deadline."
+"#;
+        let reply = |stuck: bool| -> Reply {
+            Box::new(move |args, _| {
+                if args[0] == "rollout" {
+                    RunOutput {
+                        ok: !stuck,
+                        stdout: String::new(),
+                        stderr: if stuck {
+                            "error: deployment \"web\" exceeded its progress deadline".into()
+                        } else {
+                            String::new()
+                        },
+                    }
+                } else {
+                    ok("")
+                }
+            })
+        };
+        let (r, _) = grade_live(&[("web.yaml", WEB)], checks, reply(true));
+        assert!(r.passed, "{}", r.raw);
+        let (r, _) = grade_live(&[("web.yaml", WEB)], checks, reply(false));
+        assert!(
+            !r.passed && r.raw.contains("the cluster should refuse this"),
+            "{}",
+            r.raw
+        );
+
+        let never = r#"
+[[live]]
+cmd = ["kubectl", "apply", "-f", "web.yaml"]
+message = "apply"
+
+[[live]]
+cmd = ["kubectl", "get", "pods", "-l", "app=web", "-o", "json"]
+until = { path = "items", len = 3 }
+timeout_secs = 1
+message = "Three Pods."
+"#;
+        let (r, _) = grade_live(
+            &[("web.yaml", WEB)],
+            never,
+            Box::new(|_, _| ok("{\"items\": []}")),
+        );
+        assert!(
+            !r.passed && r.raw.contains("after 1 s, `items` still did not match"),
+            "{}",
+            r.raw
+        );
     }
 }

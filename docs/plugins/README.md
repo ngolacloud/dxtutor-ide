@@ -449,6 +449,61 @@ message = "The overlay pins the image to nginx:1.27.3."   # what the learner rea
   port and a compose file with `$` interpolation are refused before running.
 - A missing tool is an error that says what to install, never a failed or passed step.
 - Drills are YAML files too: running one checks that it parses and lists its documents.
+
+#### Live checks on the practice cluster (`[[live]]`)
+
+A Kubernetes step can also be checked **live** (the official course's units 12–18): the learner's
+manifests are applied to a fresh namespace of the course's **practice cluster** — kind on rootless
+Podman, created by dxtutor in the course cache, never the learner's contexts — and verified with
+read-only queries. The course declares the images its live steps use, each pinned by digest; «Prepare
+course» (`dxt plugin prepare`) downloads them once with the kind release and node image that dxtutor
+pins (a course never chooses those):
+
+```toml
+[build]
+prepare = true
+dependencies = ["docker.io/library/nginx:1.27.5-alpine@sha256:<64 hex>"]   # registry/repo:tag@digest
+```
+
+```toml
+[[live]]                                     # in order; the first failure stops the rest
+cmd = ["kubectl", "apply", "-f", "deployment.yaml"]
+message = "The API server must accept your Deployment."
+
+[[live]]
+cmd = ["kubectl", "rollout", "status", "deployment/web", "--timeout=120s"]
+message = "The Deployment must roll out."
+
+[[live]]
+cmd = ["kubectl", "get", "endpointslices", "-l", "kubernetes.io/service-name=web", "-o", "json"]
+until = { path = "items[0].endpoints", len = 2 }   # repeat until it holds (an assertion, no file)
+timeout_secs = 45
+save = "slices.json"                          # read by the [[check]]s below, which run afterwards
+message = "The Service must have 2 endpoints."
+```
+
+- **Allowed live commands** (anything else is a validation error): `kubectl apply -f <file of the
+  step or saved output>`, `kubectl get <type>[/<name>] [<name>] [-l <selector>] -o json|yaml`, `kubectl
+  rollout status|undo|history <deployment|statefulset|daemonset>/<name>`, `kubectl wait
+  --for=condition=<Cond>[=true|false] <type>/<name>` and `kubectl logs <pod>|<type>/<name> [-c
+  <container>] [--previous]`; waits take `--timeout=<n>s` (≤ 300). No `exec`, `port-forward`,
+  `create`, `delete`, `patch`, `scale` or `config`; `--kubeconfig`, `--context`, `--namespace`/`-n`,
+  `-A`, `--server`, `--token` and `--as` are the grader's. Types: the namespaced workload, service,
+  configuration and policy kinds only (no nodes, namespaces or cluster RBAC).
+- **What an `apply` may create** (checked before it runs): only namespaced kinds (Pod, Deployment,
+  ReplicaSet, StatefulSet, DaemonSet, Job, CronJob, Service, ConfigMap, Secret, ServiceAccount,
+  PersistentVolumeClaim, LimitRange, ResourceQuota, PodDisruptionBudget, NetworkPolicy,
+  HorizontalPodAutoscaler), without `metadata.namespace`, host namespaces, `hostPath`, `hostPort`,
+  privileged containers or added capabilities, and only the course's prepared images (`:latest` and
+  `imagePullPolicy: Always` are refused: the cluster runs on an internal network and never pulls).
+- `[[check]]`s that read a live `save` run after the live entries; the others run first, and if one
+  fails the cluster is not touched. A `[[run]]` output (a hidden kustomization that changes the
+  learner's Deployment) can be applied by a later `[[live]]`.
+- A step with `[[live]]` needs `[build] prepare = true`. Without Podman (or on cgroup v1, without the
+  delegated controllers, user namespaces or a D-Bus session), the step says what is missing; `dxt
+  plugin test` skips live steps with that reason and still tests the offline ones, then deletes the
+  cluster it created and prints the kind/node/Podman versions, the create and delete times and the
+  node's memory.
 - `dxt plugin validate` checks every `checks.toml` (form, paths, assertions, allowed commands, files
   that exist); `dxt plugin test` prints the version of each tool the course uses.
 

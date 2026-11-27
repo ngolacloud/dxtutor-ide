@@ -19,10 +19,11 @@ import goCourse from "../content/courses/go.json";
 import { EVALUATION_LANGUAGES, LANGUAGE_CATALOG, findLanguage, findSubject, languageCards, subjectCards } from "./learn/domain/catalog";
 import { baseName, isReadonly, projectPaths, projectSubmission } from "./learn/domain/project";
 import { fromEmbedded } from "./learn/domain/course-adapter";
-import type { Course, PluginRow, PrepareStatus } from "./learn/domain/types";
+import type { ClusterState, Course, PluginRow, PrepareStatus, Step } from "./learn/domain/types";
 import type { Grade } from "./learn/application/ports";
 import { gradeStep, installPlugin, loadCatalog, msg, removePlugin } from "./learn/application/catalog-service";
 import { isNotPrepared, needsPreparing, prepareCourse } from "./learn/application/prepare-service";
+import { isLiveUnavailable, memoryMiB, runClusterAction, type ClusterAction } from "./learn/application/cluster-service";
 import { tauriCourseGateway, tauriLearnAudit } from "./learn/infrastructure/legacy-bridge";
 import { requestApproval } from "../app/approval";
 import { bindActions } from "./learn/ui/actions";
@@ -63,6 +64,11 @@ const LT_FILE: Record<string, string> = {};
 const LT_PREP: Record<string, PrepareStatus | "loading"> = {};
 let LT_PREPARING = false;
 let LT_PREP_MSG: {text:string;bad:boolean;output?:string}|null = null;
+/** O cluster de prática dos cursos de Kubernetes (Learn P3b): o estado por curso (pedido ao
+ *  backend quando um passo ao vivo abre), a acção em curso e o que a última disse. */
+const LT_CLUSTER: Record<string, ClusterState | "loading"> = {};
+let LT_CLUSTER_BUSY: ClusterAction | "" = "";
+let LT_CLUSTER_MSG: {text:string;bad:boolean}|null = null;
 
 /* ───── estado + motor do Learning Track ───── */
 /* LTS window-backed; hidrata de LS PREGUIÇOSAMENTE (como hydrateBps no debug.ts): a
@@ -147,6 +153,8 @@ bindActions({
   'lt-read':{on:'click',run:e=>{const f=ltFind(LTS.cur);LT_READ[e.on]=!ltReadOpen(e.on,f);ltRes();}},
   'lt-file':{on:'click',run:e=>{ltPickFile(e.on);}},
   'lt-prepare':{on:'click',run:()=>{void ltPrepare();}},
+  'lt-cluster-start':{on:'click',run:()=>{void ltCluster('start');}},
+  'lt-cluster-delete':{on:'click',run:()=>{void ltCluster('delete');}},
 });
 
 /* ───── preparar um curso (Learn P1): a única ida à rede, aprovada e auditada ───── */
@@ -160,26 +168,64 @@ function ltPrepState(c:Course):PrepareStatus|"loading"|null{
   return LT_PREP[c.id];
 }
 /** O cartão «Prepare this course» enquanto o curso não está pronto (e o resultado da última vez). */
-function ltPrepareCard(c:Course):string{
+function ltPrepareCard(c:Course,s?:Step):string{
   const st=ltPrepState(c);
+  /* Num curso de cluster só os passos ao vivo precisam da preparação (os outros são offline). */
+  if(st&&st!=='loading'&&st.kind==='cluster'&&!s?.project?.live)return '';
   const note=LT_PREP_MSG?`<p class="lt-note${LT_PREP_MSG.bad?' bad':''}">${esc(LT_PREP_MSG.text)}</p>${LT_PREP_MSG.output?`<pre class="notr">${esc(LT_PREP_MSG.output.slice(-4000))}</pre>`:''}`:'';
   if(!st||st==='loading'||!needsPreparing(st))return note?`<div class="lt-card">${note}</div>`:'';
-  return `<div class="lt-card lt-prep"><h3>${esc(tt("prepareHeading"))}</h3><p>${esc(st.state==='stale'?tt("prepareStale"):st.kind==='pip'?tt("prepareBodyPip"):tt("prepareBody"))}</p>${note}<button class="mini pri" data-action="lt-prepare" ${LT_PREPARING?'disabled':''}>${esc(LT_PREPARING?tt(st.kind==='pip'?"preparingPip":"preparing"):tt("prepareButton"))}</button></div>`;
+  return `<div class="lt-card lt-prep"><h3>${esc(tt("prepareHeading"))}</h3><p>${esc(st.state==='stale'?tt("prepareStale"):st.kind==='pip'?tt("prepareBodyPip"):st.kind==='cluster'?tt("prepareBodyCluster"):tt("prepareBody"))}</p>${note}<button class="mini pri" data-action="lt-prepare" ${LT_PREPARING?'disabled':''}>${esc(LT_PREPARING?tt(st.kind==='pip'?"preparingPip":st.kind==='cluster'?"preparingCluster":"preparing"):tt("prepareButton"))}</button></div>`;
 }
 async function ltPrepare(){
   const c=course();if(!c||LT_PREPARING)return;
   LT_PREPARING=true;LT_PREP_MSG=null;ltRes();
   try{
-    const ps=ltPrepState(c);const isPip=!!ps&&ps!=='loading'&&ps.kind==='pip';
-    const r=await prepareCourse({gw:tauriCourseGateway,human:{approve:req=>requestApproval(req)},audit:tauriLearnAudit,title:tt(isPip?"prepareTitlePip":"prepareTitle",{course:c.title}),
-      packagesText:kind=>({heading:tt("preparePackages"),note:tt(kind==='pip'?"preparePackagesPip":"preparePackagesCargo")})},c.id);
+    const ps=ltPrepState(c);const kind=ps&&ps!=='loading'?ps.kind:'';
+    const r=await prepareCourse({gw:tauriCourseGateway,human:{approve:req=>requestApproval(req)},audit:tauriLearnAudit,title:tt(kind==='pip'?"prepareTitlePip":kind==='cluster'?"prepareTitleCluster":"prepareTitle",{course:c.title}),
+      packagesText:k=>({heading:tt("preparePackages"),note:tt(k==='pip'?"preparePackagesPip":k==='cluster'?"preparePackagesCluster":"preparePackagesCargo")})},c.id);
     if(r.kind==='refused')LT_PREP_MSG={text:tt("prepareRefused"),bad:true};
     else{LT_PREP[c.id]=r.status;
       if(r.kind==='failed')LT_PREP_MSG={text:tt("prepareFailed"),bad:true,output:r.output};
-      else if(r.kind==='prepared')LT_PREP_MSG={text:tt(r.status.kind==='pip'?"prepareDonePip":"prepareDone",{fetch:Math.round(r.status.fetchSecs??0),warm:Math.round(r.status.warmSecs??0)}),bad:false};}
+      else if(r.kind==='prepared'){LT_PREP_MSG={text:tt(r.status.kind==='pip'?"prepareDonePip":r.status.kind==='cluster'?"prepareDoneCluster":"prepareDone",{fetch:Math.round(r.status.fetchSecs??0),warm:Math.round(r.status.warmSecs??0)}),bad:false};delete LT_CLUSTER[c.id];}}
   }catch(e){LT_PREP_MSG={text:`${tt("prepareFailed")} ${msg(e)}`,bad:true};}
   finally{LT_PREPARING=false;ltRes();}
 }
+/* ───── o cluster de prática (Learn P3b): kind sobre Podman sem root, só do curso ───── */
+/** O estado do cluster do curso aberto (pede-o ao backend uma vez por abertura). */
+function ltClusterState(c:Course):ClusterState|"loading"|null{
+  if(!c||c.origin!=='backend')return null;
+  if(!(c.id in LT_CLUSTER)){LT_CLUSTER[c.id]='loading';
+    tauriCourseGateway.clusterStatus(c.id).then(st=>{LT_CLUSTER[c.id]=st;})
+      .catch(e=>{delete LT_CLUSTER[c.id];LT_CLUSTER_MSG={text:tt("clusterError",{e:msg(e)}),bad:true};}).finally(()=>ltRes());}
+  return LT_CLUSTER[c.id];
+}
+/** O cartão do cluster num passo ao vivo: porque não corre aqui, ou o seu estado e as acções. */
+function ltClusterCard(c:Course,s:Step):string{
+  if(!s?.project?.live)return '';
+  const st=ltClusterState(c);if(!st||st==='loading'||!st.live)return '';
+  const note=LT_CLUSTER_MSG?`<p class="lt-note${LT_CLUSTER_MSG.bad?' bad':''}">${esc(LT_CLUSTER_MSG.text)}</p>`:'';
+  if(!st.support.ok)return `<div class="lt-card lt-cluster bad"><h3>${esc(tt("clusterHeading"))}</h3><p>${esc(tt("clusterUnavailable",{reason:st.support.reason??''}))}</p>${st.support.fix?`<p class="lt-note">${esc(tt("clusterFix",{fix:st.support.fix}))}</p>`:''}<p class="lt-note">${esc(tt("clusterOfflineStill"))}</p>${note}</div>`;
+  if(!st.prepared||!st.status)return note?`<div class="lt-card lt-cluster">${note}</div>`:'';
+  const k=st.status,busy=LT_CLUSTER_BUSY;
+  const at=k.idleDeadline?new Date(k.idleDeadline*1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}):'';
+  const line=k.running?(at?tt("clusterRunningAt",{name:k.name,memory:memoryMiB(k.memoryBytes)||'—',time:at}):tt("clusterRunning",{name:k.name,memory:memoryMiB(k.memoryBytes)||'—',minutes:st.idleMinutes})):tt("clusterStopped",{name:k.name});
+  const btn=k.running||k.exists
+    ?`<button class="mini" data-action="lt-cluster-delete" ${busy?'disabled':''}>${esc(busy==='delete'?tt("clusterDeleting"):tt("clusterDelete"))}</button>`
+    :`<button class="mini" data-action="lt-cluster-start" ${busy?'disabled':''}>${esc(busy==='start'?tt("clusterStarting"):tt("clusterStart"))}</button>`;
+  return `<div class="lt-card lt-cluster"><h3>${esc(tt("clusterHeading"))}</h3><p class="notr">${esc(line)}</p>${note}${btn}</div>`;
+}
+async function ltCluster(action:ClusterAction){
+  const c=course();if(!c||LT_CLUSTER_BUSY)return;
+  LT_CLUSTER_BUSY=action;LT_CLUSTER_MSG=null;ltRes();
+  try{
+    const r=await runClusterAction({gw:tauriCourseGateway,human:{approve:req=>requestApproval(req)},audit:tauriLearnAudit,
+      title:a=>tt(a==='start'?"clusterStartTitle":"clusterDeleteTitle",{course:c.title})},c.id,action);
+    if(r.kind==='refused')LT_CLUSTER_MSG={text:tt("clusterRefused"),bad:true};
+    else{LT_CLUSTER[c.id]=r.state;if(r.kind==='done')LT_CLUSTER_MSG={text:tt(action==='start'?"clusterStarted":"clusterDeleted"),bad:false};}
+  }catch(e){LT_CLUSTER_MSG={text:tt("clusterError",{e:msg(e)}),bad:true};}
+  finally{LT_CLUSTER_BUSY="";ltRes();}
+}
+
 /** A leitura (visão geral da linguagem / conceitos do tópico) abre sozinha no 1.º passo. */
 function ltReadOpen(key:string,f:{u:any;s:any}|null):boolean{
   if(key in LT_READ)return LT_READ[key];
@@ -241,7 +287,8 @@ const tgt=(s:any)=>s.target.replace(/^\n/,'').replace(/\n+$/,'').split('\n');
 function drillState(s:any){const T=tgt(s),typed=(FS[ltPath(s)]?FS[ltPath(s)].content:'').replace(/\s+$/,'').split('\n'),ok=T.map((l:any,i:number)=>typed[i]!==undefined&&typed[i].trimEnd()===l.trimEnd());return{T,ok,n:ok.filter(Boolean).length,all:ok.every(Boolean)&&typed.length===T.length};}
 function ltRes(){hydrateLT();const f=ltFind(LTS.cur),el=$('#lt-res'),go=$('#lt-go');if(!f||!el||!go)return;const{s}=f,done=ltDone(s.id);let h=`<div class="lt-kind"><span>${s.kind==='concept'?'Concept':s.kind==='drill'?'Drill':'Challenge'}</span><b>${done?'✓ ':''}+${s.points} pts</b></div>`;
   h+=ltReading(f);
-  h+=ltPrepareCard(course());
+  h+=ltPrepareCard(course(),s);
+  h+=ltClusterCard(course(),s);
   if(LT_HOOD)h+=`<div class="lt-card hood"><h3>${txt("underTheHood")}</h3><div class="notr">${mdFull(s.intro)}</div><p class="lt-note">In the desktop app this view also compiles your code and shows measured CPU, memory and I/O. The browser prototype shows the explanation only.</p></div>`;
   if(s.kind==='concept'){h+=`<div class="lt-card notr"><h2>${esc(s.title)}</h2>${mdFull(s.body)}</div>`;go.textContent='Continue →';}
   else if(s.kind==='drill'){const d=drillState(s),hide=s.placeholder_policy!=='shown'&&!LTS.show[dk(s.id)]&&!done;if(d.all&&!done){LTS.done[dk(s.id)]=1;saveLT();if(PANE==='tutor')RP.tutor();}const fin=ltDone(s.id);
@@ -253,7 +300,7 @@ function ltRes(){hydrateLT();const f=ltFind(LTS.cur),el=$('#lt-res'),go=$('#lt-g
        é real (`submit_step`). Sem simulação: se a linguagem ainda não tiver avaliador, o
        erro do backend aparece tal como vem. */
     const g=LT_GRADE&&LT_GRADE.step===s.id?LT_GRADE:null;
-    h+=`<div class="lt-card"><h2 class="notr">${esc(s.title)}</h2><div class="notr">${mdFull(s.instructions)}</div>${s.project?`<p class="lt-note">${tt("projectNote")}</p>`:''}</div>`;
+    h+=`<div class="lt-card"><h2 class="notr">${esc(s.title)}</h2><div class="notr">${mdFull(s.instructions)}</div>${s.project?`<p class="lt-note">${tt(s.project.live?"liveNote":"projectNote")}</p>`:''}</div>`;
     if(LT_SUB&&!LT_SUB.ok)h+=`<div class="lt-card bad"><h3>✗ Could not grade</h3><p class="notr">${LT_SUB.why}</p></div>`;
     /* O resumo do avaliador vem em português (`testes falharam`, de todos os runners); a UI do
        Learning Track é em inglês, por isso o título é nosso e a saída crua mostra o detalhe. */
@@ -280,9 +327,14 @@ function ltGo(){const{s}=ltFind(LTS.cur)!,seq=ltSeq(),nx=seq[seq.findIndex((x:an
     LT_GRADING=true;LT_SUB=null;LT_GRADE=null;ltRes();
     gradeStep(tauriCourseGateway,s.id,code,ltLang(),files).then(g=>{LT_GRADE={...g,step:s.id};if(g.passed){LTS.done[dk(s.id)]=1;saveLT();if(PANE==='tutor')RP.tutor();}})
       .catch(e=>{LT_SUB={ok:false,why:esc(msg(e))};
+        /* O cluster de prática não pode correr aqui: o cartão diz porquê e o que fazer. */
+        if(isLiveUnavailable(msg(e)))delete LT_CLUSTER[course().id];
         /* Um curso por preparar: o backend recusa antes de compilar; volta a perguntar o estado
            para o cartão «Prepare this course» aparecer. */
-        if(isNotPrepared(msg(e)))delete LT_PREP[course().id];}).finally(()=>{LT_GRADING=false;ltRes();});return;}
+        if(isNotPrepared(msg(e)))delete LT_PREP[course().id];}).finally(()=>{
+        /* Um passo ao vivo pode ter criado o cluster: o cartão volta a perguntar o estado. */
+        if(s.project?.live)delete LT_CLUSTER[course().id];
+        LT_GRADING=false;ltRes();});return;}
   else if(s.kind==='challenge'&&!ltDone(s.id)){const c=FS[ltPath(s)].content,same=c.trim()===s.starter.trim(),todo=/todo!\(|unimplemented!\(|panic\("(TODO|todo|not implemented)|\/\/\s*TODO/.test(c),has=!s.entry||c.includes(s.entry);
     LT_SUB={ok:!same&&!todo&&has,why:same?'The file still equals the starter. Write your implementation first.':todo?'The implementation still has a TODO placeholder.':`The function <code>${esc(s.entry||'')}</code> is missing.`};if(LT_SUB.ok){LTS.done[dk(s.id)]=1;saveLT();if(PANE==='tutor')RP.tutor();}ltRes();return;}
   if(nx)ltOpen(nx.id);else{toast('Track complete');if(PANE==='tutor')RP.tutor();}}

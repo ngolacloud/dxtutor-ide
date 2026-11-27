@@ -5,13 +5,17 @@ pub mod content;
 pub mod course;
 pub mod curriculum;
 pub mod glossary;
+pub mod livecheck;
 pub mod model;
 pub mod project;
 pub mod study;
 pub mod support;
 pub mod toolcheck;
 
-pub use build::{pip_requirement, BuildEnv, CacheKind, CourseBuild, CourseCache, PipRequirement};
+pub use build::{
+    image_reference, normalize_image, pip_requirement, BuildEnv, CacheKind, CourseBuild,
+    CourseCache, ImageRef, NormalizedImage, PipRequirement,
+};
 pub use content::{builtin_projects, find_phase, load_project};
 pub use course::{
     builtin_courses, load_course, Course, CourseCategory, CourseFormat, Step, StepKind, Unit,
