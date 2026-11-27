@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 337 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 341 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -47,7 +47,7 @@ dependências — só `bash`/`awk`/`grep`). Verifica:
   terminal, mensagens a um agente/par/assistente em curso, ditado, gravações com debounce) e os puros e baratos.
 - **A7–A8** — fronteiras da Clean Architecture das features extraídas (abaixo).
   A var `FEATURES` do `arch-check.sh` lista quais governam (hoje `codev`, `ext`,
-  `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra`, `panel`, `learn`, `arch`, `testing`, `lsp`, `project`, `hood` — o «Under the hood» e o traço reais da A8 — `ops` — o separador Ops da A9 —, `codebase` — Dependencies e Onboarding da A10 —, `comments`, `welcome` — a página de boas-vindas da r23 F6 — `protect` — a protecção de dados da r23 F4a — `vault` — o Vault da r23 F4c — e `deploy` — o deploy guiado da r23 F4c2); cada nova
+  `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra`, `panel`, `learn`, `arch`, `testing`, `lsp`, `project`, `hood` — o «Under the hood» e o traço reais da A8 — `ops` — o separador Ops da A9 —, `codebase` — Dependencies e Onboarding da A10 —, `comments`, `welcome` — a página de boas-vindas da r23 F6 — `protect` — a protecção de dados da r23 F4a — `vault` — o Vault da r23 F4c — `deploy` — o deploy guiado da r23 F4c2 — e `integration` — o painel «Rever e integrar» da fase 4 do Multi Co-Dev); cada nova
   extracção acrescenta-se lá. A `arch` (Studio de arquitectura de sistema, separador «Architecture»)
   é uma feature nova e tipada, separada do Studio do catálogo cloud (`features/studio.ts`). Nota: desde a U4i do ADR-0004 nenhuma
   feature tem `@ts-nocheck` (os resíduos `infra.ts`/`visualizer.ts` e o interpretador `vzRun`
@@ -414,9 +414,9 @@ aceitação da issue e (3) o responsável REGISTOU a aprovação funcional. A fa
   sessão o painel fica igual (nenhum golden mudou). O separador «Co-Dev run» e o `ctx` seguem a conversa à vista; o
   modo da modebar vale para todas; «Nova conversa» só recomeça a à vista; o quadro Tasks antigo («Delegar») continua
   na à vista.
-- **Verificações obrigatórias:** `projects.checks` (JSON `[{name, command}]`, migração 15; `Op::Settings{checks}`;
-  vazio = o comando de testes detectado, `R.projectCmd("test")`), editadas nas Settings (`nome: comando` por linha) e
-  lidas por `project_checks` para a fase 4.
+- **Verificações obrigatórias:** `projects.checks` (JSON `[{name, command}]`, migração 15; `Op::Settings{checks}`),
+  editadas nas Settings (`nome: comando` por linha). Desde a fase 4, vazio NUNCA abre a porta: o painel de integração
+  oferece gravar o comando de testes detectado (`R.projectCmd("test")`) como verificação.
 - **Aprovação funcional:** `Op::ApproveFunctional{key, note?}` / `RevokeFunctional{key, reason}` (colunas
   `issues.functional_*`, migração 15): só com critérios, uma vez, quem/quando do backend, actividade + linha no registo
   de auditoria na mesma transacção (`functional.approve`/`.revoke`); cai se os critérios mudarem. Quem pode:
@@ -463,6 +463,44 @@ aceitação da issue e (3) o responsável REGISTOU a aprovação funcional. A fa
 - Testes: `cargo test -p tutor-eval gitwork::codev`, `cargo test -p tutor-board claims branches`,
   `cargo test -p dxtutor-ide codev_worktree codev_agent::worktree_tests`, `tests/codev.worktrees.test.ts`,
   `tests/codev.sessions.test.ts`, o e2e `e2e/multi-codev.e2e.ts` e o passo `worktrees` do auto-teste.
+
+### Fase 4: o revisor Co-Dev assistido e a porta de integração
+
+**A porta vive no Rust** (`tutor_board::project::integration::gate`, pura) e é perguntada outra vez no clique de
+«Integrar», com os factos lidos nesse momento. Integra-se só se as três valem para as pontas de AGORA: (1) todas as
+verificações obrigatórias passaram (exit 0) no candidato e as regras do arquitecto não acharam nada; (2) o revisor deu
+`met` a cada critério, com evidência, para esse candidato e esses critérios; (3) a aprovação funcional existe e foi
+dada para os critérios de agora (`issues.functional_criteria`, migração 19). Qualquer mudança de uma ponta, das
+verificações ou dos critérios torna a revisão velha (`stale_*`); sem verificações (`none_set`) nunca abre.
+- **O candidato** (`tutor_eval::gitwork::integrate`): o ramo da issue fundido na ponta do ramo por omissão — o que a
+  pasta do projecto tem em uso — sem tocar em nada (`git merge-tree --write-tree` + `commit-tree`, pais: base e
+  cabeça), guardado em `refs/dxtutor/review/<KEY>`; conflito = os ficheiros e nada mais. Destacado numa worktree
+  temporária em `app_local_data_dir/integration/<repo>/<KEY>` (removida no fim da revisão, é da app).
+- **«Pedir revisão»** (`codev_review_request`, caso de uso `src-tauri/src/codev_review.rs`): só o plano aprovado
+  (`codev_review_state` dá o texto exacto), auditado antes (`review.request`) e com o resultado. Corre cada verificação
+  lá (todas; comando, exit, tempo, fim da saída mascarado; ambiente da shell de login, sem `GIT_*`), as regras do
+  arquitecto da pasta sobre os ficheiros que o candidato muda e o secret scan do que ele traz (`Scope::Between`). Só
+  com tudo verde corre o revisor: um `Agent` à parte (não é uma sessão do Co-Dev: nenhum conjunto de ferramentas nem
+  prompt de outra sessão muda) com `read`/`glob`/`grep` na worktree temporária e `review_verdict`; recebe o diff
+  (40 KB no máximo), os critérios, a DoD e os resultados, nunca o repositório. A evidência é verificada contra o
+  candidato (`file`: existe e tem as linhas; `test`: o nome aparece na árvore ou na saída; `output`: a verificação
+  correu) e o `overall` tem de bater com os critérios; o que falha volta-lhe. Sem veredicto depois de lhe pedir duas
+  vezes = `failed`. Provedor e modelo: os do Co-Dev (`services.codevReview`). Tudo em `integration_reviews`
+  (migração 19) com as pontas, o commit e a árvore.
+- **«Integrar»** (`codev_review_integrate`): porta outra vez → comando aprovado → auditoria `review.integrate` antes →
+  `undo_snapshot` → secret scan (bloqueado → o `guard` partilhado pede motivo) → `git merge --ff-only <candidato>` na
+  pasta do projecto (pára com alterações que o git sobreporia; nunca push nem force) → auditoria com o resultado →
+  `ProjectStore::record_integration` (nunca uma `Op`: a UI não pode afirmar uma integração) liga o commit, regista
+  `integrated` e anda com a issue um passo de cada vez pelo `move_check`, sem excepções (`held` onde uma regra recusa).
+  Fase 3: a sessão aberta da issue fecha pela UI (reservas e worktree pelas regras dela); sem sessão, a worktree do
+  Co-Dev sai se estiver limpa (auditado). O ramo fica.
+- **UI** (`features/integration/`, A7/A8): o painel `#ig-panel` (por baixo do `#approval`) com as três condições, a
+  evidência de cada uma e porque é que «Integrar» está desligado; abre-se pelo ⇥ da faixa «Co-Devs» e pela secção
+  «Integration» do painel da issue no Project (só com ramo). Um código que o painel não conhece nunca diz «ok».
+- Testes: `cargo test -p tutor-eval gitwork::integrate`, `cargo test -p tutor-board integration migration_19`,
+  `cargo test -p tutor-protect between`, `cargo test -p dxtutor-ide codev_review` (repositórios reais e um modelo
+  falso: cada ramo da porta), `tests/integration.test.ts`, `tests/codev.worktrees.test.ts` e o passo `integration` do
+  auto-teste (sem modelo: a porta recusa no Rust). Fase 5: autonomia delegada e PRs.
 
 ## `/backlog` e `/project`: o backlog e o Project feitos pelo Co-Dev (conjunto 11)
 

@@ -49,6 +49,9 @@ pub enum Scope<'a> {
     Paths(&'a [String]),
     /// everything that changed, tracked or new (an agent's `git add … && git commit`)
     WorkingTree,
+    /// what a commit already made brings on top of another (`git diff <from> <to>`): the merge commit
+    /// the Co-Dev integration lands on the default branch (Multi Co-Dev, phase 4). Both are commits.
+    Between(&'a str, &'a str),
 }
 
 /// A file that never belongs in a repository, and why.
@@ -197,6 +200,14 @@ fn scan_using(
     match scope {
         Scope::Staged => diff_args.push("--cached".into()),
         Scope::Tracked | Scope::WorkingTree | Scope::Paths(_) => diff_args.push(base.into()),
+        Scope::Between(from, to) => {
+            for r in [from, to] {
+                if r.is_empty() || r.starts_with('-') || r.chars().any(|c| c.is_whitespace()) {
+                    return Err(format!("not a commit: {r:?}"));
+                }
+                diff_args.push((*r).to_string());
+            }
+        }
     }
     if !paths.is_empty() {
         diff_args.push("--".into());
@@ -564,6 +575,48 @@ mod tests {
             .unwrap_err()
             .contains("env-file"));
         assert!(guard_commit(root, &Scope::Paths(&["db.rs".into()])).is_ok());
+    }
+
+    /// Multi Co-Dev, phase 4: what a commit already made brings on top of another (the merge the
+    /// integration lands) is scanned too, with the same override; a bad revision is refused.
+    #[test]
+    fn what_a_commit_brings_is_scanned_between_two_commits() {
+        let d = repo();
+        let root = d.path();
+        let g = |a: &[&str]| {
+            let o = Command::new("git")
+                .arg("-C")
+                .arg(root)
+                .args(a)
+                .output()
+                .unwrap();
+            assert!(o.status.success(), "{a:?}");
+            String::from_utf8_lossy(&o.stdout).trim().to_string()
+        };
+        let base = g(&["rev-parse", "HEAD"]);
+        std::fs::write(
+            root.join("db.rs"),
+            "const URL: &str = \"postgres://u:p@h/app\";\n",
+        )
+        .unwrap();
+        g(&["add", "db.rs"]);
+        g(&["commit", "-qm", "db"]);
+        let head = g(&["rev-parse", "HEAD"]);
+        let e = guard_commit(root, &Scope::Between(&base, &head)).unwrap_err();
+        assert!(e.starts_with(BLOCKED) && !e.contains("u:p@"), "{e}");
+        allow_once(root, "fixture").unwrap();
+        assert_eq!(
+            guard_commit(root, &Scope::Between(&base, &head))
+                .unwrap()
+                .as_deref(),
+            Some("fixture")
+        );
+        // nothing new between a commit and itself; an option is never a revision
+        assert_eq!(
+            guard_commit(root, &Scope::Between(&head, &head)).unwrap(),
+            None
+        );
+        assert!(scan(root, &Scope::Between("--output=x", &head)).is_err());
     }
 
     /// Measured with gitleaks 8.30: it has no rule for a URL with a password. With gitleaks

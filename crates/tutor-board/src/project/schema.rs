@@ -411,6 +411,46 @@ const MIGRATIONS: &[&str] = &[
         PRIMARY KEY (root, path)
     );
     CREATE INDEX idx_file_claims_session ON file_claims(root, session);",
+    // 19 — Multi Co-Dev, phase 4: the reviews of an issue branch (`integration_reviews`: the tips —
+    //      the default branch and the issue branch —, the merge candidate and its tree, the criteria
+    //      and the mandatory checks it was reviewed against, what each check ran and gave, the
+    //      architect's findings, the conflicting files, the secret scan, the reviewer's verdict and
+    //      the state) and the criteria a functional approval was given for (`functional_criteria`,
+    //      JSON; filled for the approvals that exist — the criteria could not change under them, a
+    //      change of criteria drops the approval in the same transaction since migration 15)
+    "CREATE TABLE integration_reviews (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        root        TEXT NOT NULL,
+        key         TEXT NOT NULL,
+        target      TEXT NOT NULL,
+        base        TEXT NOT NULL,
+        branch      TEXT NOT NULL,
+        head        TEXT NOT NULL,
+        candidate   TEXT NOT NULL,
+        tree        TEXT NOT NULL,
+        criteria    TEXT NOT NULL,
+        required    TEXT NOT NULL,
+        checks      TEXT NOT NULL,
+        arch_rules  INTEGER NOT NULL DEFAULT 0,
+        arch        TEXT NOT NULL,
+        conflicts   TEXT NOT NULL,
+        scan        TEXT,
+        verdict     TEXT,
+        reviewer    TEXT,
+        tokens_in   INTEGER NOT NULL DEFAULT 0,
+        tokens_out  INTEGER NOT NULL DEFAULT 0,
+        state       TEXT NOT NULL,
+        error       TEXT,
+        actor       TEXT NOT NULL,
+        created     INTEGER NOT NULL,
+        updated     INTEGER NOT NULL
+    );
+    CREATE INDEX idx_integration_reviews ON integration_reviews(root, key, id);
+    ALTER TABLE issues ADD COLUMN functional_criteria TEXT;
+    UPDATE issues SET functional_criteria = (
+        SELECT json_group_array(a.text ORDER BY a.ord) FROM acceptance a
+        WHERE a.root = issues.root AND a.key = issues.key
+    ) WHERE functional_by IS NOT NULL;",
 ];
 
 /// The schema version this code expects.
@@ -615,5 +655,47 @@ mod tests {
                 .unwrap();
             assert_eq!(n, 0, "{t} is not back-filled");
         }
+    }
+
+    /// Migration 19: the approvals that exist get the criteria they stand for (in order); an issue
+    /// without an approval gets none; the reviews table starts empty.
+    #[test]
+    fn migration_19_records_the_criteria_of_the_existing_approvals() {
+        let mut c = Connection::open_in_memory().unwrap();
+        c.execute_batch("CREATE TABLE schema_version (version INTEGER NOT NULL)")
+            .unwrap();
+        for (i, sql) in MIGRATIONS.iter().take(18).enumerate() {
+            c.execute_batch(sql).unwrap();
+            c.execute(
+                "INSERT INTO schema_version (version) VALUES (?1)",
+                params![i as u32 + 1],
+            )
+            .unwrap();
+        }
+        c.execute_batch(
+            "INSERT INTO issues (root, key, title, kind, priority, rank, state, created, updated, functional_by, functional_at)
+             VALUES ('/p', 'P-1', 't', 'story', 'medium', 1, 'review', 1, 1, 'Ana', 5);
+             INSERT INTO issues (root, key, title, kind, priority, rank, state, created, updated)
+             VALUES ('/p', 'P-2', 't', 'story', 'medium', 2, 'review', 1, 1);
+             INSERT INTO acceptance (root, key, ord, text) VALUES ('/p', 'P-1', 1, 'segundo \"b\"');
+             INSERT INTO acceptance (root, key, ord, text) VALUES ('/p', 'P-1', 0, 'primeiro');
+             INSERT INTO acceptance (root, key, ord, text) VALUES ('/p', 'P-2', 0, 'x');",
+        )
+        .unwrap();
+        migrate(&mut c).unwrap();
+        let got: Vec<Option<String>> = c
+            .prepare("SELECT functional_criteria FROM issues ORDER BY key")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        let first: Vec<String> = serde_json::from_str(got[0].as_deref().unwrap()).unwrap();
+        assert_eq!(first, ["primeiro", "segundo \"b\""]);
+        assert_eq!(got[1], None);
+        let n: i64 = c
+            .query_row("SELECT COUNT(*) FROM integration_reviews", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 0);
     }
 }
