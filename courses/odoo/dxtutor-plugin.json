@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "id": "odoo",
+  "name": "Odoo",
+  "version": "1.0.0",
+  "description": "Odoo: Modules and an Angolan Localization, 18 to 20 — manifest, models, views, security, wizards, data files, the PGC chart template, taxes, fiscal positions, the NIF, HR (IRT, INSS, public holidays) and an Enterprise payroll structure, by building l10n_ao the way Odoo's native localizations are built. Graded in a real Odoo 18, 19 or 20 with PostgreSQL, in a private rootless Podman sandbox, offline, against pinned images.",
+  "authors": ["dxtutor"],
+  "license": "MIT OR Apache-2.0",
+  "repository": "https://github.com/ngolacloud/dxtutor-course-odoo",
+  "engine": ">=0.7.0",
+  "kind": "course",
+  "category": "framework",
+  "subject": {
+    "id": "odoo",
+    "name": "Odoo",
+    "icon": "🟪",
+    "docs": "https://www.odoo.com/documentation/"
+  },
+  "language": {
+    "id": "odoo-module",
+    "name": "Odoo module",
+    "icon": "🟪",
+    "extension": "py",
+    "indent": "4",
+    "testCommand": "odoo -i <module> --test-tags /<module> --stop-after-init"
+  },
+  "courses": ["courses/odoo.toml"]
+}

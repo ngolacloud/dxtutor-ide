@@ -23,11 +23,13 @@ export const LANGUAGE_CATALOG: readonly Language[] = [
 
 /** Linguagens em que um curso se ESCREVE e se avalia sem serem linguagens do catálogo (não contam
  *  para o tecto de 10 nem aparecem como cartões): o YAML dos cursos de ferramentas (Kubernetes,
- *  Delonix) e o Dockerfile dos de contentores (Docker, Podman), avaliados por verificações no
+ *  Delonix), o Dockerfile dos de contentores (Docker, Podman) e os módulos do curso de Odoo
+ *  (`odoo-module`: Python, XML e CSV, avaliados num Odoo do sandbox), avaliados por verificações no
  *  backend. Dão a extensão e a indentação do editor. */
 export const EVALUATION_LANGUAGES: readonly Language[] = [
   { id: "yaml", name: "YAML", icon: "📄", extension: "yaml", indent: "  " },
   { id: "dockerfile", name: "Dockerfile", icon: "📦", extension: "dockerfile", indent: "    " },
+  { id: "odoo-module", name: "Odoo module", icon: "🟪", extension: "py", indent: "    " },
 ];
 
 /** `"tab"` → tabulação; `"4"` → quatro espaços; qualquer outra coisa → quatro espaços. */

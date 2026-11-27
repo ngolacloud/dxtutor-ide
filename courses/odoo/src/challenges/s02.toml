@@ -1,0 +1,54 @@
+id = "exemption-model"
+title = "A model for the AGT exemption reasons"
+points = 50
+difficulty = 3
+main = "l10n_ao/models/l10n_ao_tax_exemption_reason.py"
+install = ["l10n_ao", "dxt_check"]
+test_tags = ["/dxt_check"]
+min_tests = 7
+message = "The exemption reason model and the new account.tax field must behave as the instructions say."
+intro = "Model the table every Angolan invoice needs when it charges no IVA."
+instructions = '''
+An Angolan invoice that charges no IVA must print *why*, with the legal rule (Decreto
+Presidencial n.º 71/25, art. 10.º, n.º 1, f)). AGT publishes the reasons as a table of codes —
+M11, M13, M30… for IVA and S01–S03 for Imposto do Selo (Decreto Executivo n.º 683/25, Anexo I,
+Tabelas 4 and 5). Write the model that holds that table, in
+`l10n_ao/models/l10n_ao_tax_exemption_reason.py`:
+
+- `_name = 'l10n_ao.tax.exemption.reason'`, a `_description`, ordered by `code`;
+- fields `code` (Char, required, `size=3`), `name` (Char, required — the mention printed on the
+  invoice), `description` (Text), `tax_type` (Selection `iva`/`is`, required, default `iva`)
+  and `active` (Boolean, default `True`);
+- the display name is `"<code> - <name>"` (`_compute_display_name`), and searching by code works
+  (`_rec_names_search = ['code', 'name']`);
+- `code` is unique — {constraint_rule};
+- a Python constraint (`@api.constrains`) refuses a code that is not a letter and two digits
+  (`^[MS][0-9]{2}$`) and a code whose letter does not match the tax type (M for IVA, S for
+  Imposto do Selo), with `ValidationError`.
+
+Then, in `l10n_ao/models/account_tax.py`, extend `account.tax` with
+`l10n_ao_exemption_reason_id` (Many2one to the new model, `ondelete='restrict'`) and a
+constraint: only a 0% percentage tax may carry a reason.
+
+The manifest, `models/__init__.py` and a provisional access file (administrators only; unit 4
+writes the real one) are given. Messages shown to the user go through `self.env._()`.
+'''
+explanation = '''
+Fields are declared on the class and Odoo creates the table and columns at install. Since Odoo 17
+the display name is a computed field (`_compute_display_name`), not `name_get()`, and
+`_rec_names_search` lists the fields `name_search` looks in. `@api.constrains` runs after create
+and write and must raise `ValidationError`; the SQL constraint is enforced by PostgreSQL itself,
+which is why the test expects a database error. {constraint_explanation}
+'''
+
+[vars."18.0"]
+constraint_rule = "in Odoo 18 with `_sql_constraints = [('code_uniq', 'unique(code)', '…')]`"
+constraint_explanation = "Odoo 18 still declares SQL constraints in the `_sql_constraints` list; Odoo 19 replaced it with `models.Constraint` attributes and only warns about the old list."
+
+[vars."19.0"]
+constraint_rule = "in Odoo 19 with a class attribute `_code_uniq = models.Constraint('UNIQUE(code)', '…')` (the old `_sql_constraints` list is no longer supported: Odoo logs a warning and ignores it)"
+constraint_explanation = "Odoo 19 replaced `_sql_constraints` with `models.Constraint(definition, message)` class attributes (and `models.Index` for indexes); an old `_sql_constraints` list only produces the warning `Model attribute '_sql_constraints' is no longer supported` and no constraint."
+
+[vars."20.0"]
+constraint_rule = "with a class attribute `_code_uniq = models.Constraint('UNIQUE(code)', '…')`, as in Odoo 19 (`_sql_constraints` is ignored with a warning)"
+constraint_explanation = "Odoo 20 keeps Odoo 19's `models.Constraint(definition, message)`; an old `_sql_constraints` list only produces a warning and no constraint."

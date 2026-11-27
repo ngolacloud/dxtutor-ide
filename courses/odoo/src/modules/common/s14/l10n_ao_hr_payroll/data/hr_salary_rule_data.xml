@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Part of the dxtutor Odoo course (l10n_ao_hr_payroll). License: LGPL-3.
+     The rules hold no rate: they ask l10n_ao_hr, which reads the IRT table and the INSS parameters
+     valid on the payslip date (Employees > Configuration > Angola). Between GROSS (100) and NET (200). -->
+<odoo>
+    <record id="rule_ao_inss_employee" model="hr.salary.rule">
+        <field name="name">INSS (worker)</field>
+        <field name="code">AO_INSS</field>
+        <field name="sequence">110</field>
+        <field name="category_id" ref="hr_payroll.DED"/>
+        <field name="condition_select">none</field>
+        <field name="amount_select">code</field>
+        <field name="amount_python_compute">result = -payslip._l10n_ao_compute(categories['GROSS'])['inss_employee']</field>
+        <field name="struct_id" ref="structure_ao_monthly"/>
+    </record>
+    <record id="rule_ao_irt" model="hr.salary.rule">
+        <field name="name">IRT</field>
+        <field name="code">AO_IRT</field>
+        <field name="sequence">120</field>
+        <field name="category_id" ref="hr_payroll.DED"/>
+        <field name="condition_select">none</field>
+        <field name="amount_select">code</field>
+        <field name="amount_python_compute">result = -payslip._l10n_ao_compute(categories['GROSS'])['irt']</field>
+        <field name="struct_id" ref="structure_ao_monthly"/>
+    </record>
+    <record id="rule_ao_inss_employer" model="hr.salary.rule">
+        <field name="name">INSS (employer)</field>
+        <field name="code">AO_INSS_COMP</field>
+        <field name="sequence">130</field>
+        <field name="category_id" ref="hr_payroll.COMP"/>
+        <field name="condition_select">none</field>
+        <field name="amount_select">code</field>
+        <field name="amount_python_compute">result = payslip._l10n_ao_compute(categories['GROSS'])['inss_employer']</field>
+        <field name="struct_id" ref="structure_ao_monthly"/>
+    </record>
+</odoo>

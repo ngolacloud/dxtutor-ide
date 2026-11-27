@@ -1,0 +1,52 @@
+id = "payroll-ee"
+title = "Enterprise payroll: a salary structure that asks l10n_ao_hr"
+points = 60
+difficulty = 4
+versions = ["18.0", "19.0"]
+main = "l10n_ao_hr_payroll/data/hr_salary_rule_data.xml"
+exclude = ["l10n_ao/"]
+install = ["l10n_ao_hr_payroll", "dxt_check"]
+test_tags = ["/dxt_check"]
+min_tests = 4
+enterprise = true
+enterprise_modules = ["hr_payroll"]
+timeout_secs = 1500
+message = "The Angolan salary rules must take INSS and IRT from l10n_ao_hr and land between GROSS and NET."
+intro = "Odoo Enterprise only: salary rules that hold no rate."
+instructions = '''
+**This step needs Odoo {series} Enterprise.** It is graded only when your Enterprise addons are
+configured (`DXTUTOR_ODOO_ENTERPRISE_{major}`, mounted read-only); otherwise it is skipped and
+you can still read it and its solution. dxtutor never downloads or copies Enterprise code.
+
+`l10n_ao_hr_payroll` depends on `hr_payroll` and on your `l10n_ao_hr`. The structure type
+"Angola: Employee", the structure "Angola: Monthly Pay" (`AOMONTHLY`, which keeps `hr_payroll`'s
+default rules BASIC, GROSS and NET) and the payslip method `_l10n_ao_compute(gross)` — which calls
+`l10n_ao_hr` with the payslip's end date — are given. Write the three rules in
+`data/hr_salary_rule_data.xml`, all with `struct_id` `structure_ao_monthly`,
+`condition_select` `none` and `amount_select` `code`, placed between GROSS (sequence 100) and NET
+(200):
+
+| id | code | name | sequence | category | amount |
+|---|---|---|---|---|---|
+| `rule_ao_inss_employee` | `AO_INSS` | INSS (worker) | 110 | `hr_payroll.DED` | `result = -payslip._l10n_ao_compute(categories['GROSS'])['inss_employee']` |
+| `rule_ao_irt` | `AO_IRT` | IRT | 120 | `hr_payroll.DED` | `result = -payslip._l10n_ao_compute(categories['GROSS'])['irt']` |
+| `rule_ao_inss_employer` | `AO_INSS_COMP` | INSS (employer) | 130 | `hr_payroll.COMP` | `result = payslip._l10n_ao_compute(categories['GROSS'])['inss_employer']` |
+
+No rate in a rule: change the INSS parameter in Employees › Configuration › Angola and the next
+payslip changes.
+'''
+explanation = '''
+A salary rule's Python runs in a sandbox with `payslip`, `employee`, `categories`, `inputs` and
+{contract_var}. DED lines are negative and enter NET (`BASIC + ALW + DED`); COMP lines are
+employer costs outside the net. Calling the l10n_ao_hr layer keeps one source of truth for the
+rules of computation and for the values, shared by Community (which has no payroll app) and
+Enterprise. The Enterprise payroll also has `hr.rule.parameter`; l10n_ao_hr's own parameter model
+exists because Community must hold the values too. Odoo 20 Enterprise could not be verified while
+this course was written, so the course does not ship a 20 version of this step.
+'''
+
+[vars."18.0"]
+contract_var = "`contract` (the `hr.contract`, the Community module `hr_contract` in Odoo 18)"
+
+[vars."19.0"]
+contract_var = "`version` (Odoo 19 removed `hr.contract`: the wage and the contract data live on `hr.version`, which `hr.employee` `_inherits`; rules that used `contract.wage` now read `version.wage`)"

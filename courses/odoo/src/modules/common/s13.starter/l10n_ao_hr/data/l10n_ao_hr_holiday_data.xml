@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Part of the dxtutor Odoo course (l10n_ao_hr). License: LGPL-3.
+     The twelve feriados nacionais of Lei n.º 10/11, art. 2.º, as amended by Lei n.º 11/18 (no later
+     amendment found up to Aug 2026). Rules, not dates: the person responsible edits and extends them
+     (a municipal holiday, a new law) in Employees > Configuration > Angola, and noupdate="1" keeps
+     those edits. The datas de celebração nacional (art. 3.º) are not days off and are not here. -->
+<odoo noupdate="1">
+    <record id="holiday_ano_novo" model="l10n_ao_hr.holiday">
+        <field name="name">Dia do Ano Novo</field>
+        <field name="rule">fixed</field>
+        <field name="day">1</field>
+        <field name="month">1</field>
+        <field name="source">Lei n.º 10/11, de 16 de Fevereiro, art. 2.º (redacção da Lei n.º 11/18, de 28 de Setembro)</field>
+    </record>
+    <record id="holiday_inicio_luta_armada" model="l10n_ao_hr.holiday">
+        <field name="name">Dia do Início da Luta Armada de Libertação Nacional</field>
+        <field name="rule">fixed</field>
+        <field name="day">4</field>
+        <field name="month">2</field>
+        <field name="source">Lei n.º 10/11, de 16 de Fevereiro, art. 2.º (redacção da Lei n.º 11/18, de 28 de Setembro)</field>
+    </record>
+    <record id="holiday_mulher" model="l10n_ao_hr.holiday">
+        <field name="name">Dia Internacional da Mulher</field>
+        <field name="rule">fixed</field>
+        <field name="day">8</field>
+        <field name="month">3</field>
+        <field name="source">Lei n.º 10/11, de 16 de Fevereiro, art. 2.º (redacção da Lei n.º 11/18, de 28 de Setembro)</field>
+    </record>
+    <record id="holiday_africa_austral" model="l10n_ao_hr.holiday">
+        <field name="name">Dia da Libertação da África Austral</field>
+        <field name="rule">fixed</field>
+        <field name="day">23</field>
+        <field name="month">3</field>
+        <field name="source">Lei n.º 10/11, de 16 de Fevereiro, art. 2.º (redacção da Lei n.º 11/18, de 28 de Setembro)</field>
+    </record>
+    <record id="holiday_paz" model="l10n_ao_hr.holiday">
+        <field name="name">Dia da Paz e da Reconciliação Nacional</field>
+        <field name="rule">fixed</field>
+        <field name="day">4</field>
+        <field name="month">4</field>
+        <field name="source">Lei n.º 10/11, de 16 de Fevereiro, art. 2.º (redacção da Lei n.º 11/18, de 28 de Setembro)</field>
+    </record>
+    <record id="holiday_trabalhador" model="l10n_ao_hr.holiday">
+        <field name="name">Dia Internacional do Trabalhador</field>
+        <field name="rule">fixed</field>
+        <field name="day">1</field>
+        <field name="month">5</field>
+        <field name="source">Lei n.º 10/11, de 16 de Fevereiro, art. 2.º (redacção da Lei n.º 11/18, de 28 de Setembro)</field>
+    </record>
+    <record id="holiday_fundador" model="l10n_ao_hr.holiday">
+        <field name="name">Dia do Fundador da Nação e do Herói Nacional</field>
+        <field name="rule">fixed</field>
+        <field name="day">17</field>
+        <field name="month">9</field>
+        <field name="source">Lei n.º 10/11, de 16 de Fevereiro, art. 2.º (redacção da Lei n.º 11/18, de 28 de Setembro)</field>
+    </record>
+    <record id="holiday_finados" model="l10n_ao_hr.holiday">
+        <field name="name">Dia dos Finados</field>
+        <field name="rule">fixed</field>
+        <field name="day">2</field>
+        <field name="month">11</field>
+        <field name="source">Lei n.º 10/11, de 16 de Fevereiro, art. 2.º (redacção da Lei n.º 11/18, de 28 de Setembro)</field>
+    </record>
+    <record id="holiday_independencia" model="l10n_ao_hr.holiday">
+        <field name="name">Dia da Independência</field>
+        <field name="rule">fixed</field>
+        <field name="day">11</field>
+        <field name="month">11</field>
+        <field name="source">Lei n.º 10/11, de 16 de Fevereiro, art. 2.º (redacção da Lei n.º 11/18, de 28 de Setembro)</field>
+    </record>
+    <record id="holiday_natal" model="l10n_ao_hr.holiday">
+        <field name="name">Dia de Natal e da Família</field>
+        <field name="rule">fixed</field>
+        <field name="day">25</field>
+        <field name="month">12</field>
+        <field name="source">Lei n.º 10/11, de 16 de Fevereiro, art. 2.º (redacção da Lei n.º 11/18, de 28 de Setembro)</field>
+    </record>
+    <!-- TODO: the two moveable holidays (see the instructions). -->
+</odoo>

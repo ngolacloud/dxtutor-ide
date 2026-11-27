@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Part of the dxtutor Odoo course (l10n_ao_hr). License: LGPL-3.
+     IRT Grupo A, monthly, 2026: Lei n.º 14/25, de 30 de Dezembro (OGE 2026), art. 21.º and Anexo I
+     (DR I Série n.º 244, p. 23180). Copied as published, including the jump at Kz 150 000 (the 2.º
+     escalão starts with a fixed Kz 12 500). Valid until 2026-12-31: whether it outlives the 2026
+     budget is to be confirmed, so a 2027 payroll is refused until a table for 2027 is entered. -->
+<odoo noupdate="1">
+    <record id="irt_table_2026" model="l10n_ao_hr.irt.table">
+        <field name="name">IRT Grupo A 2026 (Lei n.º 14/25, Anexo I)</field>
+        <field name="date_from">2026-01-01</field>
+        <field name="date_to">2026-12-31</field>
+        <field name="exempt_threshold">150000</field>
+        <field name="source">Lei n.º 14/25, de 30 de Dezembro, art. 21.º, n.º 3 e Anexo I</field>
+    </record>
+    <record id="irt_table_2026_b02" model="l10n_ao_hr.irt.bracket">
+        <field name="table_id" ref="irt_table_2026"/>
+        <field name="lower_limit">150000</field>
+        <field name="upper_limit">200000</field>
+        <field name="fixed_amount">12500</field>
+        <field name="rate">16</field>
+        <field name="excess_over">150000</field>
+    </record>
+    <record id="irt_table_2026_b03" model="l10n_ao_hr.irt.bracket">
+        <field name="table_id" ref="irt_table_2026"/>
+        <field name="lower_limit">200000</field>
+        <field name="upper_limit">300000</field>
+        <field name="fixed_amount">31250</field>
+        <field name="rate">18</field>
+        <field name="excess_over">200000</field>
+    </record>
+    <record id="irt_table_2026_b04" model="l10n_ao_hr.irt.bracket">
+        <field name="table_id" ref="irt_table_2026"/>
+        <field name="lower_limit">300000</field>
+        <field name="upper_limit">500000</field>
+        <field name="fixed_amount">49250</field>
+        <field name="rate">19</field>
+        <field name="excess_over">300000</field>
+    </record>
+    <record id="irt_table_2026_b05" model="l10n_ao_hr.irt.bracket">
+        <field name="table_id" ref="irt_table_2026"/>
+        <field name="lower_limit">500000</field>
+        <field name="upper_limit">1000000</field>
+        <field name="fixed_amount">87250</field>
+        <field name="rate">20</field>
+        <field name="excess_over">500000</field>
+    </record>
+    <record id="irt_table_2026_b06" model="l10n_ao_hr.irt.bracket">
+        <field name="table_id" ref="irt_table_2026"/>
+        <field name="lower_limit">1000000</field>
+        <field name="upper_limit">1500000</field>
+        <field name="fixed_amount">187250</field>
+        <field name="rate">21</field>
+        <field name="excess_over">1000000</field>
+    </record>
+    <record id="irt_table_2026_b07" model="l10n_ao_hr.irt.bracket">
+        <field name="table_id" ref="irt_table_2026"/>
+        <field name="lower_limit">1500000</field>
+        <field name="upper_limit">2000000</field>
+        <field name="fixed_amount">292250</field>
+        <field name="rate">22</field>
+        <field name="excess_over">1500000</field>
+    </record>
+    <record id="irt_table_2026_b08" model="l10n_ao_hr.irt.bracket">
+        <field name="table_id" ref="irt_table_2026"/>
+        <field name="lower_limit">2000000</field>
+        <field name="upper_limit">2500000</field>
+        <field name="fixed_amount">402250</field>
+        <field name="rate">23</field>
+        <field name="excess_over">2000000</field>
+    </record>
+    <record id="irt_table_2026_b09" model="l10n_ao_hr.irt.bracket">
+        <field name="table_id" ref="irt_table_2026"/>
+        <field name="lower_limit">2500000</field>
+        <field name="upper_limit">5000000</field>
+        <field name="fixed_amount">517250</field>
+        <field name="rate">24</field>
+        <field name="excess_over">2500000</field>
+    </record>
+    <record id="irt_table_2026_b10" model="l10n_ao_hr.irt.bracket">
+        <field name="table_id" ref="irt_table_2026"/>
+        <field name="lower_limit">5000000</field>
+        <field name="upper_limit">10000000</field>
+        <field name="fixed_amount">1117250</field>
+        <field name="rate">24.5</field>
+        <field name="excess_over">5000000</field>
+    </record>
+    <record id="irt_table_2026_b11" model="l10n_ao_hr.irt.bracket">
+        <field name="table_id" ref="irt_table_2026"/>
+        <field name="lower_limit">10000000</field>
+        <field name="upper_limit">0</field>
+        <field name="fixed_amount">2342250</field>
+        <field name="rate">25</field>
+        <field name="excess_over">10000000</field>
+    </record>
+</odoo>

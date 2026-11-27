@@ -1,0 +1,49 @@
+id = "views"
+title = "Views, an action and a menu"
+points = 50
+difficulty = 3
+main = "l10n_ao/views/l10n_ao_tax_exemption_reason_views.xml"
+install = ["l10n_ao", "dxt_check"]
+test_tags = ["/dxt_check"]
+min_tests = 5
+message = "The views must load in this Odoo version and show what the instructions ask."
+intro = "Give the exemption reasons a screen, and put the reason on the tax form."
+instructions = '''
+Write `l10n_ao/views/l10n_ao_tax_exemption_reason_views.xml` (already listed in the manifest):
+
+- a **list** view `l10n_ao_tax_exemption_reason_view_list` with `code`, `name`, `tax_type`, in
+  that order — the root tag is `<list>`;
+- a **form** view `l10n_ao_tax_exemption_reason_view_form` with a `<sheet>` and the fields `code`,
+  `tax_type`, `active`, `name` and `description`;
+- a **search** view `l10n_ao_tax_exemption_reason_view_search`: search on `code` and `name`,
+  filters named `iva` (`tax_type = 'iva'`) and `inactive` (archived records), and a group-by
+  filter `group_tax_type` (`context="{'group_by': 'tax_type'}"`) inside a `<group>`;
+- a window action `action_l10n_ao_tax_exemption_reason` (`view_mode` `list,form`) and a menu
+  `menu_l10n_ao_tax_exemption_reason` under **Accounting › Configuration › Accounting**
+  (`account.account_account_menu`), for `account.group_account_manager`;
+- an extension of the tax form `account.view_tax_form` (record
+  `view_tax_form_inherit_l10n_ao`) that adds `l10n_ao_exemption_reason_id` right after
+  `tax_group_id`, visible only for Angolan 0% percentage taxes:
+  `invisible="country_code != 'AO' or amount_type != 'percent' or amount != 0"`.
+
+Odoo {series} validates every view when the module installs: a wrong tag, a field that does not
+exist or an old `attrs=` makes the install fail, and the grader shows Odoo's message.
+'''
+explanation = '''
+Views are records of `ir.ui.view` whose `arch` is XML. Since Odoo 17, `invisible`, `readonly`
+and `required` take Python expressions evaluated in the browser (the old `attrs` and `states`
+were removed), and since Odoo 18 the list view is `<list>` — `<tree>` makes the install fail
+with *Invalid view type: 'tree'*, and actions say `list,form` instead of `tree,form`. An
+inherited view uses `position="after"` on a field of the parent arch; the anchor
+`tax_group_id` exists in the tax form of Odoo 18, 19 and 20, which is why it was chosen.
+{view_explanation}
+'''
+
+[vars."18.0"]
+view_explanation = "In Odoo 18 the search view's group-by `<group>` takes no attributes (the old `expand=\"0\" string=\"Group By\"` are optional and ignored)."
+
+[vars."19.0"]
+view_explanation = "Odoo 19 keeps the same syntax as 18 for these views; the tax form moved fields between groups, but `tax_group_id` is still there."
+
+[vars."20.0"]
+view_explanation = "Odoo 20 keeps the same syntax; in its tax form `tax_scope` moved next to `tax_group_id`, and the `<group>` of a search view is written without attributes, as here."

@@ -1,0 +1,71 @@
+id = "taxes"
+title = "Taxes: IVA, cativação, Imposto do Selo and withholdings"
+points = 80
+difficulty = 4
+main = "l10n_ao/models/account_move.py"
+install = ["l10n_ao", "dxt_check"]
+test_tags = ["/dxt_check"]
+min_tests = 9
+timeout_secs = 900
+message = "The tax groups, the cativo and withholding taxes and the threshold check must give the amounts and accounts the instructions describe."
+intro = "Taxes as data: groups, repartition lines to the PGC accounts, and one rule that reads its value from the tax."
+instructions = '''
+The taxes are records the chart creates for each company, from
+`data/template/account.tax-ao.csv`; the rates, accounts and thresholds are **data the person
+responsible edits in Odoo** (Accounting › Configuration › Taxes), never constants in Python.
+Most taxes are given. Complete:
+
+1. `data/template/account.tax.group-ao.csv` (the header is there): the groups
+   `tax_group_iva_14` "IVA 14%", `tax_group_iva_7` "IVA 7%", `tax_group_iva_5` "IVA 5%",
+   `tax_group_iva_1` "IVA 1%", `tax_group_iva_0` "IVA Isento", `tax_group_selo` "Imposto do Selo"
+   and `tax_group_retencao` "Retenções na fonte", all with `country_id` `base.ao`{group_rule}.
+2. In the tax CSV, the **cativação** (CIVA art. 21.º: a bank, an insurer or a telecom operator
+   withholds 50% of the IVA it is charged; the State and oil companies 100%) and the Imposto
+   Industrial withholding. Copy the shape of `iva_sale_14` (one row with the tax and its first
+   repartition line, then one row per extra line, for `invoice` and for `refund`):
+   - `iva_cativo_50` "IVA cativo 50% (retido pelo cliente)": `type_tax_use` `none`, amount
+     **−7** (half of 14%), group `tax_group_iva_14`, its tax line to `pgc_34572` (IVA a recuperar
+     – de cativo); and `iva_cativo_100` the same with **−14**;
+   - `iva_sale_14_cativo50` "IVA 14% (cativo 50%)": a **group of taxes** (`amount_type`
+     `group`, amount 0, `type_tax_use` `sale`) whose `children_tax_ids` are
+     `iva_sale_14,iva_cativo_50` — no repartition lines: the children have them; and
+     `iva_sale_14_cativo100` with `iva_sale_14,iva_cativo_100`;
+   - `ret_ii_6_5` "Retenção na fonte Imposto Industrial 6,5%": a purchase tax of **−6.5** in the
+     group `tax_group_retencao`, its tax line to `pgc_3491`, and `l10n_ao_withholding_threshold`
+     **20000** (Código do II, art. 67.º: services up to Kz 20 000 are not withheld).
+3. `models/account_move.py`: override `_post(self, soft=True)` so that, on a vendor bill
+   (`is_purchase_document(include_receipts=True)`), a tax with a threshold refuses with
+   `UserError` when the bill's untaxed amount in company currency (`abs(amount_untaxed_signed)`)
+   does not exceed the tax's `l10n_ao_withholding_threshold`
+   (`company_currency_id.compare_amounts(...) <= 0`). The value is read from the tax — the
+   grader changes it and posts again.
+
+The new field `l10n_ao_withholding_threshold`, its place in the tax form and the company's
+default taxes are given.
+'''
+explanation = '''
+A tax's amount is split by its **repartition lines**: one `base` line and any number of `tax`
+lines, each a percentage of the tax amount going to an account, separately for invoices and
+refunds. Odoo requires the positive tax lines to total 100% (and the negative ones, if any, −100%),
+so a "14% minus half of it" cannot be one tax: it is a **group** of the normal 14% and a −7% child
+that records the IVA the customer withholds (IVA cativo) as IVA to recover. Lines of +100% and −100%
+net to zero: that is how the reverse charge (autoliquidação) and an Imposto do Selo borne by the
+issuer are written. Note that the −7% depends on the 14%: if the rate changes, the person
+responsible updates both records. Withholdings are negative purchase taxes. The threshold rule shows the
+module's design principle: Python holds the *rule*, the record holds the *value*. Taxes left out
+on purpose: the 7% of the regime simplificado is due on cash received, not per invoice, and the
+SAF-T tax codes (NOR/INT/RED) are not in the module because no text maps them to rates.
+{group_explanation}
+'''
+
+[vars."18.0"]
+group_rule = ", and for the five IVA groups `tax_payable_account_id` `pgc_34561` and `tax_receivable_account_id` `pgc_34571` (the IVA closing goes to IVA a pagar / a recuperar)"
+group_explanation = "In Odoo 18 a tax group carries the payable and receivable accounts used by the tax closing entry."
+
+[vars."19.0"]
+group_rule = ", and for the five IVA groups `tax_payable_account_id` `pgc_34561` and `tax_receivable_account_id` `pgc_34571` (the IVA closing goes to IVA a pagar / a recuperar)"
+group_explanation = "Odoo 19 still keeps the closing accounts on the tax group."
+
+[vars."20.0"]
+group_rule = " (Odoo 20's tax groups have no payable/receivable accounts any more: just `id`, `name`, `country_id`)"
+group_explanation = "Odoo 20 removed the payable and receivable accounts from `account.tax.group`; the tax group CSV is reduced to `id`, `name` and `country_id`."

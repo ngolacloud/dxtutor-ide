@@ -23,13 +23,16 @@ const gateway = (list: CourseSummary[]): CourseGateway => ({
 
 describe("cursos de ferramentas", () => {
   test("o YAML é uma linguagem de avaliação, não uma linguagem do catálogo", () => {
-    expect(EVALUATION_LANGUAGES.map(l => l.id)).toEqual(["yaml", "dockerfile"]);
+    expect(EVALUATION_LANGUAGES.map(l => l.id)).toEqual(["yaml", "dockerfile", "odoo-module"]);
     expect(LANGUAGE_CATALOG.some(l => l.id === "yaml")).toBe(false);
     expect(LANGUAGE_CATALOG).toHaveLength(MAX_OFFICIAL_LANGUAGES);
     // O editor tira daqui a extensão e a indentação (2 espaços, a convenção dos manifestos).
     expect(findLanguage("yaml", [])).toMatchObject({ extension: "yaml", indent: "  " });
     // Nunca vira um cartão de linguagem, nem com um curso indexado por `yaml`.
     expect(languageCards({ yaml: toolCourse("yaml") }, []).some(c => c.language.id === "yaml")).toBe(false);
+    // O curso de Odoo (Learn P3c) escreve-se em ficheiros de módulos: Python por omissão, 4 espaços.
+    expect(findLanguage("odoo-module", [])).toMatchObject({ extension: "py", indent: "    " });
+    expect(LANGUAGE_CATALOG.some(l => l.id === "odoo-module")).toBe(false);
   });
 
   test("Kubernetes e Delonix ficam «Available» quando o backend serve os cursos", async () => {

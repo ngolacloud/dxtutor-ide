@@ -393,11 +393,29 @@ fn test(args: &[String]) -> Result<()> {
                 }
                 let t0 = std::time::Instant::now();
                 let verdict = check_step(course, step);
-                let took = if live {
+                // Live and Odoo steps run containers: say how long each took.
+                let took = if live
+                    || (tutor_core::toolcheck::odoo_language(&course.language)
+                        && step.project.is_some())
+                {
                     format!(" [{:.0} s]", t0.elapsed().as_secs_f64())
                 } else {
                     String::new()
                 };
+                // An Odoo Enterprise step without the user's Enterprise addons (Learn P3c) is
+                // skipped with the reason: dxtutor never downloads Enterprise code.
+                if let Err(why) = &verdict {
+                    if let Some(at) = why.find(tutor_core::odootest::ENTERPRISE_MISSING) {
+                        println!(
+                            "  - {:<9} {} skipped (Enterprise): {}",
+                            kind_name(step.kind),
+                            step.id,
+                            &why[at..]
+                        );
+                        skipped.push(step.id.clone());
+                        continue;
+                    }
+                }
                 match &verdict {
                     Ok(what) => {
                         passed += 1;
@@ -433,7 +451,7 @@ fn test(args: &[String]) -> Result<()> {
         println!("\n{passed} ok, {} failed", failed.len());
     } else {
         println!(
-            "\n{passed} ok, {} failed, {} skipped (live steps that could not run here)",
+            "\n{passed} ok, {} failed, {} skipped (live or Enterprise steps that could not run here)",
             failed.len(),
             skipped.len()
         );

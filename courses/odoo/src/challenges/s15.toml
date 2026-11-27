@@ -1,0 +1,32 @@
+id = "module-tests"
+title = "The module's own tests"
+points = 50
+difficulty = 3
+main = "l10n_ao/tests/test_l10n_ao.py"
+exclude = ["l10n_ao_hr/", "l10n_ao_hr_payroll/"]
+install = ["l10n_ao", "dxt_check"]
+test_tags = ["/l10n_ao", "/dxt_check"]
+min_tests = 5
+message = "l10n_ao must ship tests that run and cover the NIF, the exemption constraint and the provinces."
+intro = "A native module ships its tests; Odoo runs them with --test-tags."
+instructions = '''
+Native localizations carry a `tests/` package, and the grader of this step runs **yours**
+(`--test-tags /l10n_ao`) next to its own checks. In `l10n_ao/tests/test_l10n_ao.py` (imported by
+`tests/__init__.py`, which is given), write a `TransactionCase` tagged
+`@tagged('post_install', '-at_install')` with at least three tests:
+
+- the NIF check: `res.partner.check_vat_ao` accepts a Bilhete de Identidade number such as
+  `004567890LA042` and the generic `999999999`, and refuses `ABC`;
+- the exemption reason constraint: creating a 14% tax with `l10n_ao_exemption_reason_id` (use
+  `l10n_ao.exemption_reason_m13`) raises `ValidationError`;
+- the provinces: Angola (`base.ao`) has 21 `res.country.state` records.
+
+`post_install` runs the tests once every module is installed (the data of other modules is there);
+`-at_install` stops them from also running during the install itself.
+'''
+explanation = '''
+`--test-tags` selects tests by tag, module, class or method (`/l10n_ao:TestL10nAo.test_nif_formats`);
+in Odoo {series} it also turns the test mode on. Each test of a `TransactionCase` runs in a
+transaction that is rolled back, so tests never leave data behind. Odoo prints
+`F failed, E error(s) of N tests` at the end — the line this course's grader reads.
+'''

@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Part of the dxtutor Odoo course (l10n_ao_hr). License: LGPL-3. -->
+<odoo>
+    <record id="l10n_ao_hr_holiday_view_list" model="ir.ui.view">
+        <field name="name">l10n_ao_hr.holiday.list</field>
+        <field name="model">l10n_ao_hr.holiday</field>
+        <field name="arch" type="xml">
+            <list string="Public Holiday Rules" editable="bottom">
+                <field name="name"/>
+                <field name="rule"/>
+                <field name="day" invisible="rule != 'fixed'"/>
+                <field name="month" invisible="rule != 'fixed'"/>
+                <field name="easter_offset" invisible="rule != 'easter'"/>
+                <field name="bridge"/>
+                <field name="source" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="action_l10n_ao_hr_holiday" model="ir.actions.act_window">
+        <field name="name">Public Holiday Rules (AO)</field>
+        <field name="res_model">l10n_ao_hr.holiday</field>
+        <field name="view_mode">list</field>
+    </record>
+
+    <record id="l10n_ao_hr_public_holiday_wizard_view_form" model="ir.ui.view">
+        <field name="name">l10n_ao_hr.public.holiday.wizard.form</field>
+        <field name="model">l10n_ao_hr.public.holiday.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Generate Public Holidays">
+                <group>
+                    <group>
+                        <field name="year"/>
+                        <field name="company_id"/>
+                    </group>
+                    <group>
+                        <field name="calendar_id"/>
+                    </group>
+                </group>
+                <button name="action_propose" string="Propose dates" type="object" class="btn-secondary"/>
+                <field name="line_ids">
+                    <list editable="bottom" create="false">
+                        <field name="selected"/>
+                        <field name="date"/>
+                        <field name="name"/>
+                        <field name="kind"/>
+                    </list>
+                </field>
+                <footer>
+                    <button name="action_create" string="Create holidays" type="object" class="btn-primary" data-hotkey="q"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel" data-hotkey="x"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_l10n_ao_hr_public_holiday_wizard" model="ir.actions.act_window">
+        <field name="name">Generate Public Holidays (AO)</field>
+        <field name="res_model">l10n_ao_hr.public.holiday.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <menuitem id="menu_l10n_ao_hr_holiday" name="Public Holiday Rules" parent="menu_l10n_ao_hr_config" action="action_l10n_ao_hr_holiday" sequence="30"/>
+    <menuitem id="menu_l10n_ao_hr_public_holiday_wizard" name="Generate Public Holidays" parent="menu_l10n_ao_hr_config" action="action_l10n_ao_hr_public_holiday_wizard" sequence="40"/>
+</odoo>

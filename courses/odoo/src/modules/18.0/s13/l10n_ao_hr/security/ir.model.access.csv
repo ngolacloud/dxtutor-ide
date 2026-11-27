@@ -1,0 +1,13 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_l10n_ao_hr_parameter_user,l10n_ao_hr.parameter user,model_l10n_ao_hr_parameter,hr.group_hr_user,1,0,0,0
+access_l10n_ao_hr_parameter_manager,l10n_ao_hr.parameter manager,model_l10n_ao_hr_parameter,hr.group_hr_manager,1,1,1,1
+access_l10n_ao_hr_parameter_value_user,l10n_ao_hr.parameter.value user,model_l10n_ao_hr_parameter_value,hr.group_hr_user,1,0,0,0
+access_l10n_ao_hr_parameter_value_manager,l10n_ao_hr.parameter.value manager,model_l10n_ao_hr_parameter_value,hr.group_hr_manager,1,1,1,1
+access_l10n_ao_hr_irt_table_user,l10n_ao_hr.irt.table user,model_l10n_ao_hr_irt_table,hr.group_hr_user,1,0,0,0
+access_l10n_ao_hr_irt_table_manager,l10n_ao_hr.irt.table manager,model_l10n_ao_hr_irt_table,hr.group_hr_manager,1,1,1,1
+access_l10n_ao_hr_irt_bracket_user,l10n_ao_hr.irt.bracket user,model_l10n_ao_hr_irt_bracket,hr.group_hr_user,1,0,0,0
+access_l10n_ao_hr_irt_bracket_manager,l10n_ao_hr.irt.bracket manager,model_l10n_ao_hr_irt_bracket,hr.group_hr_manager,1,1,1,1
+access_l10n_ao_hr_holiday_user,l10n_ao_hr.holiday user,model_l10n_ao_hr_holiday,hr.group_hr_user,1,0,0,0
+access_l10n_ao_hr_holiday_manager,l10n_ao_hr.holiday manager,model_l10n_ao_hr_holiday,hr.group_hr_manager,1,1,1,1
+access_l10n_ao_hr_public_holiday_wizard_manager,l10n_ao_hr.public.holiday.wizard manager,model_l10n_ao_hr_public_holiday_wizard,hr.group_hr_manager,1,1,1,1
+access_l10n_ao_hr_public_holiday_wizard_line_manager,l10n_ao_hr.public.holiday.wizard.line manager,model_l10n_ao_hr_public_holiday_wizard_line,hr.group_hr_manager,1,1,1,1

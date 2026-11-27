@@ -1,0 +1,60 @@
+id = "public-holidays"
+title = "Public holidays: rules, a helper that proposes, a wizard that creates"
+points = 80
+difficulty = 4
+main = "l10n_ao_hr/tools/holidays.py"
+exclude = ["l10n_ao/"]
+install = ["l10n_ao_hr", "dxt_check"]
+test_tags = ["/dxt_check"]
+min_tests = 6
+message = "The holiday rules, the proposal of a year and the wizard must give the dates of the law."
+intro = "Rules as editable records; the helper proposes, the person responsible decides."
+instructions = '''
+`l10n_ao_hr.holiday` holds the **rules** of the feriados nacionais (a fixed day and month, or a
+number of days from Easter, with or without *ponte*); the views, the menu and the access rights are
+given. Three files:
+
+1. `data/l10n_ao_hr_holiday_data.xml` (`noupdate="1"`): the ten fixed holidays are there; add the
+   two moveable ones as rules `rule` `easter`: `holiday_carnaval` "Dia do Carnaval" with
+   `easter_offset` **−47** and `holiday_sexta_feira_santa` "Sexta-Feira Santa" with **−2**, and say
+   in `source` that the law names them without computing them (Easter − 47 and − 2 by custom).
+2. `tools/holidays.py`, pure Python:
+   - `easter(year)` — Easter Sunday in the Gregorian calendar (the anonymous algorithm of Meeus,
+     Jones and Butcher);
+   - `holiday_date(year, rule)` — the date of one rule;
+   - `propose(year, rules)` — a sorted list of `(date, name, kind)`: every rule as `'holiday'`, plus,
+     for a rule with `bridge`, a `'bridge'` named `"Ponte – <name>"` on the **Monday before a
+     Tuesday** holiday or the **Friday after a Thursday** one (Lei n.º 10/11, art. 6.º, as amended by
+     Lei n.º 11/18), unless that day is already in the list. No weekend transfer.
+3. `wizard/l10n_ao_hr_public_holiday_wizard.py`:
+   - `action_propose()` replaces the lines with `propose(self.year, rules of the active
+     l10n_ao_hr.holiday records)`, all selected, and returns an action that reopens the wizard
+     (`ir.actions.act_window`, this model and record, `target` `new`);
+   - `action_create()` creates a `resource.calendar.leaves` per **selected** line (with its possibly
+     edited date): `resource_id` empty, the wizard's company and working schedule, from midnight to
+     23:59:59 in the time zone `_l10n_ao_tz()` returns (given: {tz_rule}), stored in UTC; it skips a holiday that already exists (same company, schedule, start), so
+     running it twice creates nothing new.
+
+The grader checks the 2026 calendar of the law — twelve holidays and pontes on 2 January,
+16 February and 18 September —, edits the rules, and runs the wizard.
+'''
+explanation = '''
+Odoo has no notion of a recurring public holiday: it stores concrete days (`resource.calendar.leaves`
+without a resource), so a country module either ships fixed calendars that expire every year or
+ships rules. The rules are seeds the person responsible owns (`noupdate="1"`): a municipal holiday,
+a decision of the Executive or a new law is a new record. The wizard only *proposes*; a date is
+created after a person has seen it — which matters for Carnaval and Sexta-Feira Santa, whose dates
+the law leaves to custom. {version_explanation}
+'''
+
+[vars."18.0"]
+tz_rule = "the working schedule's `tz`, else the company schedule's, else the user's, else UTC"
+version_explanation = "In Odoo 18 the leave's kind is `time_type` (default `leave`), left at its default, and the time zone belongs to the working schedule (`resource.calendar.tz`)."
+
+[vars."19.0"]
+tz_rule = "the working schedule's `tz`, else the company schedule's, else the user's, else UTC"
+version_explanation = "Odoo 19 keeps `time_type` and `resource.calendar.tz`; the `hr` module also extends `resource.calendar.leaves`, which this wizard does not need."
+
+[vars."20.0"]
+tz_rule = "the company's `tz`, else the user's, else UTC — Odoo 20 removed `tz` from `resource.calendar` and put it on `res.company`"
+version_explanation = "Odoo 20 renamed `time_type` to `count_as` (`absence`/`working_time`), which the wizard does not set, and moved the time zone from the working schedule to the company (`res.company.tz`; a schedule has none) — the one line of the wizard that differs from 18 and 19."

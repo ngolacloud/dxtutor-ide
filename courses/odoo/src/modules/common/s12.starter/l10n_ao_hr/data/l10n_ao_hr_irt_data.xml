@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Part of the dxtutor Odoo course (l10n_ao_hr). License: LGPL-3.
+     IRT Grupo A, monthly, 2026: Lei n.º 14/25, de 30 de Dezembro (OGE 2026), art. 21.º and Anexo I
+     (DR I Série n.º 244, p. 23180). Copied as published, including the jump at Kz 150 000 (the 2.º
+     escalão starts with a fixed Kz 12 500). Valid until 2026-12-31: whether it outlives the 2026
+     budget is to be confirmed, so a 2027 payroll is refused until a table for 2027 is entered. -->
+<odoo noupdate="1">
+    <record id="irt_table_2026" model="l10n_ao_hr.irt.table">
+        <field name="name">IRT Grupo A 2026 (Lei n.º 14/25, Anexo I)</field>
+        <field name="date_from">2026-01-01</field>
+        <field name="date_to">2026-12-31</field>
+        <field name="exempt_threshold">150000</field>
+        <field name="source">Lei n.º 14/25, de 30 de Dezembro, art. 21.º, n.º 3 e Anexo I</field>
+    </record>
+    <record id="irt_table_2026_b02" model="l10n_ao_hr.irt.bracket">
+        <field name="table_id" ref="irt_table_2026"/>
+        <field name="lower_limit">150000</field>
+        <field name="upper_limit">200000</field>
+        <field name="fixed_amount">12500</field>
+        <field name="rate">16</field>
+        <field name="excess_over">150000</field>
+    </record>
+    <record id="irt_table_2026_b03" model="l10n_ao_hr.irt.bracket">
+        <field name="table_id" ref="irt_table_2026"/>
+        <field name="lower_limit">200000</field>
+        <field name="upper_limit">300000</field>
+        <field name="fixed_amount">31250</field>
+        <field name="rate">18</field>
+        <field name="excess_over">200000</field>
+    </record>
+    <!-- TODO: the other brackets of Lei n.º 14/25, Anexo I. -->
+</odoo>

@@ -1,0 +1,76 @@
+id = "hr-irt-inss"
+title = "l10n_ao_hr: IRT and INSS as data plus a pure computation"
+points = 90
+difficulty = 4
+main = "l10n_ao_hr/tools/payroll.py"
+exclude = ["l10n_ao/"]
+install = ["l10n_ao_hr", "dxt_check"]
+test_tags = ["/dxt_check"]
+min_tests = 10
+message = "The IRT and INSS computation must follow the published rules, read every value from the records and refuse a missing one by name."
+intro = "A second module: versioned tables and parameters in records, and arithmetic in plain Python."
+instructions = '''
+`l10n_ao_hr` (depends on `hr` only — no accounting) keeps every legal value in records the person
+responsible edits in **Employees › Configuration › Angola**:
+
+- `l10n_ao_hr.irt.table` — a versioned IRT Grupo A table (valid from/until, exempt threshold) with
+  its brackets (`l10n_ao_hr.irt.bracket`: above, up to — 0 for the last —, fixed amount, rate %,
+  excess over);
+- `l10n_ao_hr.parameter` — named values (`inss_employee_rate`, `inss_employer_rate`,
+  `inss_retired_employee_rate`, `inss_ceiling`, `irt_food_allowance_limit`,
+  `irt_transport_allowance_limit`, `irt_family_allowance_rate`), each with dated values, like the
+  Enterprise payroll's `hr.rule.parameter`.
+
+The models, views, menus, access rights and parameter seeds are given. Your two files:
+
+1. `data/l10n_ao_hr_irt_data.xml` — finish the **2026 table** of Lei n.º 14/25, Anexo I (the
+   threshold and the first two brackets are there), exactly as published:
+
+   | Above | Up to | Fixed | Rate | Excess over |
+   |---|---|---|---|---|
+   | 150 000 | 200 000 | 12 500 | 16% | 150 000 |
+   | 200 000 | 300 000 | 31 250 | 18% | 200 000 |
+   | 300 000 | 500 000 | 49 250 | 19% | 300 000 |
+   | 500 000 | 1 000 000 | 87 250 | 20% | 500 000 |
+   | 1 000 000 | 1 500 000 | 187 250 | 21% | 1 000 000 |
+   | 1 500 000 | 2 000 000 | 292 250 | 22% | 1 500 000 |
+   | 2 000 000 | 2 500 000 | 402 250 | 23% | 2 000 000 |
+   | 2 500 000 | 5 000 000 | 517 250 | 24% | 2 500 000 |
+   | 5 000 000 | 10 000 000 | 1 117 250 | 24.5% | 5 000 000 |
+   | 10 000 000 | — | 2 342 250 | 25% | 10 000 000 |
+
+2. `tools/payroll.py` — pure Python, **no Odoo import and no rate in the code**:
+   - `irt_grupo_a(taxable, table)`: 0 up to `exempt_threshold`; otherwise the bracket with
+     `lower < taxable <= upper` (no upper = open) gives `fixed + rate/100 × (taxable − excess)`,
+     rounded with `money()`; a missing threshold or bracket raises `MissingValue`.
+   - `inss_contributions(pay, params)`: the gross is every cash amount of `pay`; the INSS base is
+     the gross **minus the subsídio de férias** (DP n.º 227/18, art. 13.º), capped by
+     `inss_ceiling` only when it has a value; employee rate `inss_employee_rate` (or
+     `inss_retired_employee_rate` when `pay['retired']`), employer rate `inss_employer_rate`.
+     Return `gross`, `inss_base`, `inss_employee`, `inss_employer`.
+   - `irt_month(pay, params, table)`: refuse (`MissingValue`) a month with a subsídio de férias or
+     de Natal — how they are taxed is not confirmed —; deduct the employee's INSS, then the parts
+     not subject: food and transport up to their limits, abono de família up to
+     `irt_family_allowance_rate`% of the base salary; return the INSS dict plus `irt_taxable` and
+     `irt`.
+   - A parameter the computation needs and that has no value raises `MissingValue(code)` — use
+     `_required(params, code)`. Never fall back to 0.
+'''
+explanation = '''
+Python holds the *rules* (what is deducted, in which order); the records hold the *values*. A new
+budget law is a new table record with new dates, entered in the UI; an INSS change is a new dated
+value. The table seeded here ends on 2026-12-31 because whether the OGE 2026 table outlives the
+year is not confirmed: a 2027 payroll is refused with the name of what is missing, which is safer
+than a silent wrong number. The same goes for the INSS ceiling (shipped without a value) and the
+IRT on the subsídios de férias e de Natal (refused until the method is confirmed).
+{version_explanation}
+'''
+
+[vars."18.0"]
+version_explanation = "In Odoo 18 the parameter codes are unique through `_sql_constraints`, and the access file is `ir.model.access.csv`."
+
+[vars."19.0"]
+version_explanation = "Odoo 19 declares the unique codes with `models.Constraint`. Its employees `_inherits` the new `hr.version` model (identification number, contract data); the INSS number stays on `hr.employee`, next to `identification_id` in the form."
+
+[vars."20.0"]
+version_explanation = "Odoo 20 keeps `models.Constraint` and `hr.version`; it removed `ssnid` (the generic social security number field), so a dedicated `l10n_ao_inss_number` is the only place for it. Access rights are `ir.access` records."
