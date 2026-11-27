@@ -1714,6 +1714,20 @@ comandos sem um humano. No fim, o que mudou volta como patch (`git diff --binary
 muda: o Co-Dev aplica o patch com `git apply` (pede aprovação) ou refaz com `edit`. Os outros papéis continuam só de
 leitura. Testes: `cargo test -p tutor-agent subwork --test flow`.
 
+## O Co-Dev sem janela (H6a, `src-tauri/src/headless.rs`)
+
+`dxtutor-ide agent -p "<pedido>"` (ou o pedido no stdin) corre o Co-Dev sem abrir a janela — para scripts e CI — com o
+MESMO harness (`codev_agent::start`/`send`: ferramentas, política e regras do projecto, sandbox, hooks e MCP confiados, a
+base do Project e a auditoria do IDE, as sessões gravadas — `--resume <id>` continua uma, e o IDE abre-a). O `main.rs`
+decide antes do `run()`. Ninguém está ao teclado: um plano aprovado segue; o resto que a política pergunte é recusado com
+o motivo (o turno continua sem isso) e uma `ask_human` é respondida uma vez com «decide tu». Modo `auto` por omissão (uma
+pergunta perigosa continua a perguntar — e é recusada). `--cwd`, `--provider`, `--model`, `--effort`, `--mode`,
+`--output text|json|stream-json` (`stream-json`: cada `AgentEvent` numa linha e no fim `{type: "result"}`). Saída: 0
+terminou; 1 não correu (sem chave, sem pasta, erro do fornecedor); 2 uso; 3 parou antes (limite, recusa, cancelado).
+Chaves e base como a app: `DXTUTOR_CONFIG_DIR`/`DXTUTOR_DATA_DIR` ou as pastas XDG de `ao.ngolacloud.dxtutor-ide`.
+Os comandos de teste e lint são os do projecto da raiz do workspace. Testes: `cargo test -p dxtutor-ide headless` e
+`--test headless_agent` (o binário real contra um Ollama falso: escreve, recusa o `rm -rf`, responde, código 0).
+
 ## A ferramenta `ide` e as skills do IDE (H3/H4, `src-tauri/src/ide_tool.rs`, `ide_tool/ops.rs`, `tutor_agent::extensions`)
 
 Decisão D4: o Co-Dev chega ao que o IDE sabe por UMA ferramenta, `ide`, com `action` e `args`, decidida no Rust. Uma

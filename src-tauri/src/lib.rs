@@ -30,6 +30,7 @@ pub mod dictation;
 pub mod eval;
 mod fsops;
 pub mod gitops;
+pub mod headless;
 pub mod ide_tool;
 mod keys;
 mod llm;
