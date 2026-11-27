@@ -33,9 +33,13 @@ pub struct SandboxConfig {
     /// `false` turns the sandbox off (needs trust).
     #[serde(default)]
     pub enabled: Option<bool>,
-    /// `"off"` (default) or `"on"` (needs trust).
+    /// `"off"` (default), `"allowlist"` (only `allowDomains`, through the IDE's proxy) or `"on"`. Anything
+    /// but `"off"` needs trust.
     #[serde(default)]
     pub network: Option<String>,
+    /// H1b: the domains `"allowlist"` lets through (`example.com`, `*.example.com`; ports 80 and 443).
+    #[serde(default, rename = "allowDomains")]
+    pub allow_domains: Vec<String>,
     /// More writable folders: inside the project they are fine; outside it they need trust.
     #[serde(default)]
     pub writable: Vec<String>,
@@ -56,6 +60,7 @@ impl SandboxConfig {
     pub fn loosens(&self, root: &Path) -> bool {
         self.enabled == Some(false)
             || self.network.as_deref() == Some("on")
+            || (self.network.as_deref() == Some("allowlist") && !self.allow_domains.is_empty())
             || self
                 .writable
                 .iter()
@@ -63,8 +68,17 @@ impl SandboxConfig {
     }
 }
 
+/// H1b: the network allowlist inside the sandbox — the proxy's socket folder (mounted inside), the command
+/// that starts the bridge (the IDE's own binary), and what the proxy refused.
+#[derive(Debug, Clone)]
+pub struct NetBridge {
+    pub dir: PathBuf,
+    pub bridge: Vec<OsString>,
+    pub denied: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+}
+
 /// The sandbox of one project.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct OsSandbox {
     pub bwrap: PathBuf,
     pub root: PathBuf,
@@ -76,6 +90,8 @@ pub struct OsSandbox {
     pub hidden_dirs: Vec<PathBuf>,
     pub hidden_files: Vec<PathBuf>,
     pub network: bool,
+    /// H1b: the allowlist (the network stays off; only the proxy reaches out).
+    pub net: Option<NetBridge>,
 }
 
 /// Folders under HOME that hold credentials.
@@ -242,7 +258,23 @@ impl OsSandbox {
             hidden_dirs,
             hidden_files,
             network: cfg.network.as_deref() == Some("on"),
+            net: None,
         }
+    }
+
+    /// H1b: the network through the allowlist proxy (and nothing else).
+    pub fn with_net(mut self, net: NetBridge) -> Self {
+        self.network = false;
+        self.net = Some(net);
+        self
+    }
+
+    /// The `host:port`s the allowlist refused since the last call.
+    pub fn take_denied(&self) -> Vec<String> {
+        self.net
+            .as_ref()
+            .and_then(|n| n.denied.lock().ok().map(|mut d| std::mem::take(&mut *d)))
+            .unwrap_or_default()
     }
 
     /// The bubblewrap arguments, before the command (the order matters: a later mount covers an
@@ -261,6 +293,19 @@ impl OsSandbox {
         push("--dev", &[Path::new("/dev")]);
         push("--proc", &[Path::new("/proc")]);
         push("--tmpfs", &[Path::new("/tmp")]);
+        if let Some(n) = &self.net {
+            push("--bind", &[&n.dir, Path::new(crate::net_proxy::INSIDE_DIR)]);
+            // the bridge's own binary, when it lives under /tmp (an AppImage), stays visible
+            if let Some(dir) = n
+                .bridge
+                .first()
+                .map(Path::new)
+                .and_then(Path::parent)
+                .filter(|d| d.starts_with("/tmp"))
+            {
+                push("--ro-bind", &[dir, dir]);
+            }
+        }
         push("--bind", &[&self.root, &self.root]);
         for w in &self.writable {
             push("--bind", &[w, w]);
@@ -289,7 +334,41 @@ impl OsSandbox {
     pub fn wrap(&self, cmd: &Command) -> Command {
         let mut w = Command::new(&self.bwrap);
         w.args(self.args());
-        w.arg("--").arg(cmd.get_program()).args(cmd.get_args());
+        w.arg("--");
+        match &self.net {
+            Some(n) => {
+                use crate::net_proxy::{
+                    BridgeSpec, BRIDGE_ENV, BRIDGE_PORT, INSIDE_DIR, SOCKET_NAME,
+                };
+                let (prog, args) = n.bridge.split_first().expect("a bridge command");
+                w.arg(prog).args(args);
+                let mut argv = vec![cmd.get_program().to_string_lossy().into_owned()];
+                argv.extend(cmd.get_args().map(|a| a.to_string_lossy().into_owned()));
+                let spec = BridgeSpec {
+                    port: BRIDGE_PORT,
+                    sock: Path::new(INSIDE_DIR).join(SOCKET_NAME),
+                    argv,
+                };
+                w.env(BRIDGE_ENV, serde_json::to_string(&spec).unwrap_or_default());
+                let proxy = format!("http://127.0.0.1:{BRIDGE_PORT}");
+                for k in [
+                    "HTTP_PROXY",
+                    "HTTPS_PROXY",
+                    "http_proxy",
+                    "https_proxy",
+                    "ALL_PROXY",
+                    "all_proxy",
+                ] {
+                    w.env(k, &proxy);
+                }
+                for k in ["NO_PROXY", "no_proxy"] {
+                    w.env(k, "localhost,127.0.0.1,::1");
+                }
+            }
+            None => {
+                w.arg(cmd.get_program()).args(cmd.get_args());
+            }
+        }
         for (k, _) in std::env::vars_os() {
             if credential_var(&k.to_string_lossy()) {
                 w.env_remove(&k);
@@ -479,6 +558,12 @@ mod tests {
             ..Default::default()
         }
         .loosens(root));
+        // H1b: an allowlist opens the network to its domains
+        let parsed: SandboxConfig =
+            serde_json::from_str(r#"{"network": "allowlist", "allowDomains": ["*.crates.io"]}"#)
+                .unwrap();
+        assert_eq!(parsed.allow_domains, ["*.crates.io"]);
+        assert!(parsed.loosens(root));
     }
 
     #[test]
@@ -508,6 +593,97 @@ mod tests {
             .unwrap()
             .contains("writable"));
         assert!(hint("assertion failed").is_none());
+    }
+
+    /// The network bridge of the test below: this test binary is the bridge, as the IDE's is in the app.
+    #[test]
+    #[ignore]
+    fn bridge_child() {
+        if let Some(code) = crate::net_proxy::bridge_main() {
+            std::process::exit(code);
+        }
+    }
+
+    /// H1b, for real: inside the sandbox only the allowlist goes out, through the proxy.
+    #[test]
+    fn the_allowlist_is_the_only_way_out_of_the_sandbox() {
+        use crate::net_proxy::{Allowlist, Proxy};
+        use std::io::{Read, Write};
+        let Ok(bwrap) = available() else {
+            eprintln!("skipped: no usable bubblewrap here");
+            return;
+        };
+        let origin = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = origin.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for mut c in origin.incoming().flatten() {
+                let mut b = [0u8; 1024];
+                let _ = c.read(&mut b);
+                let _ = c.write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
+                );
+            }
+        });
+        let tmp = tempfile::tempdir().unwrap();
+        let proxy = Proxy::start(
+            &tmp.path().join("net"),
+            Allowlist::new(&["127.0.0.1".into()], &[port]),
+        )
+        .unwrap();
+        let exe = std::env::current_exe().unwrap();
+        let bridge: Vec<OsString> = vec![
+            exe.into(),
+            "--exact".into(),
+            "os_sandbox::tests::bridge_child".into(),
+            "--ignored".into(),
+            "--nocapture".into(),
+            "-q".into(),
+        ];
+        let home = fake_home();
+        let root = tempfile::tempdir().unwrap();
+        let sb = OsSandbox::for_project(
+            &bwrap,
+            root.path(),
+            Some(home.path()),
+            None,
+            &SandboxConfig::default(),
+        )
+        .with_net(NetBridge {
+            dir: proxy.socket.parent().unwrap().to_path_buf(),
+            bridge,
+            denied: proxy.denied_log(),
+        });
+        let script = format!(
+            r#"
+import socket
+def ask(req):
+    s = socket.create_connection(("127.0.0.1", 3128), 5); s.sendall(req.encode()); d = b""
+    while True:
+        c = s.recv(4096)
+        if not c: break
+        d += c
+    return d.decode(errors="replace").split("\r\n")[0]
+print("A:" + ask("GET http://127.0.0.1:{port}/ HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"))
+print("B:" + ask("CONNECT example.com:443 HTTP/1.1\r\n\r\n"))
+try:
+    socket.create_connection(("1.1.1.1", 53), 3); print("C:direct")
+except OSError:
+    print("C:blocked")
+"#
+        );
+        let mut c = Command::new("python3");
+        c.arg("-c").arg(script);
+        let o = sb.wrap(&c).current_dir(root.path()).output().unwrap();
+        let out = String::from_utf8_lossy(&o.stdout);
+        assert!(
+            o.status.success(),
+            "{out}\n{}",
+            String::from_utf8_lossy(&o.stderr)
+        );
+        assert!(out.contains("A:HTTP/1.1 200 OK"), "{out}");
+        assert!(out.contains("B:HTTP/1.1 403 Forbidden"), "{out}");
+        assert!(out.contains("C:blocked"), "{out}");
+        assert_eq!(sb.take_denied(), vec!["example.com:443".to_string()]);
     }
 
     /// The real thing, when this machine can run bubblewrap.

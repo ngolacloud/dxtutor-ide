@@ -109,10 +109,23 @@ impl Drop for McpClient {
 impl McpClient {
     /// Arranca o servidor e faz o handshake.
     pub fn connect(name: &str, cfg: &ServerConfig, cwd: &Path) -> Result<Self, String> {
+        Self::connect_in(name, cfg, cwd, None)
+    }
+
+    /// [`connect`](Self::connect) with the server inside the OS sandbox (H1b), when there is one.
+    pub fn connect_in(
+        name: &str,
+        cfg: &ServerConfig,
+        cwd: &Path,
+        sandbox: Option<&crate::os_sandbox::OsSandbox>,
+    ) -> Result<Self, String> {
         let mut cmd = Command::new(&cfg.command);
-        cmd.args(&cfg.args)
-            .envs(&cfg.env)
-            .current_dir(cwd)
+        cmd.args(&cfg.args).envs(&cfg.env).current_dir(cwd);
+        let mut cmd = match sandbox {
+            Some(sb) => sb.wrap(&cmd),
+            None => cmd,
+        };
+        cmd.current_dir(cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
@@ -321,9 +334,20 @@ pub fn connect_all(
     servers: &BTreeMap<String, ServerConfig>,
     cwd: &Path,
 ) -> (Connected, Vec<String>) {
+    connect_all_in(servers, cwd, None)
+}
+
+/// [`connect_all`] with every server inside the OS sandbox (H1b), when there is one.
+pub fn connect_all_in(
+    servers: &BTreeMap<String, ServerConfig>,
+    cwd: &Path,
+    sandbox: Option<&crate::os_sandbox::OsSandbox>,
+) -> (Connected, Vec<String>) {
     let (mut tools, mut notes) = (vec![], vec![]);
     for (name, cfg) in servers {
-        match McpClient::connect(name, cfg, cwd).and_then(|mut c| c.list_tools().map(|t| (t, c))) {
+        match McpClient::connect_in(name, cfg, cwd, sandbox)
+            .and_then(|mut c| c.list_tools().map(|t| (t, c)))
+        {
             Ok((defs, client)) => {
                 let client = Arc::new(Mutex::new(client));
                 tools.extend(defs.into_iter().map(|d| (d, client.clone())));
@@ -396,6 +420,26 @@ for line in sys.stdin:
             .request("nada", json!({}), Duration::from_secs(5))
             .unwrap_err()
             .contains("?"));
+    }
+
+    /// H1b: a server runs inside the OS sandbox (when this machine has one) and still works.
+    #[test]
+    fn a_server_inside_the_sandbox_lists_its_tools() {
+        let Ok(bwrap) = crate::os_sandbox::available() else {
+            eprintln!("skipped: no usable bubblewrap here");
+            return;
+        };
+        let d = tempfile::tempdir().unwrap();
+        let sb = crate::os_sandbox::OsSandbox::for_project(
+            &bwrap,
+            d.path(),
+            None,
+            None,
+            &crate::os_sandbox::SandboxConfig::default(),
+        );
+        let mut c =
+            McpClient::connect_in("fake", &fake_cfg(d.path()), d.path(), Some(&sb)).unwrap();
+        assert!(!c.list_tools().unwrap().is_empty());
     }
 
     #[test]
