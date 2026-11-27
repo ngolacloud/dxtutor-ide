@@ -17,6 +17,9 @@ use crate::gitx::{self, git, Stash, StashOp, Worktree, WorktreeOp};
 pub mod codev;
 /// Multi Co-Dev, phase 4: the reviewed merge of an issue branch into the default branch.
 pub mod integrate;
+/// Multi Co-Dev, phase 5: pushing an issue branch for a pull request (never forced, never the
+/// default branch, never a remote branch it did not create).
+pub mod publish;
 
 // ───── refs: the sidebar ─────
 

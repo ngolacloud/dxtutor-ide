@@ -115,6 +115,18 @@ pub fn functional_check(
     also: Option<&str>,
     me: &[&str],
 ) -> Result<(), String> {
+    responsible_check(roles, assignee, also, me, "a aprovação funcional")
+}
+
+/// The rule of [`functional_check`] for any act that is the issue's responsible's (or a PO's / a
+/// Tech Lead's): `what` names the act in the refusal.
+pub fn responsible_check(
+    roles: Option<&[String]>,
+    assignee: &str,
+    also: Option<&str>,
+    me: &[&str],
+    what: &str,
+) -> Result<(), String> {
     let is_me = |who: &str| {
         let w = who.trim();
         !w.is_empty()
@@ -126,20 +138,39 @@ pub fn functional_check(
         return Ok(());
     }
     match roles {
-        Some(_) => check(
-            roles,
-            &["product_owner", "tech_lead"],
-            "a aprovação funcional",
-        )
-        .map_err(|e| format!("{e} — ou do responsável da issue ({})", assignee.trim())),
+        Some(_) => check(roles, &["product_owner", "tech_lead"], what)
+            .map_err(|e| format!("{e} — ou do responsável da issue ({})", assignee.trim())),
         None if assignee.trim().is_empty() => Ok(()),
         None => Err(format!(
-            "a aprovação funcional é do responsável da issue ({}): és {}",
+            "{what} é do responsável da issue ({}): és {}",
             assignee.trim(),
             me.iter()
                 .find(|m| !m.trim().is_empty())
                 .map_or("outra pessoa", |m| m.trim())
         )),
+    }
+}
+
+/// Who may delegate autonomy (Multi Co-Dev, phase 5) — asked when it is granted, with the person at
+/// the keyboard, and again before every use, with the person who granted it (`me`: their name and
+/// email; `roles`: theirs by `team.json`, `None` without people):
+/// - over an **issue**: its assignee, or a Product Owner / Tech Lead ([`responsible_check`]);
+/// - over a **sprint**: a Product Owner or a Tech Lead. Without people in `team.json` nothing is
+///   enforced, as for every role of this module.
+pub fn delegation_check(
+    roles: Option<&[String]>,
+    scope: &str,
+    assignee: &str,
+    me: &[&str],
+) -> Result<(), String> {
+    match scope {
+        "issue" => responsible_check(roles, assignee, None, me, "delegar a autonomia desta issue"),
+        "sprint" => check(
+            roles,
+            &["product_owner", "tech_lead"],
+            "delegar a autonomia de uma sprint",
+        ),
+        other => Err(format!("âmbito desconhecido: {other}")),
     }
 }
 
@@ -246,6 +277,28 @@ mod tests {
         assert!(functional_check(None, "Ana", Some("Rui"), &["rui"]).is_ok());
         // an empty identity never matches an empty assignee
         assert!(functional_check(Some(&dev), "", None, &[""]).is_err());
+    }
+
+    #[test]
+    fn who_may_delegate_autonomy() {
+        let po = vec!["product_owner".to_string()];
+        let dev = vec!["developer".to_string()];
+        // an issue: its assignee, or a PO / Tech Lead
+        assert!(delegation_check(Some(&dev), "issue", "Ana", &["Ana"]).is_ok());
+        assert!(delegation_check(Some(&po), "issue", "Ana", &["Rui"]).is_ok());
+        let e = delegation_check(Some(&dev), "issue", "Ana", &["Rui"]).unwrap_err();
+        assert!(
+            e.contains("delegar a autonomia") && e.contains("Product Owner"),
+            "{e}"
+        );
+        // without people: the assignee only (anyone when there is none)
+        assert!(delegation_check(None, "issue", "Ana", &["Rui"]).is_err());
+        assert!(delegation_check(None, "issue", "", &["Rui"]).is_ok());
+        // a sprint: a PO or a Tech Lead — the assignee of one issue is not enough
+        assert!(delegation_check(Some(&dev), "sprint", "", &["Ana"]).is_err());
+        assert!(delegation_check(Some(&po), "sprint", "", &["Ana"]).is_ok());
+        assert!(delegation_check(None, "sprint", "", &["Ana"]).is_ok());
+        assert!(delegation_check(None, "project", "", &["Ana"]).is_err());
     }
 
     #[test]

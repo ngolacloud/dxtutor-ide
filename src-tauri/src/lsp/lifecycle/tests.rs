@@ -6,7 +6,8 @@ use std::path::PathBuf;
 
 /// The fake server: `python3 -I fake.py <log> <mode>`. Modes: `""` behaves; `deaf` answers neither
 /// `shutdown` nor `exit`, ignores the end of its input and starts a child (`sleep`) whose pid it
-/// writes — it must be killed with it; `crash` exits with code 3 on `fake/crash`.
+/// writes — it must be killed with it; `crash` exits with code 3 on `fake/crash`; `slow` takes 1.5 s to start
+/// reading (a JVM server booting under load); `die` exits with code 3 while starting, never answering `initialize`.
 const FAKE: &str = r#"
 import json, os, subprocess, sys, time
 log = open(sys.argv[1], "a", buffering=1)
@@ -19,6 +20,11 @@ sys.stderr.buffer.flush()
 time.sleep(0.05)
 sys.stderr.buffer.write(b"\xa9 done\n")
 sys.stderr.buffer.flush()
+if mode == "slow":
+    time.sleep(1.5)
+if mode == "die":
+    time.sleep(0.8)
+    sys.exit(3)
 if mode == "deaf":
     kid = subprocess.Popen(["sleep", "300"])
     log.write("child %d\n" % kid.pid)
@@ -691,4 +697,114 @@ fn limits_come_from_the_resources_and_zero_means_never() {
         max_servers: 3,
     });
     assert_eq!((l.idle, l.max), (None, 3));
+}
+
+/// The jdtls stall of 2026-11-26: its `initialize` answer came after the budget, the client never sent
+/// `initialized`, and the requests waiting for the session used it anyway — no project, no diagnostics. A session
+/// that does not finish its handshake is never handed out.
+#[test]
+fn a_server_that_dies_while_starting_is_an_error_for_everyone_waiting_and_at_once() {
+    let f = fake();
+    let map: SessionMap = Arc::default();
+    let (emit, _) = recorder();
+    let root = f.dir.path().join("die");
+    std::fs::create_dir_all(&root).unwrap();
+    let root = root.display().to_string();
+    let l = lang("die");
+    let key = session_key(&l, &root);
+    let log = f.dir.path().join("die.log");
+    let args = vec![
+        "-I".to_string(),
+        f.script.display().to_string(),
+        log.display().to_string(),
+        "die".to_string(),
+    ];
+    let t0 = Instant::now();
+    let got: Vec<Result<Arc<Mutex<Session>>, String>> = thread::scope(|sc| {
+        let jobs: Vec<_> = (0..3)
+            .map(|i| {
+                let (map, emit, key, root, l, args) = (&map, &emit, &key, &root, &l, &args);
+                sc.spawn(move || {
+                    thread::sleep(Duration::from_millis(150 * i));
+                    get_or_start(map, emit, key, root, l, "python3", args)
+                })
+            })
+            .collect();
+        jobs.into_iter().map(|j| j.join().unwrap()).collect()
+    });
+    for g in &got {
+        assert!(
+            g.is_err(),
+            "a session that never answered `initialize` was handed out"
+        );
+    }
+    assert!(
+        t0.elapsed() < Duration::from_secs(20),
+        "the death ends the wait: {:?}",
+        t0.elapsed()
+    );
+    assert!(!in_map(&map, &key));
+}
+
+/// A server that starts slowly (a JVM under load): everyone waiting gets it after `initialize` and
+/// `initialized`, so the first `didOpen` always comes after them.
+#[test]
+fn a_slow_server_is_handed_out_only_after_its_handshake() {
+    let f = fake();
+    let map: SessionMap = Arc::default();
+    let (emit, _) = recorder();
+    let root = f.dir.path().join("slow");
+    std::fs::create_dir_all(&root).unwrap();
+    let root = root.display().to_string();
+    let l = lang("slow");
+    let key = session_key(&l, &root);
+    let log = f.dir.path().join("slow.log");
+    let args = vec![
+        "-I".to_string(),
+        f.script.display().to_string(),
+        log.display().to_string(),
+        "slow".to_string(),
+    ];
+    let path = Path::new(&root).join("a.txt").display().to_string();
+    std::fs::write(&path, "x\n").unwrap();
+    docs().lock().unwrap().insert(
+        path.clone(),
+        OpenDoc {
+            language_id: "fake".into(),
+            version: 1,
+            text: "x".into(),
+        },
+    );
+    let got: Vec<Arc<Mutex<Session>>> = thread::scope(|sc| {
+        let jobs: Vec<_> = (0..3)
+            .map(|i| {
+                let (map, emit, key, root, l, args, path) =
+                    (&map, &emit, &key, &root, &l, &args, &path);
+                sc.spawn(move || {
+                    thread::sleep(Duration::from_millis(200 * i));
+                    let s = get_or_start(map, emit, key, root, l, "python3", args).unwrap();
+                    ensure_doc_open(&s, path).unwrap();
+                    s
+                })
+            })
+            .collect();
+        jobs.into_iter().map(|j| j.join().unwrap()).collect()
+    });
+    assert!(got.iter().all(|g| Arc::ptr_eq(g, &got[0])));
+    assert!(wait_until(
+        || lines(&log)
+            .iter()
+            .any(|x| x.starts_with("textDocument/didOpen")),
+        Duration::from_secs(5)
+    ));
+    let l = lines(&log);
+    let at = |m: &str| {
+        l.iter()
+            .position(|x| x == m || x.starts_with(&format!("{m} ")))
+    };
+    assert!(
+        at("initialize") < at("initialized") && at("initialized") < at("textDocument/didOpen"),
+        "{l:?}"
+    );
+    stop_all(&map, Reason::AppExit);
 }

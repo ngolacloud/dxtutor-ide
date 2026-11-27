@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 342 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 348 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -500,7 +500,46 @@ verificações ou dos critérios torna a revisão velha (`stale_*`); sem verific
 - Testes: `cargo test -p tutor-eval gitwork::integrate`, `cargo test -p tutor-board integration migration_19`,
   `cargo test -p tutor-protect between`, `cargo test -p dxtutor-ide codev_review` (repositórios reais e um modelo
   falso: cada ramo da porta), `tests/integration.test.ts`, `tests/codev.worktrees.test.ts` e o passo `integration` do
-  auto-teste (sem modelo: a porta recusa no Rust). Fase 5: autonomia delegada e PRs.
+  auto-teste (sem modelo: a porta recusa no Rust). Fase 5: abaixo.
+
+### Fase 5: autonomia delegada e pull requests
+
+**As regras do dono, no Rust:** a autonomia nunca salta a porta da fase 4 (as três condições para as pontas de AGORA) e
+nunca dá a aprovação funcional — essa é sempre de uma pessoa; o revisor nunca age sozinho sem uma delegação. Sem
+delegação nada acontece e nada se grava: é a fase 4 tal e qual.
+- **Delegar** (`tutor_board::project::autonomy`, migração 20: `autonomy_delegations`, `autonomy_events`,
+  `autonomy_switch`, `remote_branches`, `integration_prs`): uma issue ou uma sprint, as acções `review` (pedir a revisão
+  quando a sessão Co-Dev acaba a issue), `integrate` (merge local com a porta aberta) ou `pr` (push + pull request com a
+  porta aberta; `integrate` e `pr` excluem-se), 1–168 h, revogável. Quem pode: `roles::delegation_check` (issue: o
+  `assignee` ou PO/Tech Lead; sprint: PO/Tech Lead; sem pessoas no `team.json` nada é imposto), perguntado ao delegar e
+  OUTRA VEZ, para quem delegou, antes de cada uso (`grantor_role`). Delegar, revogar, pausar e retomar gravam a linha de
+  auditoria na mesma transacção (`autonomy.grant`/`.revoke`/`.pause`/`.resume`).
+- **O ciclo** (`src-tauri/src/codev_autonomy.rs`, runtime instalado no arranque; sem ele, nos testes, nada corre):
+  gatilhos `session_finished` (o `settle_flow` depois do `finish_issue`, a issue em Review), `committed` (o «Commit» da
+  faixa, só se a autonomia parou por trabalho por commitar), `review_done` (uma revisão com tudo `met`) e
+  `functional_approved` (o `project_apply`). Antes de cada acção: o interruptor geral (uma linha para toda a app; pausar
+  pára as revisões autónomas a correr), o papel de quem delegou e o limite (`MAX_ACTIONS_PER_HOUR` = 6 por projecto).
+  A revisão usa o mesmo plano que um humano aprovaria (`request_as`); integrar usa o caminho do clique (`integrate_as`:
+  undo, auditoria antes e com o resultado, `record_integration` sem excepções) com o secret scan ESTRITO
+  (`tutor_protect::scan::guard_strict`: um achado pára e nunca consome o `allow_once` de um humano). Cada passo, feito ou
+  parado, é um `Event` com as linhas de auditoria que escreveu (`mode = autonomous`, `decided_by = delegation:<id>:<quem>`)
+  e vai à UI por `codev-autonomy://event`; nunca repete sozinho (as mesmas pontas não se revêem outra vez).
+- **Pull request** (`src-tauri/src/codev_pr.rs`, `tutor_eval::gitwork::publish`, `tutor_eval::gh::create_pr_with`): a
+  mesma porta; `gh` instalado e com sessão ANTES de enviar (nunca faz login nem merge); push de `<commit revisto>:refs/
+  heads/<ramo>` — nunca o ramo por omissão nem o `HEAD` do remoto (nem `main`/`master`/`trunk`), nunca `--force`/`+`,
+  nunca não-fast-forward, nunca para um ramo remoto que o dxtutor não criou; `GIT_TERMINAL_PROMPT=0`, ssh em batch. O
+  corpo (`autonomy::pr_body`, mascarado) leva as verificações com o commit candidato, o veredicto por critério com a
+  evidência e quem aprovou funcionalmente e quando. Um pull request por revisão. `DXTUTOR_GH` aponta outro `gh` (o
+  runner do auto-teste usa um falso que falha).
+- **UI** (`features/integration`: `domain/autonomy.ts`, `application/autonomy-service.ts`, `ui/autonomy-view.ts`): a
+  secção «Autonomy and pull request» do `#ig-panel` (o interruptor, o modo, o pull request, as delegações e o editor, o
+  registo com «audit #N»). Comandos `codev_autonomy_state/grant/revoke/pause` e `codev_pr_state/open` (348). Nenhum
+  golden mudou (o painel só existe no desktop).
+- Testes: `cargo test -p tutor-board autonomy migration_20`, `cargo test -p tutor-eval gitwork::publish gh::`,
+  `cargo test -p tutor-protect between`, `cargo test -p dxtutor-ide codev_autonomy roles::` (repositórios reais, um
+  remoto bare local, um `gh` falso e um modelo falso: cada porta fechada pára uma vez), `tests/integration.autonomy.test.ts`
+  e o passo `autonomy` do auto-teste (sem modelo nem GitHub: a pausa e a porta param o gatilho no backend, o pull request é
+  recusado no Rust e o remoto fica vazio).
 
 ## `/backlog` e `/project`: o backlog e o Project feitos pelo Co-Dev (conjunto 11)
 
@@ -1105,6 +1144,9 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
   jdtls respondia vazio ao completion/signatureHelp a sessão inteira (o kotlin-language-server
   perdia as referências). Agora o backend só usa uma sessão do mapa depois de `initialized`
   (`Session::initialized`, `wait_initialized`) e o cliente espera pelo `lsp_start`/`didOpen` em curso.
+  O `initialize` tem 180 s (`INIT_BUDGET`: a JVM do jdtls sob carga levou 39 s; um servidor que morre falha logo) e quem
+  espera recebe um ERRO se a sessão não acabou o handshake — nunca a usa a meio (2026-11-27: o `didOpen` antes do
+  `initialized` deixava o jdtls sem projecto, sem diagnósticos).
 - **Símbolos da pasta** (`domain/workspace-symbols.ts`, `ui/workspace-symbol-hooks.ts` +
   `showWorkspaceSymbolPicker`, comando `lsp_workspace_symbols(root, query)`): Ctrl+T (no editor, ou
   fora de campos de texto e do terminal) ou «Go to Symbol in Workspace…» na paleta abre `#lsp-wsymbols`;
@@ -1630,6 +1672,8 @@ O IDE tem de ser leve e nunca travar a máquina. Regras medidas (amostragem da t
   relida, a página não pára, uma `perf-out/` de 80 MB ignorada pelo `.git/info/exclude` não entra nem a faz crescer, CPU
   em repouso e memória privada no fim. Um limite só sobe com a medição que o justifica, nas notas. O `lsp-java`/`lsp-kotlin`
   falham sem diagnósticos (antes registavam `null` e passavam).
+- **Memória devolvida:** o glibc guarda o que uma thread liberta na arena dela; depois do `load_workspace` (dezenas de
+  MB passageiros) o `crate::trim_soon()` chama o `malloc_trim(0)` 3 s depois (medido: 152 → 108 MB com este repositório).
 - Medidas e método em `docs/v2/NOTAS-desempenho.md`.
 
 ## Regras ao mexer aqui

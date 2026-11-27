@@ -153,12 +153,25 @@ pub async fn project_apply(
             overridable: false,
         })?;
     }
+    let approved = match op.get("op").and_then(|v| v.as_str()) {
+        Some("approve_functional") => op
+            .get("key")
+            .and_then(|v| v.as_str())
+            .map(|k| k.trim().to_string()),
+        _ => None,
+    };
     let op: Op = serde_json::from_value(op).map_err(|e| ProjectError {
         code: "invalid".into(),
         message: format!("operação inválida: {e}"),
         overridable: false,
     })?;
-    open(&app)?.apply(&root, &actor(&root), now_ms(), op)
+    let p = open(&app)?.apply(&root, &actor(&root), now_ms(), op)?;
+    // Multi Co-Dev, phase 5: with `integrate` (or `pr`) delegated, the human's functional approval
+    // lets the gate open — the autonomy asks it (nothing happens without a delegation)
+    if let Some(k) = approved {
+        crate::codev_autonomy::functional_approved(&root, &k);
+    }
+    Ok(p)
 }
 
 /// O que escolher o método `method` muda nas definições da pasta (Board B): o que passa aos valores

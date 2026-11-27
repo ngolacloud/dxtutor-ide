@@ -39,8 +39,7 @@ use tutor_board::project::integration::{
 use tutor_board::project::{Check, GateData, ProjectStore};
 use tutor_eval::gitwork::{codev as wt, integrate as gi};
 
-use crate::board::{actor, now_ms};
-use crate::codev_worktree::record;
+use crate::board::{actor, ide_audit_entry, now_ms, IdeAudit};
 
 /// How long one mandatory check may run.
 const CHECK_TIMEOUT: Duration = Duration::from_secs(30 * 60);
@@ -56,6 +55,84 @@ const READ_TOOLS: [&str; 3] = ["read", "glob", "grep"];
 
 fn store(db: &Path) -> Result<ProjectStore, String> {
     ProjectStore::open(db)
+}
+
+/* ───── who decided (Multi Co-Dev, phase 5) ───── */
+
+/// Who the audit log says acted for an autonomous step.
+pub const AUTONOMY_ACTOR: &str = "Co-Dev (autonomia)";
+
+/// Who decided an action of the review: a human in the approval dialog, or a delegation (phase 5:
+/// the backend acts on what a human delegated; every audit row it writes goes to `audit`, for the
+/// autonomy's log).
+#[derive(Clone, Debug)]
+pub enum By {
+    Human {
+        /// when the human decided (ms)
+        decided_at: Option<i64>,
+    },
+    Delegation {
+        id: i64,
+        granted_by: String,
+        audit: Arc<Mutex<Vec<i64>>>,
+    },
+}
+
+impl By {
+    pub fn human(decided_at: Option<i64>) -> Self {
+        By::Human { decided_at }
+    }
+}
+
+/// One row of the audit log for a review action (origin `ide`, feature `codev`), as `by` decided
+/// it; returns its id. A delegation's row says so: mode `autonomous`, decided by `delegation:<id>:
+/// <who granted it>`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn audit_as(
+    db: &Path,
+    root: &str,
+    by: &By,
+    key: &str,
+    action: &str,
+    command: &str,
+    scope: &str,
+    outcome: &str,
+    reason: Option<String>,
+) -> Result<i64, String> {
+    let redactor = tutor_agent::redact::Redactor::for_root(Path::new(root));
+    let (who, decided_at) = match by {
+        By::Human { decided_at } => (actor(root), *decided_at),
+        By::Delegation { .. } => (AUTONOMY_ACTOR.to_string(), None),
+    };
+    let mut e = ide_audit_entry(
+        &IdeAudit {
+            feature: "codev".into(),
+            action: action.into(),
+            command: command.into(),
+            scope: Some(scope.into()),
+            approved: true,
+            reason,
+            outcome: Some(outcome.into()),
+            decided_at,
+        },
+        &who,
+        now_ms(),
+        &redactor,
+    )
+    .map_err(|e| e.message)?;
+    e.issue_key = Some(key.to_string());
+    if let By::Delegation { id, granted_by, .. } = by {
+        e.mode = "autonomous".into();
+        e.verdict = Some("delegated".into());
+        e.decided_by = Some(format!("delegation:{id}:{granted_by}"));
+    }
+    let id = store(db)?
+        .record_audit_id(root, &e)
+        .map_err(|e| e.message)?;
+    if let By::Delegation { audit, .. } = by {
+        audit.lock().unwrap_or_else(|e| e.into_inner()).push(id);
+    }
+    Ok(id)
 }
 
 /* ───── the reviews running in this app (one per issue) ───── */
@@ -86,7 +163,7 @@ pub fn cancel(root: &str, key: &str) -> bool {
 }
 
 /// Requests and integrations of one app never interleave (the tips are read and used in one go).
-fn serial() -> &'static Mutex<()> {
+pub(crate) fn serial() -> &'static Mutex<()> {
     static L: OnceLock<Mutex<()>> = OnceLock::new();
     L.get_or_init(Mutex::default)
 }
@@ -122,7 +199,7 @@ pub struct ReviewState {
     pub session: Option<String>,
 }
 
-fn session_of(root: &str, key: &str) -> Option<String> {
+pub(crate) fn session_of(root: &str, key: &str) -> Option<String> {
     let here = std::fs::canonicalize(root).unwrap_or_else(|_| PathBuf::from(root));
     crate::codev_agent::live_sessions()
         .into_iter()
@@ -133,14 +210,14 @@ fn session_of(root: &str, key: &str) -> Option<String> {
         .map(|s| s.id)
 }
 
-struct Facts {
-    data: GateData,
-    review: Option<Review>,
-    tips: Result<gi::Tips, String>,
-    candidate_ok: bool,
+pub(crate) struct Facts {
+    pub data: GateData,
+    pub review: Option<Review>,
+    pub tips: Result<gi::Tips, String>,
+    pub candidate_ok: bool,
 }
 
-fn board_tips(t: &gi::Tips) -> Tips {
+pub(crate) fn board_tips(t: &gi::Tips) -> Tips {
     Tips {
         target: t.target.clone(),
         base: t.base.clone(),
@@ -149,7 +226,7 @@ fn board_tips(t: &gi::Tips) -> Tips {
     }
 }
 
-fn facts(db: &Path, root: &str, key: &str) -> Result<Facts, String> {
+pub(crate) fn facts(db: &Path, root: &str, key: &str) -> Result<Facts, String> {
     let st = store(db)?;
     let data = st.gate_facts(root, key).map_err(|e| e.message)?;
     let review = st.review_latest(root, key).map_err(|e| e.message)?;
@@ -181,7 +258,7 @@ fn facts(db: &Path, root: &str, key: &str) -> Result<Facts, String> {
     })
 }
 
-fn gate_of(f: &Facts, running: bool) -> Gate {
+pub(crate) fn gate_of(f: &Facts, running: bool) -> Gate {
     let now = f.tips.as_ref().map(board_tips);
     ig::gate(&GateFacts {
         review: f.review.as_ref(),
@@ -343,7 +420,7 @@ pub struct Job {
     dod: Vec<String>,
     title: String,
     env: Option<HashMap<String, String>>,
-    decided_at: Option<i64>,
+    by: By,
     command: String,
 }
 
@@ -370,6 +447,33 @@ pub fn request(
     lang: ReplyLang,
     env: Option<HashMap<String, String>>,
 ) -> Result<Started, String> {
+    request_as(
+        db,
+        ibase,
+        root,
+        key,
+        command,
+        By::human(decided_at),
+        reviewer,
+        lang,
+        env,
+    )
+}
+
+/// [`request`] as `by` decided it (a human, or a delegation of phase 5): the same plan, the same
+/// checks, the same audit rows — only who decided differs.
+#[allow(clippy::too_many_arguments)]
+pub fn request_as(
+    db: &Path,
+    ibase: &Path,
+    root: &str,
+    key: &str,
+    command: &str,
+    by: By,
+    reviewer: MakeReviewer,
+    lang: ReplyLang,
+    env: Option<HashMap<String, String>>,
+) -> Result<Started, String> {
     let _serial = serial().lock().unwrap_or_else(|e| e.into_inner());
     if is_running(root, key) {
         return Err("a review of this issue is already running".into());
@@ -385,15 +489,16 @@ pub fn request(
         ));
     }
     let scope = format!("review {key} · {} onto {}", tips.branch, tips.target);
-    record(
+    audit_as(
         db,
         root,
+        &by,
+        key,
         "review.request",
         command,
         &scope,
         "sent",
         None,
-        decided_at,
     )
     .map_err(|e| format!("not done: the audit log did not record it ({e})"))?;
     let message = format!(
@@ -429,15 +534,16 @@ pub fn request(
     let prepared = gi::prepare(Path::new(root), ibase, key, &tips, &message);
     let c = match prepared {
         Err(e) => {
-            let _ = record(
+            let _ = audit_as(
                 db,
                 root,
+                &by,
+                key,
                 "review.request",
                 command,
                 &scope,
                 "failed",
                 Some(e.clone()),
-                decided_at,
             );
             return Err(e);
         }
@@ -449,28 +555,30 @@ pub fn request(
             let id = match saved {
                 Ok(id) => id,
                 Err(e) => {
-                    let _ = record(
+                    let _ = audit_as(
                         db,
                         root,
+                        &by,
+                        key,
                         "review.request",
                         command,
                         &scope,
                         "failed",
                         Some(e.clone()),
-                        decided_at,
                     );
                     return Err(e);
                 }
             };
-            let _ = record(
+            let _ = audit_as(
                 db,
                 root,
+                &by,
+                key,
                 "review.request",
                 command,
                 &scope,
                 "failed",
                 Some(format!("conflict: {}", files.join(", "))),
-                decided_at,
             );
             return Ok(Started { id, job: None });
         }
@@ -490,15 +598,16 @@ pub fn request(
         Err(e) => {
             running().lock().unwrap().remove(&job_key(root, key));
             let _ = gi::discard(Path::new(root), ibase, key);
-            let _ = record(
+            let _ = audit_as(
                 db,
                 root,
+                &by,
+                key,
                 "review.request",
                 command,
                 &scope,
                 "failed",
                 Some(e.clone()),
-                decided_at,
             );
             return Err(e);
         }
@@ -518,7 +627,7 @@ pub fn request(
             dod: f.data.dod.clone(),
             title: f.data.title.clone(),
             env,
-            decided_at,
+            by,
             command: command.to_string(),
         }),
     })
@@ -636,15 +745,16 @@ impl Job {
             "review {} · {} onto {}",
             self.review.key, self.review.tips.branch, self.review.tips.target
         );
-        let _ = record(
+        let _ = audit_as(
             &self.db,
             &self.root,
+            &self.by,
+            &self.review.key,
             "review.request",
             &self.command,
             &scope,
             outcome,
             reason,
-            self.decided_at,
         );
         let state = self.review.state.clone();
         // not running any more before the interface hears it is done (it reads the gate then)
@@ -1096,7 +1206,7 @@ pub struct Integrated {
     pub worktree_kept: Vec<String>,
 }
 
-fn gate_text(g: &Gate) -> String {
+pub(crate) fn gate_text(g: &Gate) -> String {
     [
         ("checks", &g.checks),
         ("reviewer", &g.reviewer),
@@ -1126,6 +1236,21 @@ pub fn integrate(
     command: &str,
     decided_at: Option<i64>,
 ) -> Result<Integrated, String> {
+    integrate_as(db, wbase, root, key, command, By::human(decided_at))
+}
+
+/// [`integrate`] as `by` decided it. A delegation (phase 5) goes the same way — the gate asked
+/// again, the undo snapshot, the audit before and with the result, the Project's move rules without
+/// overrides — except the secret scan: a finding always stops it ([`tutor_protect::scan::guard_strict`]:
+/// a human's override is never taken), and a human integrates it by hand.
+pub fn integrate_as(
+    db: &Path,
+    wbase: &Path,
+    root: &str,
+    key: &str,
+    command: &str,
+    by: By,
+) -> Result<Integrated, String> {
     let _serial = serial().lock().unwrap_or_else(|e| e.into_inner());
     let f = facts(db, root, key)?;
     let gate = gate_of(&f, is_running(root, key));
@@ -1145,27 +1270,29 @@ pub fn integrate(
         "integrate {key} · {} into {} ({})",
         tips.branch, tips.target, review.candidate
     );
-    record(
+    audit_as(
         db,
         root,
+        &by,
+        key,
         "review.integrate",
         command,
         &scope,
         "sent",
         None,
-        decided_at,
     )
     .map_err(|e| format!("not done: the audit log did not record it ({e})"))?;
     let fail = |e: String| {
-        let _ = record(
+        let _ = audit_as(
             db,
             root,
+            &by,
+            key,
             "review.integrate",
             command,
             &scope,
             "failed",
             Some(tutor_protect::scan::summary(&e)),
-            decided_at,
         );
         e
     };
@@ -1173,11 +1300,11 @@ pub fn integrate(
     let snap =
         tutor_eval::gitwork::undo_snapshot(dir, &format!("integrate {key} into {}", tips.target))
             .map_err(|e| fail(format!("no undo snapshot, nothing done: {e}")))?;
-    tutor_protect::scan::guard_commit_as(
-        dir,
-        dir,
-        &tutor_protect::scan::Scope::Between(&review.tips.base, &review.candidate),
-    )
+    let scan_scope = tutor_protect::scan::Scope::Between(&review.tips.base, &review.candidate);
+    match &by {
+        By::Human { .. } => tutor_protect::scan::guard_commit_as(dir, dir, &scan_scope).map(|_| ()),
+        By::Delegation { .. } => tutor_protect::scan::guard_strict(dir, &scan_scope),
+    }
     .map_err(fail)?;
     let gtips = gi::Tips {
         target: review.tips.target.clone(),
@@ -1186,26 +1313,25 @@ pub fn integrate(
         head: review.tips.head.clone(),
     };
     let commit = gi::integrate(dir, key, &gtips, &review.candidate).map_err(fail)?;
-    let _ = record(
+    let _ = audit_as(
         db,
         root,
+        &by,
+        key,
         "review.integrate",
         command,
         &scope,
         "ok",
         None,
-        decided_at,
     );
+    let who = match &by {
+        By::Human { .. } => actor(root),
+        By::Delegation { id, granted_by, .. } => {
+            format!("{AUTONOMY_ACTOR} — delegação #{id} de {granted_by}")
+        }
+    };
     let state = store(db)?
-        .record_integration(
-            root,
-            &actor(root),
-            now_ms(),
-            key,
-            review.id,
-            &commit,
-            &tips.target,
-        )
+        .record_integration(root, &who, now_ms(), key, review.id, &commit, &tips.target)
         .map_err(|e| {
             format!(
                 "integrated as {commit}, but the Project did not record it: {}",
@@ -1217,15 +1343,16 @@ pub fn integrate(
     if session.is_none() {
         if let Ok(rm) = wt::remove_plan(dir, wbase, key) {
             let wscope = format!("worktree of {key}");
-            if record(
+            if audit_as(
                 db,
                 root,
+                &by,
+                key,
                 "worktree.remove",
                 &rm.command,
                 &wscope,
                 "sent",
                 None,
-                decided_at,
             )
             .is_ok()
             {
@@ -1241,15 +1368,16 @@ pub fn integrate(
                     ),
                     Err(e) => ("failed", Some(e.clone())),
                 };
-                let _ = record(
+                let _ = audit_as(
                     db,
                     root,
+                    &by,
+                    key,
                     "worktree.remove",
                     &rm.command,
                     &wscope,
                     outcome,
                     reason,
-                    decided_at,
                 );
                 if let Ok(x) = r {
                     removed = x.removed;
@@ -1271,4 +1399,4 @@ pub fn integrate(
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
