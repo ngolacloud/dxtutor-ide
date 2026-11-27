@@ -456,6 +456,14 @@ fn taken(sink: &Arc<Mutex<Vec<i64>>>) -> Vec<i64> {
 /// The code of a closed gate, for the log: what a human has to do next.
 fn gate_code(g: &Gate) -> &'static str {
     let stale = |c: &str| c.starts_with("stale") || c == "candidate" || c == "tips";
+    if g.checks.code == "running" || g.reviewer.code == "running" {
+        return "running";
+    }
+    match g.checks.code.as_str() {
+        "none_set" => return "no_checks",
+        "no_review" => return "no_review",
+        _ => {}
+    }
     if stale(&g.checks.code) || stale(&g.reviewer.code) {
         return "stale";
     }

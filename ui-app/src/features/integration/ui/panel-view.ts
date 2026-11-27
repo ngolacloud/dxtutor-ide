@@ -73,6 +73,8 @@ export interface PanelModel {
   stage: string | null;
   busy: boolean;
   detected: string | null;
+  /** Multi Co-Dev, fase 5: a secção «Autonomia e pull request», já desenhada (`ui/autonomy-view.ts`) */
+  extra?: string;
 }
 
 /** O markup do painel (puro sobre o modelo). */
@@ -108,7 +110,7 @@ export function renderPanel(t: T, m: PanelModel): string {
     btn("integrate", m.key, t("integrate"), can ? t("integrateTitle", { target }) : t("whyDisabled"), { disabled: !can || m.busy, cls: "pri" }) +
     `</div>`;
   const blocked = s.requestBlocked && !running ? `<p class="ig-dim">${esc(s.requestBlocked)}</p>` : "";
-  return `<div class="ig-box">${head}${tips}${dirty}${stage}${sections}${blocked}${foot}</div>`;
+  return `<div class="ig-box">${head}${tips}${dirty}${stage}${sections}${blocked}${m.extra ?? ""}${foot}</div>`;
 }
 
 /** Mostra (ou actualiza) o painel; `null` fecha-o. */
@@ -128,8 +130,18 @@ export function showPanel(html: string | null): void {
   }
   // keep the open <details> (a check's output) open across a refresh
   const open = new Set([...host.querySelectorAll("details[open] summary")].map((x) => x.textContent ?? ""));
+  // and what the delegation editor has chosen (phase 5): a refresh never undoes a choice in progress
+  const ticked = new Set([...host.querySelectorAll<HTMLInputElement>("input[type=checkbox][name]:checked")].map((i) => `${i.name}=${i.value}`));
+  const picked = new Map([...host.querySelectorAll<HTMLSelectElement>("select[name]")].map((x) => [x.name, x.value] as const));
   host.innerHTML = html;
   host.querySelectorAll("details").forEach((d) => {
     if (open.has(d.querySelector("summary")?.textContent ?? "")) d.open = true;
+  });
+  host.querySelectorAll<HTMLInputElement>("input[type=checkbox][name]").forEach((i) => {
+    if (ticked.has(`${i.name}=${i.value}`)) i.checked = true;
+  });
+  host.querySelectorAll<HTMLSelectElement>("select[name]").forEach((x) => {
+    const v = picked.get(x.name);
+    if (v !== undefined && [...x.options].some((o) => o.value === v && !o.disabled)) x.value = v;
   });
 }
