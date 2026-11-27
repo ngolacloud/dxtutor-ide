@@ -245,3 +245,11 @@ fn lists_and_loads_the_project_runbooks() {
         load(d.path(), "../etc/passwd").is_err() && load(d.path(), "runbooks/../x.md").is_err()
     );
 }
+
+#[test]
+fn a_pattern_ignores_the_final_line_break_of_the_output() {
+    assert_eq!(matches("/^[0-9]+$/", "3\n"), Some(true));
+    assert_eq!(matches("/^[0-9]+$/", "3\r\n"), Some(true));
+    assert_eq!(matches("/^[0-9]+$/", "3\nERROR\n"), Some(false));
+    assert_eq!(matches("`3`", "3\n"), Some(true));
+}
