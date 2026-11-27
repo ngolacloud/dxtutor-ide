@@ -1,0 +1,15 @@
+# Same gate as .github/workflows/ci.yml.
+image: node:22-slim
+
+stages:
+  - check
+
+check:
+  stage: check
+  before_script:
+    - corepack enable
+    - test -f pnpm-lock.yaml || { echo "pnpm-lock.yaml is missing - run 'pnpm install' and commit it"; exit 1; }
+    - pnpm install --frozen-lockfile
+  script:
+    - pnpm check
+    - pnpm audit --prod --audit-level high
