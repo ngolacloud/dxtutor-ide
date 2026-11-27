@@ -1,0 +1,86 @@
+{
+  "name": "go",
+  "displayName": "Go",
+  "description": "Rich Go language support for Visual Studio Code",
+  "version": "0.58.0",
+  "publisher": "golang",
+  "license": "MIT",
+  "contributes": {
+    "languages": [
+      {
+        "id": "go",
+        "extensions": [
+          ".go"
+        ],
+        "aliases": [
+          "Go"
+        ]
+      },
+      {
+        "id": "go.asm",
+        "extensions": [
+          ".s"
+        ],
+        "aliases": [
+          "Go Assembly"
+        ]
+      },
+      {
+        "id": "go.mod",
+        "filenames": [
+          "go.mod"
+        ],
+        "aliases": [
+          "Go Module File"
+        ],
+        "configuration": "./languages/go.mod.language-configuration.json"
+      },
+      {
+        "id": "go.work",
+        "filenames": [
+          "go.work"
+        ],
+        "aliases": [
+          "Go Work File"
+        ],
+        "configuration": "./languages/go.mod.language-configuration.json"
+      },
+      {
+        "id": "go.sum",
+        "filenames": [
+          "go.sum"
+        ],
+        "aliases": [
+          "Go Checksum File"
+        ]
+      },
+      {
+        "id": "gotmpl",
+        "extensions": [
+          ".tmpl",
+          ".gotmpl"
+        ],
+        "aliases": [
+          "Go Template File"
+        ]
+      }
+    ],
+    "grammars": [
+      {
+        "language": "go.mod",
+        "scopeName": "go.mod",
+        "path": "./syntaxes/go.mod.tmGrammar.json"
+      },
+      {
+        "language": "go.work",
+        "scopeName": "go.mod",
+        "path": "./syntaxes/go.mod.tmGrammar.json"
+      },
+      {
+        "language": "go.sum",
+        "scopeName": "go.sum",
+        "path": "./syntaxes/go.sum.tmGrammar.json"
+      }
+    ]
+  }
+}

@@ -75,6 +75,7 @@ Each entry names the `id` it changes or adds.
 | `initOptions` | `initializationOptions` sent once, when the server starts |
 | `settings` | the server's settings (see below) |
 | `oneShot`, `quirks`, `vscodeExtensions` | as in the bundled registry |
+| `vscodeLanguages` | VS Code language ids an installed VSIX named in `vscodeExtensions` contributes and this server also serves (gopls: `go.mod`, `go.sum`, `go.work`); only these VSIX-only languages reach it |
 | `install` | how to install it by hand: text only, shown when no recipe applies |
 | `recipes` | how dxtutor may install it from the missing-server banner (see [Install recipes](#install-recipes)) |
 

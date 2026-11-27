@@ -44,7 +44,7 @@ export const LEARN_NOTES: FeatureNotes = {
       ],
       limits: [
         "No browser só há os cursos embutidos de Rust e Go: os frameworks ficam todos «Coming soon».",
-        "Dos frameworks e ferramentas oficiais, o Dxjs e o Seiva têm curso (embutidos na app); os outros chegam em fases próximas.",
+        "Dos frameworks e ferramentas oficiais, o Dxjs, o Seiva, o Kubernetes e o Delonix Engine têm curso (embutidos na app); os outros chegam em fases próximas.",
       ],
       covers: ["lt-pick", "lt-onboard", "lt-install", "lt-remove"],
     },
@@ -95,6 +95,32 @@ export const LEARN_NOTES: FeatureNotes = {
       limits: [
         "Só na app desktop; no browser o cartão fica «Coming soon».",
         "No dxjs 1.2.0, uma ligação reactiva dentro de uma linha de `list` deixa de actualizar depois da primeira mudança da lista: o curso ensina a pôr na chave o que muda na linha.",
+      ],
+      covers: ["lt-pick", "submit_step"],
+    },
+    {
+      title: "Os cursos de Kubernetes e do Delonix: manifestos avaliados sem cluster",
+      where: ["Learning Track › «Choose what to learn» › «Frameworks & tools» › Kubernetes ou Delonix Engine"],
+      what: "Dois cursos de ferramentas em que se escreve YAML: o de Kubernetes (11 unidades, dos objectos e Pods ao Kustomize) e o do Delonix Engine 0.2.0 (9 unidades, dos manifestos e Pods aos ficheiros compose e a um projecto inteiro num Stack). Cada desafio é avaliado na tua máquina, sem cluster e sem tocar no motor de contentores.",
+      howTo: [
+        "Escolhe o cartão Kubernetes ou Delonix Engine na secção «Frameworks & tools» e os níveis que queres.",
+        "Lê os conceitos, escreve os drills linha a linha (o drill de YAML só confirma que o ficheiro se lê) e resolve os desafios: cada um é um pequeno projecto de ficheiros YAML.",
+        "Carrega em «Submit»: o resultado lista cada verificação, ✓ ou ✗, com o que se esperava e o que se encontrou.",
+      ],
+      flow: [
+        "Os cursos vêm embutidos no backend (`courses/kubernetes/`, `courses/delonix/`), na categoria `tool`, e escrevem-se e avaliam-se em `yaml`.",
+        "Cada desafio traz, nos ficheiros ocultos, um `checks.toml`: verificações sobre o YAML (um caminho e uma afirmação — igual, corresponde a, só estas chaves, um selector que escolhe as etiquetas de outro documento, um nome que existe noutro ficheiro) e, às vezes, um comando de uma ferramenta.",
+        "Os comandos só podem ser os da lista do backend (`tutor_core::toolcheck`): `kubectl kustomize <pasta>`, `delonix manifest render -f <ficheiro>` e `delonix compose config -f <ficheiro> -p <projecto>`. Nenhum vai à rede, a um cluster ou ao motor de contentores.",
+        "Correm sem shell, com o ambiente limpo, um `HOME` e um `KUBECONFIG` vazios numa pasta temporária (os teus contextos do kubectl nunca são lidos) e um tempo limite. Um kustomization que aponte para a rede ou use o Helm, ou uma porta de compose sem a porta do anfitrião, é recusado antes de correr.",
+      ],
+      tips: [
+        "Precisas do kubectl para as unidades de Kustomize e do delonix 0.2.0 para o curso do Delonix; sem eles, o desafio diz o que instalar em vez de falhar.",
+        "O relatório da avaliação mostra a saída do comando que falhou: é a mesma mensagem que verias no terminal.",
+      ],
+      limits: [
+        "Só na app desktop; no browser os cartões ficam «Coming soon».",
+        "Esta é a parte offline: correr os manifestos num cluster local (kind sobre Podman sem root) fica para uma fase seguinte.",
+        "O `delonix manifest validate` não é usado na avaliação: lê o estado do motor (e mexe nos cgroups do anfitrião); as referências entre documentos são verificadas pelo curso, a partir dos teus ficheiros.",
       ],
       covers: ["lt-pick", "submit_step"],
     },

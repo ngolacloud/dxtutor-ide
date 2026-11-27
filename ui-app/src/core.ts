@@ -122,7 +122,7 @@ declare global {
     /* feature `ext`, Fase 4 (ADR-0005): contribuições declarativas de extensões VS Code.
        O editor pede o realce TextMate do documento, a expansão de snippets (Tab) e o
        toggle de comentário (Ctrl+/); ausentes no harness, por isso opcionais. */
-    vsxHighlight?: (ext: string, lines: string[]) => string[] | null;
+    vsxHighlight?: (ext: string, lines: string[], path?: string) => string[] | null;
     vsxSnippet?: (ta: HTMLTextAreaElement, path: string) => boolean;
     vsxToggleComment?: (ta: HTMLTextAreaElement, path: string, block?: boolean) => boolean;
     /* feature `palette` (migrada de app.ts): paleta de comandos / quick open. O estado

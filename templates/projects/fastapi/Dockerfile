@@ -1,0 +1,55 @@
+# The image compose.yaml and `docker build` use. It is the same two-stage uv
+# build as the Delonixfile (which `delonix build` uses and may extend with
+# Delonix-only directives): keep the two in step when you change either.
+#
+#   docker build -t __NAME__:dev .          # or: docker compose build
+#
+# Stage 1 resolves the virtual environment (deps + this project, non-editable,
+# byte-compiled); only that environment reaches the runtime image — no uv, no
+# build cache, no source tree, no tests. .dockerignore keeps .env and .venv out
+# of the context.
+#
+# The build base is pinned to Python 3.11 ON PURPOSE: the runtime image is
+# distroless `python3-debian12`, which ships `/usr/bin/python3.11`. The venv
+# must be built with the SAME minor (3.11) or the distroless interpreter cannot
+# run it (a 3.13 venv has 3.13-only stdlib and a pyvenv.cfg pointing at a 3.13
+# that does not exist in the runtime image).
+# Pinned to 3.11.2 to MATCH the distroless runtime's python_full_version
+# (distroless/python3-debian12 is Debian bookworm's 3.11.2), so uv resolves
+# environment markers (e.g. redis → async_timeout on `< 3.11.3`) the same way
+# they resolve at runtime. A plain `3.11-slim` tracks the latest patch and
+# would drop those deps, which the 3.11.2 runtime then misses.
+FROM python:3.11.2-slim AS build
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never UV_PROJECT_ENVIRONMENT=/app/.venv
+RUN pip install --no-cache-dir --disable-pip-version-check uv==0.12.21
+WORKDIR /app
+COPY . /app
+# From the lock when the context has one (reproducible); a fresh project that
+# has not run `uv lock` yet resolves here instead, and says so.
+RUN --mount=type=cache,target=/root/.cache/uv if [ -f uv.lock ]; then uv sync --locked --no-dev --no-editable; else echo "uv.lock not found: resolving now; run 'uv lock' and commit it for reproducible images" && uv sync --no-dev --no-editable; fi
+
+# Distroless Python 3.11 runtime: no shell, no package manager, no OS userland
+# — only the interpreter (/usr/bin/python3.11), the CA roots and the venv copied
+# below. The `:nonroot` tag ships a built-in unprivileged user (uid 65532), so
+# there is nothing to create here. Registry configurable with
+# DELONIX_DISTROLESS_REGISTRY (default gcr.io/distroless); if the pull fails
+# not-found, Delonix falls back to python:3.11-slim automatically.
+FROM __DISTROLESS_REGISTRY__/python3-debian12:nonroot
+# The distroless image's OWN interpreter is /usr/bin/python3.11; the venv only
+# carries the DEPENDENCIES, put on PYTHONPATH. The venv's own bin/python is a
+# symlink to the build image's interpreter (/usr/local/bin), absent here.
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/app/.venv/lib/python3.11/site-packages
+WORKDIR /app
+COPY --from=build /app/.venv /app/.venv
+EXPOSE __PORT__
+# Liveness probe without a shell: exec-form JSON, run by the image interpreter.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD ["/usr/bin/python3.11", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:__PORT__/api/v1/health/live', timeout=3)"]
+STOPSIGNAL SIGTERM
+# Numeric uid:gid — the distroless `nonroot` user; no name to resolve.
+USER 65532:65532
+# The project's own entry point (server.py): readiness, drain and exit code.
+# distroless/python3 already has ENTRYPOINT ["/usr/bin/python3.11"]; make it
+# explicit and keep CMD to the ARGS only — repeating the interpreter in CMD
+# would make python try to run its own binary as a script.
+ENTRYPOINT ["/usr/bin/python3.11"]
+CMD ["-m", "__MODULE__"]

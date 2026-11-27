@@ -60,12 +60,12 @@ describe("motor de contribuições", () => {
     const { contrib } = setup();
     const manifest = JSON.parse(FILES["extension/package.json"]);
     const c = await contrib.readFromVsix(zip, "acme.demo-lang", manifest.contributes);
-    expect(c.languages).toEqual([{ id: "demo", extensions: [".dm"] }]);
+    expect(c.languages).toEqual([{ id: "demo", extensions: [".dm"], filenames: [], filenamePatterns: [], aliases: [] }]);
     expect(c.grammars.map(g => g.language)).toEqual(["demo"]);
     expect(c.themes[0].theme.colors).toEqual({ "editor.background": "#0b1020", "editor.foreground": "#ffffff" });
     expect(c.snippets[0].snippets[0].name).toBe("Show");
     expect(c.configs[0].config.lineComment).toBe(";;");
-    expect(c.warnings.join("\n")).toMatch(/only JSON grammars/);
+    expect(c.warnings.join("\n")).toMatch(/other\.tmLanguage not found/); // LSP P4: o plist XML já se lê
     expect(c.warnings.join("\n")).toMatch(/missing\.json not found/);
   });
 
@@ -73,15 +73,16 @@ describe("motor de contribuições", () => {
     const { contrib, css } = setup();
     const manifest = JSON.parse(FILES["extension/package.json"]);
     contrib.install(await contrib.readFromVsix(zip, "acme.demo-lang", manifest.contributes));
-    expect(contrib.highlight("dm", ["let x 42 ;; nota"])).toEqual([
+    // LSP P4: o editor pergunta pela linguagem do ficheiro (o registo de linguagens decide-a)
+    expect(contrib.highlight("demo", ["let x 42 ;; nota"])).toEqual([
       '<span class="kw">let</span> x <span class="num">42</span> <span class="cm">;; nota</span>',
     ]);
-    expect(contrib.highlight("rs", ["fn main"])).toBeNull();
-    const r = contrib.expandAt("dm", "  sh", {}, "  ", "    ")!;
+    expect(contrib.highlight("rust", ["fn main"])).toBeNull();
+    const r = contrib.expandAt("demo", "  sh", {}, "  ", "    ")!;
     expect(r.prefix).toBe("sh");
     expect(r.expansion.text).toBe("show value");
-    expect(contrib.lineCommentFor("dm")).toBe(";;");
-    expect(contrib.lineCommentFor("rs")).toBeNull();
+    expect(contrib.lineCommentFor("demo")).toBe(";;");
+    expect(contrib.lineCommentFor("rust")).toBeNull();
     expect(contrib.themes()).toEqual([{ extId: "acme.demo-lang", label: "Demo Night", uiTheme: "vs-dark" }]);
     contrib.applyTheme("Demo Night");
     expect(css()).toContain(".ed{background:#0b1020;color:#ffffff;}");
@@ -89,7 +90,7 @@ describe("motor de contribuições", () => {
     expect(contrib.activeTheme()).toBe("Demo Night");
     contrib.remove("acme.demo-lang");
     expect(css()).toBe("");
-    expect(contrib.highlight("dm", ["let"])).toBeNull();
+    expect(contrib.highlight("demo", ["let"])).toBeNull();
   });
 
   test("o motor de extensões instala o VSIX com o resumo das contribuições e os temas na paleta", async () => {

@@ -105,6 +105,8 @@ export function makeExtEngine(deps: ExtDeps): ExtEngine {
     if (!inst[id]) return;
     inst[id].on = !inst[id].on;
     saveExt();
+    // LSP P4: uma extensão desligada deixa de contribuir linguagens, gramáticas e comentários
+    if (contrib && state.read().vsix.some(v => v.id === id)) contrib.refresh();
     rerender();
   }
 

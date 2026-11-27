@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "id": "delonix",
+  "name": "Delonix Engine",
+  "version": "1.0.0",
+  "description": "Delonix Engine: Manifests and Compose Files — Pods, volumes, networks and Services, Config and Secret, Applications and Jobs, compose files and a whole project in one Stack. Graded offline with delonix manifest render and delonix compose config, without touching the engine.",
+  "authors": ["dxtutor"],
+  "license": "MIT OR Apache-2.0",
+  "repository": "https://github.com/ngolacloud/dxtutor-course-delonix",
+  "engine": ">=0.7.0",
+  "kind": "course",
+  "category": "tool",
+  "subject": {
+    "id": "delonix",
+    "name": "Delonix Engine",
+    "icon": "🌺",
+    "docs": "https://ngolacloud.github.io/delonix/"
+  },
+  "language": {
+    "id": "yaml",
+    "name": "YAML",
+    "icon": "📄",
+    "extension": "yaml",
+    "indent": "2",
+    "testCommand": "delonix manifest render -f"
+  },
+  "courses": ["courses/delonix.toml"]
+}

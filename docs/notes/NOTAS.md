@@ -11,13 +11,14 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 - [Quadro (backlog, sprints e kanban)](#quadro-backlog-sprints-e-kanban) — 2 acções
 - [Project](#project) — 11 acções
 - [Testes](#testes) — 1 acção
-- [Servidor de linguagem (LSP)](#servidor-de-linguagem-lsp) — 12 acções
+- [Servidor de linguagem (LSP)](#servidor-de-linguagem-lsp) — 13 acções
 - [Protecção de dados — nenhum segredo sai da máquina](#proteccao-de-dados-nenhum-segredo-sai-da-maquina) — 4 acções
 - [Ops — infraestrutura, Kubernetes, runbooks e evidências](#ops-infraestrutura-kubernetes-runbooks-e-evidencias) — 12 acções
 - [Platform — a minha fila, revisão de PR de infra e incidentes](#platform-a-minha-fila-revisao-de-pr-de-infra-e-incidentes) — 3 acções
 - [Vault — segredos, sessão e credenciais dinâmicas](#vault-segredos-sessao-e-credenciais-dinamicas) — 3 acções
 - [Deploy guiado — staging e produção](#deploy-guiado-staging-e-producao) — 3 acções
-- [Learning Track](#learning-track) — 4 acções
+- [Learning Track](#learning-track) — 5 acções
+- [Novo projecto: um projecto completo a partir dos templates do Delonix](#novo-projecto-um-projecto-completo-a-partir-dos-templates-do-delonix) — 1 acção
 
 ---
 
@@ -872,9 +873,9 @@ Corre a suite do projecto e mostra-a a acontecer: spinner, barra de progresso, c
 
 ## Servidor de linguagem (LSP)
 
-Na app desktop, o editor fala com o servidor de linguagem de cada ficheiro (rust-analyzer, typescript-language-server, pyright, gopls, jdtls…) para os diagnósticos ao vivo, o hover, o «ir para a definição», o rename e o completion. Que linguagem é cada ficheiro (pela extensão, sem distinguir maiúsculas, pelo nome inteiro como `Dockerfile` e `Makefile`, ou pelo shebang) e que servidor a serve diz um só ficheiro de dados, `languages/registry.json`, lido pelo editor e pelo backend. O teu `lsp.json` e o `.dxtutor/lsp.json` de cada projecto acrescentam linguagens e servidores e mudam o comando, os argumentos e as definições de cada servidor; o comando que um projecto pede só corre depois de o aprovares. Quando o servidor não está instalado, o editor diz qual falta e instala-o depois de aprovares o comando exacto, para a pasta do próprio dxtutor. Os servidores não ficam a gastar a máquina: um servidor sem ficheiros abertos pára sozinho ao fim de algum tempo, há um limite de servidores ao mesmo tempo, e a paleta mostra os que estão a correr, com o registo de cada um. Sem servidor (ou no browser), o editor continua útil: realce pelas gramáticas que vêm com o dxtutor (Python, Go, Java, Shell, Makefile, Dockerfile), completion pelas palavras dos ficheiros abertos, comentários de bloco e um «Format Document» que só arruma os espaços.
+Na app desktop, o editor fala com o servidor de linguagem de cada ficheiro (rust-analyzer, typescript-language-server, pyright, gopls, jdtls…) para os diagnósticos ao vivo, o hover, o «ir para a definição», o rename e o completion. Que linguagem é cada ficheiro (pela extensão, sem distinguir maiúsculas, pelo nome inteiro como `Dockerfile` e `Makefile`, ou pelo shebang) e que servidor a serve diz um só ficheiro de dados, `languages/registry.json`, lido pelo editor e pelo backend. O teu `lsp.json` e o `.dxtutor/lsp.json` de cada projecto acrescentam linguagens e servidores e mudam o comando, os argumentos e as definições de cada servidor; o comando que um projecto pede só corre depois de o aprovares. Quando o servidor não está instalado, o editor diz qual falta e instala-o depois de aprovares o comando exacto, para a pasta do próprio dxtutor. Uma extensão VS Code instalada (VSIX) que traz uma linguagem que o registo não conhece torna-a uma linguagem do editor — realce, comentários e o nome na barra de estado — e, se o registo o disser, liga-a ao servidor de linguagem certo. Os servidores não ficam a gastar a máquina: um servidor sem ficheiros abertos pára sozinho ao fim de algum tempo, há um limite de servidores ao mesmo tempo, e a paleta mostra os que estão a correr, com o registo de cada um. Sem servidor (ou no browser), o editor continua útil: realce pelas gramáticas que vêm com o dxtutor (Python, Go, Java, Shell, Makefile, Dockerfile), completion pelas palavras dos ficheiros abertos, comentários de bloco e um «Format Document» que só arruma os espaços.
 
-<sub>Código: `languages/registry.json`, `crates/tutor-eval/src/langreg.rs`, `crates/tutor-eval/src/lspconf.rs`, `ui-app/src/features/lsp/application/overrides.ts`, `ui-app/src/features/lsp/ui/config-view.ts`, `docs/lsp/overrides.md`, `ui-app/src/features/lsp/domain/registry.ts`, `ui-app/src/features/lsp/application/lsp-client.ts`, `ui-app/src/features/lsp/domain/server-status.ts`, `crates/tutor-eval/src/lspinstall.rs`, `src-tauri/src/commands/lsp_install.rs`, `src-tauri/src/lsp.rs`, `src-tauri/src/lsp/lifecycle.rs`, `ui-app/src/features/lsp/application/servers.ts`, `ui-app/src/features/lsp/ui/servers-view.ts`, `ui-app/src/features/panel/domain/lsp-log.ts`, `languages/grammars/manifest.json`, `scripts/fetch-grammars.mjs`, `ui-app/src/features/lsp/fallback.ts`, `ui-app/src/features/lsp/application/fallback-highlight.ts`, `ui-app/src/features/lsp/application/word-completion.ts`, `ui-app/src/features/lsp/domain/comments.ts`, `ui-app/src/features/lsp/domain/safe-format.ts` · revisto em 2026-11-27</sub>
+<sub>Código: `languages/registry.json`, `crates/tutor-eval/src/langreg.rs`, `crates/tutor-eval/src/lspconf.rs`, `ui-app/src/features/lsp/application/overrides.ts`, `ui-app/src/features/lsp/ui/config-view.ts`, `docs/lsp/overrides.md`, `ui-app/src/features/lsp/domain/registry.ts`, `ui-app/src/features/lsp/application/lsp-client.ts`, `ui-app/src/features/lsp/domain/server-status.ts`, `crates/tutor-eval/src/lspinstall.rs`, `src-tauri/src/commands/lsp_install.rs`, `src-tauri/src/lsp.rs`, `src-tauri/src/lsp/lifecycle.rs`, `ui-app/src/features/lsp/application/servers.ts`, `ui-app/src/features/lsp/ui/servers-view.ts`, `ui-app/src/features/panel/domain/lsp-log.ts`, `crates/tutor-eval/src/langcontrib.rs`, `ui-app/src/features/ext/domain/contributions.ts`, `ui-app/src/features/ext/domain/plist.ts`, `ui-app/src/features/lsp/application/contributions.ts`, `languages/grammars/manifest.json`, `scripts/fetch-grammars.mjs`, `ui-app/src/features/lsp/fallback.ts`, `ui-app/src/features/lsp/application/fallback-highlight.ts`, `ui-app/src/features/lsp/application/word-completion.ts`, `ui-app/src/features/lsp/domain/comments.ts`, `ui-app/src/features/lsp/domain/safe-format.ts` · revisto em 2026-11-27</sub>
 
 | Acção | Onde |
 |---|---|
@@ -884,6 +885,7 @@ Na app desktop, o editor fala com o servidor de linguagem de cada ficheiro (rust
 | [Aprovar o comando e as definições que um projecto pede](#aprovar-o-comando-e-as-definicoes-que-um-projecto-pede) | faixa no topo do ficheiro «… is waiting for your approval» → «Review…» · a configuração efectiva → «Review…» |
 | [Ver a configuração efectiva](#ver-a-configuracao-efectiva) | paleta: «LSP: Show Effective Language Server Configuration» |
 | [Aviso de definições ignoradas](#aviso-de-definicoes-ignoradas) | cartão vermelho no canto «Language server settings ignored» |
+| [Linguagens trazidas por uma extensão VS Code (VSIX)](#linguagens-trazidas-por-uma-extensao-vs-code-vsix) | painel «Extensions» → instalar do Open VSX ou de um .vsix (+) · página da extensão → «What this extension adds here» |
 | [Ver os servidores de linguagem a correr](#ver-os-servidores-de-linguagem-a-correr) | paleta: «LSP: Show Running Language Servers» |
 | [Servidores inactivos e o limite de servidores](#servidores-inactivos-e-o-limite-de-servidores) | automático · o teu `lsp.json`: «resources» |
 | [Realce sem extensão: as gramáticas que vêm com o dxtutor](#realce-sem-extensao-as-gramaticas-que-vem-com-o-dxtutor) | editor (automático) |
@@ -1036,6 +1038,37 @@ Quando o teu `lsp.json` ou o `.dxtutor/lsp.json` têm um erro, o dxtutor ignora 
 1. Os erros vêm de `lsp_config` (`userFile`/`projectFile.errors`); o aviso só se repete quando os erros mudam.
 
 <sub>Cobre: `lsp:config-errors-open`</sub>
+
+### Linguagens trazidas por uma extensão VS Code (VSIX)
+
+**Onde:** painel «Extensions» → instalar do Open VSX ou de um .vsix (+) · página da extensão → «What this extension adds here»
+
+Uma extensão instalada que declara uma linguagem que o dxtutor ainda não conhece (o Apache para o `.htaccess`, o Perl, o `go.mod` da extensão do Go) passa a ser uma linguagem do editor: o ficheiro é reconhecido pelo nome inteiro, por um padrão, pela extensão ou pela primeira linha, ganha o realce da gramática da extensão (JSON ou `.tmLanguage` em XML), o Ctrl+/ com o comentário do `language-configuration.json` e o nome na barra de estado. Se o registo de linguagens do dxtutor o disser, o ficheiro vai para o servidor de linguagem dessa extensão (instalar a extensão do Go dá o gopls aos `go.mod`, `go.sum` e `go.work`). Desinstalar ou desligar a extensão tira tudo o que ela trouxe.
+
+**Como usar**
+
+1. Instala a extensão (do Open VSX ou de um ficheiro .vsix) e abre um ficheiro dessa linguagem.
+2. Na página da extensão, cada linguagem diz se é nova no editor ou já do dxtutor, que ficheiros reconhece, que servidor de linguagem tem (ou que não tem) e que ficheiros ficam com o registo do dxtutor.
+3. Uma extensão instalada antes desta versão guardou só as extensões de ficheiro: a página pede para a reinstalar.
+
+**Fluxo (por dentro)**
+
+1. Ao instalar, `readFromVsix` lê de cada linguagem `extensions`, `filenames`, `filenamePatterns`, `firstLine` e `aliases` (o primeiro é o nome), e as gramáticas em JSON ou em property list XML (`ext/domain/plist.ts`); fica tudo no `vsx-contrib`.
+2. As linguagens das extensões ligadas, juntadas por id, entram no registo de linguagens POR BAIXO dele (`useContributed`): o editor, o explorador e o cliente LSP perguntam lá. O registo ganha sempre: um ficheiro que ele já reconhece (pelo nome ou pela extensão) fica dele, e a página da extensão di-lo.
+3. Dentro das extensões: o nome inteiro, depois o padrão mais comprido, depois a extensão mais comprida (`.d.ts` antes de `.ts`); a primeira linha só quando o nome não diz nada (a do registo primeiro). Uma linguagem com o id de uma do registo (`python` com `.pyw`) É essa, servidor incluído.
+4. Servidor: só o do registo que nomeia a extensão em `vscodeExtensions` e a linguagem em `vscodeLanguages` (o gopls lista `go.mod`, `go.sum`, `go.work`; o `go.asm` da mesma extensão fica sem servidor, e o `pip-requirements` da extensão do Python nunca vai para o pyright). O id da linguagem da extensão é o `languageId` que o servidor recebe. Os overrides (P2), a aprovação e as receitas de instalação (P3) continuam iguais.
+5. O backend recebe a lista inteira (`lsp_contributions`) antes de o cliente decidir a linguagem de um ficheiro e sempre que muda (bus `ext:languages`); quando muda, um documento aberto que perdeu o servidor fecha-se nele.
+
+**Dicas**
+
+- No teu `lsp.json` podes dar `vscodeLanguages` a um servidor para que sirva outra linguagem que uma extensão dele traga.
+
+**Limites**
+
+- Não há extension host: o JavaScript da extensão nunca corre, e uma extensão nunca traz o comando de um servidor — o servidor é sempre o do registo.
+- Gramáticas que incluem outras gramáticas (`source.js`…) ficam sem realce nesses blocos; regras que acabam no fim da linha (`\n`) ou com `\G` (o comentário do Perl) ainda não são bem tratadas pelo realce.
+
+<sub>Cobre: `lsp:vsix-languages`</sub>
 
 ### Ver os servidores de linguagem a correr
 
@@ -1833,6 +1866,7 @@ Percursos guiados para aprender uma linguagem, um framework ou uma ferramenta: l
 | [Escolher o que aprender: linguagens e «Frameworks & tools»](#escolher-o-que-aprender-linguagens-e-frameworks-tools) | Learning Track › «Choose what to learn» · o selector que abre quando não há percurso |
 | [Passo de projecto: vários ficheiros](#passo-de-projecto-varios-ficheiros) | Learning Track › um desafio com a lista de ficheiros por cima do editor |
 | [O curso Dxjs: da primeira signal a uma pequena app](#o-curso-dxjs-da-primeira-signal-a-uma-pequena-app) | Learning Track › «Choose what to learn» › «Frameworks & tools» › Dxjs |
+| [Os cursos de Kubernetes e do Delonix: manifestos avaliados sem cluster](#os-cursos-de-kubernetes-e-do-delonix-manifestos-avaliados-sem-cluster) | Learning Track › «Choose what to learn» › «Frameworks & tools» › Kubernetes ou Delonix Engine |
 | [Preparar um curso (Seiva): descarregar as bibliotecas uma vez](#preparar-um-curso-seiva-descarregar-as-bibliotecas-uma-vez) | Learning Track › um passo do curso Seiva › cartão «Prepare this course» |
 
 ### Escolher o que aprender: linguagens e «Frameworks & tools»
@@ -1862,7 +1896,7 @@ Mostra as 10 linguagens oficiais e, numa secção à parte, os frameworks e as f
 **Limites**
 
 - No browser só há os cursos embutidos de Rust e Go: os frameworks ficam todos «Coming soon».
-- Dos frameworks e ferramentas oficiais, o Dxjs e o Seiva têm curso (embutidos na app); os outros chegam em fases próximas.
+- Dos frameworks e ferramentas oficiais, o Dxjs, o Seiva, o Kubernetes e o Delonix Engine têm curso (embutidos na app); os outros chegam em fases próximas.
 
 <sub>Cobre: `lt-pick`, `lt-onboard`, `lt-install`, `lt-remove`</sub>
 
@@ -1928,6 +1962,38 @@ O curso oficial do dxjs, o motor de interfaces reactivas da NgolaCloud: 12 unida
 
 <sub>Cobre: `lt-pick`, `submit_step`</sub>
 
+### Os cursos de Kubernetes e do Delonix: manifestos avaliados sem cluster
+
+**Onde:** Learning Track › «Choose what to learn» › «Frameworks & tools» › Kubernetes ou Delonix Engine
+
+Dois cursos de ferramentas em que se escreve YAML: o de Kubernetes (11 unidades, dos objectos e Pods ao Kustomize) e o do Delonix Engine 0.2.0 (9 unidades, dos manifestos e Pods aos ficheiros compose e a um projecto inteiro num Stack). Cada desafio é avaliado na tua máquina, sem cluster e sem tocar no motor de contentores.
+
+**Como usar**
+
+1. Escolhe o cartão Kubernetes ou Delonix Engine na secção «Frameworks & tools» e os níveis que queres.
+2. Lê os conceitos, escreve os drills linha a linha (o drill de YAML só confirma que o ficheiro se lê) e resolve os desafios: cada um é um pequeno projecto de ficheiros YAML.
+3. Carrega em «Submit»: o resultado lista cada verificação, ✓ ou ✗, com o que se esperava e o que se encontrou.
+
+**Fluxo (por dentro)**
+
+1. Os cursos vêm embutidos no backend (`courses/kubernetes/`, `courses/delonix/`), na categoria `tool`, e escrevem-se e avaliam-se em `yaml`.
+2. Cada desafio traz, nos ficheiros ocultos, um `checks.toml`: verificações sobre o YAML (um caminho e uma afirmação — igual, corresponde a, só estas chaves, um selector que escolhe as etiquetas de outro documento, um nome que existe noutro ficheiro) e, às vezes, um comando de uma ferramenta.
+3. Os comandos só podem ser os da lista do backend (`tutor_core::toolcheck`): `kubectl kustomize <pasta>`, `delonix manifest render -f <ficheiro>` e `delonix compose config -f <ficheiro> -p <projecto>`. Nenhum vai à rede, a um cluster ou ao motor de contentores.
+4. Correm sem shell, com o ambiente limpo, um `HOME` e um `KUBECONFIG` vazios numa pasta temporária (os teus contextos do kubectl nunca são lidos) e um tempo limite. Um kustomization que aponte para a rede ou use o Helm, ou uma porta de compose sem a porta do anfitrião, é recusado antes de correr.
+
+**Dicas**
+
+- Precisas do kubectl para as unidades de Kustomize e do delonix 0.2.0 para o curso do Delonix; sem eles, o desafio diz o que instalar em vez de falhar.
+- O relatório da avaliação mostra a saída do comando que falhou: é a mesma mensagem que verias no terminal.
+
+**Limites**
+
+- Só na app desktop; no browser os cartões ficam «Coming soon».
+- Esta é a parte offline: correr os manifestos num cluster local (kind sobre Podman sem root) fica para uma fase seguinte.
+- O `delonix manifest validate` não é usado na avaliação: lê o estado do motor (e mexe nos cgroups do anfitrião); as referências entre documentos são verificadas pelo curso, a partir dos teus ficheiros.
+
+<sub>Cobre: `lt-pick`, `submit_step`</sub>
+
 ### Preparar um curso (Seiva): descarregar as bibliotecas uma vez
 
 **Onde:** Learning Track › um passo do curso Seiva › cartão «Prepare this course»
@@ -1959,6 +2025,49 @@ Um curso que compila contra bibliotecas de fora (o Seiva 0.2.0, o tokio, o axum)
 - Precisa de rede na preparação (crates.io e GitHub).
 
 <sub>Cobre: `lt-prepare`</sub>
+
+---
+
+## Novo projecto: um projecto completo a partir dos templates do Delonix
+
+Cria um projecto novo já completo — código, testes, Dockerfile, compose, CI, ADRs, runbooks e dotfiles — a partir dos mesmos templates do `delonix init -t` (Rust, Go, Node.js, FastAPI, Django, NestJS, Next.js, Laravel, nginx, Apache httpd, HAProxy, Odoo e WordPress), e abre-o logo como o teu workspace.
+
+<sub>Código: `crates/tutor-scaffold/src/lib.rs`, `src-tauri/src/commands/scaffold.rs`, `templates/projects/`, `scripts/sync-delonix-templates.sh`, `ui-app/src/features/newproject/` · revisto em 2026-11-27</sub>
+
+| Acção | Onde |
+|---|---|
+| [Criar um projecto novo](#criar-um-projecto-novo) | Boas-vindas › Começar › Novo projecto… · menu File › New Project… · paleta › File: New Project… |
+
+### Criar um projecto novo
+
+**Onde:** Boas-vindas › Começar › Novo projecto… · menu File › New Project… · paleta › File: New Project…
+
+Abre um diálogo com um cartão por template, agrupados em Linguagens, Frameworks, Servidores web e Aplicações. Escolhes um, dás o nome, a pasta onde fica e a versão, e o projecto é criado e aberto como workspace.
+
+**Como usar**
+
+1. Abre o Novo projecto e escolhe o cartão (por exemplo, FastAPI).
+2. Escreve o nome (letras minúsculas, dígitos e hífenes), confirma a pasta onde fica e a versão.
+3. Carrega em «Criar projecto» e confirma no diálogo, que mostra exactamente o que vai acontecer.
+4. O projecto abre-se como o teu workspace; o resumo diz como ficou o git e o lockfile.
+
+**Fluxo (por dentro)**
+
+1. Os templates são os do Delonix (`bins/delonix/templates`), copiados por `scripts/sync-delonix-templates.sh` para `templates/projects/` (o commit de origem fica em `SOURCE`) e embutidos no binário pelo crate `tutor-scaffold`.
+2. `project_new_plan` valida o nome (uma etiqueta DNS), a versão (as do `template.meta`) e a pasta (nova ou vazia), e diz o que vai acontecer; não escreve nada.
+3. `project_new` substitui os tokens (`__NAME__`, `__MODULE__`, `__PORT__`, `__TLS_PORT__`, `__TEMPLATE_VERSION__`, `__DISTROLESS_REGISTRY__`) nos conteúdos e nos caminhos, escreve o `.env` (0600) com segredos aleatórios a partir do `.env.tmpl`, gera o lockfile se o gestor de pacotes estiver instalado, faz `git init` em `main` e o commit `chore: scaffold`. Fica no registo de auditoria do projecto novo, antes e com o resultado.
+
+**Dicas**
+
+- O `.env` nunca entra no commit (o `.gitignore` do template exclui-o); os segredos são só deste projecto.
+
+**Limites**
+
+- Só na app desktop.
+- O certificado local dos templates com HTTPS (pasta `tls/`) não é gerado: cria-o com `scripts/tls.sh` ou com o `delonix init`.
+- Sem o gestor de pacotes (uv, pnpm, cargo, composer) instalado, o lockfile não é gerado e o resumo diz que comando correr.
+
+<sub>Cobre: `welcome:newProject`, `newproject:pick`, `newproject:create`, `newproject:parent`</sub>
 
 ---
 

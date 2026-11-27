@@ -1,0 +1,42 @@
+# Delonixfile — same grammar as a Dockerfile. Build with:
+#   delonix build -t __NAME__:dev .
+#
+# Two stages with a DISTROLESS runtime — the third Delonix pillar, alongside
+# rootless-first and daemonless. The toolchain compiles a STATIC binary
+# (CGO_ENABLED=0, mandatory for a static/distroless image); only that binary
+# reaches the runtime. The runtime is distroless/static: no shell, no apk, no
+# /bin/sh — only the binary, the CA roots and a nonroot user. Minimal attack
+# surface and nothing to exec but the server itself.
+# go.mod and go.sum are copied first so the module download is cached until
+# they change. The build context is filtered by .dockerignore.
+FROM golang:__TEMPLATE_VERSION__-alpine AS build
+ENV CGO_ENABLED=0 GOFLAGS=-trimpath
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd ./cmd
+COPY internal ./internal
+ARG VERSION=dev
+RUN go build -ldflags "-s -w -X main.version=${VERSION}" -o /out/server ./cmd/__NAME__
+
+# Distroless static. It already ships the CA roots for the outbound https webhook
+# at /etc/ssl/certs/ca-certificates.crt, and the :nonroot tag already defines the
+# nonroot user (uid 65532). No RUN here: there is no package manager and no shell
+# to run one. The token __DISTROLESS_REGISTRY__ is substituted by the scaffold
+# (default gcr.io/distroless), with a conventional fallback if it cannot be pulled.
+FROM __DISTROLESS_REGISTRY__/static-debian12:nonroot
+COPY --from=build /out/server /usr/local/bin/server
+EXPOSE __PORT__
+# No shell means no entrypoint.sh and no wget probe. The healthcheck runs the
+# server's own `healthcheck` subcommand in exec-form (a JSON array, executed
+# WITHOUT a shell), which GETs /api/v1/health/live over loopback. The runtime
+# probes liveness; the orchestrator still hits /api/v1/health/live directly for
+# readiness ahead of the load balancer.
+HEALTHCHECK CMD ["/usr/local/bin/server", "healthcheck"]
+STOPSIGNAL SIGTERM
+# Numeric uid:gid: valid on the distroless image (nonroot) and on the conventional
+# fallback alike, without an /etc/passwd lookup.
+USER 65532:65532
+# Distroless runs no scripts: the server is the entrypoint and PID 1 directly.
+ENTRYPOINT ["/usr/local/bin/server"]
+CMD []

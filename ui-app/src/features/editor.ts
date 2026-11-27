@@ -88,7 +88,7 @@ function paintEd(p:string){lastPainted=p;const f=FS[p],v=VIEWS.get(p)??null,line
      realce é do documento inteiro (com estado entre linhas); senão, a gramática que o dxtutor traz
      para a linguagem (LSP P5: incremental; uma linha ainda por fazer fica com o realce de sempre);
      senão, o realce de sempre. */
-  const tm:Array<string|undefined>|null=(window.vsxHighlight?window.vsxHighlight(ext,lines):null)??fallbackHighlighter.highlight(p,lines,repaintLater(p));
+  const tm:Array<string|undefined>|null=(window.vsxHighlight?window.vsxHighlight(ext,lines,p):null)??fallbackHighlighter.highlight(p,lines,repaintLater(p));
   $('#ed-hl')!.innerHTML=lines.map((l,i)=>`<div class="l${dg[i+1]?' d-'+dg[i+1]:''}${hk(i)}">${(tm?.[i]??hlLine(l,ext))||' '}</div>`).join('');
   const mm=$('#minimap')!;mm.classList.remove('hidden');$('#ebody')!.classList.add('with-mm');
   mm.innerHTML='<div class="mm-view"></div>'+lines.slice(0,120).map((l,i)=>`<div class="mm-line${dg[i+1]==='e'?' err':''}" style="width:${l.trim()?Math.max(6,Math.min(52,l.length*.9)):0}px"></div>`).join('');

@@ -8,9 +8,17 @@
    Na app com uma pasta aberta, o registo EFECTIVO (o embutido com o `lsp.json` do utilizador e o
    `.dxtutor/lsp.json` do projecto por cima, LSP P2) vem do backend (`lsp_config`) e troca-se aqui por
    `useRegistry` — só a raiz de composição do lsp o faz; quem lê o registo (o editor, o explorador,
-   as extensões) passa a ver as linguagens dos overrides. PURO. */
+   as extensões) passa a ver as linguagens dos overrides.
+   As linguagens que os VSIX instalados contribuem (LSP P4) entram por baixo do registo (`useContributed`,
+   posto pela feature `ext`): só se perguntam quando as regras do registo não dizem nada — o registo
+   ganha sempre. As mesmas regras do backend (`tutor_eval::langcontrib`): pelo nome inteiro, depois o
+   padrão mais comprido, depois a extensão mais comprida; a primeira linha só quando o nome não diz nada
+   (a do registo primeiro); uma linguagem com o id de uma do registo É essa; o servidor de uma linguagem
+   só de um VSIX é o do registo que nomeia a extensão em `vscodeExtensions` e a linguagem em
+   `vscodeLanguages`. PURO. */
 
 import data from "../../../../../languages/registry.json";
+import { patternMatches } from "./glob";
 
 /** Uma linguagem do registo (ver `tutor_eval::langreg` para cada campo). */
 export interface RegLanguage {
@@ -30,6 +38,25 @@ export interface RegLanguage {
   outline?: string;
   /** o `id` do servidor em `servers` */
   server?: string;
+  /** só nas linguagens que um VSIX contribui e o registo não conhece: as extensões que a trazem */
+  contributedBy?: string[];
+}
+
+/** Uma linguagem que os VSIX instalados contribuem (LSP P4), juntada por id (`ext/domain/contributions`).
+ *  O backend recebe a mesma forma (`lsp_contributions`, `tutor_eval::langcontrib::ContribLanguage`). */
+export interface ContributedLanguage {
+  id: string;
+  /** o primeiro dos `aliases`, senão o id (a barra de estado) */
+  name: string;
+  /** como o VSIX as declara, em minúsculas e com o ponto (`.go`, `.d.ts`) */
+  extensions: string[];
+  filenames: string[];
+  filenamePatterns: string[];
+  firstLine?: string;
+  /** o `comments.lineComment` do `language-configuration.json` */
+  lineComment?: string;
+  /** as extensões (`publisher.name`) que a contribuem, pela ordem de instalação */
+  from: string[];
 }
 
 /** Um servidor de linguagem do registo. */
@@ -57,6 +84,9 @@ export interface RegServer {
   /** como o dxtutor o pode instalar (LSP P3): o backend constrói o comando a partir daqui */
   recipes?: RegRecipe[];
   vscodeExtensions?: string[];
+  /** as linguagens VS Code, além das suas no registo, que serve quando um VSIX de `vscodeExtensions`
+   *  as contribui (o gopls: `go.mod`, `go.sum`, `go.work`) — LSP P4 */
+  vscodeLanguages?: string[];
 }
 
 /** Uma receita de instalação (ver `tutor_eval::langreg::Recipe`). */
@@ -89,10 +119,22 @@ export const activeRegistry = (): Registry => active;
 
 const fileName = (path: string): string => path.slice(Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")) + 1);
 
-/** A linguagem pelo NOME do ficheiro: o nome inteiro primeiro (`Dockerfile`), depois a extensão
- *  depois do último ponto — sem distinguir maiúsculas. Um ficheiro só com um ponto à cabeça
- *  (`.gitignore`) não tem extensão. */
-export function languageForName(path: string): RegLanguage | null {
+/** As linguagens dos VSIX instalados (LSP P4): quem as fornece é a feature `ext` (lidas só quando são
+ *  precisas — o armazenamento ainda não existe quando os módulos avaliam). */
+let contributedSource: () => ContributedLanguage[] = () => [];
+
+/** Liga a fonte das linguagens dos VSIX instalados (a feature `ext`, que a mantém em cache). */
+export function useContributed(source: () => ContributedLanguage[]): void {
+  contributedSource = source;
+}
+
+/** As linguagens dos VSIX instalados, juntadas por id. */
+export const contributedLanguages = (): ContributedLanguage[] => contributedSource();
+
+/** A linguagem do REGISTO pelo nome do ficheiro: o nome inteiro primeiro (`Dockerfile`), depois a
+ *  extensão depois do último ponto — sem distinguir maiúsculas. Um ficheiro só com um ponto à cabeça
+ *  (`.gitignore`) não tem extensão. As linguagens dos VSIX não contam (ver `languageForName`). */
+export function registryLanguageForName(path: string): RegLanguage | null {
   const name = fileName(path), lower = name.toLowerCase();
   if (!name) return null;
   const byName = active.languages.find((l) => (l.filenames ?? []).some((f) => f.toLowerCase() === lower));
@@ -102,26 +144,100 @@ export function languageForName(path: string): RegLanguage | null {
   return languageByExtension(name.slice(dot + 1));
 }
 
+/** Uma extensão declarada por um VSIX como se compara: minúsculas, com o ponto (`htaccess` → `.htaccess`). */
+export const normExtension = (e: string): string => {
+  const x = e.trim().toLowerCase();
+  return x.startsWith(".") ? x : `.${x}`;
+};
+
+/** A linguagem de um VSIX pelo nome do ficheiro: o nome inteiro, depois o padrão mais comprido, depois a
+ *  extensão mais comprida (`.d.ts` antes de `.ts`) — sem distinguir maiúsculas. */
+export function contributedForName(path: string, langs: ContributedLanguage[] = contributedLanguages()): ContributedLanguage | null {
+  const name = fileName(path), lower = name.toLowerCase();
+  if (!name || !langs.length) return null;
+  const byName = langs.find((l) => l.filenames.some((f) => f.toLowerCase() === lower));
+  if (byName) return byName;
+  let best: ContributedLanguage | null = null, len = 0;
+  for (const l of langs) for (const p of l.filenamePatterns) if (p.length > len && patternMatches(p, path)) [best, len] = [l, p.length];
+  if (best) return best;
+  for (const l of langs)
+    for (const raw of l.extensions) {
+      const e = normExtension(raw);
+      if (e.length > 1 && e.length > len && lower.endsWith(e)) [best, len] = [l, e.length];
+    }
+  return best;
+}
+
+/** A linguagem de um VSIX cuja `firstLine` casa com `line` (um padrão que não compila salta-se). */
+export function contributedForFirstLine(line: string, langs: ContributedLanguage[] = contributedLanguages()): ContributedLanguage | null {
+  return langs.find((l) => matchesLine(l.firstLine, line)) ?? null;
+}
+
+function matchesLine(pattern: string | undefined, line: string): boolean {
+  if (!pattern) return false;
+  try {
+    return new RegExp(pattern).test(line);
+  } catch {
+    return false;
+  }
+}
+
+/** O servidor do registo para uma linguagem só de um VSIX: o que nomeia uma das extensões que a trazem em
+ *  `vscodeExtensions` E a lista em `vscodeLanguages`, e que ainda serve uma linguagem do registo. */
+export function contributedServerOf(c: ContributedLanguage): RegServer | null {
+  return (
+    active.servers.find(
+      (s) =>
+        (s.vscodeLanguages ?? []).includes(c.id) &&
+        c.from.some((x) => (s.vscodeExtensions ?? []).includes(x.toLowerCase())) &&
+        active.languages.some((l) => l.server === s.id),
+    ) ?? null
+  );
+}
+
+/** Uma linguagem de um VSIX como linguagem do ficheiro: a do registo com o mesmo id (é essa), ou uma
+ *  só do VSIX, com o servidor que o registo lhe dá. */
+export function asLanguage(c: ContributedLanguage): RegLanguage {
+  const same = languageById(c.id);
+  if (same) return same;
+  const server = contributedServerOf(c)?.id;
+  return {
+    id: c.id,
+    name: c.name,
+    lspLanguageId: c.id,
+    extensions: c.extensions.map((e) => normExtension(e).slice(1)),
+    filenames: c.filenames,
+    firstLine: c.firstLine,
+    lineComment: c.lineComment,
+    ...(server ? { server } : {}),
+    contributedBy: c.from,
+  };
+}
+
+/** A linguagem pelo NOME do ficheiro: as regras do registo (`registryLanguageForName`) e, se não dizem
+ *  nada, as linguagens dos VSIX instalados (LSP P4). */
+export function languageForName(path: string): RegLanguage | null {
+  const reg = registryLanguageForName(path);
+  if (reg) return reg;
+  const c = contributedForName(path);
+  return c ? asLanguage(c) : null;
+}
+
 /** A linguagem de uma extensão (sem o ponto, sem distinguir maiúsculas). */
 export function languageByExtension(ext: string): RegLanguage | null {
   const e = ext.toLowerCase();
   return active.languages.find((l) => (l.extensions ?? []).includes(e)) ?? null;
 }
 
-/** A linguagem cuja `firstLine` casa com a primeira linha de `content`. */
+/** A linguagem cuja `firstLine` casa com a primeira linha de `content`: a do registo primeiro, depois a
+ *  dos VSIX instalados. */
 export function languageForFirstLine(content: string): RegLanguage | null {
   const nl = content.indexOf("\n");
   const line = nl < 0 ? content : content.slice(0, nl);
-  return (
-    active.languages.find((l) => {
-      if (!l.firstLine) return false;
-      try {
-        return new RegExp(l.firstLine).test(line);
-      } catch {
-        return false;
-      }
-    }) ?? null
-  );
+  const reg = active.languages.find((l) => matchesLine(l.firstLine, line));
+  if (reg) return reg;
+  const c = contributedForFirstLine(line);
+  return c ? asLanguage(c) : null;
 }
 
 /** A linguagem de um ficheiro: pelo nome; se o nome não diz nada e há conteúdo, pela primeira linha. */
