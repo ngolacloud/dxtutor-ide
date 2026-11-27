@@ -473,6 +473,7 @@ mod tests {
             tool_use_id: "t1".into(),
             content: "x".into(),
             is_error: false,
+            images: Vec::new(),
         }]));
         t.push(Message::system("O modo passou a Auto."));
         log.sync(&t).unwrap();
@@ -575,6 +576,7 @@ mod tests {
             tool_use_id: "1".into(),
             content: "…".into(),
             is_error: false,
+            images: Vec::new(),
         }]));
         t.push(Message::system("modo"));
         t.push(Message::assistant(vec![

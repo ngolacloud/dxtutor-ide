@@ -24,7 +24,7 @@ use crate::provider::{
     BlockKind, Provider, ProviderError, Request, Response, StopReason, StreamEvent, Usage,
 };
 use crate::retry;
-use crate::types::{Message, Role};
+use crate::types::{Image, Message, Role};
 
 /// Um provedor OpenAI-compatível.
 #[derive(Clone, Debug)]
@@ -119,6 +119,18 @@ fn text_of(m: &Message) -> String {
         .join("\n")
 }
 
+/// H5c: a `user` message with text and images (Chat Completions parts, the image as a data URL).
+fn user_parts(text: &str, images: &[Image]) -> Value {
+    let mut parts = vec![];
+    if !text.is_empty() {
+        parts.push(json!({"type": "text", "text": text}));
+    }
+    for i in images {
+        parts.push(json!({"type": "image_url", "image_url": {"url": format!("data:{};base64,{}", i.media_type, i.data)}}));
+    }
+    json!({ "role": "user", "content": parts })
+}
+
 /// O histórico canónico (blocos Anthropic) em mensagens Chat Completions.
 pub fn wire_messages(req: &Request, cfg: &Config) -> Vec<Value> {
     let mut out = vec![];
@@ -136,10 +148,21 @@ pub fn wire_messages(req: &Request, cfg: &Config) -> Vec<Value> {
                 }
             }
             Role::User => {
-                // resultados de ferramentas → uma mensagem `tool` por resultado
+                // resultados de ferramentas → uma mensagem `tool` por resultado; as imagens deles (H5c)
+                // seguem numa mensagem `user` (uma mensagem `tool` só leva texto)
+                let mut tool_images = vec![];
                 for b in m.content.iter().filter(|b| b["type"] == "tool_result") {
                     let content = match &b["content"] {
                         Value::String(s) => s.clone(),
+                        Value::Array(blocks) => {
+                            tool_images.extend(Image::from_blocks(blocks));
+                            blocks
+                                .iter()
+                                .filter(|x| x["type"] == "text")
+                                .filter_map(|x| x["text"].as_str())
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        }
                         other => other.to_string(),
                     };
                     let content = if b["is_error"] == true {
@@ -149,8 +172,17 @@ pub fn wire_messages(req: &Request, cfg: &Config) -> Vec<Value> {
                     };
                     out.push(json!({ "role": "tool", "tool_call_id": b["tool_use_id"], "content": content }));
                 }
+                if !tool_images.is_empty() {
+                    out.push(user_parts(
+                        "(as imagens dos resultados acima)",
+                        &tool_images,
+                    ));
+                }
                 let t = text_of(m);
-                if !t.is_empty() {
+                let images = Image::from_blocks(&m.content);
+                if !images.is_empty() {
+                    out.push(user_parts(&t, &images));
+                } else if !t.is_empty() {
                     out.push(json!({ "role": "user", "content": t }));
                 }
             }
@@ -237,9 +269,27 @@ pub fn ollama_body(req: &Request, cfg: &Config) -> Result<Value, ProviderError> 
         .map(|u| (u.id, u.name))
         .collect();
     let mut messages = wire_messages(req, cfg);
-    for m in messages.iter_mut() {
+    let mut images_of: Vec<(usize, Vec<Value>)> = vec![];
+    for (i, m) in messages.iter_mut().enumerate() {
         if m["content"].is_null() {
             m["content"] = json!("");
+        }
+        // H5c: the native API takes a message's images apart, as plain base64
+        if let Some(parts) = m["content"].as_array().cloned() {
+            let text: Vec<&str> = parts
+                .iter()
+                .filter(|p| p["type"] == "text")
+                .filter_map(|p| p["text"].as_str())
+                .collect();
+            let imgs: Vec<Value> = parts
+                .iter()
+                .filter_map(|p| p["image_url"]["url"].as_str())
+                .filter_map(|u| u.split_once(";base64,").map(|(_, d)| json!(d)))
+                .collect();
+            m["content"] = json!(text.join("\n"));
+            if !imgs.is_empty() {
+                images_of.push((i, imgs));
+            }
         }
         if let Some(calls) = m.get_mut("tool_calls").and_then(Value::as_array_mut) {
             for c in calls {
@@ -261,6 +311,10 @@ pub fn ollama_body(req: &Request, cfg: &Config) -> Result<Value, ProviderError> 
         .collect();
     let prompt_bytes = serde_json::to_string(&messages).map_or(0, |s| s.len())
         + serde_json::to_string(&tools).map_or(0, |s| s.len());
+    // the images join after the estimate: their base64 is not text the context holds
+    for (i, imgs) in images_of {
+        messages[i]["images"] = Value::Array(imgs);
+    }
     let mut b = json!({
         "model": req.model,
         "messages": messages,
@@ -702,6 +756,7 @@ mod tests {
             tool_use_id: "t1".into(),
             content: "fn main() {}".into(),
             is_error: false,
+            images: Vec::new(),
         }]));
         r.messages.push(Message::system("Modo: Auto."));
         r
@@ -745,6 +800,47 @@ mod tests {
         ] {
             assert!(b.get(k).is_none(), "{k} é só da Anthropic");
         }
+    }
+
+    #[test]
+    fn images_go_as_parts_after_the_tool_messages_and_apart_for_ollama() {
+        let mut r = req();
+        let img = crate::types::Image {
+            media_type: "image/png".into(),
+            data: "QUJD".into(),
+        };
+        r.messages.push(Message::assistant(vec![
+            json!({"type": "tool_use", "id": "t2", "name": "read", "input": {"path": "shot.png"}}),
+        ]));
+        r.messages.push(Message::tool_results(&[ToolResult {
+            tool_use_id: "t2".into(),
+            content: "shot.png: imagem".into(),
+            is_error: false,
+            images: vec![img.clone()],
+        }]));
+        r.messages.push(Message {
+            role: Role::User,
+            content: vec![json!({"type": "text", "text": "e esta?"}), img.block()],
+        });
+        let m = wire_messages(&r, &Config::openai("k".into()));
+        let n = m.len();
+        // the tool message keeps only the text; its image follows in a user message; then the person's
+        assert_eq!(
+            m[n - 3],
+            json!({"role": "tool", "tool_call_id": "t2", "content": "shot.png: imagem"})
+        );
+        assert_eq!(
+            m[n - 2]["content"][1]["image_url"]["url"],
+            "data:image/png;base64,QUJD"
+        );
+        assert_eq!(m[n - 1]["content"][0]["text"], "e esta?");
+        assert_eq!(m[n - 1]["content"][1]["type"], "image_url");
+        let b = ollama_body(&r, &Config::ollama("http://localhost:11434")).unwrap();
+        let om = b["messages"].as_array().unwrap();
+        let last = &om[om.len() - 1];
+        assert_eq!(last["content"], "e esta?");
+        assert_eq!(last["images"], json!(["QUJD"]));
+        assert_eq!(om[om.len() - 2]["images"], json!(["QUJD"]));
     }
 
     #[test]

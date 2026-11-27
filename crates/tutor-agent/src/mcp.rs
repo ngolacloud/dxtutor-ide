@@ -319,6 +319,7 @@ impl Tool for McpTool {
             Ok((text, is_error)) => ToolOutput {
                 content: text,
                 is_error,
+                images: Vec::new(),
             },
             Err(e) => ToolOutput::err(e),
         }

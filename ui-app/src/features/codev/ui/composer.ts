@@ -26,6 +26,11 @@ import {
   filterActions,
   formatSize,
   isTextFile,
+  isImageFile,
+  imagesOf,
+  base64OfDataUrl,
+  MAX_IMAGE_BYTES,
+  MAX_IMAGES,
   modelLabel,
   effectiveModel,
   nextMode,
@@ -40,9 +45,11 @@ import { bus } from "../../../app/bus";
 import { translator } from "../../../app/i18n";
 import { CODEV_CHAT_MESSAGES } from "./chat-messages";
 import { AGENT_MAP_MESSAGES } from "./agent-map-messages";
+import { CODEV_IMAGE_MESSAGES } from "./image-messages";
 
 const tc = translator(CODEV_CHAT_MESSAGES);
 const tm = translator(AGENT_MAP_MESSAGES);
+const ti = translator(CODEV_IMAGE_MESSAGES);
 
 /* ───── o que o compositor precisa do resto da app ───── */
 
@@ -65,8 +72,9 @@ export interface SpeechLike {
 }
 
 export interface ComposerHost {
-  /** Envia um pedido (o `handlePrompt` da feature: slash commands, missões, agente). */
-  send(q: string): void;
+  /** Envia um pedido (o `handlePrompt` da feature: slash commands, missões, agente); `images` (H5c): as imagens
+   *  anexadas, em base64. */
+  send(q: string, images?: Array<{ name: string; data: string }>): void;
   /** Pára a execução em curso (o botão enviar vira parar). */
   stop(): void;
   running(): boolean;
@@ -119,6 +127,7 @@ const P: Record<string, string> = {
   upload: '<path d="M8 11V3M5 6l3-3 3 3M3 11v2h10v-2"/>',
   at: '<circle cx="8" cy="8" r="2.4"/><path d="M10.4 8v1a1.8 1.8 0 0 0 3.6 0V8A6 6 0 1 0 11 13.2"/>',
   file: '<path d="M4 2h5l3 3v9H4z"/><path d="M9 2v3h3"/>',
+  image: '<rect x="2.5" y="3" width="11" height="10" rx="1.5"/><circle cx="6" cy="6.5" r="1.2"/><path d="m3 12 3.5-3.5 2.5 2.5 2-2 2.5 2.5"/>',
   close: '<path d="m4.5 4.5 7 7M11.5 4.5l-7 7"/>',
   check: '<path d="m3.5 8.5 3 3 6-7"/>',
   hand: '<path d="M5.5 8V4a1 1 0 0 1 2 0v3.5M7.5 7V3a1 1 0 0 1 2 0v4M9.5 7V4a1 1 0 0 1 2 0v5c0 3-1.6 5-4.2 5-1.8 0-2.8-1-3.8-2.6L2.2 9a1 1 0 0 1 1.7-1l1.6 1.6"/>',
@@ -252,7 +261,7 @@ function renderAttachments(): void {
   list.innerHTML = attachments
     .map(
       (a) =>
-        `<span class="cc-att" title="${esc(a.path ?? a.name)}">${icon(a.kind === "mention" ? "at" : "file")}<b>${esc(a.name)}</b>${
+        `<span class="cc-att" title="${esc(a.path ?? a.name)}">${icon(a.kind === "mention" ? "at" : a.kind === "image" ? "image" : "file")}<b>${esc(a.name)}</b>${
           a.size !== undefined ? `<small>${formatSize(a.size)}</small>` : ""
         }<button class="cc-x" title="Remover" data-action="cc-unattach" data-on="${esc(a.id)}">${icon("close")}</button></span>`,
     )
@@ -419,6 +428,13 @@ export function submit(): void {
   const text = i.value.trim();
   if (!text) return;
   let q = buildPrompt(text, attachments);
+  const images = imagesOf(attachments);
+  // H5c: images wait for a turn of their own (the queue keeps text); a /command takes none
+  if (images.length && host.running()) {
+    host.toast(ti("imagesWait"));
+    return;
+  }
+  if (images.length && q.startsWith("/")) host.toast(ti("imagesNotWithCommand"));
   if (planNext && !q.startsWith("/")) q = "/plano " + q;
   i.value = "";
   autosize();
@@ -432,7 +448,8 @@ export function submit(): void {
     refreshComposer();
     return;
   }
-  host.send(q);
+  if (images.length && !q.startsWith("/")) host.send(q, images);
+  else host.send(q);
   refreshComposer();
 }
 
@@ -476,9 +493,50 @@ function addMention(path: string): void {
   renderAttachments();
 }
 
+/** H5c: an image file becomes an image attachment (PNG/JPEG/GIF/WebP, ≤ 3.75 MB, ≤ 8 per message). */
+function addImage(f: File): void {
+  if (!host) return;
+  const h = host;
+  if (!isImageFile(f.type)) {
+    h.toast(ti("imageKind", { name: f.name }));
+    return;
+  }
+  if (f.size > MAX_IMAGE_BYTES) {
+    h.toast(ti("imageTooBig", { name: f.name, size: formatSize(f.size) }));
+    return;
+  }
+  if (attachments.filter((a) => a.kind === "image").length >= MAX_IMAGES) {
+    h.toast(ti("imageLimit"));
+    return;
+  }
+  const r = new FileReader();
+  r.onload = () => {
+    const data = base64OfDataUrl(String(r.result ?? ""));
+    if (!data) return h.toast(ti("imageKind", { name: f.name }));
+    attachments.push({ id: "a" + ++attSeq, kind: "image", name: f.name || "image.png", data, size: f.size });
+    renderAttachments();
+  };
+  r.readAsDataURL(f);
+}
+
+/** H5c: an image pasted into the box (a screenshot in the clipboard) is attached; text pastes as before. */
+function onPaste(ev: ClipboardEvent): void {
+  const files = Array.from(ev.clipboardData?.files ?? []).filter((f) => f.type.startsWith("image/"));
+  if (files.length) {
+    ev.preventDefault();
+    files.forEach(addImage);
+    return;
+  }
+  setTimeout(autosize, 0);
+}
+
 function readFiles(list: FileList | null): void {
   if (!list || !host) return;
   for (const f of Array.from(list)) {
+    if (f.type.startsWith("image/")) {
+      addImage(f);
+      continue;
+    }
     if (!isTextFile(f.name, f.type)) {
       host.toast(tc("textOnly", { name: f.name }));
       continue;
@@ -888,7 +946,7 @@ function remount(): void {
   i.value = keep;
   i.addEventListener("keydown", onKey);
   i.addEventListener("input", onInput);
-  i.addEventListener("paste", () => setTimeout(autosize, 0));
+  i.addEventListener("paste", onPaste);
   const pop = el("cc-pop")!;
   pop.addEventListener("keydown", onFilterKey);
   pop.addEventListener("input", onFilterInput);

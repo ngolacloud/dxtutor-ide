@@ -192,7 +192,7 @@ export { ctxPill, scrollMsgs, beat, runState, runLabel, tl, md, agSend };
 export { cycleMode, pickModel, newChatWithCtx as newChat, agCtl, assistantCenter, toggleAgent, openManager };
 
 /* ───── conversa livre: ponto de entrada (o motor liveChat vive em application/) ───── */
-function handlePrompt(q: string) {
+function handlePrompt(q: string, images?: Array<{ name: string; data: string }>) {
   if (bridge.run().active) { bridge.toast(tc('runActive')); return; } focusAgent(true);
   if (/^\/plano(\s|$)/.test(q)) {
     const pedido = q.replace(/^\/plano\s*/, '');
@@ -234,7 +234,7 @@ function handlePrompt(q: string) {
     card('co-dev', tc('openFolderToRun', { what: tc(k === 'test' ? 'whatTests' : 'whatLint') }));
     return;
   }
-  void codevEngine.chat(q);
+  void codevEngine.chat(q, images);
 }
 /* Enter/enviar: o compositor junta anexos, modo Plano e fila, e chama handlePrompt */
 function agSend() { submit(); }
@@ -416,7 +416,7 @@ function exportConversation() {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 const composerHost: ComposerHost = {
-  send: (q) => handlePrompt(q),
+  send: (q, images) => handlePrompt(q, images),
   stop: () => agCtl('stop'),
   // o compositor monta antes de o app.ts criar RUN/PROV: tolera-os ainda por definir
   running: () => !!bridge.run()?.active,

@@ -1630,6 +1630,69 @@ pastas de build saltam), ou o que o `.dxtutor/workspace.json` diz (`projects: [{
 - Testes: `cargo test -p tutor-agent workspace::`, `cargo test -p dxtutor-ide a_session_in_a_project`,
   `tests/workspace-projects.test.ts` (inclui o adaptador do Co-Dev a mandar `backlog` e `project` ao backend).
 
+## Ler a web (H5a, `tutor_agent::tools::web`, conjunto 15)
+
+`web_fetch` (`url`, `offset`) lê uma página do próprio IDE (não da sandbox dos comandos) e devolve texto: o HTML sem
+scripts nem estilos, com títulos, listas, ligações e código; 20 000 caracteres por chamada; só tipos de texto. Quem
+pode ser lido decide-o a política (`Policy::web_verdict`), antes do modo plano e sem pedido do humano (é investigação):
+- um domínio da lista CONFIADA do projecto (`.dxtutor/sandbox.json`, `network: "allowlist"` + `allowDomains`, a mesma
+  da H1b; passa pelo `session_sandbox` para `Policy.web_domains`) ou de uma regra `web_fetch:<domínio>` (ou `web_fetch`
+  sozinho) lê-se logo; outro pergunta, com «permitir sempre» para esse domínio; `web_fetch:<domínio>` em `deny` recusa;
+- esta máquina e a rede interna (`localhost`, privados, link-local — o serviço de metadados de uma cloud —, `.local`,
+  `.internal`, um nome sem ponto) pergunta SEMPRE, como perigoso e sem «sempre».
+Na ferramenta, o que a política não vê: um URL com um segredo que a redacção conhece é recusado; um nome público que
+resolve para um endereço interno é recusado e a ligação só vai aos endereços verificados (o `resolver` do ureq); um
+redireccionamento não é seguido (o URL novo é outra chamada, decidida de novo); credenciais no URL nunca. Não é «só
+leitura» para o loop, para que os sub-agentes (só ferramentas de leitura e sem política) nunca cheguem à rede. Testes:
+`cargo test -p tutor-agent tools::web permissions::`.
+
+## Compactação para todos os fornecedores (H5b, `tutor_agent::agent`, `/compact`)
+
+O Claude compacta no servidor (beta `compact-2026-01-12`); os outros (Codex, Gemini, Ollama) compactam no CLIENTE:
+quando o último pedido passou de `AgentConfig.client_compaction_at` tokens (`codev_agent::client_compaction_at`: Ollama
+80k, os outros 150k; Claude `None`), antes do pedido seguinte o próprio modelo resume o início da conversa (um pedido
+sem stream para a UI) e o aviso «contexto compactado» aparece. O histórico continua só a crescer: o resumo vai no bloco
+`dxtutor_compaction` (`{summary, keep_from}`), o primeiro da resposta que respondeu ao pedido compactado, e cada pedido
+seguinte envia o resumo como mensagem da pessoa e o histórico a partir de `keep_from` (`request_view`); o bloco nunca
+chega a um fornecedor. O corte (`compaction_cut`) mantém a última mensagem da pessoa, ou a última chamada com os seus
+resultados (um resultado segue a sua chamada); um resumo novo é feito sobre a vista do anterior (cumulativo). O
+`/compact` (comando do IDE, tratado no `send`, nunca expandido) resume tudo já; no Claude diz que o servidor o faz.
+Testes: `cargo test -p tutor-agent --test agent_loop` (`…compacted_on_the_client…`, `compact_now_…`).
+
+## Imagens na conversa (H5c, `tutor_agent::types::Image`, conjunto 16)
+
+Uma imagem (PNG, JPEG, GIF, WebP — o tipo lê-se dos bytes, `Image::sniff`) entra MEDIDA (≤ 3,75 MB: `MAX_IMAGE_BYTES`;
+sem redimensionar) e o histórico nunca a muda depois. Chega por dois caminhos:
+- **O `read`** (conjunto 16, a descrição di-lo; o 15 continua a dizer «binário») devolve-a dentro do `tool_result` da
+  chamada (`ToolOutput.images` → `ToolResult.images` → conteúdo em blocos: o texto e cada `image` base64).
+- **O compositor**: colar uma captura ou anexar um ficheiro de imagem dá um chip; as imagens seguem À PARTE do texto
+  (`host.send(q, images)` → `handlePrompt` → `codevEngine.chat` → `agentChat.send` → `gateway.send(…, images)` →
+  `codev_agent_send` com `images`), no máximo 8 por mensagem; o backend volta a verificar cada uma (`images_in`). Com o
+  Co-Dev a trabalhar esperam (a fila só guarda texto); um `/comando` não as leva; sem o agente v2 a mensagem segue sem
+  elas e um aviso di-lo. Textos em `ui/image-messages.ts`.
+- **Fornecedores:** o Claude recebe os blocos tal como estão; no Chat Completions (Codex, Gemini) uma mensagem `tool` só
+  leva texto, por isso as imagens dos resultados seguem numa mensagem `user` logo a seguir (`image_url` com data URL); o
+  Ollama nativo recebe-as em `images` (fora da estimativa do `num_ctx`).
+- **A redacção nunca toca nos bytes de uma imagem** (`mask_json_count` salta o `data` de uma fonte base64, os data URLs
+  e o `images` do Ollama): mudá-los estragava a imagem. O que uma captura MOSTRA não é redigido.
+Testes: `cargo test -p tutor-agent types:: openai:: --test flow`, `cargo test -p tutor-protect redact`,
+`tests/codev.composer.test.ts`, `tests/codev.agent-chat.test.ts`.
+
+## Hooks completos (H5d, `tutor_agent::hooks`, `.dxtutor/hooks.json`, só com confiança)
+
+- **`pre_tool` corre ANTES de o humano ser perguntado** (antes corria depois da aprovação), para cada chamada válida.
+  Exit 2 ou `{"decision":"deny"}` no stdout bloqueia (o humano nem é perguntado; uma escrita em hunks é rejeitada);
+  `{"decision":"ask","reason"}` obriga a perguntar, em qualquer modo; `{"decision":"allow"}` dispensa uma pergunta
+  vulgar. O conselho segue no `PendingCall.hook` (`HookAdvice`) e o `Policy::decide` aplica-o DEPOIS das regras:
+  nunca dispensa uma pergunta perigosa nem desfaz uma recusa (deny, modo plano, sem pedido, issue terminada).
+- **`session_start`** (`{event, source: "new"|"resume"}`): o stdout entra como nota do operador no primeiro pedido
+  (`Session.notes`); falhas são avisos de arranque.
+- **`prompt_submit`** (`{event, prompt}`): exit 2 recusa o pedido antes de tudo (nem a issue começa, nem o modelo é
+  chamado: um aviso e o fim do turno); com exit 0, o stdout segue como nota do operador logo a seguir ao pedido. O
+  `/compact` não passa por ele.
+Testes: `cargo test -p tutor-agent hooks:: permissions:: --test agent_loop`, `cargo test -p dxtutor-ide
+session_start_and_prompt_submit_hooks`.
+
 ## A ferramenta `ide` e as skills do IDE (H3/H4, `src-tauri/src/ide_tool.rs`, `ide_tool/ops.rs`, `tutor_agent::extensions`)
 
 Decisão D4: o Co-Dev chega ao que o IDE sabe por UMA ferramenta, `ide`, com `action` e `args`, decidida no Rust. Uma

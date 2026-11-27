@@ -9,10 +9,20 @@
 //! - Cada hook recebe no stdin um JSON com o evento (`event`, `tool`, `input`, e no
 //!   `post_tool` também `result`/`is_error`), corre na raiz do projecto, com timeout.
 //! - `pre_tool`: exit **2** bloqueia a chamada (o stderr vai ao modelo como razão); outro
-//!   código ≠ 0 só gera um aviso.
+//!   código ≠ 0 só gera um aviso. Corre antes de o humano ser perguntado (H5d, abaixo).
 //! - `post_tool`: exit **2** acrescenta o stderr ao resultado que o modelo vê (feedback).
 //! - `stop`: corre no fim de cada turno; a saída aparece como aviso.
 //! - `match`: expressão regular sobre o nome da ferramenta (vazio = todas).
+//!
+//! H5d (docs/v2/AUDIT-harness.md §3, P2 item 10):
+//! - `pre_tool` corre ANTES de o humano ser perguntado (para cada chamada válida). Com exit 0, o stdout pode
+//!   ser JSON `{"decision": "allow"|"ask"|"deny", "reason": "…"}`: `deny` bloqueia como o exit 2; `ask` obriga a
+//!   perguntar ao humano (mesmo no Auto); `allow` dispensa a pergunta — mas nunca uma perigosa nem uma recusa da
+//!   política (`permissions::Policy::decide`).
+//! - `session_start` (payload `{event, source: "new"|"resume"}`): o stdout (exit 0) entra na conversa como nota
+//!   do operador no primeiro pedido.
+//! - `prompt_submit` (payload `{event, prompt}`): exit 2 bloqueia o pedido (o stderr vai ao humano, nada vai ao
+//!   modelo); com exit 0 o stdout segue como nota do operador junto do pedido.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -45,6 +55,10 @@ struct HookFile {
     post_tool: Vec<HookDef>,
     #[serde(default)]
     stop: Vec<HookDef>,
+    #[serde(default)]
+    session_start: Vec<HookDef>,
+    #[serde(default)]
+    prompt_submit: Vec<HookDef>,
 }
 
 struct Compiled {
@@ -57,6 +71,8 @@ pub struct Hooks {
     pre: Vec<Compiled>,
     post: Vec<Compiled>,
     stop: Vec<Compiled>,
+    session_start: Vec<Compiled>,
+    prompt_submit: Vec<Compiled>,
     /// H1: the hooks run inside the project's OS sandbox, like the agent's commands.
     sandbox: Option<Arc<crate::os_sandbox::OsSandbox>>,
 }
@@ -64,8 +80,28 @@ pub struct Hooks {
 /// O resultado de um hook `pre_tool`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PreOutcome {
+    /// no opinion: the policy decides
     Allow,
     Block(String),
+    /// H5d: the human must decide this one (every mode)
+    Ask(String),
+    /// H5d: no need to ask the human (never over a dangerous ask or a refusal of the policy)
+    Approve(String),
+}
+
+/// H5d: the result of the `prompt_submit` hooks.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PromptOutcome {
+    /// the request goes on, with the hooks' output (if any) as an operator note
+    Allow(Option<String>),
+    Block(String),
+}
+
+/// A hook's stdout as a `{decision, reason}` (exit 0), if it is one.
+fn decision(stdout: &str) -> Option<(String, String)> {
+    let v: Value = serde_json::from_str(stdout.trim()).ok()?;
+    let d = v["decision"].as_str()?.to_ascii_lowercase();
+    Some((d, v["reason"].as_str().unwrap_or_default().to_string()))
 }
 
 fn compile(defs: Vec<HookDef>) -> Result<Vec<Compiled>, String> {
@@ -105,6 +141,8 @@ impl Hooks {
             pre: compile(f.pre_tool)?,
             post: compile(f.post_tool)?,
             stop: compile(f.stop)?,
+            session_start: compile(f.session_start)?,
+            prompt_submit: compile(f.prompt_submit)?,
             sandbox: None,
         }))
     }
@@ -152,14 +190,25 @@ impl Hooks {
             .filter(move |h| h.re.as_ref().is_none_or(|re| re.is_match(tool)))
     }
 
-    /// Antes de uma chamada aprovada. Devolve também avisos (hooks que falharam sem bloquear).
+    /// Antes de o humano ser perguntado (H5d). Um `deny`/exit 2 ganha logo; depois um `ask` ganha a um `allow`.
+    /// Devolve também avisos (hooks que falharam sem bloquear).
     pub fn pre_tool(&self, tool: &str, input: &Value) -> (PreOutcome, Vec<String>) {
         let payload = json!({ "event": "pre_tool", "tool": tool, "input": input });
         let mut notes = vec![];
+        let mut verdict = PreOutcome::Allow;
         for h in Self::matching(&self.pre, tool) {
-            let (code, _out, err) = self.run(h, &payload, input["path"].as_str());
+            let (code, out, err) = self.run(h, &payload, input["path"].as_str());
             match code {
-                Some(0) => {}
+                Some(0) => match decision(&out) {
+                    Some((d, why)) if d == "deny" || d == "block" => {
+                        return (PreOutcome::Block(why), notes)
+                    }
+                    Some((d, why)) if d == "ask" => verdict = PreOutcome::Ask(why),
+                    Some((d, why)) if d == "allow" && verdict == PreOutcome::Allow => {
+                        verdict = PreOutcome::Approve(why)
+                    }
+                    _ => {}
+                },
                 Some(2) => return (PreOutcome::Block(err.trim().to_string()), notes),
                 c => notes.push(format!(
                     "hook pre_tool «{}» terminou com {c:?}: {}",
@@ -168,7 +217,50 @@ impl Hooks {
                 )),
             }
         }
-        (PreOutcome::Allow, notes)
+        (verdict, notes)
+    }
+
+    /// H5d: when a session starts (`new`) or is resumed (`resume`): the hooks' output for the conversation, and
+    /// notices of the ones that failed.
+    pub fn session_start(&self, source: &str) -> (Option<String>, Vec<String>) {
+        let payload = json!({ "event": "session_start", "source": source });
+        let (mut context, mut notes) = (vec![], vec![]);
+        for h in &self.session_start {
+            let (code, out, err) = self.run(h, &payload, None);
+            match code {
+                Some(0) if !out.trim().is_empty() => context.push(out.trim().to_string()),
+                Some(0) => {}
+                c => notes.push(format!(
+                    "hook session_start «{}» terminou com {c:?}: {}",
+                    h.command,
+                    err.trim()
+                )),
+            }
+        }
+        ((!context.is_empty()).then(|| context.join("\n\n")), notes)
+    }
+
+    /// H5d: when the person sends a request, before it reaches the model.
+    pub fn prompt_submit(&self, prompt: &str) -> (PromptOutcome, Vec<String>) {
+        let payload = json!({ "event": "prompt_submit", "prompt": prompt });
+        let (mut context, mut notes) = (vec![], vec![]);
+        for h in &self.prompt_submit {
+            let (code, out, err) = self.run(h, &payload, None);
+            match code {
+                Some(2) => return (PromptOutcome::Block(err.trim().to_string()), notes),
+                Some(0) if !out.trim().is_empty() => context.push(out.trim().to_string()),
+                Some(0) => {}
+                c => notes.push(format!(
+                    "hook prompt_submit «{}» terminou com {c:?}: {}",
+                    h.command,
+                    err.trim()
+                )),
+            }
+        }
+        (
+            PromptOutcome::Allow((!context.is_empty()).then(|| context.join("\n\n"))),
+            notes,
+        )
     }
 
     /// Depois de uma chamada. Devolve feedback para o modelo (exit 2) e avisos.
@@ -264,6 +356,51 @@ mod tests {
         assert_eq!(h.post_tool("read", &json!({}), "x", false), (None, vec![]));
         assert_eq!(h.stop(), vec!["hook stop: terminou-stop"]);
         drop(d);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pre_tool_decides_before_the_human_and_the_new_events() {
+        let (_d, h) = hooks(
+            r#"{"pre_tool":[{"match":"read","command":"echo '{\"decision\":\"allow\",\"reason\":\"leituras ok\"}'"},
+                            {"match":"bash","command":"echo '{\"decision\":\"ask\",\"reason\":\"revê o comando\"}'"},
+                            {"match":"bash|write","command":"grep -q secret && echo '{\"decision\":\"deny\",\"reason\":\"nada de segredos\"}' || echo ok"}],
+                "session_start":[{"command":"echo \"ramo: main ($(cat | grep -o resume || echo new))\""}],
+                "prompt_submit":[{"command":"grep -q 'apaga tudo' && { echo 'pedido recusado pela equipa' >&2; exit 2; } || echo 'lembra: testes primeiro'"}]}"#,
+        );
+        assert_eq!(
+            h.pre_tool("read", &json!({"path": "a"})).0,
+            PreOutcome::Approve("leituras ok".into())
+        );
+        assert_eq!(
+            h.pre_tool("bash", &json!({"command": "ls"})).0,
+            PreOutcome::Ask("revê o comando".into())
+        );
+        assert_eq!(
+            h.pre_tool("bash", &json!({"command": "cat secret"})).0,
+            PreOutcome::Block("nada de segredos".into())
+        );
+        assert_eq!(
+            h.pre_tool("write", &json!({"path": "a"})).0,
+            PreOutcome::Allow,
+            "plain stdout: no opinion"
+        );
+        assert_eq!(
+            h.session_start("resume").0.as_deref(),
+            Some("ramo: main (resume)")
+        );
+        assert_eq!(
+            h.session_start("new").0.as_deref(),
+            Some("ramo: main (new)")
+        );
+        assert_eq!(
+            h.prompt_submit("apaga tudo").0,
+            PromptOutcome::Block("pedido recusado pela equipa".into())
+        );
+        assert_eq!(
+            h.prompt_submit("faz o login").0,
+            PromptOutcome::Allow(Some("lembra: testes primeiro".into()))
+        );
     }
 
     #[test]

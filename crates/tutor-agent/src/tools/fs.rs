@@ -25,6 +25,8 @@ pub struct Read {
     /// primeiro. As sessões anteriores mantêm a descrição com que começaram (o prefixo do
     /// pedido não pode mudar).
     pub v9: bool,
+    /// Toolset 16 (H5c): an image (PNG, JPEG, GIF, WebP) comes back as an image for the model to look at.
+    pub images: bool,
 }
 
 impl Tool for Read {
@@ -32,6 +34,16 @@ impl Tool for Read {
         "read"
     }
     fn description(&self) -> &str {
+        if self.images {
+            return concat!(
+                "Lê um ficheiro de texto do projecto, com números de linha: por omissão as primeiras \
+                 500 linhas; `offset` (1 = primeira linha) e `limit` (até 2000) lêem outro excerto. \
+                 Num ficheiro grande, localiza primeiro o que precisas (`outline`, `grep` com \
+                 mode=\"content\") e lê só esse excerto. Lê sempre um ficheiro antes de o editar.",
+                " Uma imagem (PNG, JPEG, GIF ou WebP, até 3,75 MB) volta como imagem, para a veres \
+                 (um ecrã, um diagrama, um erro numa captura)."
+            );
+        }
         if self.v9 {
             "Lê um ficheiro de texto do projecto, com números de linha: por omissão as primeiras \
              500 linhas; `offset` (1 = primeira linha) e `limit` (até 2000) lêem outro excerto. \
@@ -71,6 +83,18 @@ impl Tool for Read {
             Ok(b) => b,
             Err(e) => return ToolOutput::err(format!("{given}: {e}")),
         };
+        // H5c: an image goes back as an image (sized at the door: the history never changes it later)
+        if self.images {
+            if let Some(mt) = crate::types::Image::sniff(&bytes) {
+                return match crate::types::Image::from_bytes(&bytes) {
+                    Ok(img) => ToolOutput::with_image(
+                        format!("{given}: imagem {mt}, {} bytes", bytes.len()),
+                        img,
+                    ),
+                    Err(e) => ToolOutput::err(format!("{given}: {e}")),
+                };
+            }
+        }
         if looks_binary(&bytes) {
             return ToolOutput::err(format!(
                 "{given} parece binário ({} bytes): não é lido",

@@ -124,6 +124,7 @@ fn session_sandbox(
     work_root: &Path,
     spec: &StartSpec,
     notes: &mut Vec<String>,
+    web_domains: &mut Vec<String>,
 ) -> (
     Option<Arc<tutor_agent::os_sandbox::OsSandbox>>,
     Option<tutor_agent::net_proxy::Proxy>,
@@ -160,6 +161,10 @@ fn session_sandbox(
                 ..Default::default()
             };
         }
+    }
+    // H5a: the trusted list is also what `web_fetch` reads without asking (an untrusted file was reset above)
+    if cfg.network.as_deref() == Some("allowlist") {
+        *web_domains = cfg.allow_domains.clone();
     }
     if cfg.enabled == Some(false) {
         notes.push(format!("sandbox desligada pelo {CONFIG_FILE} do projecto (confiado): os comandos correm sem ela"));
@@ -244,6 +249,16 @@ pub fn provider_features(provider: &str) -> ProviderFeatures {
     }
 }
 
+/// H5b: when a provider without server compaction compacts on the client (prompt tokens of the last request): a
+/// bit over half of Ollama's largest `num_ctx`, and well before the large contexts of the hosted models fill up.
+pub fn client_compaction_at(provider: &str) -> Option<u64> {
+    match provider {
+        "claude" => None,
+        "ollama" => Some(80_000),
+        _ => Some(150_000),
+    }
+}
+
 /// O aviso mostrado no primeiro turno de uma sessão que não é Claude.
 pub fn features_notice(provider: &str, model: &str) -> Option<String> {
     if provider == "claude" {
@@ -253,9 +268,6 @@ pub fn features_notice(provider: &str, model: &str) -> Option<String> {
     let mut missing = vec![];
     if !f.thinking {
         missing.push("raciocínio visível");
-    }
-    if !f.compaction {
-        missing.push("compactação automática do contexto");
     }
     if !f.server_fallbacks {
         missing.push("fallback do servidor");
@@ -869,7 +881,9 @@ pub fn start(
     let mut notes = vec![];
     // H1: what the agent runs (bash, run_tests/lint, hooks, MCP servers) runs in the OS sandbox of the
     // folder it works in; H1b: with the project's domain allowlist, through a proxy kept by the session
-    let (sandbox, net_proxy) = session_sandbox(&root, &work_root, &spec, &mut notes);
+    let mut web_domains = vec![];
+    let (sandbox, net_proxy) =
+        session_sandbox(&root, &work_root, &spec, &mut notes, &mut web_domains);
     let mut meta = meta;
     let new_session = log.is_none();
     let connected = if meta.toolset >= 3 {
@@ -909,6 +923,7 @@ pub fn start(
     let mut acfg = AgentConfig::new(meta.model.clone());
     acfg.effort = parse_effort(Some(&meta.effort));
     acfg.compaction = meta.compaction;
+    acfg.client_compaction_at = client_compaction_at(&meta.provider);
     // the human's review pauses often pass 5 minutes: the prefix (tools + system) lives an hour
     if meta.provider == "claude" {
         acfg.cache_ttl = CacheTtl::OneHour;
@@ -929,6 +944,7 @@ pub fn start(
         work_root.clone(),
     );
     policy.plan = flow.plan_mode.clone();
+    policy.web_domains = web_domains;
     // RF-G01: in the IDE every action answers a human request (the UI sends its origin)
     policy.require_origin = true;
     // toolset 6: plan before changing files in Manual/Assist, and a question stops changes
@@ -1014,6 +1030,15 @@ pub fn start(
     if let Some(n) = features_notice(&meta.provider, &meta.model) {
         notes.insert(0, n);
     }
+    // H5d: the project's session_start hooks — their output goes to the model with the first request
+    let mut first_notes = vec![];
+    if let Some(h) = &agent.hooks {
+        let (context, failed) = h.session_start(if new_session { "new" } else { "resume" });
+        notes.extend(failed);
+        if let Some(c) = context {
+            first_notes.push(format!("[hook session_start do projecto]\n{c}"));
+        }
+    }
     let id = meta.id.clone();
     let s = Session {
         id: id.clone(),
@@ -1028,7 +1053,7 @@ pub fn start(
         log: Mutex::new(log),
         announced: Mutex::new(None),
         flow,
-        notes: Mutex::new(vec![]),
+        notes: Mutex::new(first_notes),
         startup_notices: notes,
         _net_proxy: net_proxy,
         review_edits: spec.review_edits,
@@ -1139,9 +1164,46 @@ pub fn send(
     on_event: &mut dyn FnMut(AgentEvent),
     on_approval: &mut dyn FnMut(&ApprovalRequest),
 ) -> Result<TurnOutcome, String> {
+    send_with_images(id, text, vec![], origin, on_event, on_approval)
+}
+
+/// H5c: [`send`] with the images the person attached to the message (already sized: `Image::from_bytes`).
+pub fn send_with_images(
+    id: &str,
+    text: Option<String>,
+    images: Vec<tutor_agent::types::Image>,
+    origin: Option<Origin>,
+    on_event: &mut dyn FnMut(AgentEvent),
+    on_approval: &mut dyn FnMut(&ApprovalRequest),
+) -> Result<TurnOutcome, String> {
     let s = get(id)?;
     if s.busy.swap(true, Ordering::SeqCst) {
         return Err("a sessão já está a correr um turno".into());
+    }
+    // H5d: the project's prompt_submit hooks see the request before anything else (an issue is not started, the
+    // model is not asked): exit 2 refuses it; their output goes with it as an operator note
+    let mut hook_note = None;
+    if let (Some(q), Some(h)) = (text.as_deref(), s.agent.hooks.as_ref()) {
+        if q.trim() != extensions::COMPACT_COMMAND_LINE {
+            let (outcome, failed) = h.prompt_submit(q);
+            for text in failed {
+                (*on_event)(AgentEvent::Notice { text });
+            }
+            match outcome {
+                tutor_agent::hooks::PromptOutcome::Block(why) => {
+                    (*on_event)(AgentEvent::Notice {
+                        text: format!("um hook do projecto recusou este pedido: {why}"),
+                    });
+                    let outcome = TurnOutcome::Done { truncated: false };
+                    (*on_event)(AgentEvent::Done {
+                        outcome: outcome.clone(),
+                    });
+                    s.busy.store(false, Ordering::SeqCst);
+                    return Ok(outcome);
+                }
+                tutor_agent::hooks::PromptOutcome::Allow(note) => hook_note = note,
+            }
+        }
     }
     // RF-G01: the turn's human request. A new message brings its own (none → its actions are
     // blocked); «try again» (`text: None`) answers the same request as before.
@@ -1570,6 +1632,10 @@ pub fn send(
         now_ms() as u64,
     ));
     let r = match text {
+        // H5b: `/compact` summarizes the conversation now (no request to answer)
+        Some(q) if q.trim() == extensions::COMPACT_COMMAND_LINE => {
+            s.agent.compact_now(&mut t, &mut on_loop_event)
+        }
         Some(q) => {
             // slash commands do projecto (.dxtutor/commands): o modelo recebe o prompt expandido
             let q = match extensions::expand(&s.project_root, &q) {
@@ -1581,7 +1647,15 @@ pub fn send(
                     emit(AgentEvent::Notice { text: text.clone() });
                 }
             }
-            t.push(Message::user_text(q));
+            // H5c: the person's images go with the message, after its text
+            let mut m = Message::user_text(q);
+            m.content.extend(images.iter().map(|i| i.block()));
+            t.push(m);
+            if let Some(n) = hook_note.take() {
+                t.push(Message::system(format!(
+                    "[hook prompt_submit do projecto]\n{n}"
+                )));
+            }
             // anuncia o modo no primeiro turno e quando muda (mensagem system a meio)
             let mode = s.policy.lock().unwrap().mode;
             let mut announced = s.announced.lock().unwrap();
@@ -3197,7 +3271,12 @@ mod tests {
         assert!(g.tools && !g.thinking && !g.compaction && !g.server_fallbacks);
         assert!(features_notice("claude", "x").is_none());
         let n = features_notice("ollama", "qwen").unwrap();
-        assert!(n.contains("Ollama") && n.contains("compactação") && n.contains("cache de prompt"));
+        assert!(n.contains("Ollama") && n.contains("cache de prompt"));
+        // H5b: the context is compacted on the client for every provider but Claude (which does it on the server)
+        assert!(!n.contains("compactação"));
+        assert_eq!(client_compaction_at("claude"), None);
+        assert_eq!(client_compaction_at("ollama"), Some(80_000));
+        assert_eq!(client_compaction_at("gemini"), Some(150_000));
         // sem chave: Claude/OpenAI/Gemini recusam; o Ollama não precisa
         assert!(make_provider("codex", None, None, None)
             .err()
@@ -3403,6 +3482,7 @@ mod tests {
             read_only: false,
             command: Some(cmd.into()),
             hunks: vec![],
+            hook: None,
         };
         assert!(matches!(
             s.policy.lock().unwrap().decide(&bash("cargo build")),
@@ -3879,6 +3959,7 @@ mod tests {
             read_only: false,
             command: None,
             hunks: vec![],
+            hook: None,
         };
         assert_eq!(s.policy.lock().unwrap().decide(&edit), Verdict::Allow);
         set_plan(&id, true).unwrap();
@@ -3913,13 +3994,18 @@ mod tests {
         let r = root.display().to_string();
 
         let st = extensions_status(&r, Some(&store), None);
-        // the project's command, then the IDE's (/backlog, /project)
+        // the project's command, then the IDE's (/backlog, /project, /compact)
         assert_eq!(
             st.commands
                 .iter()
                 .map(|c| (c.name.as_str(), c.builtin))
                 .collect::<Vec<_>>(),
-            [("rever", false), ("backlog", true), ("project", true)]
+            [
+                ("rever", false),
+                ("backlog", true),
+                ("project", true),
+                ("compact", true)
+            ]
         );
         assert_eq!(
             st.hooks,
@@ -3947,6 +4033,56 @@ mod tests {
             .startup_notices
             .iter()
             .any(|n| n.contains("servidores MCP")));
+        close(&id);
+    }
+
+    /// H5d: the trusted project's session_start output reaches the first request as an operator note, and a
+    /// prompt_submit hook refuses a request before anything runs (no request to the model, no issue started).
+    #[cfg(unix)]
+    #[test]
+    fn session_start_and_prompt_submit_hooks() {
+        let proj = tempfile::tempdir().unwrap();
+        let cfg = tempfile::tempdir().unwrap();
+        let store = cfg.path().join("trusted.json");
+        let root = proj.path();
+        std::fs::create_dir_all(root.join(".dxtutor")).unwrap();
+        std::fs::write(
+            root.join(".dxtutor/hooks.json"),
+            r#"{"session_start":[{"command":"echo 'deploy congelado até sexta'"}],
+                "prompt_submit":[{"command":"grep -q 'produção' && { echo 'pedidos sobre produção vão pelo deploy guiado' >&2; exit 2; } || exit 0"}]}"#,
+        )
+        .unwrap();
+        let r = root.display().to_string();
+        trust_project_file(&r, "hooks", Some(&store)).unwrap();
+        let spec = StartSpec {
+            root: r.clone(),
+            sessions_base: Some(cfg.path().join("s")),
+            trust_store: Some(store.clone()),
+            sandbox: Some(false),
+            ..Default::default()
+        };
+        let id = start(spec, &key("sk"), None).unwrap();
+        let s = get(&id).unwrap();
+        assert_eq!(
+            *s.notes.lock().unwrap(),
+            ["[hook session_start do projecto]\ndeploy congelado até sexta"]
+        );
+        let mut events = vec![];
+        let r = send(
+            &id,
+            Some("muda a produção".into()),
+            None,
+            &mut |e| events.push(e),
+            &mut |_| panic!("nothing is asked"),
+        );
+        assert_eq!(r.unwrap(), TurnOutcome::Done { truncated: false });
+        assert!(events.iter().any(|e| matches!(e, AgentEvent::Notice { text }
+            if text == "um hook do projecto recusou este pedido: pedidos sobre produção vão pelo deploy guiado")));
+        assert!(
+            s.transcript.lock().unwrap().is_empty(),
+            "nothing reached the conversation"
+        );
+        assert!(!s.busy.load(Ordering::SeqCst));
         close(&id);
     }
 
@@ -4866,6 +5002,7 @@ mod tests {
             read_only: false,
             command: None,
             hunks: hunks.iter().map(|h| h.to_string()).collect(),
+            hook: None,
         };
         let meta = |removed: u32| HunkMeta {
             removed,
@@ -4923,6 +5060,7 @@ mod tests {
             read_only: false,
             command: None,
             hunks: vec!["e:1".into()],
+            hook: None,
         };
         let metas: HashMap<String, HunkMeta> = [(
             "e:1".to_string(),
@@ -5095,6 +5233,7 @@ mod tests {
             read_only: false,
             command: None,
             hunks: vec![],
+            hook: None,
         };
         // no people defined: an ADR change still asks (never accepted by Auto alone)
         assert!(matches!(

@@ -250,6 +250,9 @@ test("rótulos, resumos e custo", () => {
   expect(describeCall("edit", { path: "src/a.rs" })).toBe("src/a.rs");
   expect(describeCall("grep", { pattern: "TODO", glob: "*.ts" })).toBe("/TODO/ *.ts");
   expect(describeCall("bash", {}, "cargo test")).toBe("$ cargo test");
+  // H5a: a page read names its URL (and where it continues)
+  expect(describeCall("web_fetch", { url: "https://docs.rs/serde" })).toBe("https://docs.rs/serde");
+  expect(describeCall("web_fetch", { url: "https://docs.rs/serde", offset: 20000 })).toBe("https://docs.rs/serde @20000");
   // H3/H4: an `ide` call names its action and what it is about
   expect(describeCall("ide", { action: "project.issue", args: { key: "SHOP-3" } })).toBe("project.issue SHOP-3");
   expect(describeCall("ide", { action: "runbook.check", args: { path: "runbooks/checkout.md", step: 2 } })).toBe("runbook.check runbooks/checkout.md 2");
@@ -773,4 +776,14 @@ test("RF-G07: depois do Stop, a barra mantém ou descarta (volta ao checkpoint d
   await vi.waitFor(() => expect(bars[1].settled).toEqual(["Descartado — os ficheiros voltaram ao checkpoint 4."]));
   expect(t.gateway.rewind).toHaveBeenCalledWith("S1", 4, false);
   expect((t.deps.reloadFromDisk as ReturnType<typeof vi.fn>).mock.calls.length).toBe(reloads + 1);
+});
+
+test("H5c: as imagens anexadas seguem com a mensagem para o gateway, e a conversa mostra-as", async () => {
+  const t = setup();
+  const shown: string[] = [];
+  (t.deps.presenter as unknown as Record<string, unknown>).userMessage = (q: string) => shown.push(q);
+  t.setScript(() => t.emit(done()));
+  await t.chat.send("o que vês?", [{ name: "ecra.png", data: "iVBORw0KGgo=" }]);
+  expect(t.gateway.send).toHaveBeenCalledWith("S1", "o que vês?", { kind: "chat" }, [{ name: "ecra.png", data: "iVBORw0KGgo=" }]);
+  expect(shown).toEqual(["o que vês?\n\n🖼 ecra.png"]);
 });
