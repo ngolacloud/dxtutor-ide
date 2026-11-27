@@ -236,7 +236,7 @@ pub fn contributed_for_first_line<'c>(
 /// The registry server of a VSIX-only language (see the module docs).
 pub fn server_for<'a>(reg: &'a Registry, lang: &ContribLanguage) -> Option<&'a Server> {
     reg.servers.iter().find(|s| {
-        s.vscode_languages.iter().any(|x| *x == lang.id)
+        s.vscode_languages.contains(&lang.id)
             && lang.from.iter().any(|e| {
                 s.vscode_extensions
                     .iter()
