@@ -22,7 +22,13 @@
 //!    (`PIP_CONFIG_FILE=/dev/null`) nem a sua cache (`--no-cache-dir`);
 //! 3. `pip check` confirma, sem rede, que as dependências instaladas batem certo.
 //!
-//! Nos dois, um marcador (`prepared.json`) regista a impressão digital das dependências
+//! **images** (os cursos de Docker e de Podman, Learn P3a):
+//! 1. `podman pull <registo>/<repositório>@sha256:…` puxa cada imagem base, pelo digest, para o
+//!    armazenamento do SANDBOX de contentores (`crate::sandbox`: um Podman rootless com
+//!    armazenamento e configuração próprios; o armazenamento do Podman do utilizador não é tocado);
+//! 2. `podman tag … <registo>/<repositório>:<tag>` dá-lhe o nome que os `FROM` usam.
+//!
+//! Nos três, um marcador (`prepared.json`) regista a impressão digital das dependências
 //! preparadas, e só uma preparação completa o escreve.
 //!
 //! Depois, cada avaliação de um passo deste curso corre contra essa cache (o `CARGO_HOME`, o
@@ -101,6 +107,9 @@ pub struct Layout {
     pub venv: PathBuf,
     /// pip: o `requirements.txt` que a preparação instala.
     pub requirements: PathBuf,
+    /// images: a raiz do sandbox de contentores para onde as imagens se puxam (partilhada pelos
+    /// cursos de contentores; `crate::sandbox::root_for`).
+    pub sandbox: PathBuf,
     pub marker: PathBuf,
 }
 
@@ -127,6 +136,9 @@ impl Layout {
             // `is_file` segue a ligação do venv para o Python que o criou: se esse Python
             // desapareceu (uma actualização do sistema), o venv já não serve.
             CacheKind::Pip => self.venv_python().is_file() && self.requirements.is_file(),
+            // As imagens em si confirmam-se no sandbox antes de cada avaliação (`podman image
+            // inspect`): aqui, só que o armazenamento existe.
+            CacheKind::Images => self.sandbox.join("storage").is_dir(),
         }
     }
 }
@@ -156,6 +168,7 @@ pub fn layout(root: &Path, key: &str) -> Result<Layout> {
         lock: dir.join("Cargo.lock"),
         venv: dir.join("venv"),
         requirements: dir.join("requirements.txt"),
+        sandbox: crate::sandbox::root_for(root),
         marker: dir.join(MARKER_FILE),
         dir,
     })
@@ -261,6 +274,15 @@ pub fn packages(kind: CacheKind, deps: &[String]) -> Result<Vec<Package>> {
                 })
             }
             CacheKind::Cargo => Ok(cargo_package(d)),
+            CacheKind::Images => {
+                let i = tutor_core::image_reference(d).map_err(anyhow::Error::msg)?;
+                Ok(Package {
+                    name: i.repo(),
+                    version: i.tag.clone(),
+                    source: format!("{} ({})", i.registry, i.digest),
+                    pinned: true,
+                })
+            }
         })
         .collect()
 }
@@ -390,6 +412,11 @@ pub fn host_python() -> Option<PathBuf> {
 /// Constrói a preparação de `cache` em `root` (não corre nada). Num curso Python, o venv
 /// cria-se com [`host_python`].
 pub fn plan(root: &Path, cache: &CourseCache) -> Result<Plan> {
+    if cache.kind() == Some(CacheKind::Images) {
+        let l = layout(root, &cache.key)?;
+        let sb = crate::sandbox::Sandbox::at(&l.sandbox)?;
+        return plan_images(root, cache, &sb);
+    }
     let python = match cache.kind() {
         Some(CacheKind::Pip) => host_python().context(
             "python3 was not found on the PATH: install Python 3 (with its venv module) to prepare this course",
@@ -410,7 +437,24 @@ pub fn plan_with(root: &Path, cache: &CourseCache, python: &Path) -> Result<Plan
     let (cwd, steps, manifest, header) = match kind {
         CacheKind::Cargo => cargo_steps(&l, &cache.dependencies),
         CacheKind::Pip => pip_steps(&l, &cache.dependencies, python)?,
+        CacheKind::Images => bail!("a course of images is planned with its sandbox (`plan`)"),
     };
+    Ok(finish_plan(
+        cache, kind, l, packages, cwd, steps, manifest, header,
+    ))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn finish_plan(
+    cache: &CourseCache,
+    kind: CacheKind,
+    l: Layout,
+    packages: Vec<Package>,
+    cwd: PathBuf,
+    steps: Vec<PlanStep>,
+    manifest: String,
+    header: String,
+) -> Plan {
     let mut command = header;
     command.push_str(&format!("cd {}\n", quote(&cwd)));
     for s in &steps {
@@ -430,7 +474,7 @@ pub fn plan_with(root: &Path, cache: &CourseCache, python: &Path) -> Result<Plan
         command.push_str(&line);
         command.push('\n');
     }
-    Ok(Plan {
+    Plan {
         key: cache.key.clone(),
         kind,
         layout: l,
@@ -440,7 +484,55 @@ pub fn plan_with(root: &Path, cache: &CourseCache, python: &Path) -> Result<Plan
         cwd,
         steps,
         command: command.trim_end().to_string(),
-    })
+    }
+}
+
+/// A preparação de um curso de imagens com o sandbox `sb` (não corre nada): um `pull` pelo digest
+/// e um `tag` por imagem, com as flags globais do sandbox à vista no texto a aprovar. O ambiente
+/// (o do sandbox, que [`prepare`] aplica) é dito uma vez no cabeçalho.
+pub fn plan_images(root: &Path, cache: &CourseCache, sb: &crate::sandbox::Sandbox) -> Result<Plan> {
+    let kind = kind_of(cache)?;
+    if kind != CacheKind::Images {
+        bail!("course `{}` does not prepare images", cache.key);
+    }
+    if cache.dependencies.is_empty() {
+        bail!("course `{}` has no images to prepare", cache.key);
+    }
+    let l = layout(root, &cache.key)?;
+    let packages = packages(kind, &cache.dependencies)?;
+    let mut steps = Vec::new();
+    let mut manifest = String::new();
+    let mut header = format!(
+        "# Base images of the course, pulled by digest into the private rootless Podman sandbox\n\
+         # {} (its own storage and config: your own Podman images are not touched)\n",
+        l.sandbox.display()
+    );
+    for d in &cache.dependencies {
+        let img = tutor_core::image_reference(d).map_err(anyhow::Error::msg)?;
+        header.push_str(&format!("#   {}\n", img.line()));
+        manifest.push_str(&img.line());
+        manifest.push('\n');
+        let mut pull = sb.global_args();
+        pull.extend(["pull".into(), "--quiet".into(), img.pinned()]);
+        steps.push(PlanStep {
+            program: sb.bin().display().to_string(),
+            args: pull,
+            env: BTreeMap::new(),
+            network: true,
+        });
+        let mut tag = sb.global_args();
+        tag.extend(["tag".into(), img.pinned(), img.name()]);
+        steps.push(PlanStep {
+            program: sb.bin().display().to_string(),
+            args: tag,
+            env: BTreeMap::new(),
+            network: false,
+        });
+    }
+    let cwd = l.dir.clone();
+    Ok(finish_plan(
+        cache, kind, l, packages, cwd, steps, manifest, header,
+    ))
 }
 
 type Steps = (PathBuf, Vec<PlanStep>, String, String);
@@ -599,7 +691,19 @@ pub fn prepare(plan: &Plan) -> Result<Prepared> {
             std::fs::write(l.crate_dir.join("src/lib.rs"), "")?;
         }
         CacheKind::Pip => std::fs::write(&l.requirements, &plan.manifest)?,
+        CacheKind::Images => std::fs::write(l.dir.join("images.txt"), &plan.manifest)?,
     }
+    // O sandbox das imagens (configuração escrita; tranca para não puxar enquanto uma avaliação
+    // limpa imagens).
+    let sandbox = match plan.kind {
+        CacheKind::Images => {
+            let sb = crate::sandbox::Sandbox::at(&l.sandbox)?;
+            sb.ensure()?;
+            Some(sb)
+        }
+        _ => None,
+    };
+    let _sandbox_lock = sandbox.as_ref().map(|sb| sb.lock()).transpose()?;
     // A marca de antes deixa de valer: só uma preparação completa a volta a escrever.
     let _ = std::fs::remove_file(&l.marker);
 
@@ -608,9 +712,11 @@ pub fn prepare(plan: &Plan) -> Result<Prepared> {
     for (i, step) in plan.steps.iter().enumerate() {
         let mut cmd = Command::new(&step.program);
         cmd.args(&step.args).current_dir(&plan.cwd);
-        match plan.kind {
-            CacheKind::Cargo => configure_cargo_env(&mut cmd),
-            CacheKind::Pip => configure_python_env(&mut cmd, l),
+        match (plan.kind, &sandbox) {
+            (CacheKind::Cargo, _) => configure_cargo_env(&mut cmd),
+            (CacheKind::Pip, _) => configure_python_env(&mut cmd, l),
+            (CacheKind::Images, Some(sb)) => sb.configure(&mut cmd),
+            (CacheKind::Images, None) => bail!("no container sandbox"),
         }
         if step.network {
             cmd.env_remove("CARGO_NET_OFFLINE");
@@ -672,6 +778,10 @@ pub fn prepare(plan: &Plan) -> Result<Prepared> {
             configure_python_env(&mut cmd, l);
             tool_version(cmd)
         }
+        CacheKind::Images => sandbox
+            .as_ref()
+            .and_then(|sb| sb.version().ok())
+            .unwrap_or_default(),
     };
     let marker = Marker {
         fingerprint: fingerprint(&plan.dependencies),
@@ -809,6 +919,38 @@ pub(crate) fn python_env_in(root: Option<&Path>, build: &BuildEnv) -> Result<Pyt
     let cache = ready_layout(root, build, CacheKind::Pip)?;
     let timeout = (build.timeout_secs != 0).then(|| course_timeout(build, Duration::ZERO));
     Ok(PythonEnv { cache, timeout })
+}
+
+/// As imagens preparadas de um passo de um curso de contentores e o tempo limite das suas
+/// construções. Recusa com [`NOT_PREPARED`] um curso que não está pronto (as imagens em si
+/// confirmam-se no sandbox, pelo digest, antes de cada avaliação).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ImagesEnv {
+    pub(crate) layout: Layout,
+    pub(crate) images: Vec<tutor_core::ImageRef>,
+    pub(crate) key: String,
+    pub(crate) timeout: Duration,
+}
+
+/// O tempo omisso de cada construção de um curso de contentores.
+pub(crate) const IMAGES_BUILD_TIMEOUT: Duration = Duration::from_secs(300);
+
+pub(crate) fn images_env_in(root: Option<&Path>, build: &BuildEnv) -> Result<Option<ImagesEnv>> {
+    let Some(layout) = ready_layout(root, build, CacheKind::Images)? else {
+        return Ok(None);
+    };
+    let cache = build.cache.as_ref().expect("ready_layout found a cache");
+    let images = cache
+        .dependencies
+        .iter()
+        .map(|d| tutor_core::image_reference(d).map_err(anyhow::Error::msg))
+        .collect::<Result<Vec<_>>>()?;
+    Ok(Some(ImagesEnv {
+        layout,
+        images,
+        key: cache.key.clone(),
+        timeout: course_timeout(build, IMAGES_BUILD_TIMEOUT),
+    }))
 }
 
 /// A mensagem de um curso por preparar: o que fazer, nas duas portas (app e `dxt`).

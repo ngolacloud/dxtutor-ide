@@ -22,6 +22,7 @@ pub mod attach;
 pub mod codemap;
 pub mod complexity;
 pub mod container;
+mod container_check;
 pub mod course_cache;
 pub mod dap;
 pub mod dapc;

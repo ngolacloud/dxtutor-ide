@@ -38,6 +38,11 @@
 //!   URLs, de `-e`, de índices nem de outras opções: o curso escolhe pacotes e versões, nunca
 //!   de onde vêm ([`pip_requirement`]). Num curso Python as dependências só existem numa cache
 //!   preparada, por isso `dependencies` sem `prepare = true` é um erro.
+//! - `dockerfile` (imagens, Learn P3a): uma imagem base, com o nome COMPLETO, a tag e o digest —
+//!   `docker.io/library/alpine:3.24.4@sha256:<64 hex>` ([`image_reference`]). A preparação puxa-a
+//!   pelo digest para o armazenamento do sandbox de contentores e dá-lhe a tag (para um `FROM
+//!   alpine:3.24.4` a encontrar); a avaliação nunca puxa (`--pull=never`). Como no pip, sem
+//!   `prepare = true` é um erro.
 
 use std::collections::BTreeMap;
 
@@ -121,6 +126,8 @@ pub enum CacheKind {
     Cargo,
     /// Um venv do curso com `pip install --require-hashes --only-binary=:all:`.
     Pip,
+    /// Imagens base fixadas pelo digest, puxadas para o sandbox de contentores (Learn P3a).
+    Images,
 }
 
 impl CacheKind {
@@ -130,6 +137,7 @@ impl CacheKind {
         match language.trim().to_ascii_lowercase().as_str() {
             "rust" | "rs" => Some(CacheKind::Cargo),
             "python" | "py" | "python3" => Some(CacheKind::Pip),
+            "dockerfile" | "containerfile" => Some(CacheKind::Images),
             _ => None,
         }
     }
@@ -138,8 +146,199 @@ impl CacheKind {
         match self {
             CacheKind::Cargo => "cargo",
             CacheKind::Pip => "pip",
+            CacheKind::Images => "images",
         }
     }
+}
+
+/// Uma imagem base de um curso de contentores: registo, repositório, tag e digest (todos
+/// obrigatórios: a tag dá o nome que o `FROM` usa, o digest diz exactamente o que se puxa).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ImageRef {
+    /// `docker.io`, `quay.io`, `ghcr.io`, `localhost`…
+    pub registry: String,
+    /// `library/alpine`, `podman/hello`…
+    pub repository: String,
+    pub tag: String,
+    /// `sha256:<64 hex>` (em minúsculas).
+    pub digest: String,
+}
+
+impl ImageRef {
+    /// `docker.io/library/alpine` (sem tag nem digest).
+    pub fn repo(&self) -> String {
+        format!("{}/{}", self.registry, self.repository)
+    }
+
+    /// `docker.io/library/alpine:3.24.4`: o nome que a preparação lhe dá no sandbox.
+    pub fn name(&self) -> String {
+        format!("{}:{}", self.repo(), self.tag)
+    }
+
+    /// `docker.io/library/alpine@sha256:…`: o que a preparação puxa.
+    pub fn pinned(&self) -> String {
+        format!("{}@{}", self.repo(), self.digest)
+    }
+
+    /// A linha do curso: `docker.io/library/alpine:3.24.4@sha256:…`.
+    pub fn line(&self) -> String {
+        format!("{}@{}", self.name(), self.digest)
+    }
+
+    /// Como se escreve num `FROM` do Docker Hub (`alpine:3.24.4`, `user/app:1`); o nome completo
+    /// noutro registo.
+    pub fn short(&self) -> String {
+        if self.registry == "docker.io" {
+            let repo = self
+                .repository
+                .strip_prefix("library/")
+                .unwrap_or(&self.repository);
+            format!("{repo}:{}", self.tag)
+        } else {
+            self.name()
+        }
+    }
+
+    /// `true` se `reference` (um `FROM`, uma imagem de um `run`) nomeia esta imagem: pelo nome e a
+    /// tag (com as regras do Docker Hub para nomes curtos) ou pelo digest.
+    pub fn matches(&self, reference: &str) -> bool {
+        let Some(n) = normalize_image(reference) else {
+            return false;
+        };
+        if n.repo != self.repo() {
+            return false;
+        }
+        match (&n.tag, &n.digest) {
+            (_, Some(d)) => d == &self.digest && n.tag.as_ref().is_none_or(|t| t == &self.tag),
+            (Some(t), None) => t == &self.tag,
+            (None, None) => false,
+        }
+    }
+}
+
+/// Uma referência de imagem normalizada como o Docker e o Podman a lêem: o registo (o Docker Hub
+/// quando o primeiro componente não parece um host), o repositório (`library/` à frente de um nome
+/// do Docker Hub sem `/`) e a tag ou o digest, se os tiver.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NormalizedImage {
+    /// `docker.io/library/alpine`.
+    pub repo: String,
+    pub tag: Option<String>,
+    pub digest: Option<String>,
+}
+
+fn path_component_ok(c: &str) -> bool {
+    // [a-z0-9]+(?:(?:[._]|__|[-]*)[a-z0-9]+)*
+    !c.is_empty()
+        && c.len() <= 128
+        && c.starts_with(|x: char| x.is_ascii_lowercase() || x.is_ascii_digit())
+        && c.ends_with(|x: char| x.is_ascii_lowercase() || x.is_ascii_digit())
+        && c.chars()
+            .all(|x| x.is_ascii_lowercase() || x.is_ascii_digit() || matches!(x, '.' | '_' | '-'))
+}
+
+fn tag_ok(t: &str) -> bool {
+    !t.is_empty()
+        && t.len() <= 128
+        && t.starts_with(|x: char| x.is_ascii_alphanumeric() || x == '_')
+        && t.chars()
+            .all(|x| x.is_ascii_alphanumeric() || matches!(x, '_' | '.' | '-'))
+}
+
+fn digest_ok(d: &str) -> bool {
+    d.strip_prefix("sha256:")
+        .is_some_and(|h| h.len() == 64 && h.chars().all(|c| c.is_ascii_hexdigit()))
+}
+
+fn host_like(c: &str) -> bool {
+    c == "localhost" || c.contains('.') || c.contains(':')
+}
+
+/// Normaliza uma referência de imagem (`alpine:3.24`, `docker.io/library/alpine@sha256:…`,
+/// `quay.io/podman/hello:latest`). `None` quando não é uma referência válida (maiúsculas, `..`,
+/// uma variável `$X`…). Uma referência sem tag nem digest fica sem tag (o Docker juntaria
+/// `latest`; o curso exige sempre uma).
+pub fn normalize_image(reference: &str) -> Option<NormalizedImage> {
+    let r = reference.trim();
+    if r.is_empty() || r.len() > 512 || r.chars().any(|c| c.is_whitespace() || c == '$') {
+        return None;
+    }
+    let (rest, digest) = match r.split_once('@') {
+        Some((a, d)) => {
+            if !digest_ok(d) {
+                return None;
+            }
+            (a, Some(d.to_ascii_lowercase()))
+        }
+        None => (r, None),
+    };
+    let last_slash = rest.rfind('/').map(|i| i + 1).unwrap_or(0);
+    let (name, tag) = match rest[last_slash..].rfind(':') {
+        Some(i) => {
+            let t = &rest[last_slash + i + 1..];
+            if !tag_ok(t) {
+                return None;
+            }
+            (&rest[..last_slash + i], Some(t.to_string()))
+        }
+        None => (rest, None),
+    };
+    let mut parts: Vec<&str> = name.split('/').collect();
+    let registry = if parts.len() > 1 && host_like(parts[0]) {
+        let host = parts.remove(0);
+        if host == "index.docker.io" {
+            "docker.io".to_string()
+        } else {
+            host.to_ascii_lowercase()
+        }
+    } else {
+        "docker.io".to_string()
+    };
+    if parts.is_empty() || !parts.iter().all(|c| path_component_ok(c)) {
+        return None;
+    }
+    let mut repo = parts.join("/");
+    if registry == "docker.io" && parts.len() == 1 {
+        repo = format!("library/{repo}");
+    }
+    Some(NormalizedImage {
+        repo: format!("{registry}/{repo}"),
+        tag,
+        digest,
+    })
+}
+
+/// Lê uma linha de dependência de um curso de contentores: `registo/repositório:tag@sha256:<64
+/// hex>`, com o registo escrito (nada de nomes curtos que dependam de uma lista de pesquisa) e a
+/// tag e o digest presentes.
+pub fn image_reference(line: &str) -> Result<ImageRef, String> {
+    let l = line.trim();
+    let first = l.split('/').next().unwrap_or("");
+    if !l.contains('/') || !host_like(first) {
+        return Err(format!(
+            "`{l}`: write the registry in full (`docker.io/library/alpine:3.24.4@sha256:…`)"
+        ));
+    }
+    let n = normalize_image(l).ok_or_else(|| format!("`{l}` is not an image reference"))?;
+    let tag = n.tag.ok_or_else(|| {
+        format!("`{l}`: add the tag that FROM lines use (`…/alpine:3.24.4@sha256:…`)")
+    })?;
+    let digest = n.digest.ok_or_else(|| {
+        format!(
+            "`{l}`: pin the image by digest (`@sha256:<64 hex>`): preparation pulls exactly that"
+        )
+    })?;
+    let (registry, repository) = n
+        .repo
+        .split_once('/')
+        .map(|(a, b)| (a.to_string(), b.to_string()))
+        .ok_or_else(|| format!("`{l}` is not an image reference"))?;
+    Ok(ImageRef {
+        registry,
+        repository,
+        tag,
+        digest,
+    })
 }
 
 /// Uma linha de `requirements.txt` de um curso Python preparado: um pacote, a versão exacta e
@@ -305,6 +504,25 @@ pub fn resolve(course: &mut crate::Course) -> Result<(), String> {
             }
         }
     }
+    if CacheKind::of(&course.language) == Some(CacheKind::Images) && !all.is_empty() {
+        if !course.build.prepare {
+            return Err(format!(
+                "build.dependencies of a course graded in `{}` are images pulled only into the prepared container sandbox: set build.prepare = true",
+                course.language
+            ));
+        }
+        let mut names = Vec::new();
+        for line in &all {
+            let img = image_reference(line).map_err(|e| format!("build.dependencies: {e}"))?;
+            if names.contains(&img.name()) {
+                return Err(format!(
+                    "build.dependencies: `{}` is listed more than once",
+                    img.name()
+                ));
+            }
+            names.push(img.name());
+        }
+    }
     if CacheKind::of(&course.language) == Some(CacheKind::Pip) && !all.is_empty() {
         if !course.build.prepare {
             return Err(format!(
@@ -345,6 +563,87 @@ pub fn resolve(course: &mut crate::Course) -> Result<(), String> {
 mod tests {
     use super::*;
     use crate::{Course, CourseFormat, Level};
+
+    const ALPINE: &str = "sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf";
+
+    #[test]
+    fn image_references_are_normalised_like_docker_does() {
+        let n = |s: &str| normalize_image(s).map(|n| (n.repo, n.tag, n.digest));
+        assert_eq!(
+            n("alpine:3.24.4"),
+            Some((
+                "docker.io/library/alpine".into(),
+                Some("3.24.4".into()),
+                None
+            ))
+        );
+        assert_eq!(
+            n("user/app"),
+            Some(("docker.io/user/app".into(), None, None))
+        );
+        assert_eq!(
+            n("localhost:5000/team/app:v1"),
+            Some(("localhost:5000/team/app".into(), Some("v1".into()), None))
+        );
+        assert_eq!(
+            n(&format!("index.docker.io/library/alpine@{ALPINE}")).map(|x| x.0),
+            Some("docker.io/library/alpine".into())
+        );
+        for bad in [
+            "",
+            "Alpine:3",
+            "a b",
+            "$BASE",
+            "alpine:",
+            "x@sha256:12",
+            "a//b",
+            "-x",
+        ] {
+            assert_eq!(normalize_image(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn course_images_need_the_registry_the_tag_and_the_digest() {
+        let img = image_reference(&format!("docker.io/library/alpine:3.24.4@{ALPINE}")).unwrap();
+        assert_eq!(img.name(), "docker.io/library/alpine:3.24.4");
+        assert_eq!(img.pinned(), format!("docker.io/library/alpine@{ALPINE}"));
+        assert_eq!(img.short(), "alpine:3.24.4");
+        assert!(img.matches("alpine:3.24.4"));
+        assert!(img.matches("docker.io/library/alpine:3.24.4"));
+        assert!(img.matches(&format!("alpine@{ALPINE}")));
+        assert!(!img.matches("alpine:3.24"));
+        assert!(!img.matches("alpine"));
+        assert!(!img.matches("evil/alpine:3.24.4"));
+        for (bad, frag) in [
+            (format!("alpine:3.24.4@{ALPINE}"), "registry in full"),
+            ("docker.io/library/alpine:3.24.4".to_string(), "digest"),
+            (format!("docker.io/library/alpine@{ALPINE}"), "tag"),
+        ] {
+            let e = image_reference(&bad).unwrap_err();
+            assert!(e.contains(frag), "{bad}: {e}");
+        }
+    }
+
+    #[test]
+    fn a_container_course_pins_its_images_and_prepares_them() {
+        let course = |deps: &str, prepare: bool| {
+            format!(
+                "id = \"c\"\nlanguage = \"dockerfile\"\ncategory = \"tool\"\nsubject = \"podman\"\ntitle = \"T\"\nlevel = \"beginner\"\nsummary = \"s\"\n[build]\nprepare = {prepare}\ndependencies = [{deps}]\n[[unit]]\nid = \"u\"\ntitle = \"U\"\n[[unit.step]]\nkind = \"concept\"\nid = \"c1\"\ntitle = \"C\"\nbody = \"b\"\n"
+            )
+        };
+        let ok = format!("\"docker.io/library/alpine:3.24.4@{ALPINE}\"");
+        let c = Course::parse(&course(&ok, true), CourseFormat::Toml).expect("valid");
+        assert_eq!(CacheKind::of(&c.language), Some(CacheKind::Images));
+        let e = Course::parse(&course(&ok, false), CourseFormat::Toml).unwrap_err();
+        assert!(e.to_string().contains("build.prepare"), "{e}");
+        let other = ok.replace("f59a", "0000");
+        let twice = format!("{ok}, {other}");
+        let e = Course::parse(&course(&twice, true), CourseFormat::Toml).unwrap_err();
+        assert!(e.to_string().contains("more than once"), "{e}");
+        let e = Course::parse(&course("\"alpine:3.24\"", true), CourseFormat::Toml).unwrap_err();
+        assert!(e.to_string().contains("registry"), "{e}");
+    }
 
     const COURSE: &str = r##"
 id = "fw-basics"

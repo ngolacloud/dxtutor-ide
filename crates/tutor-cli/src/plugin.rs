@@ -356,6 +356,7 @@ fn prepare(args: &[String]) -> Result<()> {
         let network = match plan.kind {
             tutor_core::CacheKind::Cargo => "cargo fetch",
             tutor_core::CacheKind::Pip => "pip install",
+            tutor_core::CacheKind::Images => "podman pull, into the private sandbox",
         };
         println!(
             "{} — preparing (network: {network} only)\ndownloads: {}\n{}\n",
@@ -459,6 +460,7 @@ fn check_step(
                 .phase(step, tutor_core::Level::Basico)
                 .ok_or("project step did not build a phase")?;
             let project = step.project.as_ref().expect("guarded");
+            let t0 = std::time::Instant::now();
             let good = tutor_eval::assess_project(&phase, &project.solution)
                 .map_err(|e| format!("evaluator error: {e}"))?;
             if !good.correctness.passed {
@@ -472,7 +474,11 @@ fn check_step(
             if starter.correctness.passed {
                 return Err("the starter files already pass the tests (they prove nothing)".into());
             }
-            Ok(format!("({} files)", project.starter.len()))
+            Ok(format!(
+                "({} files, {:.1} s)",
+                project.starter.len(),
+                t0.elapsed().as_secs_f64()
+            ))
         }
         StepKind::Challenge => {
             let phase = course
