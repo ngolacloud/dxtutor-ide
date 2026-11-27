@@ -260,7 +260,7 @@ fn paused_it_never_acts() {
         .collect();
     assert!(calls.contains(&"autonomy.pause".to_string()));
     set_paused(&w.db, &w.root, false, "", &ana()).unwrap();
-    assert!(overview(&w.db, &w.root, None).unwrap().switch.paused == false);
+    assert!(!overview(&w.db, &w.root, None).unwrap().switch.paused);
 }
 
 #[test]

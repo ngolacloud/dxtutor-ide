@@ -16,6 +16,21 @@ use serde_json::Value;
 pub const INSTALL_HINT: &str =
     "Install the GitHub CLI (https://cli.github.com) and run `gh auth login`.";
 
+/// Runs `f` again (a few times, briefly) while the program is busy being written (`ETXTBSY`: a
+/// script just written whose descriptor a process forked at that moment still holds).
+fn busy_retry<T>(mut f: impl FnMut() -> std::io::Result<T>) -> std::io::Result<T> {
+    let mut tries = 0;
+    loop {
+        match f() {
+            Err(e) if e.raw_os_error() == Some(26) && tries < 20 => {
+                tries += 1;
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            }
+            r => return r,
+        }
+    }
+}
+
 fn run(
     program: &str,
     root: Option<&Path>,
@@ -30,7 +45,7 @@ fn run(
         .env("NO_COLOR", "1")
         .env("GH_NO_UPDATE_NOTIFIER", "1")
         .stdin(Stdio::null());
-    match cmd.output() {
+    match busy_retry(|| cmd.output()) {
         Ok(o) => Ok((
             o.status.success(),
             String::from_utf8_lossy(&o.stdout).to_string(),
@@ -60,7 +75,7 @@ fn run_with_input(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let mut child = match cmd.spawn() {
+    let mut child = match busy_retry(|| cmd.spawn()) {
         Ok(c) => c,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             return Err(format!("gh is not installed. {INSTALL_HINT}"))

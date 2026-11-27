@@ -393,12 +393,13 @@ impl Ctx<'_> {
 
     /// Before every action: the kill switch, the grantor's role (asked again, for the person who
     /// granted it, with the issue as it is now) and the rate limit. `Err`: the step that stopped it.
-    fn prelude(&self, st: &ProjectStore, d: &Delegation) -> Result<(), Step> {
-        let sw = st
-            .autonomy_switch()
-            .map_err(|e| self.stop(Some(d), "error", e.message))?;
+    fn prelude(&self, st: &ProjectStore, d: &Delegation) -> Option<Step> {
+        let sw = match st.autonomy_switch() {
+            Ok(s) => s,
+            Err(e) => return Some(self.stop(Some(d), "error", e.message)),
+        };
         if sw.paused {
-            return Err(self.stop(
+            return Some(self.stop(
                 Some(d),
                 "paused",
                 format!(
@@ -407,24 +408,24 @@ impl Ctx<'_> {
                 ),
             ));
         }
-        let assignee = st
-            .issue_assignment(self.root, self.key)
-            .map_err(|e| self.stop(Some(d), "error", e.message))?
-            .map(|(a, _)| a)
-            .unwrap_or_default();
+        let assignee = match st.issue_assignment(self.root, self.key) {
+            Ok(a) => a.map(|(a, _)| a).unwrap_or_default(),
+            Err(e) => return Some(self.stop(Some(d), "error", e.message)),
+        };
         if let Err(e) = crate::roles::delegation_check(
             roles_of(self.root, &d.granted_by, &d.granted_email).as_deref(),
             &d.scope,
             &assignee,
             &[d.granted_by.as_str(), d.granted_email.as_str()],
         ) {
-            return Err(self.stop(Some(d), "grantor_role", e));
+            return Some(self.stop(Some(d), "grantor_role", e));
         }
-        let used = st
-            .autonomy_actions_since(self.root, now_ms() - au::HOUR_MS)
-            .map_err(|e| self.stop(Some(d), "error", e.message))?;
+        let used = match st.autonomy_actions_since(self.root, now_ms() - au::HOUR_MS) {
+            Ok(n) => n,
+            Err(e) => return Some(self.stop(Some(d), "error", e.message)),
+        };
         if used >= au::MAX_ACTIONS_PER_HOUR {
-            return Err(self.stop(
+            return Some(self.stop(
                 Some(d),
                 "rate_limited",
                 format!(
@@ -433,7 +434,7 @@ impl Ctx<'_> {
                 ),
             ));
         }
-        Ok(())
+        None
     }
 }
 
@@ -501,7 +502,7 @@ pub fn review_now(rt: &Runtime, root: &str, key: &str, trigger: Trigger) -> Step
     let now = now_ms();
     let ds = st.delegations_for(root, key).ok()?;
     let d = au::effective(&ds, "review", now)?.clone();
-    if let Err(step) = cx.prelude(&st, &d) {
+    if let Some(step) = cx.prelude(&st, &d) {
         return step;
     }
     let state = match st.load(root, now) {
@@ -698,7 +699,7 @@ pub fn integrate_now(rt: &Runtime, root: &str, key: &str, trigger: Trigger) -> S
         action,
         trigger,
     };
-    if let Err(step) = cx.prelude(&st, &d) {
+    if let Some(step) = cx.prelude(&st, &d) {
         return step;
     }
     let f = match rv::facts(&rt.db, root, key) {
