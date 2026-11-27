@@ -217,6 +217,116 @@ fn task_runs_a_read_only_subagent_and_returns_its_report() {
         .contains("lexer.rs:1: fn tokenize() {}"));
 }
 
+/// H5f (toolset 17): an implementer writes in a worktree of its own; the project does not change, and what it did
+/// comes back as a patch (saved in the git dir) that applies on the project.
+#[test]
+fn an_implementer_writes_in_its_own_worktree_and_returns_a_patch() {
+    let d = tempfile::tempdir().unwrap();
+    let p = d.path();
+    let git = |a: &[&str]| {
+        let o = std::process::Command::new("git")
+            .arg("-C")
+            .arg(p)
+            .args(a)
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@e")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@e")
+            .output()
+            .unwrap();
+        assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    };
+    git(&["init", "-q", "--initial-branch=main"]);
+    std::fs::write(p.join("lib.rs"), "pub fn a() {}\n").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "first"]);
+    let child = scripted(vec![
+        step(
+            StopReason::ToolUse,
+            vec![tool(
+                "w1",
+                "write",
+                json!({"path": "util.rs", "content": "pub fn b() {}\n"}),
+            )],
+        ),
+        step(StopReason::EndTurn, vec![text("Criei util.rs com b().")]),
+    ]);
+    let spec = SubagentSpec {
+        provider: child.clone(),
+        model: "claude-opus-5-5".into(),
+        effort: Effort::Low,
+        lang: tutor_agent::context::ReplyLang::Pt,
+    };
+    let fs = FlowState::default();
+    let task_of = |v: u32, spec: Option<SubagentSpec>| {
+        agent_tools(&ToolsetOptions::default(), v, &fs, spec, vec![])
+            .into_iter()
+            .find(|t| t.name() == "task")
+            .unwrap()
+    };
+    let task = task_of(17, Some(spec));
+    let out = task.run(
+        &json!({"description": "util", "prompt": "Cria util.rs com b().", "role": "implementer"}),
+        &ctx(p),
+    );
+    assert!(!out.is_error, "{}", out.content);
+    assert!(out.content.starts_with("Criei util.rs com b()."));
+    assert!(out.content.contains("O projecto NÃO mudou"));
+    assert!(out.content.contains("+pub fn b() {}"));
+    // the implementer only had the file tools (no command runs without a human)
+    let seen = child.seen.lock().unwrap();
+    let child_tools: Vec<String> = seen[0].tools.iter().map(|t| t.name.clone()).collect();
+    assert_eq!(
+        child_tools,
+        [
+            "read",
+            "glob",
+            "grep",
+            "edit",
+            "write",
+            "git_status",
+            "git_diff"
+        ]
+    );
+    // the project did not change; the saved patch applies
+    assert!(!p.join("util.rs").exists());
+    let path = out
+        .content
+        .lines()
+        .find_map(|l| l.strip_prefix("Patch: "))
+        .unwrap()
+        .to_string();
+    assert!(path.contains(".git/dxtutor/patches/"));
+    git(&["apply", &path]);
+    assert_eq!(
+        std::fs::read_to_string(p.join("util.rs")).unwrap(),
+        "pub fn b() {}\n"
+    );
+    // toolset 16 keeps its task: no implementer in the schema
+    let dummy = || SubagentSpec {
+        provider: scripted(vec![]),
+        model: "m".into(),
+        effort: Effort::Low,
+        lang: tutor_agent::context::ReplyLang::Pt,
+    };
+    let enum16 = task_of(16, Some(dummy())).input_schema()["properties"]["role"]["enum"].clone();
+    let enum17 = task_of(17, Some(dummy())).input_schema()["properties"]["role"]["enum"].clone();
+    assert!(!enum16
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|r| r == "implementer"));
+    assert!(enum17
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|r| r == "implementer"));
+    assert_ne!(
+        task_of(16, Some(dummy())).description(),
+        task_of(17, Some(dummy())).description()
+    );
+}
+
 #[test]
 fn the_loop_streams_the_subagent_progress_tagged_with_the_task_call() {
     let d = tempfile::tempdir().unwrap();
@@ -743,7 +853,9 @@ fn toolset_9_offers_finish_issue_only_to_issue_sessions_and_keeps_8_as_it_was() 
     );
     let o15 = read(15).run(&json!({"path": "shot.png"}), &c);
     assert!(o15.is_error && o15.images.is_empty());
-    assert_eq!(tutor_agent::tools::TOOLSET_VERSION, 16);
+    // toolset 17 (H5f): the same tools; only `task` gains the implementer (its test is above)
+    assert_eq!(names(&tools(17, true)), n15);
+    assert_eq!(tutor_agent::tools::TOOLSET_VERSION, 17);
 }
 
 #[test]
