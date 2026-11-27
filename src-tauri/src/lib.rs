@@ -135,7 +135,9 @@ use commands::runbook::{
 };
 use commands::sandbox::{compose_ps, get_sandbox_engine, set_sandbox_engine};
 use commands::scaffold::{project_new, project_new_plan, project_templates};
-use commands::search::{detect_projects, list_files, read_folder_sources, search_project};
+use commands::search::{
+    detect_projects, list_files, read_folder_sources, search_project, workspace_projects,
+};
 use commands::study::{
     course_prepare, course_prepare_status, get_course, get_glossary, get_study_guide, list_courses,
     list_phases, request_fix, request_hint, request_plan, study_policy, submit, submit_step,
@@ -1163,6 +1165,7 @@ pub fn run() {
             devcontainer_session_status,
             devcontainer_session_down,
             detect_projects,
+            workspace_projects,
             pty::pty_spawn,
             pty::pty_spawn_in_session,
             pty::pty_write,

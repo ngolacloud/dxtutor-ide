@@ -47,6 +47,7 @@ pub mod tool;
 pub mod tools;
 pub mod trust;
 pub mod types;
+pub mod workspace;
 
 pub use agent::{Agent, AgentConfig, AgentError, AgentEvent, Decision, PendingCall, TurnOutcome};
 pub use provider::{

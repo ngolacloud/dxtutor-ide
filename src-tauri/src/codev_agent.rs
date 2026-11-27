@@ -105,6 +105,10 @@ pub struct StartSpec {
     /// H1: `Some(false)` runs the agent's commands without the OS sandbox (the tests that need it);
     /// `None`/`Some(true)`: the sandbox, when this machine has it.
     pub sandbox: Option<bool>,
+    /// H2: the project of the workspace the session works in (relative to `root`; `None` or `"."`: the whole
+    /// workspace). Its test/lint commands replace `test_cmd`/`lint_cmd`, its instruction files join the
+    /// root's, and a chat request may change only its files without asking. Ignored on a resume.
+    pub project: Option<String>,
 }
 
 /// H1: the OS sandbox of a session (`None`: off by the spec, by a trusted project file, or not
@@ -358,6 +362,8 @@ struct Session {
     project_root: PathBuf,
     /// The worktree's project folder when the session works in one (= `agent.ctx.root`).
     worktree: Option<PathBuf>,
+    /// H2: the project of the workspace (relative), from the session's meta.
+    project: Option<String>,
     agent: Agent,
     transcript: Mutex<Transcript>,
     busy: AtomicBool,
@@ -756,18 +762,41 @@ pub fn start(
                 Some(w) => Some(worktree_of(&root, w, spec.issue_key.as_deref())?),
                 None => None,
             };
+            // H2: the project of the workspace, with its commands
+            let base = worktree.clone().unwrap_or_else(|| root.clone());
+            let ws = tutor_agent::workspace::detect(&base);
+            let project = session_project(&base, spec.project.as_deref())?;
+            let wsp = project
+                .as_deref()
+                .and_then(|p| ws.projects.iter().find(|x| x.path == p));
+            let in_project = |c: &Option<String>| -> Option<String> {
+                let p = project.as_deref()?;
+                c.as_deref().map(|c| format!("cd {} && {c}", shell_quote(p)))
+            };
+            let (test_cmd, lint_cmd) = match &project {
+                Some(_) => (
+                    in_project(&wsp.and_then(|w| w.test.clone())),
+                    in_project(&wsp.and_then(|w| w.lint.clone())),
+                ),
+                None => (
+                    spec.test_cmd.clone().filter(|c| !c.trim().is_empty()),
+                    spec.lint_cmd.clone().filter(|c| !c.trim().is_empty()),
+                ),
+            };
             let meta = SessionMeta {
                 id: new_id(),
                 root: root_s.clone(),
                 model: resolve_model(&provider, spec.model.as_deref()),
                 effort: parse_effort(spec.effort.as_deref()).as_str().to_string(),
-                system: session_system(
-                    worktree.as_deref().unwrap_or(&root),
+                system: session_system_for(
+                    &base,
                     spec.review_edits,
                     ReplyLang::from_ui(spec.lang.as_deref()),
+                    &ws,
+                    project.as_deref(),
                 ),
-                test_cmd: spec.test_cmd.clone().filter(|c| !c.trim().is_empty()),
-                lint_cmd: spec.lint_cmd.clone().filter(|c| !c.trim().is_empty()),
+                test_cmd,
+                lint_cmd,
                 compaction: provider_features(&provider).compaction,
                 created: session::now(),
                 toolset: TOOLSET_VERSION,
@@ -776,6 +805,7 @@ pub fn start(
                 lang: spec.lang.clone().filter(|l| !l.trim().is_empty()),
                 scopes: session_scopes(&spec),
                 worktree: worktree.map(|w| w.display().to_string()),
+                project,
             };
             (meta, Transcript::new(), None)
         }
@@ -952,6 +982,7 @@ pub fn start(
         id: id.clone(),
         project_root: root.clone(),
         worktree: meta.worktree.as_ref().map(PathBuf::from),
+        project: meta.project.clone(),
         agent,
         transcript: Mutex::new(transcript),
         busy: AtomicBool::new(false),
@@ -1075,6 +1106,13 @@ pub fn send(
         let o = origin.map(|mut o| {
             o.by = crate::board::actor(&s.project_root.display().to_string());
             o.scope.retain(|p| !p.trim().is_empty());
+            // H2: a chat (or editor) request in a project's session changes that project's files; outside
+            // it, the policy asks (RF-G03)
+            if o.scope.is_empty() && o.issue.is_none() {
+                if let Some(p) = &s.project {
+                    o.scope = vec![format!("{p}/**")];
+                }
+            }
             o
         });
         // a new request needs its own plan, answers the last question and starts a new issue run
@@ -2481,6 +2519,54 @@ pub const REVIEW_EDITS_NOTE: &str = "No IDE, as tuas alterações aparecem no ed
 
 /// The system prompt of a new session; with live hunks, the core block also carries
 /// [`REVIEW_EDITS_NOTE`]. It is saved with the session, so a resume keeps it byte for byte.
+/// H2: the project a new session works in — a folder inside the workspace, or `None` for the whole of it.
+fn session_project(base: &Path, p: Option<&str>) -> Result<Option<String>, String> {
+    let Some(p) = p
+        .map(|p| p.trim().trim_start_matches("./").trim_end_matches('/'))
+        .filter(|p| !p.is_empty() && *p != ".")
+    else {
+        return Ok(None);
+    };
+    if p.starts_with('/') || p.contains('\\') || p.split('/').any(|s| s == ".." || s.is_empty()) {
+        return Err(format!("o projecto «{p}» não é uma pasta do workspace"));
+    }
+    if !base.join(p).is_dir() {
+        return Err(format!("o projecto «{p}» não existe no workspace"));
+    }
+    Ok(Some(p.to_string()))
+}
+
+/// A path for `sh`: single-quoted.
+fn shell_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+/// The system prompt of a new session in a workspace: the core and the root's instructions, then (H2) the
+/// project's own instruction files and the workspace's projects (only when there are several), with the
+/// cache breakpoint on the last block.
+fn session_system_for(
+    root: &Path,
+    review_edits: bool,
+    lang: ReplyLang,
+    ws: &tutor_agent::workspace::Workspace,
+    project: Option<&str>,
+) -> Vec<(String, bool)> {
+    let mut v = session_system(root, review_edits, lang);
+    if let Some(p) = project {
+        if let Some(text) = tutor_agent::context::project_instructions(&root.join(p)) {
+            v.push((format!("Instructions of the project `{p}`:\n{text}"), false));
+        }
+    }
+    if let Some(block) = tutor_agent::workspace::prompt_block(ws, Some(project.unwrap_or("."))) {
+        v.push((block, false));
+    }
+    let n = v.len();
+    for (i, b) in v.iter_mut().enumerate() {
+        b.1 = i + 1 == n;
+    }
+    v
+}
+
 fn session_system(root: &Path, review_edits: bool, lang: ReplyLang) -> Vec<(String, bool)> {
     let mut v: Vec<(String, bool)> = tutor_agent::context::system_prompt_in(root, lang)
         .into_iter()
@@ -3143,6 +3229,49 @@ mod tests {
             scope: vec![],
             template: None,
         });
+    }
+
+    #[test]
+    fn a_session_in_a_project_of_the_workspace_takes_its_commands_instructions_and_boundaries() {
+        let dir = tempfile::tempdir().unwrap();
+        let r = dir.path();
+        let put = |rel: &str, text: &str| {
+            let p = r.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, text).unwrap();
+        };
+        put("services/orders/Cargo.toml", "[package]\nname = \"orders\"\n");
+        put("services/orders/AGENTS.md", "Errors use thiserror.\n");
+        put("apps/web/package.json", r#"{"scripts": {"test": "vitest"}}"#);
+        let spec = |project: Option<&str>| StartSpec {
+            root: r.display().to_string(),
+            sessions_base: Some(r.join(".sessions")),
+            test_cmd: Some("npm test".into()),
+            project: project.map(String::from),
+            sandbox: Some(false),
+            ..Default::default()
+        };
+        let id = start(spec(Some("services/orders/")), &key("sk-test"), None).unwrap();
+        let s = get(&id).unwrap();
+        assert_eq!(s.project.as_deref(), Some("services/orders"));
+        assert_eq!(
+            s.checks,
+            ["cd 'services/orders' && cargo test", "cd 'services/orders' && cargo clippy"],
+            "the project's commands, run in its folder (not the workspace's)"
+        );
+        let system: Vec<&str> = s.agent.cfg.system.iter().map(|b| b.text.as_str()).collect();
+        assert!(system.iter().any(|t| t.starts_with("Instructions of the project `services/orders`:") && t.contains("thiserror")));
+        let ws = system.iter().find(|t| t.starts_with("Projects of this workspace")).expect("the workspace block");
+        assert!(ws.contains("`services/orders` (rust)") && ws.contains("← this conversation") && ws.contains("`apps/web`"), "{ws}");
+        assert!(s.agent.cfg.system.last().unwrap().cache, "the cache breakpoint stays on the last block");
+        close(&id);
+        // the whole workspace: the UI's commands, as before
+        let id = start(spec(None), &key("sk-test"), None).unwrap();
+        assert_eq!(get(&id).unwrap().checks, ["npm test"]);
+        close(&id);
+        // a folder outside the workspace is refused
+        assert!(start(spec(Some("../x")), &key("sk-test"), None).is_err());
+        assert!(start(spec(Some("nope")), &key("sk-test"), None).is_err());
     }
 
     #[test]
