@@ -6,12 +6,13 @@ import { bootApp } from "./harness";
  * fim; nenhum teste cobria este cartão. */
 
 let w: any;
-beforeEach(async () => { vi.useFakeTimers(); w = await bootApp(); });
-afterEach(() => { w.vizClose?.(); vi.useRealTimers(); });
+let VM: any; // eslint-disable-line @typescript-eslint/no-explicit-any — o módulo da cadeia do bootApp (U7p4)
+beforeEach(async () => { vi.useFakeTimers(); w = await bootApp(); VM = await import("../src/features/visualizer"); });
+afterEach(() => { VM?.vizClose?.(); vi.useRealTimers(); });
 
 describe("visualizer — cartão de erro", () => {
   it("diz o subconjunto suportado e acaba aí, sem restos da frase sobre o tracer", () => {
-    w.vizOpen("fn main() {\n    let t = std::thread::spawn(|| 1);\n}\n", "threads.rs");
+    VM.vizOpen("fn main() {\n    let t = std::thread::spawn(|| 1);\n}\n", "threads.rs");
     const card = document.querySelector("#viz .vz-card.bad")!;
     expect(card.textContent).toMatch(/Can't visualize this program/);
     const mute = card.querySelector(".vz-mute")!;

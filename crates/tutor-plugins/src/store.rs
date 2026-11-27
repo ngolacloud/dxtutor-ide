@@ -64,6 +64,10 @@ pub struct Installed {
 pub struct Outcome {
     pub entry: Entry,
     pub language: crate::manifest::LanguageInfo,
+    /// `language`, `framework` ou `tool`.
+    pub category: tutor_core::CourseCategory,
+    /// O framework/ferramenta ensinado (`None` num plugin de linguagem).
+    pub subject: Option<crate::manifest::SubjectInfo>,
     pub course_ids: Vec<String>,
     /// Versão anterior, quando a instalação substituiu um plugin com o mesmo id.
     pub replaced: Option<String>,
@@ -143,8 +147,10 @@ impl Store {
             .collect()
     }
 
-    /// Todos os cursos dos plugins instalados, com o manifesto do plugin de cada um. Um
-    /// plugin estragado (apagado à mão, editado) é ignorado em vez de partir os outros.
+    /// Todos os cursos dos plugins instalados, com o manifesto do plugin de cada um e os seus
+    /// ficheiros de apoio carregados. Um plugin estragado (apagado à mão, editado) é ignorado
+    /// em vez de partir os outros; um curso cujos ficheiros de apoio não carregam também (sem
+    /// eles seria avaliado contra outra coisa).
     pub fn courses(&self) -> Vec<(Manifest, Course)> {
         let mut out = Vec::new();
         for item in self.list() {
@@ -157,11 +163,13 @@ impl Store {
                 if !crate::manifest::safe_relative(rel) {
                     continue;
                 }
-                if let Some(c) = std::fs::read_to_string(dir.join(rel))
+                if let Some(mut c) = std::fs::read_to_string(dir.join(rel))
                     .ok()
                     .and_then(|raw| Course::parse(&raw, fmt).ok())
                 {
-                    out.push((m.clone(), c));
+                    if crate::support::load_support(&dir, &mut c).is_ok() {
+                        out.push((m.clone(), c));
+                    }
                 }
             }
         }
@@ -296,6 +304,8 @@ impl Store {
         Ok(Outcome {
             entry,
             language: manifest.language.clone(),
+            category: manifest.category,
+            subject: manifest.subject.clone(),
             course_ids: report.courses.iter().map(|c| c.id.clone()).collect(),
             replaced,
             warnings: report.warnings,

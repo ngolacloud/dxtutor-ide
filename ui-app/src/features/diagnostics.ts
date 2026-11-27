@@ -16,6 +16,7 @@ import { esc } from "../core";
 import { registerActions, callGlobal, args } from "../app/actions";
 import { translator } from "../app/i18n";
 import { DIAGNOSTICS_MESSAGES } from "./diagnostics.messages";
+import { services } from "../app/services";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(DIAGNOSTICS_MESSAGES);
 
@@ -27,7 +28,8 @@ const has = (p: string, re: RegExp) => !!FS[p] && re.test(FS[p].content);
    Com «YAML checks» ligado (funcionalidade do dxtutor no pane Extensions; era a extensão YAML a
    fingir — ADR-0006, R6b): tabs na indentação e Deployments k8s sem resources, lidos do conteúdo real dos ficheiros. Era a decoração do v6.ts (ADR-0004, U4g5). */
 const builtinOn = (key: string): boolean => (window as unknown as { builtinOn: (key: string) => boolean }).builtinOn(key);
-window.diagnostics = function () {
+type Diag = { p: string; line: number; sev: string; msg: string };
+const diagnosticsBase = function (): Diag[] {
   const d: { p: string; line: number; sev: string; msg: string }[] = [];
   if (!builtinOn('yaml')) return d; /* «YAML checks», do dxtutor (era a extensão YAML a fingir — ADR-0006, R6b) */
   Object.keys(FS).filter((p) => /\.ya?ml$/.test(p)).forEach((p) => {
@@ -37,19 +39,26 @@ window.diagnostics = function () {
   });
   return d;
 };
-function drawProblems() {
-  const d = window.diagnostics(), e = d.filter(x => x.sev === 'e').length, w = d.length - e;
+/* o painel real (desktop) instala por cima os problemas do workspace (era a reatribuição do window.diagnostics/
+   drawProblems — ADR-0004, U7p6); cada um recebe a versão de base, para quando não há pasta aberta */
+export interface ProblemsOverride { diagnostics(base: () => Diag[]): Diag[]; drawProblems(base: () => void): void }
+let problemsOverride: ProblemsOverride | null = null;
+export const setProblemsOverride = (o: ProblemsOverride | null): void => { problemsOverride = o; };
+export const diagnostics = (): Diag[] => problemsOverride ? problemsOverride.diagnostics(diagnosticsBase) : diagnosticsBase();
+export const drawProblems = (): void => { if (problemsOverride) problemsOverride.drawProblems(drawProblemsBase); else drawProblemsBase(); };
+function drawProblemsBase() {
+  const d = diagnostics(), e = d.filter(x => x.sev === 'e').length, w = d.length - e;
   $('#pc-problems')!.innerHTML = d.length ? d.map(x => `<div class="prob" data-action="diagnostics:open" data-on="${esc(JSON.stringify([x.p, x.line]))}"><span class="pi ${x.sev}">${x.sev === 'e' ? '✖' : '⚠'}</span><span><span>${esc(x.msg)}</span> <span class="ploc">${short(x.p)}:${x.line}</span></span></div>`).join('') : `<div class="sec-empty">${txt("noProblemsInThe")}</div>`;
   $('#pb-prob')!.textContent = String(d.length); const s = $('#st-prob')!; s.innerHTML = `✖ ${e} ⚠ ${w}`; s.style.color = e ? 'var(--red)' : w ? 'var(--yellow)' : 'var(--git-u)';
 }
 let NP = -1;
-function nextProblem() { const d = window.diagnostics(); if (!d.length) { toast('Sem problemas'); return; } NP = (NP + 1) % d.length; openPath(d[NP].p, d[NP].line); }
+function nextProblem() { const d = diagnostics(); if (!d.length) { toast('Sem problemas'); return; } NP = (NP + 1) % d.length; openPath(d[NP].p, d[NP].line); }
 
 /* ── publicação no window (residual do monólito + features lêem por nome livre) ── */
-window.has = has;
-window.drawProblems = drawProblems;
+/* o editor, o workspace e os geradores (avaliam antes) usam o registo; o painel e o auto-teste importam (U7p6) */
+services.diagnostics = { diagnostics, drawProblems, has };
 /* lido por import (ADR-0004, U7m): os comandos e os atalhos */
-export { nextProblem };
+export { nextProblem, has };
 
 /* acções do pane (ADR-0004, U5b): eram `onclick="…"` inline, que resolviam os nomes no window ao clicar; as acções chamam o mesmo, no acto. */
 registerActions({ "diagnostics:open": { click: (c) => void callGlobal("openPath", ...args<[string, number]>(c)) } });

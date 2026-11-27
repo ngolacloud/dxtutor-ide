@@ -81,7 +81,7 @@ export interface Worktree {
   current: boolean;
 }
 
-export type WorktreeOp = { op: "list" } | { op: "add"; path: string; branch: string; create: boolean } | { op: "remove"; path: string };
+export type WorktreeOp = { op: "list" } | { op: "add"; path: string; branch: string; create: boolean } | { op: "remove"; path: string } | { op: "add_pr"; number: number; path: string; remote: string };
 
 export type RebaseAction = "pick" | "reword" | "squash" | "fixup" | "drop";
 export const REBASE_ACTIONS: RebaseAction[] = ["pick", "reword", "squash", "fixup", "drop"];

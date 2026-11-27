@@ -592,7 +592,12 @@ fn huge_results_are_clipped_keeping_head_and_tail() {
     );
     let out = tutor_agent::agent::clip(big);
     assert!(out.starts_with("INICIO") && out.ends_with("FIM") && out.contains("truncado"));
-    assert!(out.chars().count() < tutor_agent::agent::MAX_RESULT_CHARS + 100);
+    assert!(out.chars().count() < tutor_agent::agent::MAX_RESULT_CHARS + 300);
+    // a nota diz como pedir menos de cada vez
+    assert!(
+        out.contains("offset/limit") && out.contains("tail"),
+        "{out:.0}"
+    );
 }
 
 #[test]

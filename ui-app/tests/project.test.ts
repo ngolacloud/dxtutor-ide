@@ -4,6 +4,8 @@ import { parseError, parseProject } from "../src/features/project/domain/types";
 import { makeProjectService } from "../src/features/project/application/project-service";
 import type { ProjectDeps } from "../src/features/project/application/ports";
 import { renderProject } from "../src/features/project/ui/view";
+import { issueDrift, parseViolations } from "../src/features/project/domain/drift";
+import { problemsScope } from "../src/app/problems-scope";
 
 /* Project (docs/v2/UI-AUDIT.md item 5, phase A5): the store's snapshot as the UI reads it,
    the board selectors, the use case (rules refused by the store may be overridden with a
@@ -214,6 +216,76 @@ describe("the Project markup", () => {
     await vi.waitFor(() => expect(s.state().detail?.usage).toEqual({ turns: 0, sessions: 0, models: [], tokensIn: 0, tokensOut: 0, costUsd: 0, unpriced: 0 }));
     host.innerHTML = renderProject(s.state(), NOW);
     expect(host.querySelector(".pj-usage")).toBeNull();
+  });
+
+  it("RF-A05: o drift das regras nos ficheiros da issue — puro", () => {
+    const vs = parseViolations([
+      { rule: "library:moment", message: "biblioteca proibida: moment", path: "./src/b.ts", line: 3 },
+      { rule: "layer:domain->ui", message: "domain não pode usar ui", path: "src/a.ts", line: 9 },
+      { rule: "naming:x", message: "nome", path: "src/other.ts", line: null },
+      { path: 3 },
+      "lixo",
+    ]);
+    expect(vs.map((v) => v.path)).toEqual(["src/b.ts", "src/a.ts", "src/other.ts"]);
+    expect(parseViolations(null)).toEqual([]);
+    const d = issueDrift([{ path: "src/b.ts" }, { path: "src/a.ts" }, { path: "src/a.ts" }], vs);
+    expect(d.files).toEqual(["src/a.ts", "src/b.ts"]);
+    expect(d.violations.map((v) => `${v.path}:${v.line}`)).toEqual(["src/a.ts:9", "src/b.ts:3"]);
+    expect(issueDrift([{ path: "src/c.ts" }], vs)).toEqual({ files: ["src/c.ts"], violations: [] });
+  });
+
+  it("RF-A05: o painel da issue lista as violações dos seus ficheiros e manda o Problems filtrar por eles", async () => {
+    const change = (path: string) => ({ session: "", call: "c", hunk: "c:1", path, start: 1, end: 2, added: 1, removed: 0, decidedBy: "human", decidedAt: NOW });
+    const issue = vi.fn(async () => ({ activity: [], changeSets: [change("src/a.ts"), change("src/b.ts")] }));
+    const conformance = vi.fn(async () => [
+      { rule: "layer:domain->ui", message: "domain não pode usar ui", path: "src/a.ts", line: 9 },
+      { rule: "library:moment", message: "biblioteca proibida: moment", path: "src/elsewhere.ts", line: 1 },
+    ]);
+    const shown: Array<[string, string[]]> = [];
+    const opened: Array<[string, number]> = [];
+    const { d } = deps({ gateway: { ...deps().d.gateway, issue, conformance }, showInProblems: (l, f) => shown.push([l, f]), openAt: (p, l) => opened.push([p, l]) });
+    const s = makeProjectService(d);
+    await s.open();
+    s.select("PRJ-1");
+    await vi.waitFor(() => expect(s.state().drift).not.toBeNull());
+    expect(s.state().drift).toEqual({ files: ["src/a.ts", "src/b.ts"], violations: [{ rule: "layer:domain->ui", message: "domain não pode usar ui", path: "src/a.ts", line: 9 }] });
+    const host = document.createElement("div");
+    host.innerHTML = renderProject(s.state(), NOW);
+    const row = host.querySelector('[data-action="pj-drift-open"]')!;
+    expect(row.getAttribute("data-on")).toBe("9:src/a.ts");
+    expect(row.textContent).toContain("src/a.ts:9 domain não pode usar ui");
+    expect(host.textContent).not.toContain("elsewhere");
+    expect(host.querySelector('[data-action="pj-drift-problems"]')).not.toBeNull();
+    s.driftInProblems();
+    expect(shown).toEqual([["PRJ-1", ["src/a.ts", "src/b.ts"]]]);
+    s.openViolation("src/a.ts", 9);
+    expect(opened).toEqual([["src/a.ts", 9]]);
+    // no violations in the issue's files: a check, no button
+    conformance.mockResolvedValueOnce([]);
+    s.select("PRJ-2");
+    await vi.waitFor(() => expect(s.state().drift).toEqual({ files: ["src/a.ts", "src/b.ts"], violations: [] }));
+    host.innerHTML = renderProject(s.state(), NOW);
+    expect(host.textContent).toContain("No violations in the 2 file(s) Co-Dev changed");
+    expect(host.querySelector('[data-action="pj-drift-problems"]')).toBeNull();
+    // no rules file (null) or an issue without change sets: no section
+    conformance.mockResolvedValueOnce(null as never);
+    s.select("PRJ-1");
+    await vi.waitFor(() => expect(conformance).toHaveBeenCalledTimes(3));
+    expect(s.state().drift).toBeNull();
+    issue.mockResolvedValueOnce({ activity: [], changeSets: [] });
+    s.select("PRJ-3");
+    await vi.waitFor(() => expect(s.state().detail).not.toBeNull());
+    expect(conformance).toHaveBeenCalledTimes(3);
+    expect(renderProject(s.state(), NOW)).not.toContain("Architect's rules in this issue's files");
+  });
+
+  it("RF-A05: o registo leva o pedido do Project a quem o ouve (o Problems)", () => {
+    const got: unknown[] = [];
+    const off = problemsScope.subscribe((sc) => got.push(sc));
+    problemsScope.show({ label: "PRJ-1", files: ["a.ts"] });
+    off();
+    problemsScope.show({ label: "PRJ-2", files: [] });
+    expect(got).toEqual([{ label: "PRJ-1", files: ["a.ts"] }]);
   });
 
   it("reports without history say what they need", async () => {

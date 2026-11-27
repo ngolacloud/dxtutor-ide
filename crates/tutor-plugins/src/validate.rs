@@ -36,6 +36,9 @@ impl Report {
 pub struct Existing {
     pub id: String,
     pub language: String,
+    /// `language`/`framework`/`tool` e o `subject` (vazio numa linguagem).
+    pub category: tutor_core::CourseCategory,
+    pub subject: String,
     pub step_ids: HashSet<String>,
     /// Embutido na app (pode ser SUBSTITUÍDO por um plugin com o mesmo id de curso) ou de
     /// outro plugin instalado (nunca).
@@ -62,6 +65,8 @@ impl Taken {
         let summary = |c: &Course, builtin: bool| Existing {
             id: c.id.clone(),
             language: c.language.clone(),
+            category: c.category,
+            subject: c.subject.clone(),
             step_ids: c
                 .units
                 .iter()
@@ -95,6 +100,15 @@ fn check_taken(courses: &[Course], taken: &Taken, r: &mut Report) {
                     "course `{}`: a built-in course with this id teaches `{}`, not `{}`",
                     c.id, ex.language, c.language
                 ));
+            } else if ex.category != c.category || ex.subject != c.subject {
+                r.errors.push(format!(
+                    "course `{}`: a built-in course with this id is a `{}` course{}, not `{}`{}",
+                    c.id,
+                    ex.category.as_str(),
+                    subject_note(&ex.subject),
+                    c.category.as_str(),
+                    subject_note(&c.subject)
+                ));
             } else {
                 r.notes.push(format!(
                     "course `{}` replaces the built-in course with the same id",
@@ -123,6 +137,14 @@ fn check_taken(courses: &[Course], taken: &Taken, r: &mut Report) {
                 ));
             }
         }
+    }
+}
+
+fn subject_note(subject: &str) -> String {
+    if subject.is_empty() {
+        String::new()
+    } else {
+        format!(" (`{subject}`)")
     }
 }
 
@@ -163,13 +185,19 @@ pub fn validate_dir(dir: &Path, host_version: &str, taken: &Taken) -> Report {
                 continue;
             }
         };
-        let course = match Course::parse(&raw, format) {
+        let mut course = match Course::parse(&raw, format) {
             Ok(c) => c,
             Err(e) => {
                 r.errors.push(format!("{rel}: {e}"));
                 continue;
             }
         };
+        // Os ficheiros de apoio (`[support]`): lidos como a instalação os lê, para o
+        // `dxt plugin test` avaliar com eles e um ficheiro em falta ser um erro aqui.
+        if let Err(errs) = crate::support::load_support(dir, &mut course) {
+            r.errors
+                .extend(errs.into_iter().map(|e| format!("{rel}: {e}")));
+        }
         check_course(
             rel,
             &course,
@@ -198,12 +226,43 @@ fn check_course(
     let e = |r: &mut Report, msg: String| r.errors.push(format!("{rel}: {msg}"));
     let w = |r: &mut Report, msg: String| r.warnings.push(format!("{rel}: {msg}"));
 
+    // `language` é a linguagem que avalia os passos, em TODAS as categorias.
     if c.language != m.language.id {
         e(
             r,
             format!(
                 "course language `{}` differs from the manifest's language.id `{}`",
                 c.language, m.language.id
+            ),
+        );
+    }
+    if c.category != m.category {
+        e(
+            r,
+            format!(
+                "course category `{}` differs from the manifest's category `{}`",
+                c.category.as_str(),
+                m.category.as_str()
+            ),
+        );
+    }
+    if c.category.has_subject() {
+        let want = m.subject.as_ref().map(|s| s.id.as_str()).unwrap_or("");
+        if c.subject != want {
+            e(
+                r,
+                format!(
+                    "course subject `{}` differs from the manifest's subject.id `{want}`",
+                    c.subject
+                ),
+            );
+        }
+    } else if !c.subject.is_empty() {
+        e(
+            r,
+            format!(
+                "course subject `{}` is only for framework and tool courses",
+                c.subject
             ),
         );
     }
@@ -224,6 +283,19 @@ fn check_course(
     }
     if c.units.is_empty() {
         e(r, "course has no units".into());
+    }
+    // `[build]`: as dependências de todos os passos e a cache preparada uma vez.
+    for msg in c.build.check() {
+        e(r, msg);
+    }
+    if c.build.prepare && tutor_core::CacheKind::of(&c.language).is_none() {
+        e(
+            r,
+            format!(
+                "build.prepare: a prepared course cache is only available for courses graded in rust (cargo), python (pip) or yaml (the practice cluster) (this one is graded in `{}`)",
+                c.language
+            ),
+        );
     }
     for u in &c.units {
         let at = format!("unit `{}`", u.id);
@@ -262,6 +334,12 @@ fn check_course(
             if s.points == 0 {
                 w(r, format!("{at}: awards 0 points"));
             }
+            if s.project.is_some() && s.kind != StepKind::Challenge {
+                e(
+                    r,
+                    format!("{at}: only challenge steps can have a `project`"),
+                );
+            }
             match s.kind {
                 StepKind::Concept => {
                     if s.body.trim().is_empty() {
@@ -287,6 +365,63 @@ fn check_course(
                             ),
                         );
                     }
+                }
+                StepKind::Challenge if s.project.is_some() => {
+                    let p = s.project.as_ref().expect("guarded");
+                    if s.instructions.trim().is_empty() {
+                        e(r, format!("{at}: challenge step needs `instructions`"));
+                    }
+                    for (field, v) in [("starter", &s.starter), ("tests", &s.tests)] {
+                        if !v.trim().is_empty() {
+                            e(
+                                r,
+                                format!(
+                                    "{at}: a project step keeps its files in `project`; remove `{field}`"
+                                ),
+                            );
+                        }
+                    }
+                    if s.gabarito.is_some() {
+                        e(
+                            r,
+                            format!(
+                                "{at}: a project step keeps its reference solution in `project.solution`; remove `gabarito`"
+                            ),
+                        );
+                    }
+                    for msg in p.check() {
+                        e(r, format!("{at}: {msg}"));
+                    }
+                    for msg in tutor_core::support::project_clashes(&c.support, p) {
+                        e(r, format!("{at}: {msg}"));
+                    }
+                    // Um curso avaliado por verificações (ferramentas): o `checks.toml` oculto
+                    // lê-se, só corre comandos da lista permitida e só nomeia ficheiros do passo.
+                    if tutor_core::toolcheck::graded_by_checks(&c.language) {
+                        for msg in tutor_core::toolcheck::check_step(p) {
+                            e(r, format!("{at}: {msg}"));
+                        }
+                        // Um passo ao vivo corre no cluster de prática, que só existe num curso
+                        // preparado (o kind, a imagem do nó e as imagens que os passos usam).
+                        if tutor_core::livecheck::step_is_live(p) && !c.build.prepare {
+                            e(
+                                r,
+                                format!(
+                                    "{at}: live checks run in the practice cluster: the course needs `[build] prepare = true` with the images its live steps use"
+                                ),
+                            );
+                        }
+                    }
+                }
+                StepKind::Challenge if tutor_core::toolcheck::graded_by_checks(&c.language) => {
+                    e(
+                        r,
+                        format!(
+                            "{at}: a course graded by checks (`{}`) uses project steps: put the files in `project` and the checks in `project.tests.\"{}\"`",
+                            c.language,
+                            tutor_core::toolcheck::CHECKS_FILE
+                        ),
+                    );
                 }
                 StepKind::Challenge => {
                     for (field, v) in [

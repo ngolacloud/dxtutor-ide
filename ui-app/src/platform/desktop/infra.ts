@@ -17,6 +17,9 @@ import type { EnvState, ObsTarget } from "../../features/infra/domain/types";
 import type { DesktopContext } from "./context";
 import { translator } from "../../app/i18n";
 import { DESKTOP_MESSAGES } from "./desktop-messages";
+import { echo, echoCmd, newInput } from "../../features/terminal";
+import { k8s, setK8s, devc, setDevc, pDc, RTN, KCTX, needRt, infraDraw, k8sDocs, saveEnv, hydrateEnvs, devcontainerJson } from "../../features/infra";
+import { stackState, setStackState, drawStack } from "../../features/stack";
 
 const tdk = translator(DESKTOP_MESSAGES);
 /** os erros das amostras de observabilidade na língua da interface (o domínio recebe-os por parâmetro) */
@@ -53,7 +56,7 @@ async function readK8s(): Promise<void> {
   const [dep, pods, ing] = await Promise.all([get("deploy"), get("pods"), get("ingress")]);
   if (dep.code !== 0) return;
   const st = parseClusterState(dep.stdout, pods.code === 0 ? pods.stdout : "", ing.code === 0 ? ing.stdout : "", tdk("lastEnd"));
-  K8S = st.deps.length ? { docs: k8sDocs(), deps: st.deps, ver: st.ver, at: st.at, ingress: st.ingress } : null;
+  setK8s(st.deps.length ? { docs: k8sDocs(), deps: st.deps, ver: st.ver, at: st.at, ingress: st.ingress } : null);
 }
 /* ───── ajudas da observabilidade (R5c2) ───── */
 const fail = (e: unknown): ExecResult => ({ code: -1, stdout: "", stderr: String(e) });
@@ -74,8 +77,9 @@ async function selectorOf(t: Extract<ObsTarget, { via: "kubectl" }>): Promise<st
   try { const m = JSON.parse(r.stdout || "{}") as Record<string, string>; const kv = Object.entries(m).map(([a, b]) => `${a}=${b}`).join(","); if (r.code === 0 && kv) sel = kv; } catch { /* fica app=<n> */ }
   return (selectors[k] = sel);
 }
-/** As anotações da versão e da hora do deploy (lidas de volta por `parseClusterState`). */
-const annotate = (kc: string, ns: string, ver: string) => `${kc} -n ${ns} annotate deploy --all ${ANN_VER}=${ver} ${ANN_AT}=$(($(date +%s)*1000)) --overwrite`;
+/** As anotações da versão e da hora do deploy (lidas de volta por `parseClusterState`).
+   Só os Deployments deste deploy (`--all` marcaria também os outros do namespace com esta versão). */
+const annotate = (kc: string, ns: string, ver: string, names: string[]) => names.length ? `${kc} -n ${ns} annotate ${names.map(n => "deploy/" + n).join(" ")} ${ANN_VER}=${ver} ${ANN_AT}=$(($(date +%s)*1000)) --overwrite` : "true";
 /* ───── o pane Containers (ADR-0006, R5a): os contentores e as imagens reais do runtime ligado ─────
    `docker`/`podman ps -a` e `images` em JSON (o docker escreve um objecto por linha; o podman um
    array), com o socket do pane Infra. Sem runtime ligado, di-lo. */
@@ -109,7 +113,7 @@ async function readStack(): Promise<void> {
   let rows: any[] = [];
   const s = r.stdout.trim();
   try { rows = s.startsWith("[") ? JSON.parse(s) : s.split("\n").filter(Boolean).map(l => JSON.parse(l)); } catch { /* formato inesperado */ }
-  STACK = rows.length ? rows.map(x => { const pub = (x.Publishers || []).find((p: any) => p.PublishedPort); return { name: x.Service || x.Name, src: x.Image || "", url: pub ? `http://localhost:${pub.PublishedPort}` : "internal", state: x.Health || x.State || "" }; }) : null;
+  setStackState(rows.length ? rows.map(x => { const pub = (x.Publishers || []).find((p: any) => p.PublishedPort); return { name: x.Service || x.Name, src: x.Image || "", url: pub ? `http://localhost:${pub.PublishedPort}` : "internal", state: x.Health || x.State || "" }; }) : null);
   drawStack(); void drawContainers();
 }
 /* as portas desktop do stack e da infra (ADR-0004, U4h4): o features/stack.ts consulta
@@ -122,12 +126,12 @@ dxRun(term, _dxRun) {
   if (!R.root || !FS[ROOT + "docker-compose.yml"] && !FS[ROOT + "compose.yaml"]) return _dxRun(term);
   if (!needRt()) return { ok: false };
   flushSave();
-  void idle().then(async () => { const code = await runInTerm(`${compose()} up --build -d`, { env: envFor() }); if (code === 0) { await readStack(); setPanelTab("services"); toast(`${STACK ? STACK.length : 0} services up`); } });
+  void idle().then(async () => { const code = await runInTerm(`${compose()} up --build -d`, { env: envFor() }); if (code === 0) { await readStack(); setPanelTab("services"); toast(`${stackState() ? stackState()!.length : 0} services up`); } });
   return { ok: true, sum: "starting" };
 },
 dxStop(term, _dxStop) {
   if (!R.root) return _dxStop(term);
-  void runInTerm(`${compose()} down`, { env: envFor() }).then(() => { STACK = null; drawStack(); });
+  void runInTerm(`${compose()} down`, { env: envFor() }).then(() => { setStackState(null); drawStack(); });
 },
 drawStack(_drawStack) {
   _drawStack();
@@ -137,7 +141,7 @@ drawStack(_drawStack) {
 const infraDesktop: InfraDesktop = {
 async rtConnect() {
   hydrateEnvs();
-  if (ENVS.rtOn) { ENVS.rtOn = false; saveEnv(); STACK = null; DEVC = null; drawStack(); say("container runtime disconnected"); infraDraw(); void drawContainers(); return; }
+  if (ENVS.rtOn) { ENVS.rtOn = false; saveEnv(); setStackState(null); setDevc(null); drawStack(); say("container runtime disconnected"); infraDraw(); void drawContainers(); return; }
   R.sock = await fsx.expandPath(ENVS.sock[ENVS.rt]);
   const env = { DOCKER_HOST: "unix://" + R.sock, CONTAINER_HOST: "unix://" + R.sock };
   const r = await sh(rtBin(), ["info", "--format", ENVS.rt === "podman" ? "{{.Version.Version}}" : "{{.ServerVersion}}"], { env, timeout: 15000 }).catch((e): ExecResult => ({ code: -1, stdout: "", stderr: String(e) }));
@@ -147,7 +151,7 @@ async rtConnect() {
 },
 async k8sConnect() {
   hydrateEnvs();
-  if (ENVS.k8sOn) { ENVS.k8sOn = false; saveEnv(); K8S = null; say("cluster disconnected"); infraDraw(); return; }
+  if (ENVS.k8sOn) { ENVS.k8sOn = false; saveEnv(); setK8s(null); say("cluster disconnected"); infraDraw(); return; }
   const kube: string = await fsx.expandPath(ENVS.kube);
   R.kube = kube;
   const env = { KUBECONFIG: kube };
@@ -173,7 +177,7 @@ dxDeploy(_dxDeploy) {
   const proj = R.name!.toLowerCase().replace(/[^a-z0-9_-]/g, ""), ctx = ENVS.ctx, ns = ENVS.ns, kc = `kubectl --context ${ctx}`, deps = docs.filter(d => d.k === "Deployment");
   const load = (img: string) => /^kind-/.test(ctx) ? `kind load docker-image ${img} --name ${ctx.slice(5)}` : /^minikube/.test(ctx) ? `minikube image load ${img}` : /^k3d-/.test(ctx) ? `k3d image import ${img} -c ${ctx.slice(4)}` : `echo "push ${img} to a registry the cluster can pull from"`;
   const own = deps.filter(d => /registry\.example\.com/.test(d.img || ""));
-  const script = ["set -e", `${compose()} build`, ...own.map(d => `${rtBin()} tag ${proj}-${d.n} ${d.img} && ${load(d.img)}`), `${kc} create namespace ${ns} --dry-run=client -o yaml | ${kc} apply -f -`, `${kc} -n ${ns} apply -f deploy/k8s`, annotate(kc, ns, "$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"), ...deps.map(d => `${kc} -n ${ns} rollout status deploy/${d.n} --timeout=180s`)].join("\n");
+  const script = ["set -e", `${compose()} build`, ...own.map(d => `${rtBin()} tag ${proj}-${d.n} ${d.img} && ${load(d.img as string)}`), `${kc} create namespace ${ns} --dry-run=client -o yaml | ${kc} apply -f -`, `${kc} -n ${ns} apply -f deploy/k8s`, annotate(kc, ns, "$(git rev-parse --short HEAD 2>/dev/null || echo unknown)", deps.map(d => d.n as string)), ...deps.map(d => `${kc} -n ${ns} rollout status deploy/${d.n} --timeout=180s`)].join("\n");
   void idle().then(async () => { const code = await runInTerm(script, { env: envFor() }); if (code === 0) { await readK8s(); toast("Deployed to " + ctx); goPane("infra"); } infraDraw(); });
   return { ok: true, sum: "deploying" };
 },
@@ -181,8 +185,8 @@ dxDeploy(_dxDeploy) {
 dcAttach(_dcAttach) {
   if (!R.root) return _dcAttach();
   if (!needRt()) return;
-  const root = R.root, pDc = (window as unknown as { P_DC: string }).P_DC;
-  if (!FS[pDc]) writeFile(pDc, (window as unknown as { devcontainerJson: () => string }).devcontainerJson());
+  const root = R.root, pdcPath = pDc();
+  if (!FS[pdcPath]) writeFile(pdcPath, devcontainerJson());
   flushSave();
   setPanelTab("terminal", true); echoCmd(tdk("dcUpCmd"));
   void idle().then(async () => {
@@ -196,7 +200,7 @@ dcAttach(_dcAttach) {
          runtime escolhido acima: diz-se qual, em vez de o trocar às escondidas */
       const engine = await devcontainerClient().engine().catch(() => "");
       const dv = { name: st.name || "dev container", image: up.image, engine };
-      DEVC = dv;
+      setDevc(dv);
       echo(`<span class="ok">${tdk("dcRunning", { name: escH(dv.name), engine: escH(engine || "?"), image: escH(up.image), built: up.built ? tdk("dcBuilt") : "" })}</span>`); newInput(true);
       say(`dev container ${dv.name} up`); toast("Projecto ligado ao dev container");
     } catch (e) { echo(`<span class="er">${escH(String(e))}</span>`); newInput(true); toast("O dev container não arrancou"); }
@@ -206,18 +210,18 @@ dcAttach(_dcAttach) {
 dcDetach(_dcDetach) {
   if (!R.root) return _dcDetach();
   const root = R.root;
-  void devcontainerClient().sessionDown(root).then(() => { DEVC = null; say("dev container parado"); toast("Dev container parado"); infraDraw(); }, (e) => { toast(tdk("dcStopFail", { error: String(e) })); });
+  void devcontainerClient().sessionDown(root).then(() => { setDevc(null); say("dev container parado"); toast("Dev container parado"); infraDraw(); }, (e) => { toast(tdk("dcStopFail", { error: String(e) })); });
 },
 /* ───── o scale e o delete do Kubernetes com o kubectl real (ADR-0006, R5b) ───── */
 k8sScale(n, d, _k8sScale) {
-  if (!ENVS.k8sOn || !K8S) return _k8sScale(n, d);
-  const x = (K8S as { deps: Array<{ n: string; rep: number }> }).deps.find(y => y.n === n); if (!x) return;
+  if (!ENVS.k8sOn || !k8s()) return _k8sScale(n, d);
+  const x = (k8s() as { deps: Array<{ n: string; rep: number }> }).deps.find(y => y.n === n); if (!x) return;
   const rep = Math.max(0, x.rep + d);
   void runInTerm(`kubectl --context ${ENVS.ctx} -n ${ENVS.ns} scale deploy/${n} --replicas=${rep}`, { env: envFor() }).then(async () => { await readK8s(); infraDraw(); });
 },
 k8sDown(_k8sDown) {
   if (!ENVS.k8sOn || !R.root) return _k8sDown();
-  void runInTerm(`kubectl --context ${ENVS.ctx} -n ${ENVS.ns} delete -f deploy/k8s`, { env: envFor() }).then(async () => { K8S = null; await readK8s(); infraDraw(); });
+  void runInTerm(`kubectl --context ${ENVS.ctx} -n ${ENVS.ns} delete -f deploy/k8s`, { env: envFor() }).then(async () => { setK8s(null); await readK8s(); infraDraw(); });
 },
 /* ───── staging e production no cluster real (ADR-0006, R5c1) ─────
    O manifesto (com os segredos do ambiente) entra pela entrada padrão do `kubectl apply -f -`:
@@ -231,7 +235,9 @@ cluster: {
     const nsY = await run(["create", "namespace", t.ns, "--dry-run=client", "-o", "yaml"]);
     let ok = show(nsY) && show(await run(["apply", "-f", "-"], nsY.stdout));
     if (ok) ok = show(await run(["-n", t.ns, "apply", "-f", "-"], manifest));
-    if (ok && ver) ok = show(await run(["-n", t.ns, "annotate", "deploy", "--all", `${ANN_VER}=${ver}`, `${ANN_AT}=${Date.now()}`, "--overwrite"]));
+    /* só os Deployments deste manifesto (`--all` marcaria os outros do namespace com esta versão) */
+    const mine = deploymentsIn(manifest).map(n => "deploy/" + n);
+    if (ok && ver && mine.length) ok = show(await run(["-n", t.ns, "annotate", ...mine, `${ANN_VER}=${ver}`, `${ANN_AT}=${Date.now()}`, "--overwrite"]));
     if (ok) {
       for (const n of deploymentsIn(manifest)) if (!show(await run(["-n", t.ns, "rollout", "status", `deploy/${n}`, "--timeout=180s"]))) { ok = false; break; }
     }
@@ -269,8 +275,8 @@ obs: {
 };
 /* ao abrir uma pasta, um dev container já a correr para ela volta a aparecer ligado */
 document.addEventListener("dx:workspace", () => {
-  const root = R.root; if (!root) { DEVC = null; return; }
-  void devcontainerClient().sessionStatus(root).then((st) => { DEVC = st.running ? { name: st.name, image: (DEVC as { image?: string } | null)?.image || "" } : null; infraDraw(); }, () => undefined);
+  const root = R.root; if (!root) { setDevc(null); return; }
+  void devcontainerClient().sessionStatus(root).then((st) => { setDevc(st.running ? { name: st.name, image: (devc() as { image?: string } | null)?.image || "" } : null); infraDraw(); }, () => undefined);
 });
 desktopPorts.stack = stackDesktop;
 desktopPorts.infra = infraDesktop;

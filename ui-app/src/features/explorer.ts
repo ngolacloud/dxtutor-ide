@@ -30,6 +30,8 @@ import { SECOPEN, norm } from "./workspace";
 import { workspaceStore } from "../app/store";
 import { TREE } from "../boot";
 import { services } from "../app/services";
+import { drawTimeline } from "./scm";
+import { languageForName, serverOf } from "./lsp/domain/registry";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(EXPLORER_MESSAGES);
 const txd = translator(EXPLORER_DESKTOP_MESSAGES);
@@ -69,7 +71,6 @@ function symbols(p:string){const f=FS[p];if(!f)return[];const out:{k:string;n:st
    servidor de linguagem do editor sim (Java, Kotlin, C#, C++, Swift, SQL…) vêm do `documentSymbol`
    dele (`desktopPorts.outline`, registada pela feature `lsp`), com a mesma cache. Sem pasta
    (browser), ou sem servidor (Markdown…), fica a extracção local `symbols()`. */
-const OUTLINE_LANG: Record<string, string> = { rs: "rust", go: "go", py: "python", ts: "typescript", tsx: "tsx", js: "javascript", jsx: "jsx", mjs: "javascript", cjs: "javascript" };
 const KIND_LABEL: Record<string, string> = { function: "fn", method: "method", struct: "struct", enum: "enum", trait: "trait", other: "sym" };
 /** Um símbolo do Outline: tipo, nome, linha (1-based) e profundidade (para indentar; 0 = topo). */
 export type OutSym = { k: string; n: string; line: number; d?: number };
@@ -77,11 +78,12 @@ const OUTLINE = new Map<string, { content: string; syms: OutSym[] }>();
 let outlineTimer: ReturnType<typeof setTimeout> | undefined, outlineBusy = false, outlineRetry = false;
 const dxRoot = (): string | null => (window as unknown as { DXR?: { root?: string | null } }).DXR?.root ?? null;
 
-/** O ficheiro `p` tem outline do backend? (pasta aberta + língua coberta) */
+/** O ficheiro `p` tem outline do backend? (pasta aberta + língua coberta: a do registo de linguagens
+ *  com `outline` e um servidor que o `file_outline` pode arrancar para um pedido — `oneShot`) */
 function outlineLang(p: string): string | null {
   if (!dxRoot() || !p.startsWith(ROOT)) return null;
-  const e = (window as unknown as { extOf: (p: string) => string }).extOf(p);
-  return OUTLINE_LANG[e] ?? null;
+  const lang = languageForName(p);
+  return lang?.outline && serverOf(lang)?.oneShot ? lang.outline : null;
 }
 /** O ficheiro `p` tem outline pelo servidor de linguagem do editor? (fora do `file_outline`) */
 function lspOutline(p: string): boolean {

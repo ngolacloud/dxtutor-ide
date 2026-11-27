@@ -25,6 +25,13 @@ export const gitClient = (inv: Invoker = invoke) => ({
   log: (root: string, max?: number): Promise<GitCommit[]> => inv<GitCommit[]>("git_log", { root, max: max ?? null }),
   show: (root: string, hash: string): Promise<string> => inv<string>("git_show", { root, hash }),
   changes: (root: string): Promise<GitChange[]> => inv<GitChange[]>("git_changes", { root }),
+  /** o comando exacto e a pasta de um clone, antes da aprovação (r23 F6) */
+  clonePlan: (url: string, parentDir: string): Promise<ClonePlan> => inv<ClonePlan>("git_clone_plan", { url, parentDir }),
+  /** clona para `parentDir/<nome>` (como o plano mostra) e devolve a pasta nova */
+  clone: (url: string, parentDir: string): Promise<string> => inv<string>("git_clone", { url, parentDir }),
 });
+
+/** `tutor_eval::git::ClonePlan` (r23 F6). */
+export interface ClonePlan { url: string; parent: string; name: string; target: string; exists: boolean; command: string }
 
 export type GitClient = ReturnType<typeof gitClient>;

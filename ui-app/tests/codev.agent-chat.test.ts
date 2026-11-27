@@ -7,7 +7,8 @@ import { makeAgentChat } from "../src/features/codev/application/agent-chat";
 import type { AgentChatDeps, AgentGateway } from "../src/features/codev/application/ports";
 import type { AgentEvent, ApprovalRequest, HistoryItem, SessionSummary } from "../src/features/codev/domain/agent-events";
 import { isAgentProvider, isNoToolsError, parseAgentEvent, parseApproval, describeCall, summarizeResult, describeSession, parseSessions, parseHistory, ago, parseExtensions } from "../src/features/codev/domain/agent-events";
-import { costUSD, formatUsage } from "../src/features/codev/domain/pricing";
+import { cacheHitPercent, costUSD, formatUsage } from "../src/features/codev/domain/pricing";
+import { architectureSession, isArchitectureRequest } from "../src/features/codev/domain/session-kind";
 
 type H = Parameters<AgentGateway["subscribe"]>[0];
 
@@ -118,6 +119,12 @@ test("abre a sessão com os comandos detectados e o modo, faz streaming do texto
     reviewEdits: false,
     // the Project issue, when the conversation starts from one (A5)
     issue: null,
+    // toolset 9: an architecture session only when the deps say so (Studio open / the request)
+    architecture: false,
+    // toolset 11: a backlog session only for /backlog and /project
+    backlog: false,
+    // H2: the project of the workspace (none here)
+    project: null,
   });
   expect(t.gateway.send).toHaveBeenCalledWith("S1", "olá", { kind: "chat" });
   expect(t.calls).toContain("reasoning vou ver");
@@ -243,6 +250,10 @@ test("rótulos, resumos e custo", () => {
   expect(describeCall("edit", { path: "src/a.rs" })).toBe("src/a.rs");
   expect(describeCall("grep", { pattern: "TODO", glob: "*.ts" })).toBe("/TODO/ *.ts");
   expect(describeCall("bash", {}, "cargo test")).toBe("$ cargo test");
+  // H3/H4: an `ide` call names its action and what it is about
+  expect(describeCall("ide", { action: "project.issue", args: { key: "SHOP-3" } })).toBe("project.issue SHOP-3");
+  expect(describeCall("ide", { action: "runbook.check", args: { path: "runbooks/checkout.md", step: 2 } })).toBe("runbook.check runbooks/checkout.md 2");
+  expect(describeCall("ide", { action: "incident.open", args: { title: "checkout 500s", severity: "SEV-2" } })).toBe("incident.open checkout 500s SEV-2");
   expect(summarizeResult("\nlinha 1\nlinha 2\n")).toBe("linha 1 (+1 linhas)");
   // Opus 5.5: $4/M entrada, $20/M saída, $0.20/M leitura de cache, escrita 1.25×
   expect(costUSD("claude-opus-5-5", u(1_000_000, 0))).toBeCloseTo(4);
@@ -495,7 +506,69 @@ test("o uso de cada pedido do agente segue para o contador e o ctx (entrada com 
     t.emit(done());
   });
   await t.chat.send("olá");
-  expect(onUsage.mock.calls).toEqual([[1230, 50], [400, 20]]); // por pedido, não o acumulado da volta
+  // por pedido, não o acumulado da volta; com a cache lida/escrita e o custo do pedido
+  expect(onUsage.mock.calls.map((c) => c.slice(0, 2))).toEqual([[1230, 50], [400, 20]]);
+  expect(onUsage.mock.calls[0][2]).toEqual({ cacheRead: 200, cacheWrite: 30, cost: costUSD("claude-opus-5-5", u(1000, 50, 200, 30)) });
+  expect(onUsage.mock.calls[1][2]).toEqual({ cacheRead: 0, cacheWrite: 0, cost: costUSD("claude-opus-5-5", u(400, 20)) });
+});
+
+test("H1: /comandos mostra a sandbox do projecto e deixa confiá-la", async () => {
+  const t = setup("sandbox");
+  (t.gateway.extensions as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+    commands: [], skills: [], hooks: { present: false, trusted: false }, mcp: { present: false, trusted: false },
+    sandbox: { present: true, trusted: false }, mcpServers: [],
+  });
+  await t.chat.commandsMenu();
+  expect(t.calls.some((c) => c.startsWith("text ") && c.includes("**Sandbox** (`.dxtutor/sandbox.json`)"))).toBe(true);
+  expect(t.gateway.trust).toHaveBeenCalledWith("/proj", "sandbox");
+});
+
+test("conjunto 11: /backlog abre uma sessão de backlog; o /project continua nela; a conversa normal não a tem", async () => {
+  const t = setup();
+  t.setScript(() => t.emit(done()));
+  await t.chat.backlog("/backlog uma loja com encomendas");
+  expect(t.gateway.start).toHaveBeenLastCalledWith(expect.objectContaining({ backlog: true, issue: null }));
+  expect(t.gateway.send).toHaveBeenLastCalledWith("S1", "/backlog uma loja com encomendas", { kind: "chat" });
+  // /project goes on in the open backlog session (the model already read the draft)
+  await t.chat.backlog("/project scrum, sprints de 2 semanas");
+  expect(t.gateway.start).toHaveBeenCalledTimes(1);
+  expect(t.gateway.send).toHaveBeenLastCalledWith("S1", "/project scrum, sprints de 2 semanas", { kind: "chat" });
+  // another /backlog is a new backlog session
+  await t.chat.backlog("/backlog outra vez");
+  expect(t.gateway.close).toHaveBeenCalledWith("S1");
+  expect(t.gateway.start).toHaveBeenCalledTimes(2);
+  expect(t.gateway.start).toHaveBeenLastCalledWith(expect.objectContaining({ backlog: true }));
+  // a new conversation is a plain one again; a /project there opens a backlog session
+  t.chat.reset();
+  await t.chat.send("olá");
+  expect(t.gateway.start).toHaveBeenLastCalledWith(expect.objectContaining({ backlog: false }));
+  await t.chat.backlog("/project kanban");
+  expect(t.gateway.start).toHaveBeenCalledTimes(4);
+  expect(t.gateway.start).toHaveBeenLastCalledWith(expect.objectContaining({ backlog: true }));
+});
+
+test("conjunto 9: a sessão nova é de arquitectura conforme as deps, com o primeiro pedido", async () => {
+  const t = setup();
+  const architecture = vi.fn((q: string) => q.includes("arquitectura"));
+  (t.deps as { architecture?: (q: string) => boolean }).architecture = architecture;
+  t.setScript(() => t.emit(done()));
+  await t.chat.send("desenha a arquitectura do serviço");
+  expect(architecture).toHaveBeenCalledWith("desenha a arquitectura do serviço");
+  expect(t.gateway.start).toHaveBeenLastCalledWith(expect.objectContaining({ architecture: true }));
+  // the next message reuses the session: the kind is decided once
+  await t.chat.send("e agora corrige o bug");
+  expect(t.gateway.start).toHaveBeenCalledTimes(1);
+});
+
+test("custo: as escritas de cache de 1 hora custam 2× a entrada; a percentagem da cache", () => {
+  // Opus 5.5: 4k × $4 × 1.25 + 6k × $4 × 2 = $0.02 + $0.048
+  expect(costUSD("claude-opus-5-5", { ...u(0, 0, 0, 10_000), cache_creation_1h_input_tokens: 6_000 })).toBeCloseTo(0.068);
+  expect(cacheHitPercent(10_000, 8_700)).toBe(87);
+  expect(cacheHitPercent(0, 0)).toBeNull();
+  expect(isArchitectureRequest("Desenha a arquitetura do sistema")).toBe(true);
+  expect(isArchitectureRequest("draw an architecture diagram")).toBe(true);
+  expect(isArchitectureRequest("corrige o teste do lexer")).toBe(false);
+  expect(architectureSession(true, "corrige o teste")).toBe(true);
 });
 
 test("live hunks: opens with reviewEdits, saves before sending, and shows the review bar and validation", async () => {
@@ -563,4 +636,141 @@ test("RF-P03: numa sessão PairCode, quem não conduz não aprova — o pedido �
   await new Promise((r) => setTimeout(r, 0));
   expect(t.gateway.approve).toHaveBeenCalledWith("S1", "c1", false, expect.stringContaining("só quem conduz"));
   expect(t.calls.some((c) => c.startsWith("note pair Só quem conduz"))).toBe(true);
+});
+
+test("RF-S01/S08 (F3.2/F3.3): «Writing path a–b» uma vez por chamada, contra a ordem do plano aprovado", async () => {
+  const t = setup();
+  const lines: Array<{ path: string; start: number; end: number; place: unknown }> = [];
+  const opened: string[] = [];
+  t.deps.hunks = { event: () => undefined, decideAll: () => undefined, open: (p: string) => opened.push(p), onSettled: () => undefined };
+  const opens: Array<() => void> = [];
+  (t.deps.presenter as unknown as Record<string, unknown>).hunkWriting = (_c: unknown, info: (typeof lines)[number], open: () => void) => {
+    lines.push(info);
+    opens.push(open);
+  };
+  const start = (call: string, path: string, s: number, e: number, n = 1): AgentEvent =>
+    ({ kind: "hunk_start", hunk: `${call}:${n}`, call, path, op: "replace", range: { start: s, end: e }, base: null, old: "" }) as AgentEvent;
+  t.setScript(() => {
+    t.emit({ kind: "tool_start", id: "p", name: "exit_plan", input: { plan: "x", steps: [{ text: "lexer", files: [{ path: "src/lexer.rs" }] }, { text: "parser", files: [{ path: "./src/parser.rs" }] }] } });
+    // ahead: parser.rs before lexer.rs
+    t.emit(start("c1", "src/parser.rs", 40, 52));
+    t.emit(start("c1", "src/parser.rs", 90, 91, 2)); // same call: no second line
+    t.emit(start("c2", "src/lexer.rs", 3, 2)); // an insertion
+    t.emit(start("c3", "README.md", 1, 1));
+    t.emit(done());
+  });
+  await t.chat.send("implementa o plano");
+  expect(lines.map((l) => [l.path, l.start, l.end, l.place])).toEqual([
+    ["src/parser.rs", 40, 52, { kind: "ahead", step: 2, pending: ["src/lexer.rs"] }],
+    ["src/lexer.rs", 3, 2, { kind: "in-order", step: 1 }],
+    ["README.md", 1, 1, { kind: "outside" }],
+  ]);
+  opens[0]();
+  expect(opened).toEqual(["src/parser.rs"]);
+  // without a plan the line is still there, with no place
+  t.chat.reset();
+  t.setScript(() => {
+    t.emit(start("d1", "src/a.rs", 5, 6));
+    t.emit(done());
+  });
+  await t.chat.send("muda isto");
+  expect(lines.at(-1)!.place).toEqual({ kind: "none" });
+});
+
+test("RF-G08: os blocos contra as linhas que o plano deu — aviso na linha «Writing» e na barra de revisão", async () => {
+  const t = setup();
+  const lines: Array<{ path: string; lines?: unknown }> = [];
+  const reviews: Array<{ path: string; count: number; outside?: { n: number; planned: string } }> = [];
+  t.deps.hunks = { event: () => undefined, decideAll: () => undefined, open: () => undefined, onSettled: () => undefined };
+  const pres = t.deps.presenter as unknown as Record<string, unknown>;
+  pres.hunkWriting = (_c: unknown, info: (typeof lines)[number]) => lines.push(info);
+  pres.hunkReview = (_r: unknown, info: (typeof reviews)[number]) => {
+    reviews.push(info);
+    return { settle: () => undefined };
+  };
+  const start = (call: string, path: string, s: number, e: number, n: number): AgentEvent =>
+    ({ kind: "hunk_start", hunk: `${call}:${n}`, call, path, op: "replace", range: { start: s, end: e }, base: null, old: "" }) as AgentEvent;
+  t.setScript(() => {
+    t.emit({ kind: "tool_start", id: "p", name: "exit_plan", input: { plan: "x", steps: [{ text: "parse", files: [{ path: "src/parser.rs", start: 40, end: 52 }, { path: "README.md" }] }] } });
+    t.emit(start("c1", "src/parser.rs", 41, 45, 1)); // in
+    t.emit(start("c1", "src/parser.rs", 120, 125, 2)); // out
+    t.emit(start("c1", "src/parser.rs", 300, 300, 3)); // out
+    t.emit({ kind: "hunk_review", call: "c1", hunks: ["c1:1", "c1:2", "c1:3"], reason: "" });
+    t.emit(start("c2", "src/parser.rs", 200, 210, 1)); // out, first of its call
+    t.emit({ kind: "hunk_review", call: "c2", hunks: ["c2:1"], reason: "" });
+    t.emit(start("c3", "README.md", 1, 2, 1)); // the plan gave no lines for it
+    t.emit({ kind: "hunk_review", call: "c3", hunks: ["c3:1"], reason: "" });
+    t.emit(done());
+  });
+  await t.chat.send("implementa");
+  expect(lines.map((l) => l.lines)).toEqual([{ kind: "in" }, { kind: "out", planned: [[40, 52]] }, { kind: "unknown" }]);
+  expect(reviews.map((r) => r.outside)).toEqual([{ n: 2, planned: "40–52" }, { n: 1, planned: "40–52" }, undefined]);
+});
+
+
+test("RF-A03/A04: a revisão que viola as regras chega à barra com as violações e o override, que a desbloqueia", async () => {
+  const t = setup();
+  const overridden: Record<string, (adr: string) => void> = {};
+  const overrides: string[] = [];
+  t.deps.hunks = {
+    event: () => undefined, decideAll: () => undefined, open: () => undefined, onSettled: () => undefined,
+    override: async (call: string) => { overrides.push(call); overridden[call]?.("ADR-0007"); return true; },
+    onOverridden: (call: string, f: (adr: string) => void) => { overridden[call] = f; },
+  };
+  const seen: Array<{ violations?: string[]; on: { override?(): void }; unblocked: string[] }> = [];
+  (t.deps.presenter as unknown as Record<string, unknown>).hunkReview = (_r: unknown, info: { violations?: string[] }, on: { override?(): void }) => {
+    const entry = { violations: info.violations, on, unblocked: [] as string[] };
+    seen.push(entry);
+    return { settle: () => undefined, unblock: (adr: string) => entry.unblocked.push(adr) };
+  };
+  t.setScript(() => {
+    t.emit({ kind: "hunk_start", hunk: "c:1", call: "c", path: "src/a.ts", op: "replace", range: { start: 1, end: 1 }, base: null, old: "" } as AgentEvent);
+    t.emit({ kind: "hunk_review", call: "c", hunks: ["c:1"], reason: "viola", violations: [{ rule: "library:moment", message: "biblioteca proibida: moment", path: "src/a.ts" }] } as AgentEvent);
+    t.emit({ kind: "hunk_start", hunk: "d:1", call: "d", path: "src/b.ts", op: "replace", range: { start: 1, end: 1 }, base: null, old: "" } as AgentEvent);
+    t.emit({ kind: "hunk_review", call: "d", hunks: ["d:1"], reason: "ok" } as AgentEvent);
+    t.emit(done());
+  });
+  await t.chat.send("muda isto");
+  expect(seen[0].violations).toEqual(["biblioteca proibida: moment"]);
+  expect(typeof seen[0].on.override).toBe("function");
+  seen[0].on.override!();
+  await vi.waitFor(() => expect(seen[0].unblocked).toEqual(["ADR-0007"]));
+  expect(overrides).toEqual(["c"]);
+  // a review without violations: no override offered
+  expect(seen[1].violations).toBeUndefined();
+  expect(seen[1].on.override).toBeUndefined();
+});
+
+test("RF-G07: depois do Stop, a barra mantém ou descarta (volta ao checkpoint do turno, só os ficheiros)", async () => {
+  expect(parseAgentEvent({ session: "S1", event: { kind: "stop_review", checkpoint: 3, files: ["a.rs"] } })?.event).toEqual({ kind: "stop_review", checkpoint: 3, files: ["a.rs"] });
+  expect(parseAgentEvent({ session: "S1", event: { kind: "stop_review", checkpoint: "3", files: [] } })).toBeNull();
+  let answer = false;
+  const t = setup("allow", { confirm: () => answer });
+  const bars: Array<{ on: { keep(): void; discard(): void }; settled: string[] }> = [];
+  (t.deps.presenter as unknown as Record<string, unknown>).stopReview = (_c: unknown, info: { checkpoint: number; files: string[] }, on: { keep(): void; discard(): void }) => {
+    t.calls.push(`stopReview ${info.checkpoint} ${info.files.join(",")}`);
+    const b = { on, settled: [] as string[] };
+    bars.push(b);
+    return { settle: (l: string) => b.settled.push(l) };
+  };
+  t.setScript(() => {
+    t.emit({ kind: "stop_review", checkpoint: 3, files: ["src/a.rs", "src/b.rs"] } as AgentEvent);
+    t.emit({ kind: "stop_review", checkpoint: 4, files: ["src/c.rs"] } as AgentEvent);
+    t.emit(done({ type: "cancelled" }));
+  });
+  await t.chat.send("muda isto");
+  expect(t.calls).toContain("stopReview 3 src/a.rs,src/b.rs");
+  // keep: nothing goes back
+  bars[0].on.keep();
+  expect(bars[0].settled).toEqual(["Mantido — as alterações do turno parado ficam."]);
+  // discard, refused in the confirmation: nothing goes back either
+  bars[1].on.discard();
+  expect(t.gateway.rewind).not.toHaveBeenCalled();
+  // discard, confirmed: the files back to the checkpoint (not the conversation), the editor reloads
+  answer = true;
+  const reloads = (t.deps.reloadFromDisk as ReturnType<typeof vi.fn>).mock.calls.length;
+  bars[1].on.discard();
+  await vi.waitFor(() => expect(bars[1].settled).toEqual(["Descartado — os ficheiros voltaram ao checkpoint 4."]));
+  expect(t.gateway.rewind).toHaveBeenCalledWith("S1", 4, false);
+  expect((t.deps.reloadFromDisk as ReturnType<typeof vi.fn>).mock.calls.length).toBe(reloads + 1);
 });

@@ -14,4 +14,8 @@ tutor-core = { path = "../tutor-core" }
 tutor-eval = { path = "../tutor-eval" }
 tutor-tui = { path = "../tutor-tui" }
 tutor-plugins = { path = "../tutor-plugins" }
+tutor-protect = { path = "../tutor-protect" }
 anyhow.workspace = true
+
+[dev-dependencies]
+tempfile = { workspace = true }

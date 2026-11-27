@@ -23,8 +23,11 @@ const txe = translator(EMULATED_TERMINAL_MESSAGES);
    ADR-0006, R1d), importado em vez de publicado no window. */
 import { repo as repoOpen } from "./scm/infrastructure/legacy-bridge";
 import { diffStat } from "./diff/domain/diff";
+import { services } from "../app/services";
+import { echo, XC } from "./terminal";
+import { gitMerge, graphLayout } from "./scm";
 
-function gitCmd(a: string[], raw: string): { ok: boolean } | undefined {
+export function gitCmd(a: string[], raw: string): { ok: boolean } | undefined {
   if (!repoOpen()) {
     echo('<span class="er">fatal: not a git repository</span>\n<span class="dim">' + txe("gitNoFolder") + '</span>');
     return { ok: false };
@@ -89,13 +92,13 @@ function gitCmd(a: string[], raw: string): { ok: boolean } | undefined {
       return;
     }
     echo(checkout(b, nb) ? `Mudou para o ramo '${esc(b)}'` : `<span class="er">${txe("checkoutFailed", { branch: esc(b) })}</span>`);
-    rerender("graph");
+    services.tabs!.rerender("graph");
     return;
   }
   if (s === "merge") {
     const m = a[1] && gitMerge(a[1]);
     echo(m ? `Merge feito: <span class="ac">${m.h}</span> ${esc(m.m)}` : '<span class="er">uso: git merge &lt;ramo&gt;</span>');
-    rerender("graph");
+    services.tabs!.rerender("graph");
     return { ok: !!m };
   }
   if (s === "flow") {
@@ -128,6 +131,5 @@ function gitCmd(a: string[], raw: string): { ok: boolean } | undefined {
   echo('<span class="dim">git: status | add . | commit -m | log | branch | checkout [-b] | merge | flow | diff | push</span>');
 }
 
-window.gitCmd = gitCmd;
 /* o comando `git` do terminal emulado é este (ADR-0004, U4j4a — era um shim no app.ts) */
-(window as unknown as { XC: Record<string, (a: string[], raw: string) => unknown> }).XC.git = gitCmd;
+(XC as Record<string, (a: string[], raw: string) => unknown>).git = gitCmd;

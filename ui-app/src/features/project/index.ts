@@ -4,18 +4,24 @@
    folder opens. Whoever opens the Project imports `openProject` (activity bar, menu,
    palette) — no window global. Kanban, Scrum, XP or Scrum + XP over the SQLite store. */
 
+import { services } from "../../app/services";
+import { workspaceProjects } from "../../app/workspace-projects";
 import { VIEW } from "../../app/store/registry";
 import { makeProjectService } from "./application/project-service";
 import { makeProjectView } from "./ui/view";
 import { bindActions, type ActionEvent, type ActionTable } from "./ui/actions";
 import { commitProjectFile, tauriProjectGateway, writeProjectFile } from "./infrastructure/tauri";
-import { codev, dialog, git, loadMe, notify, openDiff, openProjectFile, openTab, saveEditor, workspace } from "./infrastructure/legacy-bridge";
+import { codev, dialog, git, loadMe, notify, openAt, openDiff, openProjectFile, openTab, saveEditor, workspace } from "./infrastructure/legacy-bridge";
+import { problemsScope } from "../../app/problems-scope";
 import type { QuickFilter, Swim, View } from "./domain/board";
-import type { State } from "./domain/types";
+import type { Method, State } from "./domain/types";
+import { parseCodevs } from "./domain/plan";
+import { parseChecks } from "./domain/gate";
 import { projectInbox } from "../../app/project-inbox";
 import { NAVIGATOR_MESSAGE, pairState } from "../../app/pair-state";
-import { translator } from "../../app/i18n";
+import { currentLocale, translator } from "../../app/i18n";
 import { PROJECT_ENGINE_MESSAGES } from "./application/messages";
+import { requestApproval } from "../../app/approval";
 
 const copy = translator(PROJECT_ENGINE_MESSAGES);
 
@@ -30,6 +36,10 @@ export const projectService = makeProjectService({
   now: () => Date.now(),
   canDrive: () => pairState.canDrive(),
   navigatorMessage: NAVIGATOR_MESSAGE,
+  showInProblems: (label, files) => problemsScope.show({ label, files }),
+  openAt,
+  lang: () => (currentLocale() === "ptAO" ? "pt" : "en"),
+  human: { approve: (req) => requestApproval(req) },
   templates: {
     write: writeProjectFile,
     open: openProjectFile,
@@ -55,6 +65,20 @@ export function openProject(sub?: View): void {
   if (sub) projectService.setView(sub);
   openTab({ id: "project", title: "Project", kind: "project" });
 }
+/* the Welcome walkthroughs open it; they evaluate before this module (r23 F6). Co-Dev's `/project` card creates the
+   Project from the backlog and hands an issue to Co-Dev through it (Co-Dev evaluates before this module too). */
+services.project = {
+  openProject,
+  createFromBacklog: (o) => projectService.createFromBacklog(o),
+  workOn: async (key) => {
+    if (projectService.state().status !== "ready") await projectService.open();
+    projectService.select(key);
+    await projectService.work(key);
+  },
+  refresh: () => {
+    if (projectService.state().status !== "idle") void projectService.open();
+  },
+};
 
 const sel = (): string | null => projectService.state().selected;
 const DAY = 86_400_000;
@@ -96,7 +120,10 @@ function submit(e: ActionEvent): void {
       const n = v[`wip_${st}`];
       if (n && Number(n) > 0) wip[st] = Number(n);
     }
-    void s.apply({ op: "settings", key_prefix: v.key_prefix, iter_days: Number(v.iter_days), wip, dor: lines(v.dor), dod: lines(v.dod) });
+    // Multi Co-Dev (the integration gate): the mandatory checks, `name: command` per line
+    const checks = parseChecks(v.checks ?? "");
+    if ("error" in checks) return notify.toast(copy("checksBad", { line: checks.error }));
+    void s.apply({ op: "settings", key_prefix: v.key_prefix, iter_days: Number(v.iter_days), wip, dor: lines(v.dor), dod: lines(v.dod), checks: checks.checks });
   }
 }
 
@@ -152,15 +179,28 @@ const table: ActionTable = {
   "pj-crit-add": { keydown: enter((e) => { const k = sel(); if (k) void projectService.addCriterion(k, e.value); }) },
   "pj-ready": { change: (e) => { const k = sel(); if (k) void projectService.update(k, { ready: e.checked }); } },
   "pj-dod": { change: (e) => { const k = sel(); if (k) void projectService.toggleDod(k, Number(e.on)); } },
+  "pj-dor": { change: (e) => { const k = sel(); if (k) void projectService.toggleDor(k, Number(e.on)); } },
   "pj-branch": { click: () => { const k = sel(); if (k) void projectService.createBranch(k); } },
   "pj-work": { click: () => { const k = sel(); if (k) void projectService.work(k); } },
   "pj-prompt": { click: () => { const k = sel(); if (k) void projectService.viewPrompt(k); } },
   "pj-prompt-close": { click: () => projectService.closePrompt() },
   "pj-template": { click: () => void projectService.editTemplate() },
   "pj-template-commit": { click: () => void projectService.commitTemplate() },
+  /* Multi Co-Dev (phase 1): the sprint's Co-Devs and its parallel plan (read-only) */
+  "pj-sprint-codevs": { change: (e) => void projectService.setCodevs(e.on, parseCodevs(e.value)) },
+  "pj-sprint-plan": { click: (e) => void projectService.loadPlan(e.on) },
+  "pj-plan-close": { click: () => projectService.closePlan() },
   "pj-sprint-budget": { change: (e) => void projectService.apply({ op: "set_sprint_budget", id: e.on, budget_usd: e.value.trim() === "" ? null : Math.max(0, Number(e.value)) }) },
+  /* Multi Co-Dev (the integration gate): the functional approval of the selected issue */
+  "pj-functional-approve": { click: () => { const k = sel(); if (k) void projectService.approveFunctional(k); } },
+  "pj-functional-revoke": { click: () => { const k = sel(); if (k) void projectService.revokeFunctional(k); } },
+  /* Multi Co-Dev (fase 4): o painel «Rever e integrar» da issue (features/integration, no acto) */
+  "pj-integration": { click: () => { const k = sel(); if (k) services.integration?.open(k); } },
   "pj-audit": { click: () => { const k = sel(); if (k) void projectService.exportAudit(k); } },
   "pj-diff": { click: (e) => openDiff(e.on) },
+  /* RF-A05: the drift of the rules in the issue's files */
+  "pj-drift-open": { click: (e) => { const i = e.on.indexOf(":"); projectService.openViolation(e.on.slice(i + 1), Number(e.on.slice(0, i)) || null); } },
+  "pj-drift-problems": { click: () => projectService.driftInProblems() },
   "pj-delete": { click: (e) => void projectService.remove(e.on) },
   "pj-comment": { keydown: enter((e) => { const k = sel(); if (k) void projectService.comment(k, e.value); }) },
   "pj-submit": { click: submit },
@@ -192,7 +232,10 @@ const table: ActionTable = {
       projectService.setView("backlog");
     },
   },
-  "pj-method": { click: (e) => void projectService.apply({ op: "settings", method: e.on }) },
+  /* Board B: a method shows what it changes first; Apply makes it so */
+  "pj-method": { click: (e) => void projectService.chooseMethod(e.on as Method) },
+  "pj-method-apply": { click: () => void projectService.applyMethod() },
+  "pj-method-cancel": { click: () => projectService.cancelMethod() },
   "pj-reload": { click: () => void projectService.open() },
 };
 bindActions(table);
@@ -203,6 +246,11 @@ projectInbox.register(async (items) => {
   let n = 0;
   for (const it of items) if (await projectService.apply({ op: "propose", ...it })) n++;
   return n;
+});
+
+/* H2: another project of the workspace picked (status bar): the board is that project's */
+workspaceProjects.onChange(() => {
+  if (projectService.state().status !== "idle") void projectService.open();
 });
 
 /* another folder opened in the desktop app: the project is that folder's */

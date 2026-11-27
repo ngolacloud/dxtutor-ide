@@ -99,6 +99,25 @@ pub enum Verdict {
 }
 
 /// Ficheiros cuja alteração dá poder ao agente, corre código noutro momento ou guarda segredos.
+/// What an `ide` action that asks the human will do, in one line: the action and its arguments (compact,
+/// at most 300 characters) — also what the audit log keeps of the call.
+pub fn ide_action_reason(input: &serde_json::Value) -> String {
+    let action = input["action"].as_str().unwrap_or("?");
+    let args = input
+        .get("args")
+        .filter(|a| a.as_object().is_some_and(|o| !o.is_empty()))
+        .map(|a| a.to_string())
+        .unwrap_or_default();
+    let mut s = format!("ide {action} {args}");
+    if s.chars().count() > 300 {
+        s = s.chars().take(299).collect::<String>() + "…";
+    }
+    format!(
+        "{}: muda um registo do projecto (aprovação e auditoria)",
+        s.trim_end()
+    )
+}
+
 pub fn is_protected(path: &str) -> bool {
     let p = path.trim().trim_start_matches("./").replace('\\', "/");
     let segs: Vec<&str> = p.split('/').filter(|s| !s.is_empty()).collect();
@@ -395,6 +414,26 @@ impl Policy {
                 };
             }
         }
+        // H4: an `ide` action that changes a record of the project (an incident, a runbook step that is not
+        // known to be reviewed) is always the human's call — every mode, no «allow always» (the tool said
+        // which of its calls only read: those were allowed above)
+        if call.name == "ide" {
+            return Verdict::Ask {
+                reason: ide_action_reason(&call.input),
+                dangerous: false,
+                suggested_rule: None,
+            };
+        }
+        // H1: a command outside the OS sandbox is always the human's (every mode, no «allow always»)
+        if call.name == "bash"
+            && call.input.get("unsandboxed").and_then(|v| v.as_bool()) == Some(true)
+        {
+            return Verdict::Ask {
+                reason: "corre fora da sandbox: com rede e com o disco inteiro".into(),
+                dangerous: true,
+                suggested_rule: None,
+            };
+        }
         let manual = approval_for(self.mode, Action::Edit) == Approval::Ask;
         // edições: piso dos ficheiros protegidos, depois regras e modo
         if let Some(path) = call
@@ -499,6 +538,73 @@ mod tests {
             Verdict::Ask { .. } => "ask",
             Verdict::Deny { .. } => "deny",
         }
+    }
+
+    #[test]
+    fn a_command_outside_the_sandbox_is_always_the_humans() {
+        let out = call(
+            "bash",
+            false,
+            json!({"command": "npm install", "unsandboxed": true}),
+            Some("npm install"),
+        );
+        let mut rules = Rules::default();
+        rules.allow.push("bash:npm install".into());
+        for m in [Mode::Manual, Mode::Assist, Mode::Auto] {
+            let v = pol(m, rules.clone()).decide(&out);
+            assert_eq!(kind(&v), "ask!", "{m:?}");
+        }
+        // the same command in the sandbox follows the rules as before
+        let inside = call(
+            "bash",
+            false,
+            json!({"command": "npm install"}),
+            Some("npm install"),
+        );
+        assert_eq!(kind(&pol(Mode::Auto, rules).decide(&inside)), "allow");
+    }
+
+    #[test]
+    fn an_ide_action_that_changes_a_record_is_always_the_humans_and_a_read_runs() {
+        let open = call(
+            "ide",
+            false,
+            json!({"action": "incident.open", "args": {"title": "checkout 500s", "severity": "sev2"}}),
+            None,
+        );
+        let mut rules = Rules::default();
+        rules.allow.push("ide".into());
+        for m in [Mode::Manual, Mode::Assist, Mode::Auto] {
+            let v = pol(m, rules.clone()).decide(&open);
+            assert_eq!(kind(&v), "ask", "{m:?}");
+            let Verdict::Ask {
+                reason,
+                suggested_rule,
+                ..
+            } = v
+            else {
+                unreachable!()
+            };
+            assert!(reason.starts_with("ide incident.open {"), "{reason}");
+            assert!(reason.contains("checkout 500s"));
+            assert!(suggested_rule.is_none(), "no «allow always»");
+        }
+        // a read of the same tool runs in every mode
+        let read = call("ide", true, json!({"action": "incident.list"}), None);
+        for m in [Mode::Manual, Mode::Assist, Mode::Auto] {
+            assert_eq!(
+                kind(&pol(m, Rules::default()).decide(&read)),
+                "allow",
+                "{m:?}"
+            );
+        }
+        // the plan mode lets nothing change
+        let p = pol(Mode::Auto, Rules::default());
+        p.plan.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(kind(&p.decide(&open)), "deny");
+        // a long argument is cut in the reason
+        let long = json!({"action": "incident.add", "args": {"text": "x".repeat(2000)}});
+        assert!(ide_action_reason(&long).chars().count() < 400);
     }
 
     #[test]

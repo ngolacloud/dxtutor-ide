@@ -21,7 +21,10 @@ use std::sync::Arc;
 
 use serde::Serialize;
 use tauri::Emitter;
-use tutor_eval::dapc::{BreakpointSpec, BreakpointState, DapSession, DapThread, VarNode};
+use tutor_eval::dapc::{
+    BreakpointSpec, BreakpointState, DapSession, DapThread, DataBreakpoint, DataTarget,
+    MemoryBlock, Position, SessionCaps, VarNode, WriteHit,
+};
 
 use crate::debug::{self, DapSessions, DebugSessions};
 
@@ -29,12 +32,12 @@ use crate::debug::{self, DapSessions, DebugSessions};
 /// true only when a real DAP adapter is installed; otherwise the note points at the
 /// instrumentation tracer (Visualize) as the fallback. Detection only, starts nothing.
 #[tauri::command]
-pub fn debug_capabilities() -> debug::DebugCapability {
+pub async fn debug_capabilities() -> debug::DebugCapability {
     debug::capabilities()
 }
 
 #[tauri::command]
-pub fn debug_available() -> bool {
+pub async fn debug_available() -> bool {
     debug::available() || tutor_eval::dapc::find_adapter().is_some()
 }
 
@@ -45,6 +48,8 @@ pub struct LaunchInfo {
     /// "dap" or "gdb"
     pub engine: String,
     pub adapter: String,
+    /// what the adapter can do (DAP; none for gdb) — r23 F2
+    pub caps: Option<SessionCaps>,
 }
 
 #[derive(Clone, Serialize)]
@@ -63,7 +68,9 @@ pub async fn debug_launch(
     program: String,
     cwd: Option<String>,
     engine: Option<String>,
+    args: Option<Vec<String>>,
 ) -> Result<LaunchInfo, String> {
+    let args = args.unwrap_or_default();
     if engine.as_deref() != Some("gdb") && tutor_eval::dapc::find_adapter().is_some() {
         let (sid, app2) = (id.clone(), app.clone());
         let on_output: tutor_eval::dapc::OnOutput = Arc::new(move |category: &str, text: &str| {
@@ -72,26 +79,30 @@ pub async fn debug_launch(
                 OutputEvent {
                     id: sid.clone(),
                     category: category.into(),
-                    text: text.into(),
+                    // r23 F4a (X04): a debugged program's output is masked too
+                    text: tutor_protect::redact::current().mask(text),
                 },
             );
         });
         let s = tauri::async_runtime::spawn_blocking(move || {
-            DapSession::launch(&program, &[], cwd.as_deref(), Some(on_output))
+            DapSession::launch(&program, &args, cwd.as_deref(), Some(on_output))
         })
         .await
         .map_err(|e| format!("debug task failed: {e}"))??;
         let adapter = s.adapter.clone();
+        let caps = Some(s.caps());
         dap.insert(id, s)?;
         return Ok(LaunchInfo {
             engine: "dap".into(),
             adapter,
+            caps,
         });
     }
-    debug::driver::launch(&sessions, id, program, cwd)?;
+    debug::driver::launch(&sessions, id, program, args, cwd)?;
     Ok(LaunchInfo {
         engine: "gdb".into(),
         adapter: "gdb".into(),
+        caps: None,
     })
 }
 
@@ -254,8 +265,10 @@ pub async fn debug_stop_on_panic(
 ) -> Result<bool, String> {
     let s = need_dap(&dap, &id)?;
     blocking(move || {
+        // lldb resolves `rust_panic`; gdb (a replay, r23 F2b) only `__rustc::rust_panic`, the
+        // symbol's full name in current Rust. Both name the same place: the program stops once.
         Ok(s.set_function_breakpoints(&if on {
-            vec!["rust_panic".to_string()]
+            vec!["rust_panic".to_string(), "__rustc::rust_panic".to_string()]
         } else {
             vec![]
         })? > 0)
@@ -284,16 +297,225 @@ pub async fn debug_variables(
     blocking(move || s.variables(frame, reference)).await
 }
 
-/// A watch expression in a frame.
+/// A watch expression in a frame, or (`context: "repl"`) a line of the debug console (r23 F2).
 #[tauri::command]
 pub async fn debug_evaluate(
     dap: tauri::State<'_, DapSessions>,
     id: String,
     expression: String,
     frame: u32,
+    context: Option<String>,
 ) -> Result<VarNode, String> {
     let s = need_dap(&dap, &id)?;
-    blocking(move || s.evaluate(&expression, frame)).await
+    let ctx = context.unwrap_or_else(|| "watch".into());
+    blocking(move || s.evaluate_in(&expression, frame, &ctx)).await
+}
+
+/// Run to the cursor (r23 F2): a temporary breakpoint on `line` of `file`, continue, and the
+/// temporary breakpoint is gone wherever the program stops.
+#[tauri::command]
+pub async fn debug_run_to(
+    dap: tauri::State<'_, DapSessions>,
+    id: String,
+    file: String,
+    line: u32,
+) -> Result<debug::Stop, String> {
+    let s = need_dap(&dap, &id)?;
+    blocking(move || s.run_to(&file, line).map(Into::into)).await
+}
+
+/// Restart a frame (r23 F2) — only adapters that announce `supportsRestartFrame`.
+#[tauri::command]
+pub async fn debug_restart_frame(
+    dap: tauri::State<'_, DapSessions>,
+    id: String,
+    frame: u32,
+) -> Result<debug::Stop, String> {
+    let s = need_dap(&dap, &id)?;
+    blocking(move || s.restart_frame(frame).map(Into::into)).await
+}
+
+/// Data breakpoints (r23 F2): add one on a variable and/or remove one by its id; the list back.
+#[tauri::command]
+pub async fn debug_data_breakpoints(
+    dap: tauri::State<'_, DapSessions>,
+    id: String,
+    add: Option<DataTarget>,
+    remove: Option<String>,
+) -> Result<Vec<DataBreakpoint>, String> {
+    let s = need_dap(&dap, &id)?;
+    blocking(move || s.data_breakpoints(add, remove.as_deref())).await
+}
+
+/// The bytes of a variable (r23 F2), from its memory reference.
+#[tauri::command]
+pub async fn debug_read_memory(
+    dap: tauri::State<'_, DapSessions>,
+    id: String,
+    memory_reference: String,
+    offset: i64,
+    count: u32,
+) -> Result<MemoryBlock, String> {
+    let s = need_dap(&dap, &id)?;
+    blocking(move || s.read_memory(&memory_reference, offset, count)).await
+}
+
+/// The exception filters to stop on (r23 F2), among the ones the adapter offers; the ones set.
+#[tauri::command]
+pub async fn debug_exception_filters(
+    dap: tauri::State<'_, DapSessions>,
+    id: String,
+    filters: Vec<String>,
+) -> Result<Vec<String>, String> {
+    let s = need_dap(&dap, &id)?;
+    blocking(move || s.set_exception_filters(&filters)).await
+}
+
+/* ───── r23 F2b: record and replay (rr) ───── */
+
+fn output_sink(app: &tauri::AppHandle, id: &str) -> tutor_eval::dapc::OnOutput {
+    let (sid, app2) = (id.to_string(), app.clone());
+    Arc::new(move |category: &str, text: &str| {
+        let _ = app2.emit(
+            "debug://output",
+            OutputEvent {
+                id: sid.clone(),
+                category: category.into(),
+                // r23 F4a (X04): a debugged program's output is masked too
+                text: tutor_protect::redact::current().mask(text),
+            },
+        );
+    })
+}
+
+fn need_replay(dap: &DapSessions, id: &str) -> Result<Arc<DapSession>, String> {
+    let s = need_dap(dap, id)?;
+    if s.is_replay() {
+        Ok(s)
+    } else {
+        Err("this needs a recording (rr): replay the run first".into())
+    }
+}
+
+/// Records `program args` in `cwd` with rr (Linux); the trace to replay, its exit code and output.
+#[tauri::command]
+pub async fn debug_record(
+    id: String,
+    program: String,
+    args: Option<Vec<String>>,
+    cwd: Option<String>,
+) -> Result<tutor_eval::rr::Recording, String> {
+    blocking(move || {
+        tutor_eval::rr::record(
+            &id,
+            &program,
+            &args.unwrap_or_default(),
+            cwd.as_deref().map(std::path::Path::new),
+        )
+    })
+    .await
+}
+
+/// Replays a recording: rr serves it, gdb (DAP mode) drives it; the session takes the usual
+/// `debug_*` commands, plus the ones below (backwards, the position, travel, writes).
+#[tauri::command]
+pub async fn debug_replay(
+    app: tauri::AppHandle,
+    dap: tauri::State<'_, DapSessions>,
+    id: String,
+    trace: String,
+    program: String,
+    cwd: Option<String>,
+) -> Result<LaunchInfo, String> {
+    let on = output_sink(&app, &id);
+    let s =
+        blocking(move || DapSession::replay(&trace, &program, cwd.as_deref(), Some(on))).await?;
+    let (adapter, caps) = (s.adapter.clone(), Some(s.caps()));
+    dap.insert(id, s)?;
+    Ok(LaunchInfo {
+        engine: "dap".into(),
+        adapter,
+        caps,
+    })
+}
+
+/// Backwards in a replay: `next`, `step`, `out` or `continue`.
+#[tauri::command]
+pub async fn debug_reverse(
+    dap: tauri::State<'_, DapSessions>,
+    id: String,
+    kind: String,
+) -> Result<debug::Stop, String> {
+    let s = need_replay(&dap, &id)?;
+    blocking(move || s.reverse(&kind).map(Into::into)).await
+}
+
+/// Where a replay is in its recording (ticks, event) and the recording's span.
+#[tauri::command]
+pub async fn debug_position(
+    dap: tauri::State<'_, DapSessions>,
+    id: String,
+) -> Result<Position, String> {
+    let s = need_replay(&dap, &id)?;
+    blocking(move || s.position()).await
+}
+
+/// To the moment `(event, ticks)` of the recording (a stop at `file:line`; empty file: start or end).
+#[tauri::command]
+pub async fn debug_travel(
+    dap: tauri::State<'_, DapSessions>,
+    id: String,
+    event: u64,
+    ticks: u64,
+    file: String,
+    line: u32,
+    watch: Option<String>,
+) -> Result<debug::Stop, String> {
+    let s = need_replay(&dap, &id)?;
+    blocking(move || {
+        s.travel(event, ticks, &file, line, watch.as_deref())
+            .map(Into::into)
+    })
+    .await
+}
+
+/// «Where did this come from»: back to the last write to `expression` in frame `frame`.
+#[tauri::command]
+pub async fn debug_last_write(
+    dap: tauri::State<'_, DapSessions>,
+    id: String,
+    frame: u32,
+    expression: String,
+) -> Result<debug::Stop, String> {
+    let s = need_replay(&dap, &id)?;
+    blocking(move || s.last_write(frame, &expression).map(Into::into)).await
+}
+
+/// Every change to `expression` (frame `frame`) while its function runs, up to `max`.
+#[tauri::command]
+pub async fn debug_writes(
+    dap: tauri::State<'_, DapSessions>,
+    id: String,
+    frame: u32,
+    expression: String,
+    max: Option<usize>,
+) -> Result<Vec<WriteHit>, String> {
+    let s = need_replay(&dap, &id)?;
+    blocking(move || s.writes(frame, &expression, max.unwrap_or(50).min(200))).await
+}
+
+/// «Debug this test» (r23 F2): builds the project's test binaries and lists their tests.
+#[tauri::command]
+pub async fn debug_test_targets(
+    root: String,
+) -> Result<Vec<tutor_eval::testbins::TestBinary>, String> {
+    blocking(move || {
+        tutor_eval::testbins::test_targets(
+            std::path::Path::new(root.trim()),
+            &crate::shellenv::command,
+        )
+    })
+    .await
 }
 
 /// Ask a running program to stop (the waiting `run`/`continue` returns the stop).
@@ -305,7 +527,7 @@ pub async fn debug_pause(dap: tauri::State<'_, DapSessions>, id: String) -> Resu
 
 /// The gutter's breakpoints of the project (kept in the project database).
 #[tauri::command]
-pub fn breakpoints_load(
+pub async fn breakpoints_load(
     app: tauri::AppHandle,
     root: String,
 ) -> Result<Vec<tutor_board::project::breakpoints::Breakpoint>, String> {
@@ -329,7 +551,7 @@ pub fn breakpoints_save(
 /// Keeps a snapshot of the session (where it stopped, the stack, the variables, the output) as
 /// markdown, linked to an issue when one is given — it shows in the issue's panel.
 #[tauri::command]
-pub fn debug_snapshot(
+pub async fn debug_snapshot(
     app: tauri::AppHandle,
     root: String,
     id: String,
@@ -391,7 +613,8 @@ pub async fn debug_attach(
             OutputEvent {
                 id: sid.clone(),
                 category: category.into(),
-                text: text.into(),
+                // r23 F4a (X04): a debugged program's output is masked too
+                text: tutor_protect::redact::current().mask(text),
             },
         );
     });
@@ -402,9 +625,11 @@ pub async fn debug_attach(
     let label = argv.join(" ");
     let s = blocking(move || DapSession::attach(&argv, pid, root.as_deref(), Some(on_output), map))
         .await?;
+    let caps = Some(s.caps());
     dap.insert(id, s)?;
     Ok(LaunchInfo {
         engine: "dap".into(),
         adapter: label,
+        caps,
     })
 }

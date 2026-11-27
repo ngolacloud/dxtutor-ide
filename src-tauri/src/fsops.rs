@@ -75,7 +75,7 @@ pub async fn pick_folder(app: AppHandle) -> Option<String> {
 /// whole listing); directories come first, then alphabetical (case-insensitive).
 /// `.git`, `target` and `node_modules` are hidden by default.
 #[tauri::command]
-pub fn list_dir(path: String) -> Result<Vec<EntryDto>, String> {
+pub async fn list_dir(path: String) -> Result<Vec<EntryDto>, String> {
     let rd = fs::read_dir(&path).map_err(|e| format!("cannot read `{path}`: {e}"))?;
     let mut entries: Vec<EntryDto> = Vec::new();
     for item in rd {
@@ -102,20 +102,22 @@ pub fn list_dir(path: String) -> Result<Vec<EntryDto>, String> {
 
 /// Read a UTF-8 (lossy-free) text file in full.
 #[tauri::command]
-pub fn read_text_file(path: String) -> Result<String, String> {
+pub async fn read_text_file(path: String) -> Result<String, String> {
+    crate::workspace::refuse_state_file(&path)?;
     fs::read_to_string(&path).map_err(|e| format!("cannot read `{path}`: {e}"))
 }
 
 /// Overwrite (or create) a text file with `contents`.
 #[tauri::command]
-pub fn write_text_file(path: String, contents: String) -> Result<(), String> {
+pub async fn write_text_file(path: String, contents: String) -> Result<(), String> {
+    crate::workspace::refuse_state_file(&path)?;
     fs::write(&path, contents).map_err(|e| format!("cannot write `{path}`: {e}"))
 }
 
 /// Create an empty file or a directory. Parent directories are created as needed.
 /// Creating a file that already exists is an error (avoids clobbering).
 #[tauri::command]
-pub fn create_path(path: String, is_dir: bool) -> Result<(), String> {
+pub async fn create_path(path: String, is_dir: bool) -> Result<(), String> {
     let p = PathBuf::from(&path);
     if is_dir {
         return fs::create_dir_all(&p).map_err(|e| format!("cannot create dir `{path}`: {e}"));
@@ -136,7 +138,7 @@ pub fn create_path(path: String, is_dir: bool) -> Result<(), String> {
 
 /// Delete a file or a directory (recursively for directories).
 #[tauri::command]
-pub fn delete_path(path: String) -> Result<(), String> {
+pub async fn delete_path(path: String) -> Result<(), String> {
     let p = PathBuf::from(&path);
     let meta = fs::symlink_metadata(&p).map_err(|e| format!("cannot stat `{path}`: {e}"))?;
     if meta.is_dir() {
@@ -148,7 +150,7 @@ pub fn delete_path(path: String) -> Result<(), String> {
 
 /// Rename or move a path.
 #[tauri::command]
-pub fn rename_path(from: String, to: String) -> Result<(), String> {
+pub async fn rename_path(from: String, to: String) -> Result<(), String> {
     fs::rename(&from, &to).map_err(|e| format!("cannot rename `{from}` -> `{to}`: {e}"))
 }
 
@@ -715,7 +717,11 @@ fn contained_path(root: &str, rel: &str) -> Result<PathBuf, String> {
 /// used to GROUND the Dev Assistant in the real, active project instead of answering
 /// as a generic chat. Directories first, then files, each line indented by depth.
 #[tauri::command]
-pub fn workspace_tree(root: String, max_depth: u32, max_entries: u32) -> Result<String, String> {
+pub async fn workspace_tree(
+    root: String,
+    max_depth: u32,
+    max_entries: u32,
+) -> Result<String, String> {
     let root_path = PathBuf::from(&root);
     if !root_path.is_dir() {
         return Err(format!("`{root}` is not a folder"));
@@ -777,7 +783,7 @@ fn walk_tree(dir: &Path, depth: u32, max_depth: u32, cap: u32, count: &mut u32, 
 /// opening/streaming into a model-proposed file, so a `../` in a `dxcode` can never read
 /// or write outside the project.
 #[tauri::command]
-pub fn workspace_resolve(root: String, path: String) -> Result<String, String> {
+pub async fn workspace_resolve(root: String, path: String) -> Result<String, String> {
     let p = contained_path(&root, &path)?;
     crate::workspace::ensure_within(Path::new(&root), &p)?;
     Ok(p.to_string_lossy().to_string())
@@ -788,7 +794,7 @@ pub fn workspace_resolve(root: String, path: String) -> Result<String, String> {
 /// relative to `root` (an absolute path is accepted only if it is already under root).
 /// Returns the absolute path acted on. The containment guard refuses any `../` escape.
 #[tauri::command]
-pub fn workspace_action(
+pub async fn workspace_action(
     root: String,
     op: String,
     path: String,
@@ -906,26 +912,32 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().to_string_lossy().to_string();
 
-        let made = workspace_action(
+        let made = tauri::async_runtime::block_on(workspace_action(
             root.clone(),
             "createDir".into(),
             "examples/dxtutor".into(),
             None,
-        )
+        ))
         .expect("createDir");
         assert!(PathBuf::from(&made).is_dir());
 
-        let f = workspace_action(
+        let f = tauri::async_runtime::block_on(workspace_action(
             root.clone(),
             "createFile".into(),
             "examples/dxtutor/notes.md".into(),
             Some("hello".into()),
-        )
+        ))
         .expect("createFile");
         assert_eq!(fs::read_to_string(&f).unwrap(), "hello");
 
         // escape is refused — nothing is written outside the workspace
-        assert!(workspace_action(root, "createDir".into(), "../evil".into(), None).is_err());
+        assert!(tauri::async_runtime::block_on(workspace_action(
+            root,
+            "createDir".into(),
+            "../evil".into(),
+            None
+        ))
+        .is_err());
     }
 
     #[test]
@@ -933,10 +945,17 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().to_string_lossy().to_string();
         // A normal dxcode target resolves under the root.
-        let ok = workspace_resolve(root.clone(), "examples/dxtutor/main.rs".into()).unwrap();
+        let ok = tauri::async_runtime::block_on(workspace_resolve(
+            root.clone(),
+            "examples/dxtutor/main.rs".into(),
+        ))
+        .unwrap();
         assert!(ok.starts_with(tmp.path().to_string_lossy().as_ref()));
         // A `../` escape is refused — the Dev delegate can never open/stream outside.
-        assert!(workspace_resolve(root, "../../etc/passwd".into()).is_err());
+        assert!(
+            tauri::async_runtime::block_on(workspace_resolve(root, "../../etc/passwd".into()))
+                .is_err()
+        );
     }
 
     #[test]
@@ -948,7 +967,12 @@ mod tests {
         fs::create_dir_all(root.join("target/debug")).unwrap();
         fs::write(root.join("target/debug/junk"), "x").unwrap();
 
-        let tree = workspace_tree(root.to_string_lossy().to_string(), 2, 100).unwrap();
+        let tree = tauri::async_runtime::block_on(workspace_tree(
+            root.to_string_lossy().to_string(),
+            2,
+            100,
+        ))
+        .unwrap();
         assert!(tree.contains("examples/"), "tree: {tree}");
         assert!(tree.contains("main.rs"), "tree: {tree}");
         // the build dir is named but NOT walked into

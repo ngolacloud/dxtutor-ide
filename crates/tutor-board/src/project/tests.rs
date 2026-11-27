@@ -160,7 +160,8 @@ fn moves_go_one_step_and_respect_wip() {
 #[test]
 fn scrum_needs_ready_to_start_and_done_needs_the_dod() {
     let mut s = store();
-    s.apply(ROOT, "W", T0, op(serde_json::json!({"op": "settings", "method": "scrum", "dod": ["Code reviewed"], "wip": {}}))).unwrap();
+    // the fixed checks only: no DoR items of the project (Scrum would suggest some, Board B)
+    s.apply(ROOT, "W", T0, op(serde_json::json!({"op": "settings", "method": "scrum", "dor": [], "dod": ["Code reviewed"], "wip": {}}))).unwrap();
     let p = s
         .apply(
             ROOT,
@@ -590,7 +591,13 @@ fn reports_come_from_the_history_and_are_empty_without_it() {
         vec![reports::Velocity {
             sprint: "S1".into(),
             name: "S".into(),
-            points: 3
+            points: 3,
+            committed: Some(6),
+            committed_done: Some(3),
+            added: Some(0),
+            removed: Some(0),
+            carried: Some(3),
+            partial: false,
         }]
     );
 }
@@ -725,6 +732,8 @@ fn readiness_lists_what_is_missing_and_dependencies_must_be_done() {
 fn codev_answers_the_criteria_then_tests_send_it_back_and_twice_block_it() {
     let mut s = store();
     let k = create(&mut s, "x", T0);
+    // Board B: Co-Dev's work starts with the normal move to In progress
+    mv(&mut s, &k, "progress", T0).unwrap();
     let p = s
         .apply(ROOT, "Co-Dev", T0, op(serde_json::json!({"op": "codev_finished", "key": k, "report": [{"criterion": 0, "met": true, "evidence": "test a"}], "template_version": "abc123"})))
         .unwrap();
@@ -892,6 +901,8 @@ fn breakpoints_are_kept_per_project_and_file() {
         hit_condition: None,
         log_message: None,
         enabled: true,
+        trigger: None,
+        group: None,
     };
     s.save_breakpoints("/p", "src/main.rs", &[bp(3, None), bp(9, Some("i == 3"))])
         .unwrap();
@@ -905,6 +916,8 @@ fn breakpoints_are_kept_per_project_and_file() {
             hit_condition: Some("2".into()),
             log_message: Some("x={x}".into()),
             enabled: false,
+            trigger: Some("src/main.rs:3".into()),
+            group: Some("eviction".into()),
         }],
     )
     .unwrap();
@@ -915,6 +928,8 @@ fn breakpoints_are_kept_per_project_and_file() {
     assert_eq!(all[0].file, "src/lib.rs");
     assert!(!all[0].enabled);
     assert_eq!(all[0].log_message.as_deref(), Some("x={x}"));
+    assert_eq!(all[0].trigger.as_deref(), Some("src/main.rs:3"));
+    assert_eq!(all[0].group.as_deref(), Some("eviction"));
     assert_eq!(all[2].condition.as_deref(), Some("i == 3"));
     // replacing a file's list; blank strings are not kept
     s.save_breakpoints("/p", "src/main.rs", &[bp(4, Some("  "))])
@@ -927,4 +942,1709 @@ fn breakpoints_are_kept_per_project_and_file() {
         .collect();
     assert_eq!(main.len(), 1);
     assert_eq!(main[0].condition, None);
+}
+
+#[test]
+fn test_results_are_kept_per_commit_newest_first() {
+    let d = tempfile::tempdir().unwrap();
+    let mut st = ProjectStore::open(&d.path().join("p.sqlite3")).unwrap();
+    let r = |sha: &str, at: i64, ok: bool| TestResult {
+        sha: sha.into(),
+        dirty: false,
+        at,
+        runner: "cargo".into(),
+        command: "cargo test".into(),
+        passed: 3,
+        failed: if ok { 0 } else { 1 },
+        ignored: 0,
+        ok,
+    };
+    st.record_test_result("/p", &r("abcdef1234567890", 1, false))
+        .unwrap();
+    st.record_test_result("/p", &r("abcdef1234567890", 2, true))
+        .unwrap();
+    st.record_test_result("/p", &r("1111111222222", 3, true))
+        .unwrap();
+    st.record_test_result("/q", &r("abcdef1234567890", 4, true))
+        .unwrap();
+    let got = st.test_results_for("/p", &["abcdef1".into()]).unwrap();
+    assert_eq!(
+        got.iter().map(|x| (x.at, x.ok)).collect::<Vec<_>>(),
+        vec![(2, true), (1, false)]
+    );
+    assert!(st
+        .test_results_for("/p", &["abc".into(), "zzzzzzz".into()])
+        .unwrap()
+        .is_empty());
+}
+
+/// r23 F4b: an accepted IaC risk has a reason, lasts at most 30 days, and can be revoked.
+#[test]
+fn accepted_risks_expire_and_can_be_revoked() {
+    let mut st = store();
+    let day = 24 * H;
+    assert!(st
+        .accept_risk("/p", "k1", "finding", "x", " ", "Walter", T0, 30)
+        .is_err());
+    assert!(st
+        .accept_risk("/p", "k1", "other", "x", "a reason", "Walter", T0, 30)
+        .is_err());
+    let a = st
+        .accept_risk(
+            "/p",
+            "k1",
+            "finding",
+            "checkov CKV_X · main.tf:5",
+            "fixture bucket",
+            "Walter",
+            T0,
+            90,
+        )
+        .unwrap();
+    assert_eq!(a.expires, T0 + 30 * day);
+    st.accept_risk(
+        "/p",
+        "drift:infra:x.y",
+        "drift",
+        "x.y",
+        "changed by the on-call",
+        "Walter",
+        T0 + 1,
+        7,
+    )
+    .unwrap();
+    st.accept_risk("/q", "k1", "finding", "x", "other folder", "Walter", T0, 30)
+        .unwrap();
+    let keys = |v: Vec<risks::AcceptedRisk>| v.into_iter().map(|r| r.key).collect::<Vec<_>>();
+    assert_eq!(
+        keys(st.accepted_risks("/p", T0 + day).unwrap()),
+        vec!["drift:infra:x.y", "k1"]
+    );
+    assert_eq!(
+        keys(st.accepted_risks("/p", T0 + 8 * day).unwrap()),
+        vec!["k1"]
+    );
+    assert!(st.accepted_risks("/p", T0 + 30 * day).unwrap().is_empty());
+    assert_eq!(
+        st.revoke_risk("/p", a.id, T0 + day).unwrap().map(|r| r.key),
+        Some("k1".into())
+    );
+    assert!(st.revoke_risk("/p", a.id, T0 + day).unwrap().is_none());
+    assert_eq!(
+        keys(st.accepted_risks("/p", T0 + 2 * day).unwrap()),
+        vec!["drift:infra:x.y"]
+    );
+}
+
+/// r23 F4c2: deploy records, per commit (prefixes of 7+) and all of them.
+#[test]
+fn deploy_records_per_commit() {
+    let mut st = store();
+    let rec = |env: &str, version: &str, at: i64, ok: bool| deploys::DeployRecord {
+        env: env.into(),
+        context: "kind-dev".into(),
+        namespace: "shop".into(),
+        version: version.into(),
+        issue: Some("SHOP-7".into()),
+        actor: "ana".into(),
+        approver: None,
+        at,
+        ok,
+        failed_step: (!ok).then(|| "rollout".into()),
+        waivers: "[]".into(),
+        gates: "{}".into(),
+        reason: None,
+        ..Default::default()
+    };
+    st.record_deploy("/p", &rec("staging", "abcdef1234567890", T0, true))
+        .unwrap();
+    st.record_deploy("/p", &rec("production", "abcdef1234567890", T0 + H, false))
+        .unwrap();
+    st.record_deploy("/p", &rec("staging", "1234567aaaa", T0 + 2 * H, true))
+        .unwrap();
+    st.record_deploy("/q", &rec("staging", "abcdef1234567890", T0, true))
+        .unwrap();
+    let mine = st.deploys("/p", Some(&["abcdef1".to_string()])).unwrap();
+    assert_eq!(
+        mine.iter()
+            .map(|r| (r.env.as_str(), r.ok))
+            .collect::<Vec<_>>(),
+        vec![("production", false), ("staging", true)]
+    );
+    assert_eq!(mine[0].failed_step.as_deref(), Some("rollout"));
+    assert!(st
+        .deploys("/p", Some(&["abc".to_string()]))
+        .unwrap()
+        .is_empty());
+    assert_eq!(st.deploys("/p", None).unwrap().len(), 3);
+}
+
+/// r23 F5a: runbook runs are kept (and a person's judgement), and the evidence file groups real rows by
+/// ISO/IEC 27001 control — every control listed, «no records in this period» when empty.
+#[test]
+fn runbook_runs_and_the_evidence_file() {
+    let mut st = store();
+    let step = |run: &str, path: &str, rb: &str, n: u32, matched: Option<bool>, at: i64| {
+        runbooks::RunbookStepRun {
+            run_id: run.into(),
+            path: path.into(),
+            runbook: rb.into(),
+            n,
+            title: format!("step {n}"),
+            kind: "check".into(),
+            command: "kubectl get pods".into(),
+            exit_code: Some(0),
+            output: "web-1 Running".into(),
+            expect: "`Running`".into(),
+            matched,
+            note: None,
+            actor: "ana".into(),
+            at,
+            ms: 12,
+            ..Default::default()
+        }
+    };
+    st.record_runbook_step(
+        "/p",
+        &step(
+            "r1",
+            "runbooks/latency.md",
+            "orders-api latency",
+            1,
+            Some(true),
+            T0,
+        ),
+    )
+    .unwrap();
+    let id = st
+        .record_runbook_step(
+            "/p",
+            &step(
+                "r1",
+                "runbooks/latency.md",
+                "orders-api latency",
+                2,
+                None,
+                T0 + 1,
+            ),
+        )
+        .unwrap();
+    st.record_runbook_step(
+        "/p",
+        &step(
+            "r2",
+            "runbooks/restore.md",
+            "orders-db restore test",
+            1,
+            Some(false),
+            T0 + 2,
+        ),
+    )
+    .unwrap();
+    assert!(st
+        .judge_runbook_step("/p", id, true, "pool at 41 %")
+        .unwrap());
+    assert!(!st.judge_runbook_step("/q", id, true, "x").unwrap());
+    let runs = st.runbook_runs("/p", None, T0, T0 + H).unwrap();
+    assert_eq!(runs.len(), 3);
+    assert_eq!(
+        (runs[1].matched, runs[1].note.as_deref()),
+        (Some(true), Some("pool at 41 %"))
+    );
+    assert_eq!(
+        st.runbook_runs("/p", Some("runbooks/restore.md"), T0, T0 + H)
+            .unwrap()
+            .len(),
+        1
+    );
+
+    let a = |tool: &str, call: &str, cmd: &str, at: i64| AuditEntry {
+        at,
+        origin: "ide".into(),
+        actor: "ana".into(),
+        tool: Some(tool.into()),
+        call: Some(call.into()),
+        command: Some(cmd.into()),
+        outcome: Some("ok".into()),
+        reason: Some("rotating".into()),
+        ..AuditEntry::default()
+    };
+    let audit = vec![
+        a(
+            "vault",
+            "reveal-local",
+            "show secret/apps/shop/local/db DB_PASSWORD for 20 s",
+            T0,
+        ),
+        a(
+            "iac",
+            "risk.accept",
+            "checkov CKV_AWS_18 · main.tf:5 · 30 days",
+            T0 + 1,
+        ),
+        a(
+            "ops",
+            "iac.apply",
+            "cd infra && tofu apply -input=false /x.bin",
+            T0 + 2,
+        ),
+        a("board", "move", "SHOP-1 to done", T0 + 3),
+        a(
+            "vault",
+            "reveal-local",
+            "outside the period",
+            T0 + 40 * 24 * H,
+        ),
+        AuditEntry {
+            origin: "chat".into(),
+            at: T0,
+            tool: Some("bash".into()),
+            ..AuditEntry::default()
+        },
+    ];
+    let deploys = vec![deploys::DeployRecord {
+        env: "staging".into(),
+        context: "kind-dev".into(),
+        namespace: "shop".into(),
+        version: "0123456789abcdef".into(),
+        issue: Some("SHOP-7".into()),
+        actor: "ana".into(),
+        at: T0 + 4,
+        ok: true,
+        waivers: "[]".into(),
+        gates: "{}".into(),
+        ..Default::default()
+    }];
+    let md = evidence::markdown(
+        "shop",
+        T0 - H,
+        T0 + 30 * 24 * H,
+        T0 + 5,
+        &audit,
+        &deploys,
+        &runs,
+    );
+    assert!(md.starts_with("# Evidence export — shop\n"));
+    let section = |c: &str| {
+        let i = md.find(&format!("## {c}")).unwrap();
+        let rest = &md[i..];
+        rest[..rest[3..].find("\n## ").map(|j| j + 3).unwrap_or(rest.len())].to_string()
+    };
+    assert!(
+        section("A.8.32").contains("ops.iac.apply: cd infra && tofu apply")
+            && section("A.8.32")
+                .contains("deployed 0123456789ab to staging (kind-dev/shop) for SHOP-7 · ok")
+    );
+    assert!(section("A.8.32").contains("runbook «orders-api latency» (runbooks/latency.md): 2 step(s) with output — 2 as expected, 0 not, 0 not judged"));
+    assert!(section("A.8.9").contains("iac.risk.accept"));
+    assert!(section("A.5.17").contains("vault.reveal-local") && !md.contains("outside the period"));
+    assert!(
+        section("A.8.13").contains("orders-db restore test")
+            && section("A.8.13").contains("0 as expected, 1 not")
+    );
+    assert!(section("A.5.24").contains("no records in this period"));
+    assert!(section("Other IDE operations").contains("board.move: SHOP-1 to done"));
+    assert!(!md.contains("bash"), "Co-Dev rows are not IDE operations");
+    assert_eq!(evidence::day(T0), "2025-11-13");
+}
+
+/// r23 F5b: incidents (local records) with their timeline and rules, Co-Dev's precision, and the queue's events.
+#[test]
+fn incidents_and_the_queue() {
+    let st = store();
+    let c = st.conn();
+    assert!(incidents::open(c, "/p", "x", "SEV-2", "ana", T0).is_err());
+    assert!(incidents::open(c, "/p", "checkout latency", "SEV-9", "ana", T0).is_err());
+    let i = incidents::open(
+        c,
+        "/p",
+        "checkout latency above the SLO",
+        "SEV-2",
+        "ana",
+        T0,
+    )
+    .unwrap();
+    assert_eq!(
+        (i.key.as_str(), i.status.as_str()),
+        ("INC-1", "investigating")
+    );
+    assert_eq!(
+        incidents::open(c, "/q", "other project", "SEV-3", "ana", T0)
+            .unwrap()
+            .key,
+        "INC-1"
+    );
+    incidents::add(
+        c,
+        "/p",
+        i.id,
+        "evidence",
+        "customers report timeouts since 10:30",
+        None,
+        "ana",
+        T0 + 1,
+    )
+    .unwrap();
+    incidents::add(
+        c,
+        "/p",
+        i.id,
+        "checked",
+        "kubectl get pods: 3/3 ready",
+        None,
+        "ana",
+        T0 + 2,
+    )
+    .unwrap();
+    assert!(incidents::add(
+        c,
+        "/p",
+        i.id,
+        "not-checked",
+        "database metrics",
+        None,
+        "ana",
+        T0 + 3
+    )
+    .unwrap_err()
+    .message
+    .contains("reason"));
+    incidents::add(
+        c,
+        "/p",
+        i.id,
+        "not-checked",
+        "database metrics",
+        Some("no metrics source connected"),
+        "ana",
+        T0 + 3,
+    )
+    .unwrap();
+    assert!(incidents::add(c, "/p", i.id, "bogus", "x", None, "ana", T0).is_err());
+    assert!(
+        incidents::feedback(c, "/p", i.id, true, "ana", T0 + 4).is_err(),
+        "only after mitigation"
+    );
+    assert!(
+        incidents::set_status(c, "/p", i.id, "resolved", " ", "ana", T0 + 5).is_err(),
+        "resolving needs a summary"
+    );
+    let m = incidents::set_status(
+        c,
+        "/p",
+        i.id,
+        "mitigated",
+        "rolled back web to rev 3",
+        "ana",
+        T0 + 5,
+    )
+    .unwrap();
+    assert_eq!(m.mitigated_at, Some(T0 + 5));
+    incidents::feedback(c, "/p", i.id, true, "ana", T0 + 6).unwrap();
+    assert!(
+        incidents::feedback(c, "/p", i.id, false, "ana", T0 + 7).is_err(),
+        "once"
+    );
+    let r = incidents::set_status(
+        c,
+        "/p",
+        i.id,
+        "resolved",
+        "pool exhausted after the 1.4 deploy",
+        "ana",
+        T0 + 8,
+    )
+    .unwrap();
+    assert_eq!(
+        (r.status.as_str(), r.resolved_at),
+        ("resolved", Some(T0 + 8))
+    );
+    assert!(incidents::set_status(c, "/p", i.id, "investigating", "", "ana", T0 + 9).is_err());
+    assert!(incidents::add(c, "/p", i.id, "evidence", "late", None, "ana", T0 + 9).is_err());
+    let (_, ev) = incidents::get(c, "/p", i.id).unwrap().unwrap();
+    assert_eq!(
+        ev.iter().map(|e| e.kind.as_str()).collect::<Vec<_>>(),
+        vec![
+            "status",
+            "evidence",
+            "checked",
+            "not-checked",
+            "status",
+            "feedback",
+            "status"
+        ]
+    );
+    assert_eq!(incidents::precision(c, "/p").unwrap(), (1, 1));
+    // confidence: never above «low» without a metrics source
+    let low = incidents::confidence(&ev, false);
+    assert_eq!(low.level, "low");
+    assert!(low.reasons[0].contains("no metrics source"));
+    assert_eq!(
+        incidents::confidence(&ev, true).level,
+        "medium",
+        "a check was not run"
+    );
+    let e = |k: &str| incidents::IncidentEvent {
+        kind: k.into(),
+        ..Default::default()
+    };
+    assert_eq!(
+        incidents::confidence(
+            &[e("evidence"), e("checked"), e("checked"), e("checked")],
+            true
+        )
+        .level,
+        "high"
+    );
+    assert_eq!(incidents::confidence(&[], true).level, "low");
+    assert_eq!(incidents::list(c, "/p").unwrap().len(), 1);
+    // the queue: done with proof; a handover needs a recipient and a reason
+    let q = |kind: &str, recipient: Option<&str>, reason: Option<&str>| incidents::QueueEvent {
+        item: "pr:49".into(),
+        kind: kind.into(),
+        title: "Review PR #49".into(),
+        recipient: recipient.map(String::from),
+        reason: reason.map(String::from),
+        actor: "ana".into(),
+        at: T0,
+        ..Default::default()
+    };
+    assert!(incidents::queue_event(c, "/p", &q("handover", None, Some("on leave"))).is_err());
+    assert!(incidents::queue_event(c, "/p", &q("handover", Some("bruno"), Some(" "))).is_err());
+    incidents::queue_event(
+        c,
+        "/p",
+        &q("handover", Some("bruno"), Some("on leave until Monday")),
+    )
+    .unwrap();
+    incidents::queue_event(
+        c,
+        "/p",
+        &incidents::QueueEvent {
+            proof: Some("ana reviewed: APPROVED".into()),
+            ..q("done", None, None)
+        },
+    )
+    .unwrap();
+    assert_eq!(incidents::queue_events(c, "/p").unwrap().len(), 2);
+}
+
+// ── Board B: each method drives the rules ─────────────────────────────────────────────────────
+
+fn apply_ok(s: &mut ProjectStore, j: serde_json::Value) -> Project {
+    s.apply(ROOT, "W", T0, op(j)).unwrap()
+}
+
+fn apply_err(s: &mut ProjectStore, j: serde_json::Value) -> ProjectError {
+    s.apply(ROOT, "W", T0, op(j)).unwrap_err()
+}
+
+fn issue_of<'a>(p: &'a Project, k: &str) -> &'a Issue {
+    p.issues.iter().find(|i| i.key == k).unwrap()
+}
+
+fn change_set(s: &mut ProjectStore, k: &str, path: &str) {
+    s.record_change_set(
+        ROOT,
+        &NewChangeSet {
+            session: "cda-1".into(),
+            call: format!("c-{path}"),
+            hunk: format!("h-{path}"),
+            path: path.into(),
+            start: 1,
+            end: 2,
+            added: 2,
+            removed: 0,
+            decided_by: "human".into(),
+            issue_key: Some(k.to_string()),
+        },
+        T0,
+    )
+    .unwrap();
+}
+
+fn red_run(s: &mut ProjectStore, k: &str, tests: &str) {
+    s.record_audit(
+        ROOT,
+        &AuditEntry {
+            at: T0,
+            session: "cda-1".into(),
+            event: "tdd".into(),
+            origin: "issue".into(),
+            issue_key: Some(k.to_string()),
+            actor: "W".into(),
+            mode: "assist".into(),
+            tool: Some("run_tests".into()),
+            path: Some(tests.into()),
+            outcome: Some("red".into()),
+            ..AuditEntry::default()
+        },
+    )
+    .unwrap();
+}
+
+#[test]
+fn choosing_a_method_applies_its_defaults_but_keeps_what_the_user_set() {
+    let mut s = store();
+    // the preview says what will change, and writes nothing
+    let ch = s.method_preview(ROOT, "xp", "en", T0).unwrap();
+    assert_eq!((ch.from.as_str(), ch.to.as_str()), ("kanban", "xp"));
+    assert!(ch
+        .changes
+        .iter()
+        .any(|c| c.field == "iter_days" && c.to == 7));
+    assert_eq!(s.load(ROOT, T0).unwrap().method, "kanban");
+    let p = apply_ok(
+        &mut s,
+        serde_json::json!({"op": "settings", "method": "xp", "lang": "en"}),
+    );
+    assert_eq!(p.method, "xp");
+    assert_eq!(p.iter_days, 7);
+    assert_eq!(p.wip.get("progress"), Some(&2));
+    assert_eq!(p.wip.get("accept"), None);
+    assert_eq!(p.dod[0], "Tests written before the code (TDD)");
+    assert_eq!(p.dor, ["Estimated by the pair", "Acceptance test written"]);
+    // the user's own WIP and DoD stay when the method changes again (and the preview lists them)
+    apply_ok(
+        &mut s,
+        serde_json::json!({"op": "settings", "wip": {"progress": 5, "review": 2}, "dod": ["Deployed"]}),
+    );
+    let ch = s.method_preview(ROOT, "scrum", "pt", T0).unwrap();
+    let kept: Vec<&str> = ch.kept.iter().map(|c| c.field.as_str()).collect();
+    assert_eq!(kept, ["wip.progress", "dod"]);
+    let p = apply_ok(
+        &mut s,
+        serde_json::json!({"op": "settings", "method": "scrum", "lang": "pt"}),
+    );
+    assert_eq!(p.iter_days, 14);
+    assert_eq!(p.wip.get("progress"), Some(&5));
+    assert_eq!(p.dod, ["Deployed"]);
+    // the English suggestion was XP's, so the DoR follows the new method (in the asked language)
+    assert_eq!(p.dor, ["Estimada em pontos", "Cabe numa sprint"]);
+    // fields in the same change win over the defaults
+    let p = apply_ok(
+        &mut s,
+        serde_json::json!({"op": "settings", "method": "kanban", "iter_days": 21}),
+    );
+    assert_eq!(p.iter_days, 21);
+    assert!(s.method_preview(ROOT, "agile", "pt", T0).is_err());
+}
+
+#[test]
+fn scrum_and_xp_enforce_the_sprint_capacity_with_an_override() {
+    let mut s = store();
+    apply_ok(
+        &mut s,
+        serde_json::json!({"op": "settings", "method": "scrum", "dor": []}),
+    );
+    apply_ok(
+        &mut s,
+        serde_json::json!({"op": "create_sprint", "name": "Sprint 1", "start": T0, "end": T0 + 14 * 24 * H, "capacity": 5}),
+    );
+    let a = create(&mut s, "a", T0); // 3 points each
+    let b = create(&mut s, "b", T0);
+    apply_ok(
+        &mut s,
+        serde_json::json!({"op": "plan_issue", "key": a, "sprint": "S1"}),
+    );
+    let e = apply_err(
+        &mut s,
+        serde_json::json!({"op": "plan_issue", "key": b, "sprint": "S1"}),
+    );
+    assert_eq!((e.code.as_str(), e.overridable), ("capacity", true));
+    assert!(
+        e.message.contains("5 pontos e ficaria com 6"),
+        "{}",
+        e.message
+    );
+    assert_eq!(issue_of(&s.load(ROOT, T0).unwrap(), &b).sprint, None);
+    // an empty reason is no reason; a reason plans it and is recorded
+    apply_err(
+        &mut s,
+        serde_json::json!({"op": "plan_issue", "key": b, "sprint": "S1", "reason": " "}),
+    );
+    let p = apply_ok(
+        &mut s,
+        serde_json::json!({"op": "plan_issue", "key": b, "sprint": "S1", "reason": "the PO asked"}),
+    );
+    assert_eq!(issue_of(&p, &b).sprint.as_deref(), Some("S1"));
+    let d = s.detail(ROOT, &b).unwrap();
+    assert_eq!(
+        (d.activity[0].kind.as_str(), d.activity[0].note.as_str()),
+        ("override", "excepção (capacity): the PO asked")
+    );
+    assert_eq!(
+        d.activity[1].kind, "planned",
+        "the plan itself is logged as before"
+    );
+    // a bigger estimate in the sprint is refused; a smaller one is always fine
+    assert_eq!(
+        apply_err(
+            &mut s,
+            serde_json::json!({"op": "update_issue", "key": a, "points": 5})
+        )
+        .code,
+        "capacity"
+    );
+    apply_ok(
+        &mut s,
+        serde_json::json!({"op": "update_issue", "key": a, "points": 2}),
+    );
+    // an unestimated issue adds nothing; creating straight into the sprint is checked too
+    let c = apply_ok(
+        &mut s,
+        serde_json::json!({"op": "create_issue", "title": "c", "sprint": "S1"}),
+    );
+    assert!(c.issues.iter().any(|i| i.title == "c"));
+    assert_eq!(
+        apply_err(
+            &mut s,
+            serde_json::json!({"op": "create_issue", "title": "d", "sprint": "S1", "points": 8})
+        )
+        .code,
+        "capacity"
+    );
+    // Kanban has no capacity
+    apply_ok(
+        &mut s,
+        serde_json::json!({"op": "settings", "method": "kanban"}),
+    );
+    apply_ok(
+        &mut s,
+        serde_json::json!({"op": "update_issue", "key": a, "points": 13}),
+    );
+    // XP enforces it as Scrum does
+    apply_ok(
+        &mut s,
+        serde_json::json!({"op": "settings", "method": "xp"}),
+    );
+    assert_eq!(
+        apply_err(
+            &mut s,
+            serde_json::json!({"op": "update_issue", "key": a, "points": 21})
+        )
+        .code,
+        "capacity"
+    );
+}
+
+#[test]
+fn kanban_lets_one_expedite_pass_the_wip_limit() {
+    let mut s = store(); // kanban: progress 3
+    for k in ["a", "b", "c"] {
+        let k = create(&mut s, k, T0);
+        mv(&mut s, &k, "progress", T0).unwrap();
+    }
+    let std = create(&mut s, "std", T0);
+    assert_eq!(mv(&mut s, &std, "progress", T0).unwrap_err().code, "wip");
+    let x = create(&mut s, "x", T0);
+    let y = create(&mut s, "y", T0);
+    for k in [&x, &y] {
+        apply_ok(
+            &mut s,
+            serde_json::json!({"op": "update_issue", "key": k, "cos": "expedite"}),
+        );
+    }
+    mv(&mut s, &x, "progress", T0).unwrap();
+    let d = s.detail(ROOT, &x).unwrap();
+    assert_eq!(d.activity[0].kind, "moved");
+    assert_eq!(
+        d.activity[0].note,
+        "expedite acima do limite de WIP de «progress» (4/3)"
+    );
+    // at most one over the limit per column
+    assert_eq!(mv(&mut s, &y, "progress", T0).unwrap_err().code, "wip");
+    // only Kanban has the class of service rule
+    let mut s = store();
+    apply_ok(
+        &mut s,
+        serde_json::json!({"op": "settings", "method": "scrum", "dor": [], "wip": {"progress": 1}}),
+    );
+    let a = create(&mut s, "a", T0);
+    s.conn().execute("UPDATE issues SET ready = 1", []).unwrap();
+    mv(&mut s, &a, "progress", T0).unwrap();
+    let e = create(&mut s, "e", T0);
+    s.conn().execute("UPDATE issues SET ready = 1", []).unwrap();
+    apply_ok(
+        &mut s,
+        serde_json::json!({"op": "update_issue", "key": e, "cos": "expedite"}),
+    );
+    assert_eq!(mv(&mut s, &e, "progress", T0).unwrap_err().code, "wip");
+}
+
+#[test]
+fn the_projects_own_dor_is_part_of_readiness_and_ticked_per_issue() {
+    let mut s = store();
+    apply_ok(
+        &mut s,
+        serde_json::json!({"op": "settings", "method": "scrum", "dor": ["Estimated", "UX approved"], "wip": {}}),
+    );
+    let p = apply_ok(
+        &mut s,
+        serde_json::json!({"op": "create_issue", "title": "x", "kind": "task", "acceptance": ["Dado X, quando Y, então Z"]}),
+    );
+    let k = p.issues[0].key.clone();
+    apply_ok(
+        &mut s,
+        serde_json::json!({"op": "update_issue", "key": k, "scope": ["src/**"]}),
+    );
+    let i = issue_of(&s.load(ROOT, T0).unwrap(), &k).clone();
+    assert_eq!(
+        i.missing,
+        [
+            "DoR: «Estimated»",
+            "DoR: «UX approved»",
+            "aprovação humana (Ready)"
+        ]
+    );
+    // Ready waits for the items
+    let e = apply_err(
+        &mut s,
+        serde_json::json!({"op": "update_issue", "key": k, "ready": true}),
+    );
+    assert!(e.message.contains("DoR: «UX approved»"), "{}", e.message);
+    // ticking them and approving in one change works
+    let p = apply_ok(
+        &mut s,
+        serde_json::json!({"op": "update_issue", "key": k, "dor_done": [true, true], "ready": true}),
+    );
+    assert!(issue_of(&p, &k).missing.is_empty());
+    assert_eq!(issue_of(&p, &k).dor_done, [true, true]);
+    // an item added after the approval: the move out of To Do waits for it (or a reason)
+    apply_ok(
+        &mut s,
+        serde_json::json!({"op": "settings", "dor": ["Estimated", "UX approved", "Security reviewed"]}),
+    );
+    let e = mv(&mut s, &k, "progress", T0).unwrap_err();
+    assert_eq!(e.code, "dor");
+    assert!(
+        e.message.contains("falta: DoR: «Security reviewed»"),
+        "{}",
+        e.message
+    );
+    let p = s
+        .apply(
+            ROOT,
+            "W",
+            T0,
+            op(serde_json::json!({"op": "move", "key": k, "to": "progress", "reason": "hotfix"})),
+        )
+        .unwrap();
+    assert_eq!(issue_of(&p, &k).state, "progress");
+    // Kanban does not check the DoR on moves, but readiness still lists the item (Co-Dev needs it)
+    let mut s = store();
+    apply_ok(
+        &mut s,
+        serde_json::json!({"op": "settings", "dor": ["Estimated"]}),
+    );
+    let k = create(&mut s, "y", T0);
+    assert!(mv(&mut s, &k, "progress", T0).is_ok());
+    assert!(issue_of(&s.load(ROOT, T0).unwrap(), &k)
+        .missing
+        .contains(&"DoR: «Estimated»".to_string()));
+}
+
+#[test]
+fn codev_finished_goes_to_review_only_by_the_normal_move() {
+    let mut s = store(); // kanban: review 2
+    for k in ["a", "b"] {
+        let k = create(&mut s, k, T0);
+        for to in ["progress", "review"] {
+            mv(&mut s, &k, to, T0).unwrap();
+        }
+    }
+    let k = create(&mut s, "x", T0);
+    mv(&mut s, &k, "progress", T0).unwrap();
+    let report = serde_json::json!({"criteria": [], "summary": "done"});
+    let p = s
+        .apply(
+            ROOT,
+            "Co-Dev",
+            T0,
+            op(serde_json::json!({"op": "codev_finished", "key": k, "report": report})),
+        )
+        .unwrap();
+    let i = issue_of(&p, &k);
+    assert_eq!(i.state, "progress", "the review column is full");
+    assert!(i.criteria_report.is_some(), "the answer is kept");
+    let d = s.detail(ROOT, &k).unwrap();
+    assert_eq!(d.activity[0].kind, "held");
+    assert!(
+        d.activity[0]
+            .note
+            .contains("o limite de WIP de «review» é 2"),
+        "{}",
+        d.activity[0].note
+    );
+    // one step at a time: from To Do it stays in To Do
+    let t = create(&mut s, "t", T0);
+    let p = s
+        .apply(
+            ROOT,
+            "Co-Dev",
+            T0,
+            op(serde_json::json!({"op": "codev_finished", "key": t, "report": report})),
+        )
+        .unwrap();
+    assert_eq!(issue_of(&p, &t).state, "todo");
+    assert!(s.detail(ROOT, &t).unwrap().activity[0]
+        .note
+        .contains("só anda um passo"));
+    // with room in Review it moves, with the RF-B06 note
+    apply_ok(&mut s, serde_json::json!({"op": "settings", "wip": {}}));
+    let p = s
+        .apply(
+            ROOT,
+            "Co-Dev",
+            T0,
+            op(serde_json::json!({"op": "codev_finished", "key": k, "report": report})),
+        )
+        .unwrap();
+    assert_eq!(issue_of(&p, &k).state, "review");
+    let d = s.detail(ROOT, &k).unwrap();
+    assert_eq!(
+        (d.activity[0].kind.as_str(), d.activity[0].note.as_str()),
+        ("moved", "critérios respondidos (RF-B06)")
+    );
+}
+
+#[test]
+fn codev_finished_checks_the_dod_answers_of_toolset_10() {
+    let mut s = store();
+    apply_ok(
+        &mut s,
+        serde_json::json!({"op": "settings", "dod": ["Docs updated", "Reviewed"], "wip": {}}),
+    );
+    let fin = |s: &mut ProjectStore, k: &str, report: serde_json::Value| {
+        let p = s
+            .apply(
+                ROOT,
+                "Co-Dev",
+                T0,
+                op(serde_json::json!({"op": "codev_finished", "key": k, "report": report})),
+            )
+            .unwrap();
+        issue_of(&p, k).state.clone()
+    };
+    let k = create(&mut s, "x", T0);
+    mv(&mut s, &k, "progress", T0).unwrap();
+    // one item left out, one for another text: both unanswered
+    let r = serde_json::json!({"criteria": [], "dod": [{"index": 1, "item": "Docs updated", "met": true, "evidence": "README.md:12"}, {"index": 2, "item": "Old item", "met": true, "evidence": "x"}]});
+    assert_eq!(fin(&mut s, &k, r), "progress");
+    let note = s.detail(ROOT, &k).unwrap().activity[0].note.clone();
+    assert!(
+        note.contains("a DoD ficou por responder: 2 «Reviewed»"),
+        "{note}"
+    );
+    let r = serde_json::json!({"criteria": [], "dod": [{"index": 1, "item": "Docs updated", "met": true, "evidence": "README.md:12"}, {"index": 2, "item": "Reviewed", "met": false, "evidence": "needs a human"}]});
+    assert_eq!(
+        fin(&mut s, &k, r),
+        "review",
+        "answered (met or not): the human decides in Review"
+    );
+    // a report of an older toolset has no DoD answers: not checked
+    let k = create(&mut s, "y", T0);
+    mv(&mut s, &k, "progress", T0).unwrap();
+    assert_eq!(
+        fin(&mut s, &k, serde_json::json!({"criteria": []})),
+        "review"
+    );
+}
+
+#[test]
+fn xp_needs_the_test_first_proof_to_reach_review() {
+    for method in ["xp", "scrumxp"] {
+        let mut s = store();
+        apply_ok(
+            &mut s,
+            serde_json::json!({"op": "settings", "method": method, "dor": [], "dod": [], "wip": {}}),
+        );
+        let k = create(&mut s, "x", T0);
+        s.conn().execute("UPDATE issues SET ready = 1", []).unwrap();
+        mv(&mut s, &k, "progress", T0).unwrap();
+        // without Co-Dev change sets there is nothing to prove (a human's own work)
+        let h = create(&mut s, "human", T0);
+        s.conn().execute("UPDATE issues SET ready = 1", []).unwrap();
+        mv(&mut s, &h, "progress", T0).unwrap();
+        assert!(mv(&mut s, &h, "review", T0).is_ok());
+        // Co-Dev changed code with no red run first
+        change_set(&mut s, &k, "src/lib.rs");
+        let report = serde_json::json!({"criteria": []});
+        let p = s
+            .apply(
+                ROOT,
+                "Co-Dev",
+                T0,
+                op(serde_json::json!({"op": "codev_finished", "key": k, "report": report})),
+            )
+            .unwrap();
+        assert_eq!(issue_of(&p, &k).state, "progress");
+        assert!(s.detail(ROOT, &k).unwrap().activity[0]
+            .note
+            .contains("sem prova de test-first"));
+        let e = mv(&mut s, &k, "review", T0).unwrap_err();
+        assert_eq!((e.code.as_str(), e.overridable), ("tdd", true));
+        // a red run whose tests are not in the accepted changes proves nothing
+        red_run(&mut s, &k, "tests/other.rs");
+        assert!(mv(&mut s, &k, "review", T0)
+            .unwrap_err()
+            .message
+            .contains("não estão nas alterações aceites"));
+        // the red run of tests that are in the changes: proven
+        change_set(&mut s, &k, "tests/pages.rs");
+        red_run(&mut s, &k, "tests/pages.rs\nsrc/lib.rs");
+        assert_eq!(
+            mv(&mut s, &k, "review", T0)
+                .unwrap()
+                .issues
+                .iter()
+                .find(|i| i.key == k)
+                .unwrap()
+                .state,
+            "review"
+        );
+        // the override, for another issue
+        let o = create(&mut s, "o", T0);
+        s.conn().execute("UPDATE issues SET ready = 1", []).unwrap();
+        mv(&mut s, &o, "progress", T0).unwrap();
+        change_set(&mut s, &o, "src/x.rs");
+        s.apply(ROOT, "W", T0, op(serde_json::json!({"op": "move", "key": o, "to": "review", "reason": "a refactor with the tests unchanged"})))
+            .unwrap();
+        assert_eq!(
+            s.detail(ROOT, &o).unwrap().activity[0].note,
+            "excepção (tdd): a refactor with the tests unchanged"
+        );
+    }
+    // Scrum does not ask for it
+    let mut s = store();
+    apply_ok(
+        &mut s,
+        serde_json::json!({"op": "settings", "method": "scrum", "dor": [], "wip": {}}),
+    );
+    let k = create(&mut s, "x", T0);
+    s.conn().execute("UPDATE issues SET ready = 1", []).unwrap();
+    mv(&mut s, &k, "progress", T0).unwrap();
+    change_set(&mut s, &k, "src/lib.rs");
+    assert!(mv(&mut s, &k, "review", T0).is_ok());
+}
+
+// ───── Board A: the sprint history the metrics read (migration 16) ─────
+
+const DAY: i64 = 24 * H;
+
+fn ap(s: &mut ProjectStore, at: i64, v: serde_json::Value) -> Project {
+    s.apply(ROOT, "Walter", at, op(v)).unwrap()
+}
+
+fn est(s: &mut ProjectStore, key: &str, points: Option<u32>, at: i64) {
+    ap(
+        s,
+        at,
+        serde_json::json!({"op": "update_issue", "key": key, "points": points}),
+    );
+}
+
+fn plan(s: &mut ProjectStore, key: &str, sprint: Option<&str>, at: i64) {
+    ap(
+        s,
+        at,
+        serde_json::json!({"op": "plan_issue", "key": key, "sprint": sprint}),
+    );
+}
+
+/// Walks an issue to Done one step at a time (no WIP, DoR or DoD in the way).
+fn finish(s: &mut ProjectStore, key: &str, at: i64) {
+    for to in ["progress", "review", "accept", "done"] {
+        s.apply(
+            ROOT,
+            "Walter",
+            at,
+            op(serde_json::json!({"op": "move", "key": key, "to": to, "reason": "test"})),
+        )
+        .unwrap();
+    }
+}
+
+fn sprint(s: &mut ProjectStore, name: &str, start: i64, days: i64) {
+    ap(
+        s,
+        start,
+        serde_json::json!({"op": "create_sprint", "name": name, "start": start, "end": start + days * DAY}),
+    );
+}
+
+fn scope_rows(s: &ProjectStore) -> Vec<(String, String, String, Option<u32>, String)> {
+    let mut st = s
+        .conn()
+        .prepare("SELECT sprint, key, change, points, reason FROM sprint_scope WHERE root = ?1 ORDER BY id")
+        .unwrap();
+    st.query_map(params![ROOT], |r| {
+        Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+    })
+    .unwrap()
+    .collect::<Result<_, _>>()
+    .unwrap()
+}
+
+#[test]
+fn sprint_scope_estimates_and_commitments_are_recorded_by_the_ops() {
+    let mut s = store();
+    sprint(&mut s, "S", T0, 10);
+    sprint(&mut s, "S'", T0 + 10 * DAY, 10);
+    let a = create(&mut s, "a", T0);
+    let p = ap(
+        &mut s,
+        T0,
+        serde_json::json!({"op": "create_issue", "title": "b", "points": 5, "sprint": "S1"}),
+    );
+    let b = p.issues.last().unwrap().key.clone();
+    let c = create(&mut s, "c", T0);
+    plan(&mut s, &a, Some("S1"), T0);
+    plan(&mut s, &a, Some("S1"), T0); // same sprint: nothing new
+    ap(
+        &mut s,
+        T0 + H,
+        serde_json::json!({"op": "start_sprint", "id": "S1"}),
+    );
+    est(&mut s, &a, Some(8), T0 + DAY);
+    est(&mut s, &a, Some(8), T0 + DAY); // same estimate: not a change
+    plan(&mut s, &c, Some("S1"), T0 + 2 * DAY);
+    plan(&mut s, &c, None, T0 + 3 * DAY);
+    finish(&mut s, &b, T0 + 4 * DAY);
+    ap(
+        &mut s,
+        T0 + 10 * DAY,
+        serde_json::json!({"op": "close_sprint", "id": "S1", "carry_to": "S2"}),
+    );
+
+    assert_eq!(
+        scope_rows(&s),
+        vec![
+            (
+                "S1".into(),
+                b.clone(),
+                "added".into(),
+                Some(5),
+                "created".into()
+            ),
+            (
+                "S1".into(),
+                a.clone(),
+                "added".into(),
+                Some(3),
+                "planned".into()
+            ),
+            (
+                "S1".into(),
+                c.clone(),
+                "added".into(),
+                Some(3),
+                "planned".into()
+            ),
+            (
+                "S1".into(),
+                c.clone(),
+                "removed".into(),
+                Some(3),
+                "planned".into()
+            ),
+            (
+                "S1".into(),
+                a.clone(),
+                "removed".into(),
+                Some(8),
+                "carried".into()
+            ),
+            (
+                "S2".into(),
+                a.clone(),
+                "added".into(),
+                Some(8),
+                "carried".into()
+            ),
+        ]
+    );
+    type Change = (String, Option<u32>, Option<u32>, Option<String>);
+    let ch: Vec<Change> = {
+        let mut st = s
+            .conn()
+            .prepare("SELECT key, old_points, new_points, sprint FROM estimate_changes ORDER BY id")
+            .unwrap();
+        let v = st
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        v
+    };
+    assert_eq!(ch, vec![(a.clone(), Some(3), Some(8), Some("S1".into()))]);
+    let act = s.detail(ROOT, &a).unwrap().activity;
+    assert!(
+        act.iter().any(|x| x.note == "estimativa 3 → 8"),
+        "the activity says old and new: {act:?}"
+    );
+    let snap = |kind: &str| -> Vec<(String, Option<u32>, String)> {
+        let mut st = s
+            .conn()
+            .prepare("SELECT key, points, state FROM sprint_snapshots WHERE sprint = 'S1' AND kind = ?1 ORDER BY key")
+            .unwrap();
+        let v = st
+            .query_map(params![kind], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        v
+    };
+    assert_eq!(
+        snap("start"),
+        vec![
+            (a.clone(), Some(3), "todo".into()),
+            (b.clone(), Some(5), "todo".into())
+        ]
+    );
+    assert_eq!(
+        snap("close"),
+        vec![
+            (a.clone(), Some(8), "todo".into()),
+            (b.clone(), Some(5), "done".into())
+        ],
+        "the close keeps what the carry-over moves away"
+    );
+    let (started, closed): (Option<i64>, Option<i64>) = s
+        .conn()
+        .query_row(
+            "SELECT started_at, closed_at FROM sprints WHERE id = 'S1'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!((started, closed), (Some(T0 + H), Some(T0 + 10 * DAY)));
+
+    // deleting an issue in a sprint takes it out of the scope
+    plan(&mut s, &c, Some("S2"), T0 + 11 * DAY);
+    ap(
+        &mut s,
+        T0 + 12 * DAY,
+        serde_json::json!({"op": "delete_issue", "key": c}),
+    );
+    let last = scope_rows(&s).pop().unwrap();
+    assert_eq!(
+        last,
+        ("S2".into(), c, "removed".into(), Some(3), "deleted".into())
+    );
+}
+
+#[test]
+fn the_burndown_keeps_each_day_as_it_was_when_scope_and_estimates_change() {
+    let mut s = store();
+    sprint(&mut s, "S", T0, 10);
+    let a = create(&mut s, "a", T0);
+    let b = create(&mut s, "b", T0);
+    let c = create(&mut s, "c", T0);
+    est(&mut s, &c, Some(5), T0);
+    plan(&mut s, &a, Some("S1"), T0);
+    plan(&mut s, &b, Some("S1"), T0);
+    ap(
+        &mut s,
+        T0,
+        serde_json::json!({"op": "start_sprint", "id": "S1"}),
+    );
+    finish(&mut s, &b, T0 + DAY);
+    let before = s.reports(ROOT, T0 + DAY).unwrap().burndown.unwrap();
+    plan(&mut s, &c, Some("S1"), T0 + 2 * DAY); // +5 mid-sprint
+    est(&mut s, &a, Some(8), T0 + 3 * DAY); // 3 → 8
+
+    let bd = s.reports(ROOT, T0 + 4 * DAY).unwrap().burndown.unwrap();
+    assert_eq!((bd.committed, bd.total, bd.scope), (Some(6), 6, 16));
+    assert!(!bd.partial);
+    let rows: Vec<(u32, u32, u32)> = bd
+        .days
+        .iter()
+        .map(|d| (d.scope, d.done, d.remaining))
+        .collect();
+    assert_eq!(
+        rows,
+        vec![(6, 0, 6), (6, 3, 3), (11, 3, 8), (16, 3, 13), (16, 3, 13)],
+        "each day with that day's scope and estimates"
+    );
+    assert_eq!(
+        &bd.days[..2],
+        &before.days[..],
+        "what happened later does not rewrite the past"
+    );
+    let r = s.reports(ROOT, T0 + 4 * DAY).unwrap();
+    // the names the UI reads (domain/types.ts::parseReports)
+    let j = serde_json::to_value(&r).unwrap();
+    for k in ["insights", "withheld", "historySince"] {
+        assert!(j.get(k).is_some(), "{k}");
+    }
+    for k in ["committed", "scope", "partial", "unestimated", "name"] {
+        assert!(j["burndown"].get(k).is_some(), "{k}");
+    }
+    assert_eq!(j["burndown"]["days"][2]["scope"], serde_json::json!(11));
+    assert_eq!(j["insights"][0]["severity"], serde_json::json!("risk"));
+    let creep = r.insights.iter().find(|i| i.code == "scope_creep").unwrap();
+    assert_eq!(creep.params["added"], serde_json::json!(5));
+    assert_eq!(creep.params["reestimated"], serde_json::json!(5));
+    assert_eq!(creep.params["net"], serde_json::json!(10));
+    assert_eq!(creep.keys, vec![c]);
+}
+
+#[test]
+fn velocity_keeps_committed_vs_done_through_the_carry_over() {
+    let mut s = store();
+    sprint(&mut s, "S", T0, 10);
+    sprint(&mut s, "S'", T0 + 10 * DAY, 10);
+    let a = create(&mut s, "a", T0);
+    let b = create(&mut s, "b", T0);
+    let c = create(&mut s, "c", T0);
+    let d = create(&mut s, "d", T0);
+    est(&mut s, &b, Some(5), T0);
+    for k in [&a, &b, &d] {
+        plan(&mut s, k, Some("S1"), T0);
+    }
+    ap(
+        &mut s,
+        T0,
+        serde_json::json!({"op": "start_sprint", "id": "S1"}),
+    );
+    finish(&mut s, &a, T0 + DAY);
+    plan(&mut s, &c, Some("S1"), T0 + 2 * DAY);
+    finish(&mut s, &c, T0 + 3 * DAY);
+    plan(&mut s, &d, None, T0 + 4 * DAY);
+    ap(
+        &mut s,
+        T0 + 10 * DAY,
+        serde_json::json!({"op": "close_sprint", "id": "S1", "carry_to": "S2"}),
+    );
+    // re-estimating the carried issue later does not change the closed sprint
+    est(&mut s, &b, Some(13), T0 + 11 * DAY);
+    let v = &s.reports(ROOT, T0 + 11 * DAY).unwrap().velocity[0];
+    assert_eq!(v.points, 6, "a (3) + c (3), finished in the sprint");
+    assert_eq!(v.committed, Some(11), "a 3 + b 5 + d 3");
+    assert_eq!(v.committed_done, Some(3));
+    assert_eq!((v.added, v.removed, v.carried), (Some(3), Some(3), Some(5)));
+    assert!(!v.partial);
+
+    // the next sprint commits to the carried issue with its new estimate
+    ap(
+        &mut s,
+        T0 + 11 * DAY,
+        serde_json::json!({"op": "start_sprint", "id": "S2"}),
+    );
+    let bd = s.reports(ROOT, T0 + 11 * DAY).unwrap().burndown.unwrap();
+    assert_eq!(bd.committed, Some(13));
+    finish(&mut s, &b, T0 + 12 * DAY);
+    ap(
+        &mut s,
+        T0 + 13 * DAY,
+        serde_json::json!({"op": "close_sprint", "id": "S2"}),
+    );
+    let r = s.reports(ROOT, T0 + 13 * DAY).unwrap();
+    assert_eq!(r.velocity[1].committed_done, Some(13));
+    let rel = r.insights.iter().find(|i| i.code == "reliability").unwrap();
+    assert_eq!(rel.params["committed"], serde_json::json!(24));
+    assert_eq!(rel.params["delivered"], serde_json::json!(16));
+    assert_eq!(rel.params["pct"], serde_json::json!(67));
+}
+
+#[test]
+fn a_sprint_started_before_the_history_is_reported_as_partial() {
+    let mut s = store();
+    sprint(&mut s, "S", T0, 10);
+    sprint(&mut s, "Old", T0 - 20 * DAY, 10);
+    let a = create(&mut s, "a", T0);
+    let b = create(&mut s, "b", T0);
+    plan(&mut s, &a, Some("S1"), T0);
+    plan(&mut s, &b, Some("S2"), T0);
+    finish(&mut s, &b, T0);
+    // as a base migrated from schema 15 has them: started/closed with no history recorded
+    s.conn()
+        .execute_batch(
+            "DELETE FROM sprint_scope; DELETE FROM sprint_snapshots;
+             UPDATE sprints SET state = 'active' WHERE id = 'S1';
+             UPDATE sprints SET state = 'closed' WHERE id = 'S2';",
+        )
+        .unwrap();
+    est(&mut s, &a, Some(5), T0 + DAY);
+    let r = s.reports(ROOT, T0 + 2 * DAY).unwrap();
+    let bd = r.burndown.unwrap();
+    assert!(bd.partial);
+    assert_eq!(bd.committed, None, "no commitment is invented");
+    assert_eq!(bd.total, 3, "the ideal starts at the first day's scope");
+    assert_eq!(
+        bd.days.iter().map(|d| d.scope).collect::<Vec<_>>(),
+        vec![3, 5, 5],
+        "the estimate change after the history began is still read per day"
+    );
+    assert!(r.withheld.iter().any(|w| w.code == "scope_creep_partial"));
+    assert_eq!(
+        r.velocity,
+        vec![reports::Velocity {
+            sprint: "S2".into(),
+            name: "Old".into(),
+            points: 3,
+            committed: None,
+            committed_done: None,
+            added: None,
+            removed: None,
+            carried: None,
+            partial: true,
+        }]
+    );
+    // closing it after the history began: what it held at the close is known, not its commitment
+    ap(
+        &mut s,
+        T0 + 3 * DAY,
+        serde_json::json!({"op": "close_sprint", "id": "S1"}),
+    );
+    let v = s.reports(ROOT, T0 + 3 * DAY).unwrap().velocity;
+    let s1 = v.iter().find(|v| v.sprint == "S1").unwrap();
+    assert!(s1.partial);
+    assert_eq!((s1.points, s1.carried, s1.committed), (0, Some(5), None));
+}
+
+#[test]
+fn blocks_tests_and_cost_feed_the_insights() {
+    let mut s = store();
+    let a = create(&mut s, "a", T0);
+    let b = create(&mut s, "b", T0);
+    for k in [&a, &b] {
+        s.apply(
+            ROOT,
+            "W",
+            T0,
+            op(serde_json::json!({"op": "move", "key": k, "to": "progress", "reason": "t"})),
+        )
+        .unwrap();
+    }
+    for (k, passed, at) in [
+        (&a, false, T0 + H),
+        (&a, false, T0 + 2 * H),
+        (&b, true, T0 + 3 * H),
+    ] {
+        ap(
+            &mut s,
+            at,
+            serde_json::json!({"op": "tests_run", "key": k, "passed": passed, "summary": "1 failed"}),
+        );
+    }
+    let act = s.detail(ROOT, &a).unwrap().activity;
+    assert_eq!(
+        act.iter().filter(|x| x.kind == "blocked").count(),
+        1,
+        "the second failure blocks it, and the block is in the activity"
+    );
+    let r = s.reports(ROOT, T0 + 2 * H + 3 * DAY).unwrap();
+    let bl = r.insights.iter().find(|i| i.code == "blocked").unwrap();
+    assert_eq!(bl.keys, vec![a.clone()]);
+    assert_eq!(bl.params["longestDays"], serde_json::json!(3.0));
+    let rw = r.insights.iter().find(|i| i.code == "rework").unwrap();
+    assert_eq!(rw.params["runs"], serde_json::json!(3));
+    assert_eq!(rw.params["failed"], serde_json::json!(2));
+    assert_eq!(rw.keys, vec![a.clone()]);
+    // one Co-Dev turn with a cost is not enough for a cost per point
+    let turn = |key: &str, usd: f64| AuditEntry {
+        id: 0,
+        at: T0,
+        session: "s".into(),
+        event: "turn".into(),
+        origin: "issue".into(),
+        issue_key: Some(key.into()),
+        actor: "W".into(),
+        mode: "auto".into(),
+        tool: None,
+        call: None,
+        path: None,
+        lines: None,
+        command: None,
+        verdict: None,
+        outcome: None,
+        decided_by: None,
+        decided_at: None,
+        reason: None,
+        model: None,
+        tokens_in: None,
+        tokens_out: None,
+        driver: None,
+        cost_usd: Some(usd),
+    };
+    s.record_audit(ROOT, &turn(&b, 0.5)).unwrap();
+    let r = s.reports(ROOT, T0 + DAY).unwrap();
+    assert!(r.withheld.iter().any(|w| w.code == "cost_wait"));
+    assert!(r.insights.iter().all(|i| !i.code.starts_with("cost")));
+}
+
+#[test]
+fn a_new_project_records_its_history_from_its_creation() {
+    let s = store();
+    s.load(ROOT, T0).unwrap();
+    assert_eq!(s.reports(ROOT, T0).unwrap().history_since, Some(T0));
+}
+
+#[test]
+fn an_issue_done_before_the_sprint_is_not_counted_as_its_work() {
+    let mut s = store();
+    sprint(&mut s, "S", T0, 10);
+    let a = create(&mut s, "a", T0);
+    let b = create(&mut s, "b", T0);
+    finish(&mut s, &b, T0);
+    plan(&mut s, &a, Some("S1"), T0);
+    ap(
+        &mut s,
+        T0 + H,
+        serde_json::json!({"op": "start_sprint", "id": "S1"}),
+    );
+    plan(&mut s, &b, Some("S1"), T0 + DAY);
+    let bd = s.reports(ROOT, T0 + DAY).unwrap().burndown.unwrap();
+    assert_eq!(
+        bd.days
+            .iter()
+            .map(|d| (d.scope, d.done))
+            .collect::<Vec<_>>(),
+        vec![(3, 0), (3, 0)]
+    );
+    ap(
+        &mut s,
+        T0 + 2 * DAY,
+        serde_json::json!({"op": "close_sprint", "id": "S1"}),
+    );
+    let v = &s.reports(ROOT, T0 + 2 * DAY).unwrap().velocity[0];
+    assert_eq!((v.points, v.added, v.carried), (0, Some(0), Some(3)));
+}
+
+#[test]
+fn the_mandatory_checks_are_kept_on_the_project() {
+    let mut s = store();
+    assert!(s.load(ROOT, T0).unwrap().checks.is_empty());
+    assert!(s.checks(ROOT).unwrap().is_empty());
+    let p = s
+        .apply(
+            ROOT,
+            "Walter",
+            T0,
+            op(serde_json::json!({"op": "settings", "checks": [
+                {"name": " tests ", "command": " cargo test --workspace "},
+                {"name": "", "command": ""},
+                {"name": "lint", "command": "cargo clippy --workspace --all-targets"}
+            ]})),
+        )
+        .unwrap();
+    assert_eq!(
+        p.checks,
+        vec![
+            Check {
+                name: "tests".into(),
+                command: "cargo test --workspace".into()
+            },
+            Check {
+                name: "lint".into(),
+                command: "cargo clippy --workspace --all-targets".into()
+            },
+        ]
+    );
+    assert_eq!(s.checks(ROOT).unwrap(), p.checks);
+    // another setting leaves them as they are
+    let p = s
+        .apply(
+            ROOT,
+            "Walter",
+            T0,
+            op(serde_json::json!({"op": "settings", "iter_days": 7})),
+        )
+        .unwrap();
+    assert_eq!(p.checks.len(), 2);
+    for bad in [
+        serde_json::json!([{"name": "tests", "command": ""}]),
+        serde_json::json!([{"name": "t", "command": "a"}, {"name": "T", "command": "b"}]),
+        serde_json::json!([{"name": "t", "command": "a\nb"}]),
+        serde_json::json!((0..13)
+            .map(|i| serde_json::json!({"name": format!("c{i}"), "command": "x"}))
+            .collect::<Vec<_>>()),
+    ] {
+        let e = s
+            .apply(
+                ROOT,
+                "Walter",
+                T0,
+                op(serde_json::json!({"op": "settings", "checks": bad})),
+            )
+            .unwrap_err();
+        assert_eq!(e.code, "invalid", "{bad}");
+    }
+    // empty: back to the detected test command
+    let p = s
+        .apply(
+            ROOT,
+            "Walter",
+            T0,
+            op(serde_json::json!({"op": "settings", "checks": []})),
+        )
+        .unwrap();
+    assert!(p.checks.is_empty());
+    assert!(s.checks(ROOT).unwrap().is_empty());
+}
+
+#[test]
+fn the_functional_approval_is_recorded_audited_and_falls_with_the_criteria() {
+    let mut s = store();
+    let k = create(&mut s, "Cart", T0);
+    let ap = |s: &mut ProjectStore, who: &str, at: i64, v: serde_json::Value| {
+        s.apply(ROOT, who, at, op(v))
+    };
+    // without criteria there is nothing to confirm
+    let e = ap(
+        &mut s,
+        "Ana",
+        T0,
+        serde_json::json!({"op": "approve_functional", "key": k}),
+    )
+    .unwrap_err();
+    assert_eq!(e.code, "invalid");
+    assert!(e.message.contains("critérios"), "{}", e.message);
+    let crit = |t: &str| serde_json::json!({"op": "set_acceptance", "key": k, "items": [{"text": t, "done": true}]});
+    ap(
+        &mut s,
+        "Ana",
+        T0,
+        crit("Given a cart When I add Then it counts"),
+    )
+    .unwrap();
+    let p = ap(
+        &mut s,
+        "Ana",
+        T0 + H,
+        serde_json::json!({"op": "approve_functional", "key": k, "note": " tried it on staging "}),
+    )
+    .unwrap();
+    let i = p.issues.iter().find(|i| i.key == k).unwrap();
+    assert_eq!(
+        i.functional,
+        Some(FunctionalApproval {
+            by: "Ana".into(),
+            at: T0 + H,
+            note: "tried it on staging".into()
+        })
+    );
+    // twice: refused (the record says who already approved)
+    let e = ap(
+        &mut s,
+        "Rui",
+        T0 + H,
+        serde_json::json!({"op": "approve_functional", "key": k}),
+    )
+    .unwrap_err();
+    assert!(e.message.contains("Ana"), "{}", e.message);
+    // in the activity and in the audit log
+    let d = s.detail(ROOT, &k).unwrap();
+    assert!(d
+        .activity
+        .iter()
+        .any(|a| a.kind == "functional" && a.actor == "Ana" && a.note == "tried it on staging"));
+    let audit = s.audit(ROOT, Some(&k)).unwrap();
+    let row = audit
+        .iter()
+        .find(|r| r.call.as_deref() == Some("functional.approve"))
+        .unwrap();
+    assert_eq!(row.actor, "Ana");
+    assert_eq!(row.decided_by.as_deref(), Some("human:Ana"));
+    assert_eq!(row.at, T0 + H);
+    assert_eq!(row.origin, "ide");
+    // the same criteria again: the approval stays
+    let p = ap(
+        &mut s,
+        "Ana",
+        T0 + 2 * H,
+        crit("Given a cart When I add Then it counts"),
+    )
+    .unwrap();
+    assert!(p
+        .issues
+        .iter()
+        .find(|i| i.key == k)
+        .unwrap()
+        .functional
+        .is_some());
+    // other criteria: it falls (it was given against the old ones)
+    let p = ap(
+        &mut s,
+        "Ana",
+        T0 + 3 * H,
+        crit("Given a cart When I remove Then it counts"),
+    )
+    .unwrap();
+    assert!(p
+        .issues
+        .iter()
+        .find(|i| i.key == k)
+        .unwrap()
+        .functional
+        .is_none());
+    assert!(s
+        .detail(ROOT, &k)
+        .unwrap()
+        .activity
+        .iter()
+        .any(|a| a.kind == "functional_reset"));
+    // revoke: needs a reason and an approval
+    ap(
+        &mut s,
+        "Ana",
+        T0 + 4 * H,
+        serde_json::json!({"op": "approve_functional", "key": k}),
+    )
+    .unwrap();
+    assert_eq!(
+        ap(
+            &mut s,
+            "Ana",
+            T0,
+            serde_json::json!({"op": "revoke_functional", "key": k, "reason": " "})
+        )
+        .unwrap_err()
+        .code,
+        "invalid"
+    );
+    let p = ap(
+        &mut s,
+        "Ana",
+        T0 + 5 * H,
+        serde_json::json!({"op": "revoke_functional", "key": k, "reason": "the total is wrong"}),
+    )
+    .unwrap();
+    assert!(p
+        .issues
+        .iter()
+        .find(|i| i.key == k)
+        .unwrap()
+        .functional
+        .is_none());
+    assert!(s
+        .audit(ROOT, Some(&k))
+        .unwrap()
+        .iter()
+        .any(|r| r.call.as_deref() == Some("functional.revoke")
+            && r.reason.as_deref() == Some("the total is wrong")));
+    assert_eq!(
+        ap(
+            &mut s,
+            "Ana",
+            T0,
+            serde_json::json!({"op": "revoke_functional", "key": k, "reason": "x"})
+        )
+        .unwrap_err()
+        .code,
+        "invalid"
+    );
+    assert_eq!(
+        ap(
+            &mut s,
+            "Ana",
+            T0,
+            serde_json::json!({"op": "approve_functional", "key": "NOPE-9"})
+        )
+        .unwrap_err()
+        .code,
+        "not_found"
+    );
 }

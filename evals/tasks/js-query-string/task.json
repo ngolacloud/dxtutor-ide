@@ -1,0 +1,9 @@
+{
+  "id": "js-query-string",
+  "title": "Query strings with repeated keys",
+  "language": "javascript",
+  "category": "bugfix",
+  "prompt": "`parseQuery` in src/query.js breaks the product filters: `?tag=a&tag=b` keeps only `b`, `+` is not a space and\npercent-encoded text is left encoded. Fix it: a leading `?` is optional, repeated keys give an array in order,\n`+` means a space, keys and values are percent-decoded, a key without `=` has the value `\"\"`, and empty pieces\n(`a=1&&b=2`) are ignored. A malformed escape (`%zz`) keeps the raw text instead of throwing.",
+  "check": "node --test 2>&1",
+  "test": "node --test"
+}

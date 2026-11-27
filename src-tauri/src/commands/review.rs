@@ -32,7 +32,7 @@ pub async fn review_code(
 /// The local analyzers installed on this host, so the review UI can advertise what
 /// it can really do and show which tools are missing.
 #[tauri::command]
-pub fn list_review_analyzers() -> Vec<tutor_eval::review::AnalyzerInfo> {
+pub async fn list_review_analyzers() -> Vec<tutor_eval::review::AnalyzerInfo> {
     tutor_eval::review::detect_analyzers()
 }
 
@@ -41,7 +41,7 @@ pub fn list_review_analyzers() -> Vec<tutor_eval::review::AnalyzerInfo> {
 /// when the review ran (from `ReviewReport.fileVersions`). Refuses — preserving the
 /// developer's edits — if the buffer drifted or the target snippet no longer matches.
 #[tauri::command]
-pub fn verify_review_fix(
+pub async fn verify_review_fix(
     current_source: String,
     analyzed_version: String,
     fix: tutor_eval::review::SuggestedFix,

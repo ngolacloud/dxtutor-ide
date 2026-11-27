@@ -108,6 +108,11 @@ pub fn create_branch(root: &Path, name: &str) -> Result<(), GitError> {
 /// Caso de uso «clone»: clona `url` para dentro de `parent_dir` e devolve o caminho do
 /// novo repo como `String` (a tradução `PathBuf` → `String` que o comando fazia), para o
 /// workspace o poder montar.
+/// Caso de uso «planear o clone» (r23 F6): o comando exacto e a pasta, antes da aprovação.
+pub fn clone_plan(url: &str, parent_dir: &Path) -> Result<git::ClonePlan, GitError> {
+    git::clone_plan(url, parent_dir).map_err(GitError::Git)
+}
+
 pub fn clone(url: &str, parent_dir: &Path) -> Result<String, GitError> {
     git::clone_repo(url, parent_dir)
         .map(|p| p.to_string_lossy().into_owned())

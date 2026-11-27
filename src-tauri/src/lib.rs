@@ -13,17 +13,24 @@
 pub mod agent;
 pub mod arch_rules;
 pub mod assistant;
+pub mod backlog;
 mod board;
 mod bridge;
 pub mod codeintel;
 pub mod codev;
 pub mod codev_agent;
+mod codev_autonomy;
+mod codev_pr;
+mod codev_review;
+mod codev_worktree;
 mod commands;
 pub mod debug;
 pub mod devcontainer;
 pub mod dictation;
+pub mod eval;
 mod fsops;
 pub mod gitops;
+pub mod ide_tool;
 mod keys;
 mod llm;
 mod lsp;
@@ -67,16 +74,32 @@ use commands::codev::{
 };
 use commands::codev_agent::{
     codev_agent_approve, codev_agent_cancel, codev_agent_checkpoints, codev_agent_close,
-    codev_agent_extensions, codev_agent_history, codev_agent_permissions, codev_agent_review,
-    codev_agent_rewind, codev_agent_save_permissions, codev_agent_send, codev_agent_sessions,
-    codev_agent_set_mode, codev_agent_set_plan, codev_agent_start, codev_agent_trust,
+    codev_agent_extensions, codev_agent_history, codev_agent_live, codev_agent_override,
+    codev_agent_permissions, codev_agent_review, codev_agent_rewind, codev_agent_save_permissions,
+    codev_agent_send, codev_agent_sessions, codev_agent_set_mode, codev_agent_set_plan,
+    codev_agent_start, codev_agent_trust,
+};
+use commands::codev_autonomy::{
+    codev_autonomy_grant, codev_autonomy_pause, codev_autonomy_revoke, codev_autonomy_state,
+    codev_pr_open, codev_pr_state,
+};
+use commands::codev_review::{
+    codev_review_cancel, codev_review_integrate, codev_review_request, codev_review_state,
+};
+use commands::codev_worktree::{
+    codev_claims, codev_worktree_commit, codev_worktree_create, codev_worktree_file,
+    codev_worktree_plan, codev_worktree_remove, codev_worktrees,
 };
 use commands::debug_cmds::{
     breakpoints_load, breakpoints_save, debug_attach, debug_attach_targets, debug_available,
-    debug_break, debug_capabilities, debug_continue, debug_evaluate, debug_launch, debug_locals,
-    debug_pause, debug_run, debug_set_breakpoints, debug_snapshot, debug_stack, debug_step,
-    debug_stop, debug_stop_on_panic, debug_threads, debug_variables,
+    debug_break, debug_capabilities, debug_continue, debug_data_breakpoints, debug_evaluate,
+    debug_exception_filters, debug_last_write, debug_launch, debug_locals, debug_pause,
+    debug_position, debug_read_memory, debug_record, debug_replay, debug_restart_frame,
+    debug_reverse, debug_run, debug_run_to, debug_set_breakpoints, debug_snapshot, debug_stack,
+    debug_step, debug_stop, debug_stop_on_panic, debug_test_targets, debug_threads, debug_travel,
+    debug_variables, debug_writes,
 };
+use commands::deploy::{deploy_plan, deploy_rollout};
 use commands::devcontainer::{
     devcontainer_exec, devcontainer_info, devcontainer_session_down, devcontainer_session_exec,
     devcontainer_session_run, devcontainer_session_status, devcontainer_session_up,
@@ -84,12 +107,20 @@ use commands::devcontainer::{
 };
 use commands::dictation::{dictation_cancel, dictation_start, dictation_status, dictation_stop};
 use commands::git::{
-    git_amend, git_blame, git_branch, git_branches, git_changes, git_checkout, git_clone,
-    git_commit, git_compare, git_create_branch, git_diff, git_diff_range, git_history, git_log,
-    git_rebase, git_show, git_show_path, git_stage, git_stage_all, git_stash, git_unstage,
+    gh_prs, gh_prs_for, gh_runs_for, gh_status, git_amend, git_blame, git_branch, git_branches,
+    git_changes, git_checkout, git_clone, git_clone_plan, git_commit, git_commit_paths,
+    git_compare, git_conflict_stages, git_create_branch, git_diff, git_diff_range, git_history,
+    git_hunks, git_lane_commit, git_log, git_merge, git_predict_conflicts, git_rebase, git_refs,
+    git_show, git_show_path, git_stage, git_stage_all, git_stage_hunks, git_stash, git_sync,
+    git_sync_plan, git_undo_list, git_undo_plan, git_undo_restore, git_undo_snapshot, git_unstage,
     git_worktree,
 };
 use commands::hood::{hood_line_asm, hood_python_bytecode, measure_growth};
+use commands::iac::{iac_apply_command, iac_pipeline_run, iac_state};
+use commands::lsp_install::{lsp_install_download, lsp_install_plan};
+use commands::metrics::{
+    incident_metrics_check, metrics_status, metrics_token_clear, metrics_token_set,
+};
 use commands::missions::{compile_pipeline, run_drill, run_measured, trace_execution};
 use commands::ops::{
     ops_cloud_inventory, ops_cloud_status, ops_iac_dirs, ops_iac_plan, ops_kube_history,
@@ -97,16 +128,34 @@ use commands::ops::{
 };
 use commands::pair::{pair_host, pair_join, pair_send, pair_stop};
 use commands::panel::{ports_list, problems_scan};
+use commands::platform::{
+    incident_add, incident_feedback, incident_get, incident_list, incident_open, incident_status,
+    pr_infra_review, pr_review_submit, queue_handover, queue_items, queue_verify,
+};
 use commands::plugins::{plugin_install, plugin_list, plugin_remove};
+use commands::protect::{
+    protect_hook_install, protect_hook_plan, protect_learn, secret_scan, secret_scan_allow,
+};
 use commands::review::{list_review_analyzers, review_code, verify_review_fix};
+use commands::runbook::{
+    runbook_decide, runbook_list, runbook_parse, runbook_step, sources_status,
+};
 use commands::sandbox::{compose_ps, get_sandbox_engine, set_sandbox_engine};
-use commands::search::{detect_projects, list_files, read_folder_sources, search_project};
+use commands::scaffold::{project_new, project_new_plan, project_templates};
+use commands::search::{
+    detect_projects, list_files, read_folder_sources, search_project, workspace_projects,
+};
 use commands::study::{
-    get_course, get_glossary, get_study_guide, list_courses, list_phases, request_fix,
-    request_hint, request_plan, study_policy, submit, submit_step,
+    course_prepare, course_prepare_status, get_course, get_glossary, get_study_guide,
+    learn_cluster_delete, learn_cluster_start, learn_cluster_status, list_courses, list_phases,
+    request_fix, request_hint, request_plan, study_policy, submit, submit_step,
 };
 use commands::tests::{
     list_tests, run_all_tests, run_path, run_test, run_tests, test_history, test_run, test_runners,
+};
+use commands::vault::{
+    vault_dynamic, vault_kv_meta, vault_lease_revoke, vault_login_oidc, vault_login_token,
+    vault_renew, vault_reveal_local, vault_reveal_read, vault_revoke, vault_status,
 };
 
 use serde::Serialize;
@@ -165,6 +214,10 @@ struct GabaritoDto {
     time: String,
     space: String,
     justification: String,
+    /// Project step: the reference solution files (path → content). Absent for a
+    /// single-file challenge, so its payload is unchanged.
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    files: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Serialize)]
@@ -238,6 +291,22 @@ struct StepDto {
     entry: String,
     /// challenge: starter code.
     starter: String,
+    /// Project step (several files): the starter files, the file to open first and the
+    /// read-only ones. The hidden test files and the solution files are NOT here (honesty).
+    /// Absent for every other step, so their payload is unchanged.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    project: Option<StepProjectDto>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StepProjectDto {
+    main: String,
+    files: std::collections::BTreeMap<String, String>,
+    readonly: Vec<String>,
+    /// The step is checked live in the course's practice cluster (Learn P3b); absent otherwise.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    live: bool,
 }
 
 #[derive(Serialize)]
@@ -286,12 +355,20 @@ pub(crate) struct StudyGuideDto {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CourseDto {
     id: String,
+    /// The language the steps are written and graded in.
     language: String,
+    /// "language" | "framework" | "tool".
+    category: &'static str,
+    /// The framework/tool taught (empty for a language course).
+    subject: String,
     title: String,
     level: String,
     summary: String,
     /// Reading text that introduces the language (markdown). May be empty.
     overview: String,
+    /// The course compiles against dependencies prepared once (`[build] prepare`): grade only
+    /// after `course_prepare` (`course_prepare_status` says whether it is ready).
+    prepare: bool,
     units: Vec<UnitDto>,
 }
 
@@ -300,6 +377,10 @@ pub(crate) struct CourseDto {
 pub(crate) struct CourseSummaryDto {
     id: String,
     language: String,
+    /// "language" | "framework" | "tool".
+    category: &'static str,
+    /// The framework/tool taught (empty for a language course).
+    subject: String,
     title: String,
     level: String,
     summary: String,
@@ -499,6 +580,12 @@ fn step_dto(s: &tutor_core::Step) -> StepDto {
         instructions: s.instructions.clone(),
         entry: s.entry.clone(),
         starter: s.starter.clone(),
+        project: s.project.as_ref().map(|p| StepProjectDto {
+            main: p.main.clone(),
+            files: p.starter.clone(),
+            readonly: p.readonly.clone(),
+            live: tutor_core::livecheck::step_is_live(p),
+        }),
     }
 }
 
@@ -506,10 +593,13 @@ pub(crate) fn course_dto(c: &tutor_core::Course) -> CourseDto {
     CourseDto {
         id: c.id.clone(),
         language: c.language.clone(),
+        category: c.category.as_str(),
+        subject: c.subject.clone(),
         title: c.title.clone(),
         level: c.level.clone(),
         summary: c.summary.clone(),
         overview: c.overview.clone(),
+        prepare: c.build.prepare,
         units: c
             .units
             .iter()
@@ -532,6 +622,8 @@ pub(crate) fn course_summary_dto(c: tutor_core::Course) -> CourseSummaryDto {
     CourseSummaryDto {
         id: c.id,
         language: c.language,
+        category: c.category.as_str(),
+        subject: c.subject,
         title: c.title,
         level: c.level,
         summary: c.summary,
@@ -577,6 +669,7 @@ fn reveal_gabarito(passed: bool, g: &tutor_core::Gabarito) -> Option<GabaritoDto
         time: g.time.clone(),
         space: g.space.clone(),
         justification: g.justification.clone(),
+        files: std::collections::BTreeMap::new(),
     })
 }
 
@@ -592,7 +685,13 @@ pub(crate) fn assessment_dto(a: &Assessment, phase: &Phase) -> AssessmentDto {
         complexity: a.complexity.as_ref().map(complexity_dto),
         expected: a.expected.as_ref().map(|c| c.big_o().to_string()),
         // Honesty contract: no solution in the payload unless the tests passed.
-        gabarito: reveal_gabarito(a.correctness.passed, &phase.gabarito),
+        gabarito: reveal_gabarito(a.correctness.passed, &phase.gabarito).map(|mut g| {
+            // A project step's solution is its files; they follow the same gate.
+            if let Some(p) = &phase.project {
+                g.files = p.solution.clone();
+            }
+            g
+        }),
     }
 }
 
@@ -798,6 +897,20 @@ fn enable_media(app: &tauri::App) {
     }
 }
 
+/// Gives the memory freed since the last call back to the system, a few seconds from now (after the answer that
+/// held it was serialized and sent). glibc keeps what a thread frees in that thread's arena; measured 2026-11-27:
+/// opening this repository (1113 files, 16 MB) left the app ~27 MB bigger for good.
+pub fn trim_soon() {
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        // SAFETY: malloc_trim only releases free memory held by the allocator
+        unsafe {
+            libc::malloc_trim(0);
+        }
+    });
+}
+
 pub fn run() {
     // Default the desktop to running student/user code inside Delonix containers
     // (real isolation + package caches). The user can switch at runtime via
@@ -818,6 +931,28 @@ pub fn run() {
         .setup(|_app| {
             #[cfg(target_os = "linux")]
             enable_media(_app);
+            // the login shell's environment (`bash -ilc env`, nvm and all: 0.4 s on an idle machine, seconds under
+            // load) is resolved once, by whoever asks first — warm it here, off the UI thread
+            std::thread::spawn(|| {
+                let _ = shellenv::get();
+            });
+            // LSP P2: where the user's override file and the approvals live; reload on change
+            lsp::init(_app.handle());
+            // Learn P3b: practice clusters idle for 20 min (or left by an earlier run) are deleted
+            study::start_cluster_reaper();
+            // Multi Co-Dev, phase 5: what the backend needs to act on what a human delegated
+            if let Err(e) = commands::codev_autonomy::install(_app.handle()) {
+                eprintln!("autonomy: not installed ({e})");
+            }
+            // r23 F4a (X02): each request that lost secrets is shown (and audited) by the UI
+            let handle = _app.handle().clone();
+            tutor_protect::redact::on_redact(move |origin, count| {
+                let _ = tauri::Emitter::emit(
+                    &handle,
+                    "protect://redacted",
+                    serde_json::json!({"origin": origin, "count": count, "total": tutor_protect::redact::total()}),
+                );
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -875,12 +1010,31 @@ pub fn run() {
             git_changes,
             git_diff,
             git_clone,
+            git_clone_plan,
             git_blame,
             git_history,
             git_show_path,
             git_compare,
             git_stash,
             git_worktree,
+            git_refs,
+            git_hunks,
+            git_stage_hunks,
+            git_undo_snapshot,
+            git_undo_list,
+            git_undo_plan,
+            git_undo_restore,
+            git_predict_conflicts,
+            git_merge,
+            git_conflict_stages,
+            git_sync_plan,
+            git_sync,
+            gh_status,
+            gh_prs,
+            gh_runs_for,
+            gh_prs_for,
+            git_commit_paths,
+            git_lane_commit,
             git_rebase,
             git_amend,
             git_stage,
@@ -919,18 +1073,40 @@ pub fn run() {
             codev_agent_send,
             codev_agent_approve,
             codev_agent_review,
+            codev_agent_override,
             codev_agent_permissions,
             codev_agent_save_permissions,
             codev_agent_cancel,
             codev_agent_close,
             codev_agent_set_mode,
             codev_agent_sessions,
+            codev_agent_live,
             codev_agent_history,
             codev_agent_set_plan,
             codev_agent_checkpoints,
             codev_agent_rewind,
             codev_agent_extensions,
             codev_agent_trust,
+            // Multi Co-Dev, fase 3 — worktrees e reservas de ficheiros (commands/codev_worktree.rs)
+            codev_worktree_plan,
+            codev_worktree_create,
+            codev_worktrees,
+            codev_worktree_remove,
+            codev_worktree_file,
+            codev_worktree_commit,
+            codev_claims,
+            // Multi Co-Dev, fase 4 — a revisão Co-Dev assistida e a porta de integração (commands/codev_review.rs)
+            codev_review_state,
+            codev_review_request,
+            codev_review_cancel,
+            codev_review_integrate,
+            // Multi Co-Dev, fase 5 — a autonomia delegada e os pull requests (commands/codev_autonomy.rs)
+            codev_autonomy_state,
+            codev_autonomy_grant,
+            codev_autonomy_revoke,
+            codev_autonomy_pause,
+            codev_pr_state,
+            codev_pr_open,
             dictation_status,
             dictation_start,
             dictation_stop,
@@ -955,6 +1131,11 @@ pub fn run() {
             compile_pipeline,
             trace_execution,
             submit_step,
+            course_prepare_status,
+            course_prepare,
+            learn_cluster_status,
+            learn_cluster_start,
+            learn_cluster_delete,
             get_glossary,
             get_study_guide,
             fsops::list_dir,
@@ -987,6 +1168,19 @@ pub fn run() {
             debug_variables,
             debug_evaluate,
             debug_pause,
+            debug_run_to,
+            debug_restart_frame,
+            debug_data_breakpoints,
+            debug_read_memory,
+            debug_exception_filters,
+            debug_test_targets,
+            debug_record,
+            debug_replay,
+            debug_reverse,
+            debug_position,
+            debug_travel,
+            debug_last_write,
+            debug_writes,
             debug_snapshot,
             breakpoints_load,
             breakpoints_save,
@@ -1013,6 +1207,7 @@ pub fn run() {
             devcontainer_session_status,
             devcontainer_session_down,
             detect_projects,
+            workspace_projects,
             pty::pty_spawn,
             pty::pty_spawn_in_session,
             pty::pty_write,
@@ -1021,6 +1216,46 @@ pub fn run() {
             pty::pty_shells,
             pty::pty_info,
             problems_scan,
+            protect_learn,
+            metrics_status,
+            metrics_token_set,
+            metrics_token_clear,
+            incident_metrics_check,
+            protect_hook_plan,
+            protect_hook_install,
+            secret_scan,
+            secret_scan_allow,
+            iac_pipeline_run,
+            iac_apply_command,
+            iac_state,
+            vault_status,
+            vault_login_token,
+            vault_login_oidc,
+            vault_renew,
+            vault_revoke,
+            vault_kv_meta,
+            vault_reveal_local,
+            vault_reveal_read,
+            vault_dynamic,
+            vault_lease_revoke,
+            deploy_plan,
+            deploy_rollout,
+            runbook_list,
+            runbook_parse,
+            runbook_step,
+            runbook_decide,
+            sources_status,
+            queue_items,
+            queue_verify,
+            queue_handover,
+            pr_infra_review,
+            pr_review_submit,
+            incident_open,
+            incident_list,
+            incident_get,
+            incident_add,
+            incident_status,
+            incident_feedback,
             ports_list,
             lsp::lsp_start,
             lsp::lsp_did_open,
@@ -1040,6 +1275,23 @@ pub fn run() {
             lsp::lsp_rename,
             lsp::lsp_prepare_rename,
             lsp::lsp_server_status,
+            // LSP P2: the user's and the project's override files, and the project commands' approval
+            lsp::lsp_config,
+            lsp::lsp_config_file,
+            lsp::lsp_user_config_save,
+            lsp::lsp_approve_server,
+            // LSP P3: install a missing server from the registry's recipes
+            lsp_install_plan,
+            lsp_install_download,
+            // LSP P6: documents and folders closed, the live servers, their log, stop and restart
+            lsp::lsp_did_close,
+            lsp::lsp_folder_closed,
+            lsp::lsp_servers,
+            lsp::lsp_server_log,
+            lsp::lsp_server_stop,
+            lsp::lsp_server_restart,
+            // LSP P4: the languages the installed VS Code extensions contribute
+            lsp::lsp_contributions,
             board::board_load,
             board::board_save,
             board::project_load,
@@ -1048,10 +1300,34 @@ pub fn run() {
             board::project_change_sets,
             board::project_reports,
             board::project_audit,
+            board::audit_record,
+            board::test_results_record,
+            board::test_results_for,
+            board::iac_risk_accept,
+            board::iac_risks,
+            board::iac_risk_revoke,
+            board::deploy_records,
+            board::runbook_judge,
+            board::runbook_runs,
+            board::audit_export_evidence,
             board::project_issue_prompt,
+            board::project_create_from_backlog,
+            project_templates,
+            project_new_plan,
+            project_new,
+            board::project_sprint_plan,
+            board::project_scope_overlap,
+            board::project_checks,
+            board::project_method_preview,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running dxtutor IDE");
+        .build(tauri::generate_context!())
+        .expect("error while running dxtutor IDE")
+        .run(|app, event| {
+            // LSP P6: the language servers end the way the protocol asks (shutdown, exit), reaped
+            if let tauri::RunEvent::Exit = event {
+                lsp::shutdown_all(app);
+            }
+        });
 }
 
 #[cfg(test)]
@@ -1139,6 +1415,60 @@ mod tests {
         assert!(
             json.contains("fn answer"),
             "passed payload should include the solution: {json}"
+        );
+        assert!(
+            !json.contains("\"files\""),
+            "single-file payload unchanged: {json}"
+        );
+    }
+
+    /// A project step: the step DTO carries the starter files but never the hidden tests or
+    /// the solution files; the assessment reveals the solution files only after a pass.
+    #[test]
+    fn project_step_hides_tests_and_reveals_solution_files_only_on_pass() {
+        let raw = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../crates/tutor-plugins/tests/fixtures/framework-project/courses/minishop.toml"
+        ))
+        .expect("fixture");
+        let course = tutor_core::Course::parse(&raw, tutor_core::CourseFormat::Toml).unwrap();
+        let dto = serde_json::to_string(&course_dto(&course)).unwrap();
+        assert!(
+            dto.contains(r#""category":"framework""#) && dto.contains(r#""subject":"minishop""#)
+        );
+        assert!(dto.contains(r#""main":"shop/cart.py""#), "{dto}");
+        assert!(dto.contains("shop/config.py") && dto.contains("readonly"));
+        assert!(!dto.contains("test_shop.py"), "hidden test files leaked");
+        assert!(
+            !dto.contains("sum(quantity * price"),
+            "solution files leaked"
+        );
+        assert!(
+            !dto.contains("\"project\":null"),
+            "other steps keep their payload"
+        );
+
+        let step = course.step("msf-p1-cart").unwrap();
+        let phase = step.as_phase("python", tutor_core::Level::Basico).unwrap();
+        let outcome = |passed: bool| Assessment {
+            correctness: tutor_eval::Correctness {
+                passed,
+                summary: String::new(),
+                raw: String::new(),
+            },
+            complexity: None,
+            expected: None,
+        };
+        let failed = serde_json::to_string(&assessment_dto(&outcome(false), &phase)).unwrap();
+        assert!(failed.contains("\"gabarito\":null") && !failed.contains("sum(quantity"));
+        let passed = serde_json::to_string(&assessment_dto(&outcome(true), &phase)).unwrap();
+        assert!(
+            passed.contains("sum(quantity * price") && passed.contains("shop/prices.py"),
+            "{passed}"
+        );
+        assert!(
+            passed.contains("applies VAT once"),
+            "the explanation travels as the justification"
         );
     }
 }

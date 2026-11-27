@@ -42,6 +42,11 @@ tutor-core = { path = "../crates/tutor-core" }
 tutor-eval = { path = "../crates/tutor-eval" }
 tutor-llm = { path = "../crates/tutor-llm" }
 tutor-agent = { path = "../crates/tutor-agent" }
+# r23 F4a: redaction counts, the secret scan before a commit, terminal masking
+tutor-protect = { path = "../crates/tutor-protect" }
+# r23 F4c: the OS keychain (model keys, the Vault token) and Vault
+tutor-platform = { path = "../crates/tutor-platform" }
+tutor-scaffold = { path = "../crates/tutor-scaffold" }
 tutor-board = { path = "../crates/tutor-board" }
 tutor-plugins = { path = "../crates/tutor-plugins" }
 

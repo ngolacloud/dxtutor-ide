@@ -281,6 +281,9 @@ pub async fn chat(
     } else if let Some(k) = &key {
         rb = rb.bearer_auth(k);
     }
+    // r23 F4a (X02): no secret leaves for the model
+    let mut body = body;
+    tutor_protect::redact::guard_json("assistant", &mut body);
     let res = rb
         .json(&body)
         .send()

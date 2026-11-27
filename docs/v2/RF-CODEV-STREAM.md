@@ -223,8 +223,8 @@ streaming ──hunk_end──► proposed ──(Manual/Assist)──► review
   edição que toca o hunk é recusada (§8 cumprido).
 - `write` de um **ficheiro novo**: o backend transmite os chunks, mas o editor não abre um ficheiro que
   ainda não existe no disco (I1). "Ver no editor" mostra-o numa pré-visualização (diff vazio → proposto).
-- A linha que substitui um bloco de código longo no chat (§7) é **só texto**, ainda sem o botão que pede
-  a alteração via `edit`.
+- A linha que substitui um bloco de código longo no chat (§7) traz o botão «Ask Co-Dev to make the change»,
+  que pede a alteração via `edit_lines`/`edit` (F3.2 do `RF-DELONIX-PLANO.md`).
 - "Explain" usa `codev.ask` com intenção `explain`, respondido directamente pelo modelo (sem turno do
   agente), por isso funciona enquanto o turno espera pela decisão do humano.
 - O campo `why` do `hunk_review` ainda vai vazio (o backend não o preenche).

@@ -57,6 +57,14 @@ pub struct ToolsetOptions {
     /// The read/edit/write state to share with the host (live hunks, RF-CODEV-STREAM);
     /// `None` creates a private one.
     pub files: Option<Arc<FileState>>,
+    /// The toolset version whose tool descriptions to use (a session keeps the one it started
+    /// with; [`agent_tools`] sets it). Sub-agents and the TUI/CLI use the current one.
+    pub version: u32,
+    /// Toolset 9: this session works on a Project issue, so it gets `finish_issue` (the other
+    /// sessions do not pay for a tool they never use).
+    pub issue: bool,
+    /// H1: the OS sandbox `bash` and `run_tests`/`lint` run in (`None`: not available here).
+    pub sandbox: Option<Arc<crate::os_sandbox::OsSandbox>>,
 }
 
 impl Default for ToolsetOptions {
@@ -66,6 +74,9 @@ impl Default for ToolsetOptions {
             lint_cmd: None,
             bash_timeout: Duration::from_secs(120),
             files: None,
+            version: TOOLSET_VERSION,
+            issue: false,
+            sandbox: None,
         }
     }
 }
@@ -76,6 +87,7 @@ pub fn coding_tools(opts: &ToolsetOptions) -> Vec<Arc<dyn Tool>> {
     let mut v: Vec<Arc<dyn Tool>> = vec![
         Arc::new(fs::Read {
             state: state.clone(),
+            v9: opts.version >= 9,
         }),
         Arc::new(search::Glob),
         Arc::new(search::Grep),
@@ -85,15 +97,22 @@ pub fn coding_tools(opts: &ToolsetOptions) -> Vec<Arc<dyn Tool>> {
         Arc::new(fs::Write { state }),
         Arc::new(exec::Bash {
             default_timeout: opts.bash_timeout,
+            sandbox: opts.sandbox.clone(),
+            // toolset 12: the `unsandboxed` parameter (a new schema: older sessions keep theirs)
+            escape: opts.version >= 12,
         }),
         Arc::new(git::GitStatus),
         Arc::new(git::GitDiff),
     ];
     if let Some(c) = opts.test_cmd.as_ref().filter(|c| !c.trim().is_empty()) {
-        v.push(Arc::new(exec::Verify::tests(c.trim())));
+        v.push(Arc::new(
+            exec::Verify::tests(c.trim()).sandboxed(opts.sandbox.clone()),
+        ));
     }
     if let Some(c) = opts.lint_cmd.as_ref().filter(|c| !c.trim().is_empty()) {
-        v.push(Arc::new(exec::Verify::lint(c.trim())));
+        v.push(Arc::new(
+            exec::Verify::lint(c.trim()).sandboxed(opts.sandbox.clone()),
+        ));
     }
     v
 }
@@ -103,8 +122,21 @@ pub fn coding_tools(opts: &ToolsetOptions) -> Vec<Arc<dyn Tool>> {
 /// *preserved thinking* recusa-o). 1 = F2–F5; 2 = + todo_write/exit_plan/task (F6);
 /// 3 = + skill e as ferramentas injectadas pelo anfitrião (lsp_diagnostics, MCP) (F7);
 /// 4 = + as ferramentas do anfitrião da versão 4 (`arch_propose`, Studio de arquitectura);
-/// 5 = `exit_plan` com passos e ficheiros, `task` com papéis (A3: HARNESS-01/06).
-pub const TOOLSET_VERSION: u32 = 8;
+/// 5 = `exit_plan` com passos e ficheiros, `task` com papéis (A3: HARNESS-01/06);
+/// 6 = + `ask_human`/`suggest`; 7 = + `finish_issue`; 8 = + `edit_lines`;
+/// 9 = conjuntos por tipo de sessão (`finish_issue` só nas issues, `arch_propose` só nas
+/// sessões de arquitectura — o anfitrião decide) e as descrições de `read`/`edit_lines` que
+/// poupam tokens (ler por excertos, uma só ferramenta de edição preferida);
+/// 10 = `finish_issue` responde também a cada item da Definition of Done (Board B: o anfitrião
+/// dá a DoD do projecto; o Project verifica-a antes da Review);
+/// 11 = + as ferramentas do anfitrião das sessões de backlog (`backlog_propose`,
+/// `project_propose`; `/backlog` e `/project`), só nessas sessões — as outras ficam iguais;
+/// 12 = o `bash` ganha `unsandboxed` (H1: correr um comando fora da sandbox do sistema, sempre
+/// com aprovação humana). A sandbox em si vale para todas as sessões (não muda o prefixo);
+/// 13 = + a ferramenta do anfitrião `ide` (H3: o que o IDE sabe, por acção; as skills embutidas dizem quais).
+/// 14 = a `ide` ganha as acções de Platform/SRE/DevOps (H4: runbooks, incidentes, fila, IaC, Kubernetes, deploy),
+///      cada uma com o seu nível — leitura, acção (aprovação + auditoria) ou só do humano.
+pub const TOOLSET_VERSION: u32 = 14;
 
 /// O estado partilhado entre as ferramentas de fluxo e a sessão.
 #[derive(Clone, Default)]
@@ -126,6 +158,9 @@ pub struct FlowState {
     /// Toolset 7: the table `finish_issue` answered; the issue is over for the agent (in Auto
     /// too, RF-G04) and the host sends it to Review.
     pub finished: Arc<Mutex<Option<serde_json::Value>>>,
+    /// Toolset 10 (Board B): the project's Definition of Done (set by the host with the
+    /// criteria); `finish_issue` answers each item.
+    pub dod: Arc<Mutex<Vec<String>>>,
 }
 
 /// O conjunto de ferramentas de uma sessão, na versão `version`, por ordem fixa.
@@ -140,6 +175,7 @@ pub fn agent_tools(
     let state = opts.files.clone().unwrap_or_default();
     let opts = &ToolsetOptions {
         files: Some(state.clone()),
+        version,
         ..opts.clone()
     };
     let mut v = coding_tools(opts);
@@ -173,16 +209,21 @@ pub fn agent_tools(
             suggestions: flow_state.suggestions.clone(),
         }));
     }
-    // toolset 7 (F4.5): the end of an issue, after the toolset 6 tools
-    if version >= 7 {
+    // toolset 7 (F4.5): the end of an issue, after the toolset 6 tools; from toolset 9 only in
+    // the sessions that work on an issue
+    if version >= 7 && (version < 9 || opts.issue) {
         v.push(Arc::new(flow::FinishIssue {
             criteria: flow_state.criteria.clone(),
             finished: flow_state.finished.clone(),
+            dod: (version >= 10).then(|| flow_state.dod.clone()),
         }));
     }
     // toolset 8 (F2.1): line edits anchored on the lines' text
     if version >= 8 {
-        v.push(Arc::new(fs::EditLines { state }));
+        v.push(Arc::new(fs::EditLines {
+            state,
+            v9: version >= 9,
+        }));
     }
     v
 }

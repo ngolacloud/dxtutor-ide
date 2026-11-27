@@ -26,6 +26,9 @@ import type { VerifyCommand, VerifyKind } from "../domain/project-commands";
 import type { ReplyLanguage } from "../domain/reply-language";
 import type { CodevCopy } from "./messages";
 import type { AgentEvent, AgentOrigin, ApprovalRequest, Checkpoint, ExtensionsStatus, HistoryItem, Permissions, SessionSummary, Todo } from "../domain/agent-events";
+import type { LinesCheck, PlanPlace } from "../domain/plan-order";
+import type { LiveSession, SubagentStep } from "../domain/agent-map";
+import type { BacklogProposal } from "../domain/backlog";
 
 /* ───────── infrastructure-shaped values the use cases pass around ───────── */
 
@@ -159,8 +162,6 @@ export interface ChatPresenter {
   /* general transcript + run control */
   scrollMsgs(): void;
   userMessage(text: string): void;
-  /** Um sub-agente (`task`) arrancou ou terminou — o chip «agentes» do compositor. */
-  subagent?(id: string, label: string, state: "running" | "done" | "error"): void;
   beginRun(label: string): void;
   endRun(): void;
   startAbort(): AbortSignal;
@@ -203,14 +204,24 @@ export interface ChatPresenter {
   toolDiffLink?(ref: ToolRef, onDiff: () => void): void;
   /** The report of a turn (HARNESS-07), built from its events: a collapsible block. */
   agentReport?(ref: CardRef, title: string, markdown: string): void;
+  /** `/backlog`/`/project`: the backlog or the Project plan Co-Dev proposed, with what the human can do with it. */
+  backlogProposal?(ref: CardRef, proposal: BacklogProposal): void;
   /** Live hunks waiting for a decision (RF-CODEV-STREAM): a bar on the tool line with
    *  «accept all / reject all / open in the editor». `settle` replaces it with the outcome
    *  when the review ends (from the chat or from the editor). */
+  /** RF-S01/S08 (F3.2/F3.3): Co-Dev started writing a block — «Writing `path` 40–52», a link that
+   *  opens the file, and where the block falls in the approved plan. One line per tool call. */
+  hunkWriting?(ref: CardRef, info: { path: string; start: number; end: number; place: PlanPlace; lines?: LinesCheck }, open: () => void): void;
+  /** RF-G07: after Stop, the files the turn left changed — «keep» or «discard» (back to the turn's
+   *  checkpoint). `settle` replaces the bar with the outcome. */
+  stopReview?(ref: CardRef, info: { checkpoint: number; files: string[] }, on: { keep(): void; discard(): void }): { settle(label: string): void };
   hunkReview?(
     ref: ToolRef,
-    info: { path: string; count: number; reason: string },
-    on: { acceptAll(): void; rejectAll(): void; open(): void },
-  ): { settle(label: string): void };
+    /** `outside`: RF-G08 — blocks of the call outside the lines the plan gave for the file (a warning, never a block).
+     *  `violations`: RF-A03/A04 — the rules it breaks: «accept» stays off until the architect's override. */
+    info: { path: string; count: number; reason: string; outside?: { n: number; planned: string }; violations?: string[]; where?: string },
+    on: { acceptAll(): void; rejectAll(): void; open(): void; override?(): void },
+  ): { settle(label: string): void; unblock?(adr: string): void };
 }
 
 /** The approval gate: the human say-so on edits, commands and plans. Backed by `window.ask` (shared with board.ts), so its cancellation
@@ -233,6 +244,8 @@ export interface ToolDeps {
   clock: Clock;
   rules: import("../domain/policy").CommandRules;
   mode(): Mode;
+  /** Rever a edição no editor, bloco a bloco (as propostas locais); sem ela, o diálogo «Aprovar edição». */
+  proposals?: { propose(path: string, content: string, reason: string): Promise<{ applied: number; rejected: number; total: number }> };
 }
 
 /** O agente v2 em Rust (comandos `codev_agent_*` e os seus eventos). */
@@ -240,6 +253,8 @@ export interface AgentGateway {
   /** Desktop, pasta real aberta, provedor com agente v2 e harness v2 ligado (o antigo fica
    *  atrás de uma flag). */
   available(): boolean;
+  /** RF-A03/A04: the architect's override of a change under review that breaks the rules. */
+  override?(session: string, call: string, adr: string): Promise<void>;
   start(o: {
     root: string;
     /** `claude`/`codex`/`gemini`/`ollama` (F8). Numa retoma vale o gravado na sessão. */
@@ -254,6 +269,14 @@ export interface AgentGateway {
     reviewEdits?: boolean;
     /** The Project issue this conversation works on (accepted changes are linked to it). */
     issue?: string | null;
+    /** An architecture session (toolset 9): only these carry `arch_propose`. */
+    architecture?: boolean;
+    /** A backlog session (toolset 11, `/backlog` and `/project`): only these carry `backlog_propose`/`project_propose`. */
+    backlog?: boolean;
+    /** H2: the project of the workspace the session works in (relative; `null`: the whole workspace). */
+    project?: string | null;
+    /** Multi Co-Dev (phase 3): the issue's session works in its worktree (the backend finds it). */
+    worktree?: boolean;
   }): Promise<string>;
   /** Decides the hunks of a `hunk_review` (hunks without a decision count as rejected). */
   review(session: string, call: string, decisions: Array<{ hunk: string; accept: boolean; reason?: string }>): Promise<void>;
@@ -269,13 +292,14 @@ export interface AgentGateway {
   permissions(root: string): Promise<Permissions>;
   savePermissions(root: string, rules: { allow: string[]; deny: string[] }): Promise<void>;
   extensions(root: string): Promise<ExtensionsStatus>;
-  trust(root: string, kind: "hooks" | "mcp"): Promise<void>;
+  trust(root: string, kind: "hooks" | "mcp" | "sandbox"): Promise<void>;
   /** `origin`: the human request (RF-G01); `text: null` («try again») keeps the last one. */
   send(session: string, text: string | null, origin?: AgentOrigin): Promise<void>;
   approve(session: string, toolUseId: string, allow: boolean, reason?: string, remember?: boolean): Promise<boolean>;
   cancel(session: string): Promise<boolean>;
   setMode(session: string, mode: string): Promise<boolean>;
-  close(session: string): Promise<boolean>;
+  /** Fase 3: com `keepWorktree`, a worktree da sessão fica (a mesma issue recomeça nela). */
+  close(session: string, keepWorktree?: boolean): Promise<boolean>;
   /** Liga os três eventos do agente; devolve a função que os desliga. */
   subscribe(h: {
     event(session: string, e: AgentEvent): void;
@@ -284,7 +308,19 @@ export interface AgentGateway {
   }): Promise<() => void>;
 }
 
+/** A cache de um pedido do agente e o seu custo, para o `ctx` da barra de estado. */
+export interface UsageDetail {
+  cacheRead: number;
+  cacheWrite: number;
+  cost: number | null;
+}
+
 export interface AgentChatDeps {
+  /** Asks the human before something that cannot be undone from the chat (RF-G07: discarding a stopped turn). */
+  confirm?(message: string): boolean;
+  /** Multi Co-Dev (fase 3): onde a sessão trabalha, quando não é a árvore principal («⎇ ramo · worktree»):
+   *  a revisão de hunks di-lo. */
+  where?(): string | null;
   /** Os textos para o humano na língua da interface (`./messages`); sem ela, os de antes (português). */
   copy?: CodevCopy;
   gateway: AgentGateway;
@@ -306,8 +342,14 @@ export interface AgentChatDeps {
   /** Abre um diff (antes/depois) numa tab do editor. */
   openDiff(path: string, before: string, after: string, label: string): void;
   /** O uso real de cada pedido do agente (tokens de entrada — com os de cache — e de saída):
-   *  alimenta o contador de uso (custo das issues no Board) e o `ctx` (ADR-0006, R3c). */
-  onUsage?(input: number, output: number): void;
+   *  alimenta o contador de uso (custo das issues no Board) e o `ctx` (ADR-0006, R3c). O
+   *  `detail` traz a parte lida e escrita da cache e o custo do pedido (`null` sem preço). */
+  onUsage?(input: number, output: number, detail?: UsageDetail): void;
+  /** Toolset 9: does a new session start as an architecture session (Studio open, or a first
+   *  request about architecture)? Only those carry `arch_propose`. */
+  architecture?(firstRequest: string): boolean;
+  /** H2: the current project of the workspace (relative; `null`: the root or no workspace). */
+  project?(): string | null;
   /** Live hunks in the editor (RF-CODEV-STREAM); absent → edits are approved per call. */
   hunks?: HunkSink;
   /** Saves what the editor has to disk before the agent reads it (autosave flush). */
@@ -316,6 +358,25 @@ export interface AgentChatDeps {
   run?: { event(session: string, e: AgentEvent): void; turnStarted(): void };
   /** RF-P03: may this side approve the agent's proposals (PairCode: only the driver)? */
   canApprove?(): boolean;
+  /** The Agent map: what this chat asked each session, and when a session closes. */
+  agentMap?: AgentMapSink;
+}
+
+/** What the agent chat tells the Agent map (the events themselves it hears by itself). */
+export interface AgentMapSink {
+  turn(session: string, info: { request: string; model: string; issue: string | null }): void;
+  closed(session: string): void;
+}
+
+/** The Agent map's view of the backend: the events of EVERY agent session (with the sub-agents'
+ *  progress) and the sessions open now (`codev_agent_live`). */
+export interface AgentMapGateway {
+  available(): boolean;
+  subscribe(h: {
+    event(session: string, e: AgentEvent | null, sub: { call: string; step: SubagentStep } | null): void;
+    error(session: string, message: string): void;
+  }): Promise<() => void>;
+  live(): Promise<LiveSession[]>;
 }
 
 /** Where the agent chat sends the hunk events of a turn. */
@@ -327,6 +388,10 @@ export interface HunkSink {
   open(path: string): void;
   /** Registers what to do when a call's review ends (to settle the chat bar). */
   onSettled(call: string, f: (label: string) => void): void;
+  /** RF-A03/A04: asks for the architect's override of a call that breaks the rules … */
+  override?(call: string): Promise<boolean>;
+  /** … and tells when it was granted (to unblock the chat bar). */
+  onOverridden?(call: string, f: (adr: string) => void): void;
 }
 
 /** What the live-hunk use case needs from the world. */
@@ -338,6 +403,10 @@ export interface HunkReviewDeps {
   /** Os textos para o humano na língua da interface (`./messages`); sem ela, os de antes (português). */
   copy?: CodevCopy;
   review(session: string, call: string, decisions: Array<{ hunk: string; accept: boolean; reason?: string }>): Promise<void>;
+  /** RF-A03/A04: the architect's override of a call that breaks the rules (`codev_agent_override`). */
+  override?(session: string, call: string, adr: string): Promise<void>;
+  /** Asks the human for the accepted ADR that allows the deviation; `null` when cancelled. */
+  askAdr?(violations: string): string | null;
   flush(): Promise<void>;
   reloadFromDisk(): Promise<void>;
   editor: {

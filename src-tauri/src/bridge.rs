@@ -27,7 +27,7 @@ fn config_dir(app: &AppHandle) -> Result<PathBuf, String> {
 // de uso. O `spawn_blocking` mantém o walk de disco fora da thread de UI.
 #[tauri::command]
 pub async fn load_workspace(root: String) -> Result<workspace::Loaded, String> {
-    tauri::async_runtime::spawn_blocking(move || {
+    let loaded = tauri::async_runtime::spawn_blocking(move || {
         workspace::open_workspace(
             std::path::Path::new(&root),
             workspace::LoadPolicy::default(),
@@ -35,16 +35,19 @@ pub async fn load_workspace(root: String) -> Result<workspace::Loaded, String> {
         .map_err(|e| format!("{root}: {e}"))
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+    // the files and their JSON (tens of MB) are freed once the answer is sent: give them back to the system
+    crate::trim_soon();
+    loaded
 }
 
 #[tauri::command]
-pub fn write_file(root: String, rel: String, content: String) -> Result<(), String> {
+pub async fn write_file(root: String, rel: String, content: String) -> Result<(), String> {
     workspace::write(std::path::Path::new(&root), &rel, &content)
 }
 
 #[tauri::command]
-pub fn delete_file(root: String, rel: String) -> Result<(), String> {
+pub async fn delete_file(root: String, rel: String) -> Result<(), String> {
     workspace::delete(std::path::Path::new(&root), &rel)
 }
 
@@ -63,6 +66,27 @@ pub async fn exec(
     timeout_ms: Option<u64>,
 ) -> Result<procs::ExecOut, String> {
     tauri::async_runtime::spawn_blocking(move || {
+        // r23 F4a (X03): a `git commit` the UI runs (the pane, Ctrl+Enter, the board, an amend)
+        // passes the secret scan first; blocked, it fails like git would, with the report
+        if program == "git" && tutor_protect::scan::is_git_commit(&args) {
+            let dir = args
+                .windows(2)
+                .find(|w| w[0] == "-C")
+                .map(|w| w[1].clone())
+                .or_else(|| cwd.clone())
+                .unwrap_or_else(|| ".".into());
+            if let Err(e) = tutor_protect::scan::guard_commit(
+                std::path::Path::new(&dir),
+                &tutor_protect::scan::commit_scope(&args),
+            ) {
+                return Ok(procs::ExecOut {
+                    code: 1,
+                    stdout: String::new(),
+                    stderr: e,
+                    timed_out: false,
+                });
+            }
+        }
         procs::exec(
             &program,
             &args,
@@ -77,7 +101,7 @@ pub async fn exec(
 }
 
 #[tauri::command]
-pub fn run_shell(
+pub async fn run_shell(
     app: AppHandle,
     procs_state: State<'_, procs::Procs>,
     id: String,
@@ -106,18 +130,27 @@ pub fn kill_shell(procs_state: State<'_, procs::Procs>, id: String) -> bool {
     procs::kill(&procs_state, &id)
 }
 
+/// Which providers have a key. Off the UI thread: it reads the OS keychain over D-Bus (measured: it was
+/// synchronous and ran at start-up, before the folder opened, up to ~16 keychain reads with the window frozen).
 #[tauri::command]
-pub fn keys_status(app: AppHandle) -> Result<HashMap<String, bool>, String> {
+pub async fn keys_status(app: AppHandle) -> Result<HashMap<String, bool>, String> {
     let dir = config_dir(&app)?;
-    Ok(["claude", "codex", "gemini", "ollama"]
-        .iter()
-        .map(|p| (p.to_string(), keys::resolve(&dir, p).is_some()))
-        .collect())
+    tauri::async_runtime::spawn_blocking(move || {
+        ["claude", "codex", "gemini", "ollama"]
+            .iter()
+            .map(|p| (p.to_string(), keys::resolve(&dir, p).is_some()))
+            .collect()
+    })
+    .await
+    .map_err(|e| format!("keys task failed: {e}"))
 }
 
 #[tauri::command]
-pub fn save_key(app: AppHandle, provider: String, key: String) -> Result<(), String> {
-    keys::save(&config_dir(&app)?, &provider, &key)
+pub async fn save_key(app: AppHandle, provider: String, key: String) -> Result<(), String> {
+    let dir = config_dir(&app)?;
+    tauri::async_runtime::spawn_blocking(move || keys::save(&dir, &provider, &key))
+        .await
+        .map_err(|e| format!("keys task failed: {e}"))?
 }
 
 /// A Co-Dev chat turn. Routed through the tutor brain: `mode` ("study" | "project",
@@ -159,7 +192,7 @@ pub fn llm_plan(req: llm::ChatReq, mode: Option<String>) -> serde_json::Value {
 }
 
 #[tauri::command]
-pub fn vsix_manifest(b64: String) -> Result<serde_json::Value, String> {
+pub async fn vsix_manifest(b64: String) -> Result<serde_json::Value, String> {
     vsix::manifest_b64(&b64)
 }
 
@@ -192,6 +225,8 @@ pub fn app_info(app: AppHandle) -> serde_json::Value {
         "home": workspace::expand_home("~"),
         "configDir": config_dir(&app).map(|p| p.to_string_lossy().to_string()).unwrap_or_default(),
         "selftest": std::env::var("DXTUTOR_SELFTEST").ok(),
+        // só estes passos do auto-teste (separados por vírgulas; os outros ficam `skipped`)
+        "selftestOnly": std::env::var("DXTUTOR_SELFTEST_ONLY").ok(),
         "openAtStart": std::env::args().nth(1),
         "pairtest": std::env::var("DXTUTOR_PAIRTEST").ok(),
     })

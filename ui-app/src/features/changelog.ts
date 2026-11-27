@@ -45,15 +45,15 @@ export interface ChangelogDesktop {
   show(hash: string, virtual: (hash: string) => Promise<string>): Promise<string>;
 }
 /* fontes window-resolved: consultam a porta desktop (antes o desktop reatribuía-as no `window`) */
-window.clLog = async (): Promise<ClCommit[]> => { const d = desktopPorts.changelog; return d ? d.log(noLog) : noLog(); };
-window.clShow = async (hash: string): Promise<string> => { const d = desktopPorts.changelog; return d ? d.show(hash, noShow) : noShow(hash); };
+export const clLog = async (): Promise<ClCommit[]> => { const d = desktopPorts.changelog; return d ? d.log(noLog) : noLog(); };
+export const clShow = async (hash: string): Promise<string> => { const d = desktopPorts.changelog; return d ? d.show(hash, noShow) : noShow(hash); };
 
 /* ── render ───────────────────────────────────────────────────────────────────── */
 
 async function load(): Promise<void> {
   CL.loaded = true;
   try {
-    CL.commits = await window.clLog();
+    CL.commits = await clLog();
     CL.error = null;
   } catch (e) {
     CL.commits = [];
@@ -64,7 +64,7 @@ async function load(): Promise<void> {
 
 async function openCommit(hash: string): Promise<void> {
   try {
-    CL.diff = await window.clShow(hash);
+    CL.diff = await clShow(hash);
     CL.selected = hash;
     CL.error = null;
   } catch (e) {

@@ -21,11 +21,12 @@ import "../features/diagnostics.css";
 import "../features/codev/styles.css";
 import "../features/project/styles.css";
 import "../features/diff/styles.css";
-import "../features/welcome.css";
+import "../features/welcome/styles.css";
+import "../features/newproject/styles.css";
 import "../features/palette.css";
 import "../features/notifications.css";
 import "../features/scm/styles.css";
-import "../features/graph.css";
+import "../features/scm/graph.css";
 import "../features/studio.css";
 import "../features/board/styles.css";
 import "../features/learn/styles.css";
@@ -44,7 +45,11 @@ import "../features/testing/styles.css";
 import "../features/hood/styles.css";
 /* A9: o separador Ops (prefixo ops-); a posição não decide nada */
 import "../features/ops/styles.css";
+import "../features/vault/styles.css";
+import "../features/deploy/styles.css";
 /* feature comments: o botão de comentar na margem do editor e a caixa «Start discussion» (só classes cmt-*, a posição não decide nada) */
 import "../features/comments/styles.css";
 /* A10: Dependencies e Onboarding (prefixo cb-); a posição não decide nada */
 import "../features/codebase/styles.css";
+/* Multi Co-Dev fase 4: o painel «Rever e integrar» (prefixo ig-, por cima de tudo menos o #approval); a posição não decide nada */
+import "../features/integration/styles.css";

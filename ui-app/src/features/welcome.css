@@ -1,5 +1,0 @@
-/* estilos da feature welcome — saíram do styles.css por dono (ADR-0004, U6a); a ordem entre ficheiros está em src/app/styles.ts */
-  .wgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:9px}
-  .wbtn{display:flex;align-items:center;gap:12px;text-align:left;background:var(--bg-elevated);border:1px solid var(--border);border-radius:11px;padding:12px 14px}
-  .wbtn:hover{border-color:var(--accent)}
-  .wbtn .wi{color:var(--accent-hover)}.wbtn b{display:block;font-size:13px;font-weight:500}.wbtn small{color:var(--fg-muted);font-size:11.5px}

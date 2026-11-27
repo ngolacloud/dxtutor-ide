@@ -1,7 +1,7 @@
 /* ═════════ feature `ops` — legacy bridge (A9) ═════════
    O ÚNICO ficheiro da feature `ops` que toca em `window`: a pasta aberta (DXR), para onde o pane Infra
    aponta o kubectl (ENVS: kubeconfig, contexto, namespace, ligado ou não), correr um comando num
-   terminal de tarefa, a confirmação, a paleta e os avisos. Tudo lido NO ACTO. */
+   terminal de tarefa, a paleta e os avisos. Tudo lido NO ACTO. */
 
 import { toast } from "../../../core";
 import type { KubeTarget } from "../domain/types";
@@ -10,7 +10,9 @@ interface Globals {
   DXR?: { root?: string | null };
   ENVS?: { kube?: string; ctx?: string; ns?: string; k8sOn?: boolean };
   runTask: (cmd: string) => unknown;
-  confirm: (m: string) => boolean;
+  openPath: (p: string, line?: number) => void;
+  ROOT?: string;
+  FS?: Record<string, { content: string; orig?: string }>;
   palette: (pre: string, cfg: { ph?: string; verb?: string; text?: (q: string) => void }) => void;
   openTab: (t: { id: string; title: string; kind: string }) => void;
 }
@@ -22,8 +24,20 @@ export const kubeTarget = (): KubeTarget | null => {
   const e = G.ENVS;
   return e && e.k8sOn && e.ctx ? { kubeconfig: (e.kube || "").trim(), context: e.ctx, namespace: (e.ns || "default").trim() || "default" } : null;
 };
-export const runInTerminal = (cmd: string): void => { G.runTask(cmd); };
-export const confirmBox = (m: string): boolean => G.confirm(m);
+/** Corre num terminal de tarefa; resolve com o código de saída quando o terminal o dá (PTY real). */
+export const runInTerminal = (cmd: string): Promise<number> | void => {
+  const r = G.runTask(cmd);
+  return r && typeof (r as Promise<unknown>).then === "function" ? (r as Promise<unknown>).then((c) => (typeof c === "number" ? c : -1)) : undefined;
+};
+/** r23 F5a: um ficheiro que o backend acabou de escrever na pasta (as evidências) entra no editor tal como está no
+ *  disco (sem alterações por gravar) e abre-se. */
+export const showFile = (rel: string, content: string): void => {
+  const key = (G.ROOT ?? "") + rel;
+  if (G.FS) G.FS[key] = { content, orig: content };
+  G.openPath(key, 1);
+};
+/** Abre um ficheiro do projecto (relativo à pasta aberta) numa linha. */
+export const openFile = (rel: string, line: number): void => G.openPath((G.ROOT ?? "") + rel, line);
 export const textPrompt = (ph: string, initial = ""): Promise<string | null> =>
   new Promise((res) => {
     let done = false;

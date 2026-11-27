@@ -60,7 +60,7 @@ export function renderSide(t: T, st: ExtrasState, canAsk: boolean, now: number):
   const wts = st.worktrees.map((w) => `<div class="scm-row gx-row" title="${esc(w.path)}"><span class="nm notr" style="max-width:none${w.current ? ";font-weight:600" : ""}">${esc(w.branch ?? t("detached", { h: w.head }))}</span><span class="pth notr">${esc(w.path)}</span>${w.current ? `<span class="tag acc" style="margin-left:auto">${t("thisFolder")}</span>` : `<span class="ra"><button title="${t("removeWorktree")}" data-action="gx-wt-remove" data-on="${esc(w.path)}"${dis ? " disabled" : ""}>✕</button></span>`}</div>`).join("");
   return renderChangeSets(t, st.changeSets, dis) + `<div class="scm-grp">${t("stashes")}<span class="cnt">${st.stashes.length}</span></div>${stashes}<div class="gx-bar">${btn("gx-stash-push", t("stashChanges"), "", "btn ghost", dis)}${btn("gx-stash-push-all", t("stashAll"), "", "btn ghost", dis)}</div>`
     + `<div class="scm-grp">${t("worktrees")}<span class="cnt">${st.worktrees.length}</span></div>${wts}<div class="gx-bar">${btn("gx-wt-add", t("newWorktree"), "", "btn ghost", dis)}</div>`
-    + `<div class="scm-grp">${t("moreGit")}</div><div class="gx-bar">${btn("gx-history", t("fileHistory"))}${btn("gx-compare", t("compareBranches"))}${btn("gx-rebase", t("interactiveRebase"), "", "btn ghost", dis)}${btn("gx-amend", t("amendLast"), "", "btn ghost", dis)}${btn("gx-review", t("reviewChanges"))}</div>`
+    + `<div class="scm-grp">${t("moreGit")}</div><div class="gx-bar">${btn("gx-launchpad", "Launchpad")}${btn("gx-composer", "Composer")}${btn("gx-history", t("fileHistory"))}${btn("gx-compare", t("compareBranches"))}${btn("gx-rebase", t("interactiveRebase"), "", "btn ghost", dis)}${btn("gx-amend", t("amendLast"), "", "btn ghost", dis)}${btn("gx-review", t("reviewChanges"))}</div>`
     + (canAsk ? `<div class="gx-bar">${btn("gx-ask-message", t("askMessage"), "", "btn ghost gx-ai")}${btn("gx-ask-review", t("askReview"), "", "btn ghost gx-ai")}</div>` : "")
     + (st.sideError ? `<div class="sec-empty notr" style="color:var(--red)">${esc(st.sideError)}</div>` : "")
     + (st.busy ? `<div class="sec-empty">${t("running", { op: st.busy })}</div>` : "");
@@ -167,4 +167,10 @@ export function renderReview(t: T, r: ReviewState | null, canAsk: boolean): stri
         + (r.open === f.path ? `<div class="gx-diff notr">${r.diffs[f.path] === undefined ? `<div>${t("loading")}</div>` : diffHtml(r.diffs[f.path])}</div>` : "")).join("") + `</div>`;
   }).join("");
   return `<div class="gx">${head}${groups}</div>`;
+}
+
+/** r23 F3 (UI-SCM-12): the undo snapshots in the pane — newest first, each with its «Undo». */
+export function renderUndo(t: T, entries: Array<{ id: number; label: string; at: number }>, busy: boolean, now: number): string {
+  const rows = entries.slice(0, 10).map((e) => `<div class="scm-row gx-row" title="#${e.id}"><span class="nm notr" style="max-width:none">${esc(e.label)}</span><span class="pth">${esc(ago(t, Math.floor(e.at / 1000), now))}</span><span class="ra" style="display:flex"><button title="${t("undoBtn")}" data-action="gx-undo" data-on="${e.id}"${busy ? " disabled" : ""}>↶</button></span></div>`).join("");
+  return `<div class="scm-grp">${t("undoSection")}<span class="cnt">${entries.length}</span></div>${rows || `<div class="sec-empty">${t("undoNone")}</div>`}`;
 }

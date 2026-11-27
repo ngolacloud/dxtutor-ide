@@ -45,6 +45,15 @@ pub async fn detect_projects(root: String) -> Result<Vec<ProjectInfo>, String> {
         .map_err(|e| format!("detect_projects task failed: {e}"))
 }
 
+/// H2: the projects of the workspace `root` (`tutor_agent::workspace::detect`: the build manifests up to two
+/// levels deep, and `.dxtutor/workspace.json` when it exists), each with its test and lint commands.
+#[tauri::command]
+pub async fn workspace_projects(root: String) -> Result<tutor_agent::workspace::Workspace, String> {
+    tauri::async_runtime::spawn_blocking(move || tutor_agent::workspace::detect(Path::new(&root)))
+        .await
+        .map_err(|e| format!("workspace_projects task failed: {e}"))
+}
+
 /// Collect source files under `dir` (recursive, skipping hidden / build dirs), bounded by
 /// `max_files` and `max_bytes` total, for a module-level Explain. Honest truncation: stops
 /// adding once a cap is hit.

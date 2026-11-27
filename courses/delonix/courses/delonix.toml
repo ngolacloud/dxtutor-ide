@@ -1,0 +1,2892 @@
+# Delonix Engine — the official dxtutor course for Delonix manifests and compose files (offline part).
+#
+# A TOOL course. The learner writes YAML; every challenge is a project step whose hidden
+# `checks.toml` declares structural checks and the host-free Delonix commands
+# `delonix manifest render -f <file>` and `delonix compose config -f <file> -p <project>`
+# (tutor_core::toolcheck has the allow-list; both were proven host-free from the Delonix source at
+# the commit of the 0.2.0 binary, edba10a1c, and measured with strace). Grading runs them with a
+# clean environment and a temporary HOME and DELONIX_ROOT; it never touches the engine.
+# Written for Delonix 0.2.0 (the README still says "0.1.x line" in places).
+
+id = "delonix-basics"
+language = "yaml"
+category = "tool"
+subject = "delonix"
+title = "Delonix Engine: Manifests and Compose Files"
+level = "beginner"
+summary = "Declare workloads for the Delonix Engine: Pods, volumes, networks and Services, Config and Secret, Applications and Jobs, compose files and a whole project in one Stack — graded offline with the engine's own host-free commands."
+
+overview = '''
+The **Delonix Engine** is a daemonless, rootless-first container and microVM engine written in Rust
+(Apache-2.0). It runs OCI containers, real multi-container pods and microVMs without a resident
+daemon, and its main interface is a declarative **manifest**: Kubernetes-style YAML documents that
+`delonix apply` makes true on the machine. It also runs existing **docker-compose** files natively.
+
+This course teaches you to write both — and to read what the engine will do with them — **offline**.
+Every challenge is graded by hidden checks on your YAML plus the engine's own *host-free* commands:
+
+- `delonix manifest render -f <file>` — loads the manifest exactly as `apply` would (unknown fields
+  refused, types checked, Applications and Stacks expanded) and prints it with every default filled
+  in, without reading or changing the engine's state;
+- `delonix compose config -f <file> -p <project>` — validates a compose file and prints the project it
+  resolves to, without creating anything.
+
+Nothing in this course creates a container, a network or a volume on your machine.
+
+What you will learn:
+
+1. **manifests** — API groups, the four fields, and why unknown fields are refused;
+2. **Pods** — containers, commands, ports, environment and the defaults render reveals;
+3. **volumes** — named Volumes, Pod volumes and mounts that must agree by name;
+4. **networks and Services** — Pods on their own network, labels and a DNS name for a set of them;
+5. **Config and Secret** — values outside the workload, and secrets outside the manifest;
+6. **Applications and Jobs** — Kinds that lower to Pods;
+7. **compose files** — what `delonix compose` reads, names and refuses;
+8. **compose health and order** — healthchecks, conditions, anchors and profiles;
+9. **a capstone** — a whole project in one namespaced Stack.
+
+**Version.** The course is written for **Delonix 0.2.0** — what `delonix --version` reports. The
+project's README still speaks of the "0.1.x line" in places; where the two differ, the course follows
+the 0.2.0 binary. Install it from https://ngolacloud.github.io/delonix/ (the installer is
+`https://github.com/ngolacloud/delonix/releases/latest/download/install.sh`).
+
+Official documentation: https://ngolacloud.github.io/delonix/ — the Kinds reference
+(`kinds.html`) and the command pages (`commands/manifest.html`, `commands/compose.html`,
+`commands/stack.html`).
+'''
+
+[[unit]]
+id = "dlx-u1-manifests"
+title = "Manifests: the engine reads what you declare"
+level = "basic"
+difficulty = 1
+intro = "A Delonix manifest is a set of Kubernetes-style documents; `delonix manifest render` shows exactly how the engine reads it."
+concepts = '''
+The **Delonix Engine** is a daemonless, rootless-first container and microVM engine written in Rust.
+You can drive it command by command (`delonix run`, `delonix volume create`…), but its real interface
+is the **manifest**: a YAML file, usually `delonix-manifest.yaml`, whose documents declare what
+should exist. `delonix apply -f` converges the machine to it; `delonix plan` shows what an apply would
+change and changes nothing.
+
+Every document has the four fields you may know from Kubernetes:
+
+```yaml
+apiVersion: compute.delonix.io/v1beta1   # the API group of the Kind, and its version
+kind: Pod                                # what this document declares
+metadata:
+  name: web                              # required; labels, annotations and namespace are optional
+spec: {}                                 # the desired state, specific to the Kind
+```
+
+**API groups.** Each Kind lives in a group: `compute.delonix.io` (Pod, Application, Job…),
+`storage.delonix.io` (Volume…), `networking.delonix.io` (Network, Service…), `core.delonix.io`
+(Config, Secret, Stack…). The current version of every group is **`v1beta1`**. The old single
+version `delonix.io/v1` still loads (a promise of the CLI stability policy), and the old `v1alpha1`
+groups load with a deprecation warning — `delonix manifest convert` rewrites them.
+
+**Unknown fields are refused, not ignored.** A misspelt field (`imgae:`) makes every command that
+applies, plans or renders a manifest stop with "nothing was applied — field(s) not understood",
+naming the field. A field with the wrong type (`containerPort: "80"`) is refused too.
+
+**The host-free verbs.** `delonix manifest` groups the commands that only read the file:
+`render` prints the manifest as the engine will read it, with **every default filled in**;
+`schema` prints the JSON Schema of a Kind; `convert` rewrites old apiVersions. These are what this
+course runs to grade you — offline, without touching the engine's state. (`delonix manifest
+validate` also resolves references against what already exists on the machine, so the course does
+not use it for grading; run it yourself when you want that check.) `delonix explain <Kind>` gives a
+field reference.
+
+**Version.** This course is written for **Delonix 0.2.0** (the binary reports `delonix 0.2.0`). The
+project's README still describes the "0.1.x line" in places; where they differ, the course follows
+what the 0.2.0 binary does.
+
+Official docs: https://ngolacloud.github.io/delonix/ (the Kinds reference, `kinds.html`, and the
+`manifest` command page, `commands/manifest.html`).
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "dlx-c1-manifests"
+title = "Declare, then let the engine converge"
+points = 5
+difficulty = 1
+intro = '''
+What a Delonix manifest is, and the host-free commands that read one.
+'''
+body = '''
+A manifest is a **wish list** for one machine: networks, volumes, workloads, secrets. You write it;
+the engine makes it true.
+
+- `delonix manifest render -f delonix-manifest.yaml` — how the engine reads your file, defaults
+  included. Nothing on the machine is read or changed.
+- `delonix plan -f …` — what an apply would change.
+- `delonix apply -f …` — make it so.
+
+In this course every challenge is checked with `delonix manifest render` (or `delonix compose
+config` for compose files) plus checks on the YAML you wrote.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dlx-d1-pod"
+title = "A first Pod"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+The smallest workload: one container in a Pod.
+'''
+prompt = '''
+Type the manifest. A Delonix Pod has the same shape as a Kubernetes Pod.
+'''
+target = '''
+apiVersion: compute.delonix.io/v1beta1
+kind: Pod
+metadata:
+  name: hello
+spec:
+  containers:
+    - name: hello
+      image: alpine:3.20
+      command: ["sleep", "infinity"]
+'''
+line_comments = [
+  "Workloads live in the compute group; v1beta1 is the current version.",
+  "A Pod: one or more containers sharing a network namespace.",
+  "Identity.",
+  "The name, unique in its namespace.",
+  "The desired state.",
+  "The containers of the Pod.",
+  "A container name.",
+  "The OCI image, pinned to a tag.",
+  "The process: overrides the image's ENTRYPOINT.",
+]
+explanation = "`delonix manifest render` on this file prints the same Pod with every default written out: `restartPolicy`, `network: host`, empty lists for ports and env…"
+
+[[unit.step]]
+kind = "drill"
+id = "dlx-d1-two-docs"
+title = "Two Kinds in one file"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+A Network and a Volume, separated by `---`.
+'''
+prompt = '''
+Type the manifest. Each Kind uses its own API group.
+'''
+target = '''
+apiVersion: networking.delonix.io/v1beta1
+kind: Network
+metadata:
+  name: lab-net
+spec:
+  driver: bridge
+---
+apiVersion: storage.delonix.io/v1beta1
+kind: Volume
+metadata:
+  name: lab-data
+spec:
+  driver: local
+'''
+line_comments = [
+  "Networks are in the networking group.",
+  "A user network (an SDN bridge).",
+  "Identity.",
+  "Workloads join it by this name.",
+  "Desired state.",
+  "A bridge network on this machine.",
+  "A second document in the same file.",
+  "Volumes are in the storage group.",
+  "A named volume managed by the engine.",
+  "Identity.",
+  "Pods mount it by this name.",
+  "Desired state.",
+  "Stored on this machine's disk.",
+]
+explanation = "One manifest can declare a whole project; the engine applies the Kinds in dependency order."
+
+[[unit.step]]
+kind = "challenge"
+id = "dlx-p1-fix"
+title = "Make the engine accept it"
+points = 30
+difficulty = 2
+intro = '''
+A manifest the engine refuses — find and fix every reason.
+'''
+instructions = '''
+`manifest.yaml` declares one Pod, but Delonix 0.2.0 refuses it. Fix it so that `delonix manifest
+render` loads it, and so that:
+
+- the apiVersion is the **current** compute group version, `compute.delonix.io/v1beta1`;
+- the Pod is named `hello`;
+- its one container is named `hello`, runs `alpine:3.20` and the command `["sleep", "infinity"]`;
+- the container declares port `8080` (an integer).
+
+Read the error that `delonix manifest render -f manifest.yaml` prints in the grading output: it names
+each problem.
+'''
+
+[unit.step.project]
+main = "manifest.yaml"
+explanation = '''
+Delonix refused this manifest three ways: an apiVersion that does not exist (`compute.delonix.io/v1`
+— the group is at `v1beta1`, and the legacy single version is `delonix.io/v1`), an unknown field
+(`imgae`) that would otherwise be silently lost, and wrong types (`command` must be a list,
+`containerPort` an integer). `manifest render` reports each of them before anything touches the
+machine.
+'''
+
+[unit.step.project.starter]
+"manifest.yaml" = '''
+apiVersion: compute.delonix.io/v1
+kind: Pod
+metadata:
+  name: hello
+spec:
+  containers:
+    - name: hello
+      imgae: alpine:3.20
+      command: sleep infinity
+      ports:
+        - containerPort: "8080"
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[run]]
+cmd = ["delonix", "manifest", "render", "-f", "manifest.yaml"]
+save = "rendered.yaml"
+message = "delonix manifest render must load the manifest (no unknown field, every type right)."
+
+[[check]]
+file = "manifest.yaml"
+path = "apiVersion"
+equals = "compute.delonix.io/v1beta1"
+message = "Use the current version of the compute group: compute.delonix.io/v1beta1."
+
+[[check]]
+file = "manifest.yaml"
+path = "kind"
+equals = "Pod"
+message = "It declares a Pod."
+
+[[check]]
+file = "manifest.yaml"
+path = "metadata.name"
+equals = "hello"
+message = "The Pod is named hello."
+
+[[check]]
+file = "manifest.yaml"
+path = "spec.containers[0]"
+only_keys = ["name", "image", "command", "ports"]
+message = "The container has name, image, command and ports (check the spelling: unknown fields are refused)."
+
+[[check]]
+file = "manifest.yaml"
+path = "spec.containers[0].image"
+equals = "alpine:3.20"
+message = "The container runs alpine:3.20."
+
+[[check]]
+file = "manifest.yaml"
+path = "spec.containers[0].command"
+equals = ["sleep", "infinity"]
+message = "command is a list: [\"sleep\", \"infinity\"]."
+
+[[check]]
+file = "manifest.yaml"
+path = "spec.containers[0].ports[0].containerPort"
+equals = 8080
+message = "containerPort is the integer 8080."
+
+[[check]]
+file = "rendered.yaml"
+path = "spec.restartPolicy"
+exists = true
+message = "The rendered Pod shows its defaults (restartPolicy included)."
+'''
+
+[unit.step.project.solution]
+"manifest.yaml" = '''
+apiVersion: compute.delonix.io/v1beta1
+kind: Pod
+metadata:
+  name: hello
+spec:
+  containers:
+    - name: hello
+      image: alpine:3.20
+      command: ["sleep", "infinity"]
+      ports:
+        - containerPort: 8080
+'''
+
+[[unit]]
+id = "dlx-u2-pods"
+title = "Pods: containers, commands, ports and environment"
+level = "basic"
+difficulty = 2
+intro = "The Pod spec in detail, and the defaults the engine fills in when you leave fields out."
+concepts = '''
+A Delonix **Pod** (`compute.delonix.io/v1beta1`) is a real multi-container pod: its containers share
+one network namespace, so they reach each other on `localhost`. The spec follows Kubernetes closely,
+with a few engine extensions.
+
+**Containers** (`spec.containers`, required, at least one):
+
+- `name` — optional in Delonix (a missing name becomes `c0`, `c1`… by position), but name them: it is
+  how you read logs and refer to them;
+- `image` — required; pin a tag;
+- `command` / `args` — override the image's ENTRYPOINT / CMD, as lists of strings;
+- `workingDir`, `env` (a list of `{name, value}` with string values), `ports` (`containerPort`, an
+  integer up to 65535, optional `hostPort`, `protocol`, `hostIP`), `volumeMounts`, `resources`
+  (`requests`/`limits` with `cpu` and `memory` strings), `securityContext`, `tty`.
+
+**Pod-level fields:**
+
+- `restartPolicy` — `Always`, `OnFailure` or `Never` (the Kubernetes names; Delonix's own spellings
+  are accepted too). Left out, the rendered manifest shows the engine default, `no`: the Pod is not
+  restarted;
+- `network` — a Delonix extension: the network the Pod's namespace joins. Left out, it is `host`
+  (the machine's own network). Unit 4 puts Pods on their own network;
+- `volumes` (unit 3), `hostname`, `hostAliases`, `shareProcessNamespace`, `detach` (default `true`)
+  and `expose` (register an HTTP port in the engine's L7 proxy).
+
+**Defaults are visible.** `delonix manifest render` prints every field the engine will use,
+including the ones you did not write. Reading a render is the quickest way to learn a Kind — and the
+checks of this unit read it too. Note that render checks the *shape* of each document; a value such
+as `restartPolicy: Sometimes` has the right type (a string), so the engine only refuses it later —
+the course checks the allowed values itself.
+
+Official docs: https://ngolacloud.github.io/delonix/kinds.html (Pod)
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "dlx-c2-pods"
+title = "What the engine fills in"
+points = 5
+difficulty = 2
+intro = '''
+Pod fields, and how to read the defaults in a render.
+'''
+body = '''
+Write only what you mean; the engine fills in the rest, and `manifest render` shows it:
+
+| You leave out | The render shows |
+|---|---|
+| `restartPolicy` | `no` |
+| `network` | `host` |
+| `detach` | `true` |
+| `ports`, `env`, `args` | `[]` |
+
+If a default is not what you want — a Pod that should restart, or that should not share the host
+network — write the field explicitly.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dlx-d2-env-ports"
+title = "Environment and ports"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+A web container with a port and two variables.
+'''
+prompt = '''
+Type the Pod. Environment values are strings, ports are integers.
+'''
+target = '''
+apiVersion: compute.delonix.io/v1beta1
+kind: Pod
+metadata:
+  name: web
+spec:
+  restartPolicy: Always
+  containers:
+    - name: web
+      image: nginx:1.27-alpine
+      ports:
+        - containerPort: 80
+      env:
+        - name: NGINX_PORT
+          value: "80"
+        - name: TZ
+          value: Africa/Luanda
+'''
+line_comments = [
+  "The compute group.",
+  "A Pod.",
+  "Identity.",
+  "The name.",
+  "Desired state.",
+  "Restart the containers whenever they stop.",
+  "Containers.",
+  "One container.",
+  "Pinned image.",
+  "Ports the container listens on.",
+  "An integer.",
+  "Environment variables.",
+  "The variable…",
+  "…and its value, quoted: env values are strings.",
+  "Another variable.",
+  "A plain string needs no quotes.",
+]
+explanation = "Rendered, the port also shows `hostPort: null`: nothing is published on the machine unless you ask for it."
+
+[[unit.step]]
+kind = "drill"
+id = "dlx-d2-command"
+title = "Command, args and working directory"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+Overriding what an image runs.
+'''
+prompt = '''
+Type the Pod that serves a folder with Python's built-in HTTP server.
+'''
+target = '''
+apiVersion: compute.delonix.io/v1beta1
+kind: Pod
+metadata:
+  name: files
+spec:
+  restartPolicy: OnFailure
+  containers:
+    - name: server
+      image: python:3.12-slim
+      command: ["python", "-m", "http.server"]
+      args: ["8000"]
+      workingDir: /srv
+'''
+line_comments = [
+  "The compute group.",
+  "A Pod.",
+  "Identity.",
+  "The name.",
+  "Desired state.",
+  "Restart only after a failure.",
+  "Containers.",
+  "One container.",
+  "Pinned image.",
+  "The program (replaces ENTRYPOINT).",
+  "Its argument (replaces CMD).",
+  "Start in /srv, so that folder is served.",
+]
+explanation = "The engine runs `python -m http.server 8000` in `/srv`."
+
+[[unit.step]]
+kind = "challenge"
+id = "dlx-p2-api"
+title = "An API Pod"
+points = 30
+difficulty = 3
+intro = '''
+Write a Pod from a short specification; render checks the shape, the checks the values.
+'''
+instructions = '''
+Complete `manifest.yaml`: a Pod named `api` whose single container, also named `api`,
+
+- runs `python:3.12-slim` with the command `["python", "-m", "http.server"]` and the args
+  `["8000"]`;
+- declares the container port `8000`;
+- has the environment variables `APP_ENV` = `staging` and `WORKERS` = `2` (a string);
+- and the Pod restarts its containers on failure only (`restartPolicy: OnFailure`).
+'''
+
+[unit.step.project]
+main = "manifest.yaml"
+explanation = '''
+`manifest render` refused nothing in the starter's `restartPolicy: Sometimes` — it is a string, the
+type the field wants — which is why the course checks the allowed values itself. The render also
+shows the default `network: host`; unit 4 gives Pods their own network.
+'''
+
+[unit.step.project.starter]
+"manifest.yaml" = '''
+apiVersion: compute.delonix.io/v1beta1
+kind: Pod
+metadata:
+  name: api
+spec:
+  restartPolicy: Sometimes
+  containers:
+    - name: api
+      image: python:3.12-slim
+      # TODO: command, args, ports and env
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[run]]
+cmd = ["delonix", "manifest", "render", "-f", "manifest.yaml"]
+save = "rendered.yaml"
+message = "delonix manifest render must load the manifest (no unknown field, every type right)."
+
+[[check]]
+file = "manifest.yaml"
+path = "spec.restartPolicy"
+one_of = ["Always", "OnFailure", "Never"]
+message = "restartPolicy is Always, OnFailure or Never (render accepts any string; the engine does not)."
+
+[[check]]
+file = "manifest.yaml"
+path = "spec.restartPolicy"
+equals = "OnFailure"
+message = "Restart on failure only: restartPolicy: OnFailure."
+
+[[check]]
+file = "rendered.yaml"
+path = "spec.containers[name=api].command"
+equals = ["python", "-m", "http.server"]
+message = "command is [\"python\", \"-m\", \"http.server\"]."
+
+[[check]]
+file = "rendered.yaml"
+path = "spec.containers[name=api].args"
+equals = ["8000"]
+message = "args is [\"8000\"]."
+
+[[check]]
+file = "rendered.yaml"
+path = "spec.containers[name=api].ports[*].containerPort"
+equals = 8000
+message = "The container declares port 8000."
+
+[[check]]
+file = "rendered.yaml"
+path = "spec.containers[name=api].env"
+equals = [{ name = "APP_ENV", value = "staging" }, { name = "WORKERS", value = "2" }]
+message = "env is APP_ENV=staging then WORKERS=\"2\" (values are strings)."
+
+[[check]]
+file = "rendered.yaml"
+path = "spec.network"
+equals = "host"
+message = "Without a network field the Pod uses the host network (the rendered default)."
+'''
+
+[unit.step.project.solution]
+"manifest.yaml" = '''
+apiVersion: compute.delonix.io/v1beta1
+kind: Pod
+metadata:
+  name: api
+spec:
+  restartPolicy: OnFailure
+  containers:
+    - name: api
+      image: python:3.12-slim
+      command: ["python", "-m", "http.server"]
+      args: ["8000"]
+      ports:
+        - containerPort: 8000
+      env:
+        - name: APP_ENV
+          value: staging
+        - name: WORKERS
+          value: "2"
+'''
+
+[[unit]]
+id = "dlx-u3-storage"
+title = "Volumes and mounts"
+level = "basic"
+difficulty = 3
+intro = "Data that must outlive a container lives in a named Volume; a Pod declares volumes and each container mounts them."
+concepts = '''
+A container's filesystem disappears with it. Data that must survive — a database, uploads — goes in a
+**volume**. In a Delonix manifest that takes three pieces that must agree by **name**:
+
+1. a **`Volume`** document (`storage.delonix.io/v1beta1`) — a named volume the engine manages.
+   `driver: local` (the default) keeps it on this machine's disk; other drivers mount network shares
+   (`nfs`, `cifs`, `webdav`) or raw devices;
+2. the Pod's **`spec.volumes`** — each entry has a `name` (local to the Pod) and **one source**:
+   - `source: <volume-name>` — a Delonix extension: the named `Volume` (or Storage) directly;
+   - `emptyDir: {}` — scratch space for the Pod's life; Delonix always backs it with tmpfs (RAM);
+   - `hostPath: {path: /some/dir}` — a directory of the machine (use sparingly: it ties the Pod to the
+     host's layout);
+   - `persistentVolumeClaim: {claimName: …}` — the Kubernetes spelling, for manifests shared with
+     Kubernetes;
+3. each container's **`volumeMounts`** — `name` (one of the Pod's volumes), `mountPath` (an absolute
+   path in the container) and optionally `readOnly: true`.
+
+**Why names, twice?** The Pod-level name lets several containers mount the same volume at different
+paths, and lets you swap the source (a local Volume in development, an NFS share in production)
+without touching the containers.
+
+**Who checks the references?** `manifest render` checks each document's shape, not that a mount's
+`name` exists or that a `source` names a declared Volume. `delonix manifest validate` resolves them
+against the manifest *and* the machine; the course checks them itself, from your files only.
+
+Official docs: https://ngolacloud.github.io/delonix/kinds.html (Volume, Pod) and
+https://ngolacloud.github.io/delonix/commands/volume.html
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "dlx-c3-storage"
+title = "Three names that must agree"
+points = 5
+difficulty = 3
+intro = '''
+Volume document, Pod volume, container mount.
+'''
+body = '''
+```
+Volume  metadata.name: db-data
+   ▲
+Pod     spec.volumes[].source: db-data      name: data
+                                               ▲
+        containers[].volumeMounts[].name: data  mountPath: /var/lib/postgresql/data
+```
+
+Get one name wrong and the Pod either fails to start or writes to a scratch directory that vanishes —
+the worst kind of bug, because it looks like it works.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dlx-d3-volume"
+title = "A named volume, mounted"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+A Volume and a Pod that mounts it.
+'''
+prompt = '''
+Type both documents. Follow each name from the Volume to the mount.
+'''
+target = '''
+apiVersion: storage.delonix.io/v1beta1
+kind: Volume
+metadata:
+  name: db-data
+spec:
+  driver: local
+---
+apiVersion: compute.delonix.io/v1beta1
+kind: Pod
+metadata:
+  name: db
+spec:
+  containers:
+    - name: postgres
+      image: postgres:16-alpine
+      volumeMounts:
+        - name: data
+          mountPath: /var/lib/postgresql/data
+  volumes:
+    - name: data
+      source: db-data
+'''
+line_comments = [
+  "The storage group.",
+  "A named volume managed by the engine.",
+  "Identity.",
+  "The volume's name.",
+  "Desired state.",
+  "On this machine's disk.",
+  "Next document.",
+  "The compute group.",
+  "A Pod.",
+  "Identity.",
+  "The name.",
+  "Desired state.",
+  "Containers.",
+  "The database container.",
+  "Pinned image.",
+  "Where volumes appear in this container:",
+  "the Pod volume named data…",
+  "…at Postgres' data directory.",
+  "The Pod's volumes:",
+  "named data, inside this Pod…",
+  "…backed by the Volume db-data (a Delonix extension).",
+]
+explanation = "Delete and recreate the Pod: the data stays in `db-data`."
+
+[[unit.step]]
+kind = "drill"
+id = "dlx-d3-emptydir"
+title = "Scratch space and a read-only mount"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+An emptyDir shared by two containers.
+'''
+prompt = '''
+Type the Pod. The writer and the reader see the same tmpfs.
+'''
+target = '''
+apiVersion: compute.delonix.io/v1beta1
+kind: Pod
+metadata:
+  name: report
+spec:
+  containers:
+    - name: writer
+      image: busybox:1.36
+      command: ["sh", "-c", "date > /out/now && sleep 3600"]
+      volumeMounts:
+        - name: scratch
+          mountPath: /out
+    - name: reader
+      image: nginx:1.27-alpine
+      volumeMounts:
+        - name: scratch
+          mountPath: /usr/share/nginx/html
+          readOnly: true
+  volumes:
+    - name: scratch
+      emptyDir: {}
+'''
+line_comments = [
+  "The compute group.",
+  "A Pod.",
+  "Identity.",
+  "The name.",
+  "Desired state.",
+  "Two containers sharing a volume:",
+  "the first writes…",
+  "Pinned image.",
+  "…a file into /out.",
+  "Mounts.",
+  "The shared volume…",
+  "…at /out.",
+  "The second only reads.",
+  "Pinned image.",
+  "Mounts.",
+  "The same volume…",
+  "…served as the web root…",
+  "…and read-only for this container.",
+  "The Pod's volumes.",
+  "One volume…",
+  "…that lives as long as the Pod (tmpfs in Delonix).",
+]
+explanation = "An `emptyDir` is the way two containers of a Pod hand files to each other."
+
+[[unit.step]]
+kind = "challenge"
+id = "dlx-p3-storage"
+title = "Persist the database"
+points = 35
+difficulty = 4
+intro = '''
+Declare a Volume and wire it to the database container — every name must match.
+'''
+instructions = '''
+Complete `manifest.yaml` so that the `db` Pod keeps its data:
+
+- declare a `Volume` named `pg-data` with `driver: local`;
+- give the Pod a volume named `data` whose `source` is `pg-data`;
+- mount `data` in the `postgres` container at `/var/lib/postgresql/data`;
+- also give the Pod an `emptyDir` volume named `run`, mounted in `postgres` at `/var/run/postgresql`.
+
+Every mount must name a volume of the Pod, and the `source` must name a Volume of the manifest.
+'''
+
+[unit.step.project]
+main = "manifest.yaml"
+explanation = '''
+The starter mounted `pgdata`, a name no volume of the Pod had — `manifest render` does not catch
+that, because each document has a valid shape; only a check that follows the names does. Now the
+three names line up: Volume `pg-data` ← Pod volume `data` ← mount at the data directory.
+'''
+
+[unit.step.project.starter]
+"manifest.yaml" = '''
+apiVersion: compute.delonix.io/v1beta1
+kind: Pod
+metadata:
+  name: db
+spec:
+  containers:
+    - name: postgres
+      image: postgres:16-alpine
+      volumeMounts:
+        - name: pgdata
+          mountPath: /var/lib/postgresql/data
+  volumes:
+    - name: data
+      source: pg-data
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[run]]
+cmd = ["delonix", "manifest", "render", "-f", "manifest.yaml"]
+save = "rendered.yaml"
+message = "delonix manifest render must load the manifest (no unknown field, every type right)."
+
+[[check]]
+file = "manifest.yaml"
+doc = { kind = "Volume" }
+path = "metadata.name"
+equals = "pg-data"
+message = "Declare a Volume named pg-data."
+
+[[check]]
+file = "manifest.yaml"
+doc = { kind = "Volume", name = "pg-data" }
+path = "spec.driver"
+equals = "local"
+message = "The Volume uses driver: local."
+
+[[check]]
+file = "manifest.yaml"
+doc = { kind = "Pod", name = "db" }
+path = "spec.volumes[name=data].source"
+among = { doc = { kind = "Volume" }, path = "metadata.name" }
+message = "The Pod volume data has source: pg-data, a Volume declared in the manifest."
+
+[[check]]
+file = "manifest.yaml"
+doc = { kind = "Pod", name = "db" }
+path = "spec.volumes[name=run].emptyDir"
+is = "mapping"
+message = "Add a volume run with emptyDir: {}."
+
+[[check]]
+file = "manifest.yaml"
+doc = { kind = "Pod", name = "db" }
+path = "spec.containers[name=postgres].volumeMounts[*].name"
+among = { doc = { kind = "Pod", name = "db" }, path = "spec.volumes[*].name" }
+message = "Every volumeMount must name a volume of the Pod (data or run)."
+
+[[check]]
+file = "manifest.yaml"
+doc = { kind = "Pod", name = "db" }
+path = "spec.containers[name=postgres].volumeMounts[name=data].mountPath"
+equals = "/var/lib/postgresql/data"
+message = "Mount data at /var/lib/postgresql/data."
+
+[[check]]
+file = "manifest.yaml"
+doc = { kind = "Pod", name = "db" }
+path = "spec.containers[name=postgres].volumeMounts[name=run].mountPath"
+equals = "/var/run/postgresql"
+message = "Mount run at /var/run/postgresql."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Pod", name = "db" }
+path = "spec.volumes[name=data].source"
+equals = "pg-data"
+message = "The engine reads the volume data from pg-data."
+'''
+
+[unit.step.project.solution]
+"manifest.yaml" = '''
+apiVersion: storage.delonix.io/v1beta1
+kind: Volume
+metadata:
+  name: pg-data
+spec:
+  driver: local
+---
+apiVersion: compute.delonix.io/v1beta1
+kind: Pod
+metadata:
+  name: db
+spec:
+  containers:
+    - name: postgres
+      image: postgres:16-alpine
+      volumeMounts:
+        - name: data
+          mountPath: /var/lib/postgresql/data
+        - name: run
+          mountPath: /var/run/postgresql
+  volumes:
+    - name: data
+      source: pg-data
+    - name: run
+      emptyDir: {}
+'''
+
+[[unit]]
+id = "dlx-u4-networks"
+title = "Networks, labels and Services"
+level = "intermediate"
+difficulty = 4
+intro = "Put Pods on their own network, label them, and give a set of them one DNS name with a Service."
+concepts = '''
+Without a `network`, a Pod shares the **host** network: its ports are the machine's ports, and two
+Pods cannot both listen on 8080. A **`Network`** document (`networking.delonix.io/v1beta1`) creates
+a user network — `driver: bridge` for a network on this machine, with an optional `subnet`
+(`10.89.0.0/24`) and `gateway` — and a Pod joins it with **`spec.network: <name>`**. Pods on the same
+network reach each other by address and by DNS name.
+
+**Namespaces isolate.** `metadata.namespace` (default `default`) is, in Delonix, a network isolation
+boundary for workloads: resources of different namespaces do not reach each other unless a
+`Dependency` opens the way.
+
+**Labels and Services.** Labels (`metadata.labels`) work as in Kubernetes: free key/value pairs that
+selectors match. A **`Service`** (`networking.delonix.io/v1beta1`) gives the set of workloads matched
+by `spec.selector.matchLabels` (every label must match) one name:
+`<name>.<namespace>.delonix.internal`.
+
+- `type: DNS` (the default) publishes every matched workload as an `A` record, in rotating order —
+  no virtual IP, no proxy;
+- `type: VirtualIP` holds one address from the node's VIP pool and forwards each connection to a
+  ready backend;
+- `port` is the **container** port every matched workload listens on — never a host port.
+
+A Service whose selector matches nothing is refused by `delonix manifest validate` (nobody would
+answer). Membership is live: relabel or add a workload and the Service follows within seconds.
+
+Official docs: https://ngolacloud.github.io/delonix/kinds.html (Network, Service) and
+https://ngolacloud.github.io/delonix/commands/network.html
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "dlx-c4-networks"
+title = "From host network to a named set"
+points = 5
+difficulty = 4
+intro = '''
+Networks keep Pods apart from the host; Services find them by label.
+'''
+body = '''
+- `spec.network: shop-net` — the Pod gets its own address on `shop-net`.
+- `metadata.labels: {app: api}` — what the Pod *is*.
+- A `Service` with `selector.matchLabels: {app: api}` and `port: 8000` — `api.default.delonix.internal`
+  answers with every matching Pod.
+
+The checks of this unit follow the references: the network a Pod names must be declared, and the
+Service's selector must match a Pod's labels.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dlx-d4-network"
+title = "A network and a Pod on it"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+A bridge network with a subnet.
+'''
+prompt = '''
+Type the manifest.
+'''
+target = '''
+apiVersion: networking.delonix.io/v1beta1
+kind: Network
+metadata:
+  name: lab-net
+spec:
+  driver: bridge
+  subnet: 10.89.0.0/24
+---
+apiVersion: compute.delonix.io/v1beta1
+kind: Pod
+metadata:
+  name: web
+spec:
+  network: lab-net
+  containers:
+    - name: web
+      image: nginx:1.27-alpine
+'''
+line_comments = [
+  "The networking group.",
+  "A user network.",
+  "Identity.",
+  "The name Pods join by.",
+  "Desired state.",
+  "A bridge on this machine.",
+  "The address range of the network.",
+  "Next document.",
+  "The compute group.",
+  "A Pod.",
+  "Identity.",
+  "The name.",
+  "Desired state.",
+  "Join lab-net instead of the host network.",
+  "Containers.",
+  "One container.",
+  "Pinned image.",
+]
+explanation = "The Pod gets an address in 10.89.0.0/24; its port 80 is no longer the machine's port 80."
+
+[[unit.step]]
+kind = "drill"
+id = "dlx-d4-service"
+title = "A Service by label"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+One DNS name for every Pod labelled app=web.
+'''
+prompt = '''
+Type the Service.
+'''
+target = '''
+apiVersion: networking.delonix.io/v1beta1
+kind: Service
+metadata:
+  name: web
+spec:
+  selector:
+    matchLabels:
+      app: web
+  port: 80
+  type: DNS
+'''
+line_comments = [
+  "The networking group.",
+  "A set of workloads picked by label.",
+  "Identity.",
+  "Resolves as web.default.delonix.internal.",
+  "Desired state.",
+  "Which workloads:",
+  "every one of these labels must match —",
+  "here app=web.",
+  "The container port the members listen on.",
+  "The default: one A record per member, round-robin.",
+]
+explanation = "Add a third Pod labelled `app: web` and it answers `web.default.delonix.internal` within seconds, without re-applying the Service."
+
+[[unit.step]]
+kind = "challenge"
+id = "dlx-p4-network"
+title = "A private network for the shop"
+points = 40
+difficulty = 5
+intro = '''
+Network, labelled Pods and a Service whose selector really matches.
+'''
+instructions = '''
+Complete `manifest.yaml`:
+
+- declare a `Network` named `shop-net` with `driver: bridge` and `subnet: 10.89.10.0/24`;
+- put **both** Pods (`web` and `api`) on `shop-net`;
+- label the `api` Pod `app: api` and `tier: backend`, and the `web` Pod `app: web` and
+  `tier: frontend`;
+- declare a `Service` named `api` that selects the `api` Pod with `matchLabels` `app: api`, on the
+  container port the `api` container declares (`8000`).
+'''
+
+[unit.step.project]
+main = "manifest.yaml"
+explanation = '''
+The starter's `api` Pod named a network that did not exist (`shop`), and the `web` Pod stayed on the
+host network. Now both have addresses on `shop-net`, and `api.default.delonix.internal` resolves to
+the `api` Pod because the Service's selector matches its labels.
+'''
+
+[unit.step.project.starter]
+"manifest.yaml" = '''
+apiVersion: compute.delonix.io/v1beta1
+kind: Pod
+metadata:
+  name: web
+spec:
+  containers:
+    - name: web
+      image: nginx:1.27-alpine
+      ports:
+        - containerPort: 80
+---
+apiVersion: compute.delonix.io/v1beta1
+kind: Pod
+metadata:
+  name: api
+spec:
+  network: shop
+  containers:
+    - name: api
+      image: python:3.12-slim
+      command: ["python", "-m", "http.server", "8000"]
+      ports:
+        - containerPort: 8000
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[run]]
+cmd = ["delonix", "manifest", "render", "-f", "manifest.yaml"]
+save = "rendered.yaml"
+message = "delonix manifest render must load the manifest (no unknown field, every type right)."
+
+[[check]]
+file = "manifest.yaml"
+doc = { kind = "Network", name = "shop-net" }
+path = "spec"
+equals = { driver = "bridge", subnet = "10.89.10.0/24" }
+message = "Declare the Network shop-net: driver bridge, subnet 10.89.10.0/24."
+
+[[check]]
+file = "manifest.yaml"
+doc = { kind = "Pod", name = "web" }
+path = "spec.network"
+among = { doc = { kind = "Network" }, path = "metadata.name" }
+message = "The web Pod joins a Network declared in the manifest (shop-net)."
+
+[[check]]
+file = "manifest.yaml"
+doc = { kind = "Pod", name = "api" }
+path = "spec.network"
+among = { doc = { kind = "Network" }, path = "metadata.name" }
+message = "The api Pod joins a Network declared in the manifest (shop-net, not shop)."
+
+[[check]]
+file = "manifest.yaml"
+doc = { kind = "Pod", name = "api" }
+path = "metadata.labels"
+equals = { app = "api", tier = "backend" }
+message = "Label the api Pod app: api and tier: backend."
+
+[[check]]
+file = "manifest.yaml"
+doc = { kind = "Pod", name = "web" }
+path = "metadata.labels"
+equals = { app = "web", tier = "frontend" }
+message = "Label the web Pod app: web and tier: frontend."
+
+[[check]]
+file = "manifest.yaml"
+doc = { kind = "Service", name = "api" }
+path = "spec.selector.matchLabels"
+equals = { app = "api" }
+message = "The Service selects with matchLabels app: api."
+
+[[check]]
+file = "manifest.yaml"
+doc = { kind = "Service", name = "api" }
+path = "spec.selector.matchLabels"
+selects = { doc = { kind = "Pod", name = "api" }, path = "metadata.labels" }
+message = "The Service's selector must match the api Pod's labels."
+
+[[check]]
+file = "manifest.yaml"
+doc = { kind = "Service", name = "api" }
+path = "spec.port"
+among = { doc = { kind = "Pod", name = "api" }, path = "spec.containers[*].ports[*].containerPort" }
+message = "The Service port is the container port the api container declares (8000)."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Pod", name = "api" }
+path = "spec.network"
+equals = "shop-net"
+message = "The engine reads the api Pod on shop-net."
+'''
+
+[unit.step.project.solution]
+"manifest.yaml" = '''
+apiVersion: networking.delonix.io/v1beta1
+kind: Network
+metadata:
+  name: shop-net
+spec:
+  driver: bridge
+  subnet: 10.89.10.0/24
+---
+apiVersion: compute.delonix.io/v1beta1
+kind: Pod
+metadata:
+  name: web
+  labels:
+    app: web
+    tier: frontend
+spec:
+  network: shop-net
+  containers:
+    - name: web
+      image: nginx:1.27-alpine
+      ports:
+        - containerPort: 80
+---
+apiVersion: compute.delonix.io/v1beta1
+kind: Pod
+metadata:
+  name: api
+  labels:
+    app: api
+    tier: backend
+spec:
+  network: shop-net
+  containers:
+    - name: api
+      image: python:3.12-slim
+      command: ["python", "-m", "http.server", "8000"]
+      ports:
+        - containerPort: 8000
+---
+apiVersion: networking.delonix.io/v1beta1
+kind: Service
+metadata:
+  name: api
+spec:
+  selector:
+    matchLabels:
+      app: api
+  port: 8000
+'''
+
+[[unit]]
+id = "dlx-u5-config"
+title = "Config and Secret: values outside the workload"
+level = "intermediate"
+difficulty = 5
+intro = "Settings go in a Config, sensitive values in a Secret — and real secret values never go in the manifest."
+concepts = '''
+Delonix has two Kinds for values a workload reads at start, both in `core.delonix.io/v1beta1`:
+
+- **`Config`** — cleartext settings. `spec.data` holds `KEY: value` pairs (shown as they are by
+  `describe` and by `manifest render`);
+- **`Secret`** — sensitive values, kept **encrypted at rest** in the engine's secret store and handed
+  to workloads at start.
+
+Both can take their values from three places, which can be combined:
+
+| Field | Where the values come from |
+|---|---|
+| `stringData` (Secret) / `data` (Config) | written inline in the manifest |
+| `fromEnvFile: ./db.env` | a `KEY=value` file, resolved against the manifest's folder **at apply time** |
+| `fromEnv` | the environment of the process running `apply` (a list of names, or a map key → variable) |
+
+**A Secret's value does not belong in the manifest.** `stringData` is plaintext in a file that ends
+up in Git, in reviews and in CI logs. Use `fromEnvFile` with a file that is listed in `.gitignore`,
+or `fromEnv` fed by your CI's secret store. `delonix manifest render` prints Secret values as
+`<redacted>` — but that protects the screen, not the repository.
+
+**Consuming them.** In Delonix 0.2.0 a workload receives Configs and Secrets by name through the
+`Container` Kind: `config: [<names>]` and `secret: [<names>]` inject every key as an environment
+variable, and `configFiles: true` / `secretFiles: true` deliver them as files instead — secrets in
+a read-only tmpfs at `/run/secrets`, so they never appear in the process environment or in
+`inspect`. The `Container` Kind still works but is on sunset in favour of `Application` (next unit),
+whose spec in 0.2.0 has no field for them yet; other Kinds name a Secret where they need one
+(`Image.pullSecret`, a CIFS `Volume`'s `passwordSecret`).
+
+Official docs: https://ngolacloud.github.io/delonix/kinds.html (Config, Secret) and
+https://ngolacloud.github.io/delonix/commands/secret.html
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "dlx-c5-config"
+title = "Three sources for a value"
+points = 5
+difficulty = 5
+intro = '''
+Inline, from a file, from the environment — and which one a secret may use.
+'''
+body = '''
+- **Config** values may be inline: they are not secret.
+- **Secret** values come from `fromEnvFile` or `fromEnv`, so the manifest carries only *where* the
+  value is, never the value.
+- A workload asks for them **by name** (`secret: [db]`), and `secretFiles: true` keeps them out of its
+  environment.
+
+The challenge turns a manifest that leaks a password into one that does not.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dlx-d5-config"
+title = "A Config"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+Cleartext settings.
+'''
+prompt = '''
+Type the Config.
+'''
+target = '''
+apiVersion: core.delonix.io/v1beta1
+kind: Config
+metadata:
+  name: web-settings
+spec:
+  data:
+    LOG_LEVEL: info
+    FEATURE_FLAGS: "beta,metrics"
+'''
+line_comments = [
+  "Config and Secret are in the core group.",
+  "Cleartext settings.",
+  "Identity.",
+  "Workloads ask for it by this name.",
+  "Desired state.",
+  "Inline KEY: value pairs…",
+  "…a log level…",
+  "…and a comma-separated list, quoted to stay one string.",
+]
+explanation = "`delonix manifest render` shows these values as they are: a Config is not secret."
+
+[[unit.step]]
+kind = "drill"
+id = "dlx-d5-secret"
+title = "A Secret without its value"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+A Secret whose values live in a file outside Git.
+'''
+prompt = '''
+Type the Secret. The manifest says where the values are, not what they are.
+'''
+target = '''
+apiVersion: core.delonix.io/v1beta1
+kind: Secret
+metadata:
+  name: db-credentials
+spec:
+  fromEnvFile: ./db.env
+  fromEnv:
+    - DATABASE_URL
+'''
+line_comments = [
+  "The core group.",
+  "Encrypted at rest in the engine.",
+  "Identity.",
+  "Workloads ask for it by this name.",
+  "Desired state.",
+  "KEY=value lines read at apply time, next to the manifest (and in .gitignore).",
+  "Plus keys from the environment of whoever runs apply:",
+  "the variable DATABASE_URL, e.g. from the CI's secret store.",
+]
+explanation = "Nothing in this file is sensitive: it can be committed and reviewed."
+
+[[unit.step]]
+kind = "challenge"
+id = "dlx-p5-secrets"
+title = "Stop leaking the password"
+points = 40
+difficulty = 6
+intro = '''
+Move a password out of the manifest and deliver it as a file.
+'''
+instructions = '''
+`manifest.yaml` declares a Config, a Secret with an inline password, and the `api` Container that
+uses them. Fix it so that:
+
+- the Config `api-settings` keeps its inline `data` (`LOG_LEVEL: info`);
+- the Secret `api-db` has **no** `stringData`: its values come from `fromEnvFile: ./db.env`;
+- the `api` Container asks for the Config `api-settings` and the Secret `api-db` **by name**
+  (`config:` and `secret:`), and receives the secret as files (`secretFiles: true`);
+- the Container no longer carries the password in its own `env`.
+'''
+
+[unit.step.project]
+main = "manifest.yaml"
+explanation = '''
+The manifest now holds no sensitive value anywhere: the Secret says where its values are
+(`./db.env`, kept out of Git), and the Container names the Secret instead of copying the password.
+With `secretFiles: true` the value reaches the process as a file in a RAM-only `/run/secrets`, so it
+never shows in the environment, in `inspect` or in a crash dump of `environ`.
+'''
+
+[unit.step.project.starter]
+"manifest.yaml" = '''
+apiVersion: core.delonix.io/v1beta1
+kind: Config
+metadata:
+  name: api-settings
+spec:
+  data:
+    LOG_LEVEL: info
+---
+apiVersion: core.delonix.io/v1beta1
+kind: Secret
+metadata:
+  name: api-db
+spec:
+  stringData:
+    DB_PASSWORD: change-me
+---
+apiVersion: compute.delonix.io/v1beta1
+kind: Container
+metadata:
+  name: api
+spec:
+  image: python:3.12-slim
+  command: ["python", "-m", "http.server", "8000"]
+  env:
+    - DB_PASSWORD=change-me
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[run]]
+cmd = ["delonix", "manifest", "render", "-f", "manifest.yaml"]
+save = "rendered.yaml"
+message = "delonix manifest render must load the manifest (no unknown field, every type right)."
+
+[[check]]
+file = "manifest.yaml"
+doc = { kind = "Config", name = "api-settings" }
+path = "spec.data"
+equals = { LOG_LEVEL = "info" }
+message = "The Config api-settings keeps data LOG_LEVEL: info."
+
+[[check]]
+file = "manifest.yaml"
+doc = { kind = "Secret", name = "api-db" }
+path = "spec.stringData"
+exists = false
+message = "No inline secret values: remove stringData from the Secret."
+
+[[check]]
+file = "manifest.yaml"
+doc = { kind = "Secret", name = "api-db" }
+path = "spec.fromEnvFile"
+equals = "./db.env"
+message = "The Secret reads its values from fromEnvFile: ./db.env."
+
+[[check]]
+file = "manifest.yaml"
+doc = { kind = "Container", name = "api" }
+path = "spec.env"
+exists = false
+message = "The Container must not carry the password in env."
+
+[[check]]
+file = "manifest.yaml"
+doc = { kind = "Container", name = "api" }
+path = "spec.config[*]"
+among = { doc = { kind = "Config" }, path = "metadata.name" }
+message = "config: lists Configs declared in the manifest (api-settings)."
+
+[[check]]
+file = "manifest.yaml"
+doc = { kind = "Container", name = "api" }
+path = "spec.config"
+equals = ["api-settings"]
+message = "The Container asks for the Config api-settings: config: [api-settings]."
+
+[[check]]
+file = "manifest.yaml"
+doc = { kind = "Container", name = "api" }
+path = "spec.secret"
+equals = ["api-db"]
+message = "The Container asks for the Secret api-db: secret: [api-db]."
+
+[[check]]
+file = "manifest.yaml"
+doc = { kind = "Container", name = "api" }
+path = "spec.secret[*]"
+among = { doc = { kind = "Secret" }, path = "metadata.name" }
+message = "secret: lists Secrets declared in the manifest."
+
+[[check]]
+file = "manifest.yaml"
+doc = { kind = "Container", name = "api" }
+path = "spec.secretFiles"
+equals = true
+message = "secretFiles: true delivers the secret as files in /run/secrets, not as environment variables."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Secret", name = "api-db" }
+path = "spec.fromEnvFile"
+equals = "./db.env"
+message = "The engine reads the Secret from ./db.env."
+'''
+
+[unit.step.project.solution]
+"manifest.yaml" = '''
+apiVersion: core.delonix.io/v1beta1
+kind: Config
+metadata:
+  name: api-settings
+spec:
+  data:
+    LOG_LEVEL: info
+---
+apiVersion: core.delonix.io/v1beta1
+kind: Secret
+metadata:
+  name: api-db
+spec:
+  fromEnvFile: ./db.env
+---
+apiVersion: compute.delonix.io/v1beta1
+kind: Container
+metadata:
+  name: api
+spec:
+  image: python:3.12-slim
+  command: ["python", "-m", "http.server", "8000"]
+  config: [api-settings]
+  secret: [api-db]
+  secretFiles: true
+'''
+
+[[unit]]
+id = "dlx-u6-applications"
+title = "Applications and Jobs"
+level = "intermediate"
+difficulty = 6
+intro = "Application runs N copies of a Pod; Job runs one to completion — both are lowered to Pods, and render shows it."
+concepts = '''
+Writing three Pods by hand to run three copies of a web server is repetitive and error-prone.
+Delonix has two higher-level Kinds that **lower** to Pods when the manifest is loaded:
+
+- **`Application`** (`compute.delonix.io/v1beta1`) — a Pod spec plus `replicas` (default 1). It
+  lowers to `replicas` Pods named **`<name>-0`, `<name>-1`, …**, each carrying the Application's
+  `metadata.labels` and namespace. The Application document itself does not survive the load: the
+  Pods are what run. It is the recommended way forward for long-running workloads (the older
+  `Container` Kind still works, with a sunset warning);
+- **`Job`** — a Pod spec for **run-to-completion** work (a migration, a backup). It lowers to one
+  Pod with the Job's name and `restartPolicy` defaulted to **`OnFailure`**, so a failed run is
+  retried and a successful one is left alone.
+
+**See the lowering.** `delonix manifest render` prints the manifest *after* lowering: an
+Application with `replicas: 3` comes out as three Pod documents, a Job as one Pod with
+`restartPolicy: OnFailure`. That is how you check what will really run — and what the checks of the
+challenge read.
+
+**Labels flow down.** Because each instance carries the Application's labels, a `Service` selecting
+`app: web` matches all replicas — scaling is changing one number, and the Service follows.
+
+There is also `Workload`, which lowers to a container or a VM (`spec.type`) — useful when a manifest
+must switch between the two — and `Stack`, which groups a whole project into one document (the
+capstone unit).
+
+Official docs: https://ngolacloud.github.io/delonix/kinds.html (Application, Job)
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "dlx-c6-applications"
+title = "Kinds that become Pods"
+points = 5
+difficulty = 6
+intro = '''
+What Application and Job lower to, and how to see it.
+'''
+body = '''
+| You write | `manifest render` shows |
+|---|---|
+| `Application web`, `replicas: 3` | `Pod web-0`, `Pod web-1`, `Pod web-2` (with the labels) |
+| `Job migrate` | `Pod migrate`, `restartPolicy: OnFailure` |
+
+Reading the render is reading what will run.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dlx-d6-application"
+title = "An Application"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+Three replicas of a web server.
+'''
+prompt = '''
+Type the Application.
+'''
+target = '''
+apiVersion: compute.delonix.io/v1beta1
+kind: Application
+metadata:
+  name: web
+  labels:
+    app: web
+spec:
+  replicas: 3
+  network: lab-net
+  containers:
+    - name: web
+      image: nginx:1.27-alpine
+'''
+line_comments = [
+  "The compute group.",
+  "N copies of a Pod spec.",
+  "Identity…",
+  "…instances are web-0, web-1, web-2…",
+  "…and every instance carries these labels:",
+  "app=web.",
+  "A Pod spec, plus replicas.",
+  "How many instances.",
+  "The network every instance joins.",
+  "Containers of each instance.",
+  "One container.",
+  "Pinned image.",
+]
+explanation = "Rendered, this is three Pod documents; the Application itself is gone."
+
+[[unit.step]]
+kind = "drill"
+id = "dlx-d6-job"
+title = "A Job"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+A database migration that runs to completion.
+'''
+prompt = '''
+Type the Job.
+'''
+target = '''
+apiVersion: compute.delonix.io/v1beta1
+kind: Job
+metadata:
+  name: db-migrate
+spec:
+  containers:
+    - name: migrate
+      image: migrate/migrate:v4.17.0
+      command: ["migrate", "-path", "/migrations", "up"]
+'''
+line_comments = [
+  "The compute group.",
+  "Run to completion.",
+  "Identity.",
+  "The Pod it lowers to has this name.",
+  "A Pod spec.",
+  "Containers.",
+  "One container.",
+  "Pinned image.",
+  "The one-off command.",
+]
+explanation = "Rendered: one Pod `db-migrate` with `restartPolicy: OnFailure` — retried on failure, left alone on success."
+
+[[unit.step]]
+kind = "challenge"
+id = "dlx-p6-application"
+title = "Replicas and a migration"
+points = 40
+difficulty = 7
+intro = '''
+Write an Application and a Job; the checks read what they lower to.
+'''
+instructions = '''
+Replace the hand-written Pods in `manifest.yaml`:
+
+- an **`Application`** named `web`, labelled `app: web`, with **3** replicas on the network
+  `shop-net`, running one container `web` (`nginx:1.27-alpine`, port `80`);
+- a **`Job`** named `migrate` on `shop-net`, running one container `migrate` with the image
+  `migrate/migrate:v4.17.0` and the command `["migrate", "-path", "/migrations", "up"]`;
+- keep the `Network` `shop-net` and the `Service` `web`.
+
+The checks render the manifest and expect exactly four Pods: `web-0`, `web-1`, `web-2` and
+`migrate`.
+'''
+
+[unit.step.project]
+main = "manifest.yaml"
+explanation = '''
+The starter's second Pod had no label, so the Service only ever reached one of the two. With an
+Application every instance gets the same labels, the Service reaches all of them, and scaling is one
+number. The render shows the truth: four Pods, the Job's with `restartPolicy: OnFailure`.
+'''
+
+[unit.step.project.starter]
+"manifest.yaml" = '''
+apiVersion: networking.delonix.io/v1beta1
+kind: Network
+metadata:
+  name: shop-net
+spec:
+  driver: bridge
+---
+apiVersion: compute.delonix.io/v1beta1
+kind: Pod
+metadata:
+  name: web-a
+  labels:
+    app: web
+spec:
+  network: shop-net
+  containers:
+    - name: web
+      image: nginx:1.27-alpine
+---
+apiVersion: compute.delonix.io/v1beta1
+kind: Pod
+metadata:
+  name: web-b
+spec:
+  network: shop-net
+  containers:
+    - name: web
+      image: nginx:1.27-alpine
+---
+apiVersion: networking.delonix.io/v1beta1
+kind: Service
+metadata:
+  name: web
+spec:
+  selector:
+    matchLabels:
+      app: web
+  port: 80
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[run]]
+cmd = ["delonix", "manifest", "render", "-f", "manifest.yaml"]
+save = "rendered.yaml"
+message = "delonix manifest render must load the manifest (no unknown field, every type right)."
+
+[[check]]
+file = "manifest.yaml"
+doc = { kind = "Pod" }
+doc_count = 0
+message = "Do not write Pods by hand: use an Application and a Job."
+
+[[check]]
+file = "manifest.yaml"
+doc = { kind = "Application", name = "web" }
+path = "spec.replicas"
+equals = 3
+message = "The Application web runs 3 replicas."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Pod" }
+doc_count = 4
+message = "The render must contain exactly four Pods: web-0, web-1, web-2 and migrate."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Pod", name = "web-0" }
+path = "metadata.labels"
+contains = { app = "web" }
+message = "web-0 carries the Application's label app: web."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Pod", name = "web-2" }
+path = "spec.containers[name=web].ports[*].containerPort"
+equals = 80
+message = "Each instance runs the web container on port 80."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Pod", name = "web-1" }
+path = "spec.network"
+equals = "shop-net"
+message = "Each instance joins shop-net."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Pod", name = "migrate" }
+path = "spec.restartPolicy"
+equals = "OnFailure"
+message = "The Job lowers to the Pod migrate with restartPolicy: OnFailure."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Pod", name = "migrate" }
+path = "spec.containers[name=migrate]"
+contains = { image = "migrate/migrate:v4.17.0", command = ["migrate", "-path", "/migrations", "up"] }
+message = "The migrate container runs migrate/migrate:v4.17.0 with the migration command."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Pod", name = "migrate" }
+path = "spec.network"
+equals = "shop-net"
+message = "The Job's Pod joins shop-net."
+
+[[check]]
+file = "manifest.yaml"
+doc = { kind = "Service", name = "web" }
+path = "spec.selector.matchLabels"
+selects = { doc = { kind = "Application", name = "web" }, path = "metadata.labels" }
+message = "The Service web still selects the Application's instances (app: web)."
+'''
+
+[unit.step.project.solution]
+"manifest.yaml" = '''
+apiVersion: networking.delonix.io/v1beta1
+kind: Network
+metadata:
+  name: shop-net
+spec:
+  driver: bridge
+---
+apiVersion: compute.delonix.io/v1beta1
+kind: Application
+metadata:
+  name: web
+  labels:
+    app: web
+spec:
+  replicas: 3
+  network: shop-net
+  containers:
+    - name: web
+      image: nginx:1.27-alpine
+      ports:
+        - containerPort: 80
+---
+apiVersion: compute.delonix.io/v1beta1
+kind: Job
+metadata:
+  name: migrate
+spec:
+  network: shop-net
+  containers:
+    - name: migrate
+      image: migrate/migrate:v4.17.0
+      command: ["migrate", "-path", "/migrations", "up"]
+---
+apiVersion: networking.delonix.io/v1beta1
+kind: Service
+metadata:
+  name: web
+spec:
+  selector:
+    matchLabels:
+      app: web
+  port: 80
+'''
+
+[[unit]]
+id = "dlx-u7-compose"
+title = "Compose files, natively"
+level = "intermediate"
+difficulty = 7
+intro = "Delonix runs docker-compose files without Docker; `delonix compose config` validates one and prints the project it resolves to."
+concepts = '''
+Many projects already describe their services in a **`docker-compose.yml`** (or `compose.yaml`).
+Delonix reads that format natively — no Docker daemon involved: `delonix compose up -d` creates the
+services, `ps`, `logs` and `down` manage them, and **`delonix compose config`** validates the file and
+prints the resolved project **without creating anything** (the equivalent of `docker compose
+config`). The course grades your compose files with `config`.
+
+**What gets created, and its names.** The project name comes from `-p`, else the file's top-level
+`name:`, else the directory. For a project `shop`:
+
+- each service becomes a container named **`shop-<service>`** (or its `container_name`);
+- the implicit network is **`shop_default`**; a declared network `back` becomes `shop_back`;
+- a named volume `db-data` becomes **`shop_db-data`**.
+
+**Declare before you use.** A service that mounts a named volume or joins a network that is not
+declared under the top-level `volumes:` / `networks:` is refused. A `depends_on` cycle is refused.
+Every service needs `image` or `build`.
+
+**Refused rather than ignored.** Delonix reads a defined list of service keys (`image`, `build`,
+`environment`, `env_file`, `ports`, `volumes`, `command`, `entrypoint`, `depends_on`, `healthcheck`,
+`restart`, `networks`, `labels`, `profiles`, `deploy`, `expose`, `secrets`, `configs`, …). A key
+outside it — a typo or a feature it does not implement — stops the command with the list of what it
+does read; `include:` and `extends.file` (multi-file projects) are refused outright. That is
+deliberate: a silently ignored key is a deployment that does not do what its file says.
+
+**Ports.** `"8080:80"` publishes container port 80 on host port 8080; `"127.0.0.1:8080:80"` only on
+localhost. A bare `"80"` asks for a random free host port — `config` would then pick one on your
+machine, so this course always writes the host port.
+
+Official docs: https://ngolacloud.github.io/delonix/commands/compose.html
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "dlx-c7-compose"
+title = "A compose file, read by the engine"
+points = 5
+difficulty = 7
+intro = '''
+Project names, the names of what gets created, and what is refused.
+'''
+body = '''
+For `delonix compose config -f compose.yaml -p shop` the output lists every service with its
+container name, image, network, ports and volumes — for example:
+
+```
+service web:
+  container: shop-web
+  image: nginx:1.27-alpine
+  network: shop_default
+  ports: ["8080:80"]
+```
+
+If the file has a key Delonix does not read, or uses an undeclared volume or network, `config` says
+so and stops.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dlx-d7-compose"
+title = "A two-service compose file"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+A web front and an API.
+'''
+prompt = '''
+Type the compose file.
+'''
+target = '''
+name: shop
+services:
+  web:
+    image: nginx:1.27-alpine
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+  api:
+    image: python:3.12-slim
+    command: ["python", "-m", "http.server", "8000"]
+    environment:
+      APP_ENV: dev
+'''
+line_comments = [
+  "The project name (unless -p overrides it).",
+  "The services of the project.",
+  "A service named web → container shop-web.",
+  "Pinned image.",
+  "Published ports:",
+  "host 8080 → container 80 (quoted: YAML would misread some HOST:CONTAINER pairs).",
+  "Start order:",
+  "api is created before web.",
+  "A second service.",
+  "Pinned image.",
+  "Overrides the image's command.",
+  "Environment, as a map…",
+  "…one variable.",
+]
+explanation = "Both services join the implicit network `shop_default`, where `web` reaches `api` by its service name."
+
+[[unit.step]]
+kind = "drill"
+id = "dlx-d7-volumes"
+title = "Named volumes and networks"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+Declaring what services use.
+'''
+prompt = '''
+Type the compose file. Every named volume and network is declared at the top level.
+'''
+target = '''
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: shop
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    networks: [back]
+networks:
+  back: {}
+volumes:
+  db-data: {}
+'''
+line_comments = [
+  "Services.",
+  "The database.",
+  "Pinned image.",
+  "Environment.",
+  "The database to create.",
+  "Mounts:",
+  "named volume db-data at the data directory.",
+  "Only on the back network.",
+  "Declared networks…",
+  "…back becomes <project>_back.",
+  "Declared volumes…",
+  "…db-data becomes <project>_db-data.",
+]
+explanation = "Remove the top-level `volumes:` and `config` refuses: «references undefined volume 'db-data'»."
+
+[[unit.step]]
+kind = "challenge"
+id = "dlx-p7-compose"
+title = "The shop's compose file"
+points = 40
+difficulty = 8
+intro = '''
+Three services, two networks and a volume — accepted by `compose config`.
+'''
+instructions = '''
+Complete `compose.yaml` for the project `shop`:
+
+- `web` — `nginx:1.27-alpine`, publishes host port **8080** to container port **80**, on the network
+  `front`, and depends on `api`;
+- `api` — `python:3.12-slim` with the command `["python", "-m", "http.server", "8000"]`, the
+  environment variable `DATABASE_HOST: db`, on the networks `front` **and** `back`, and depends on
+  `db`;
+- `db` — `postgres:16-alpine` with `POSTGRES_DB: shop`, the named volume `db-data` mounted at
+  `/var/lib/postgresql/data`, on the network `back` only;
+- declare the networks `front` and `back` and the volume `db-data`.
+
+The checks run `delonix compose config -f compose.yaml -p shop` and read what it resolves.
+'''
+
+[unit.step.project]
+main = "compose.yaml"
+explanation = '''
+`config` refused the starter for a misspelt key (`enviroment`) — Delonix stops instead of dropping
+it — and would have refused the undeclared volume `db-data` next. The resolved project shows the real
+names: `shop-web`, `shop_front`, `shop_db-data`. The database is on `back` only, so `web` cannot reach
+it directly; `api` sits on both networks.
+'''
+
+[unit.step.project.starter]
+"compose.yaml" = '''
+name: shop
+services:
+  web:
+    image: nginx:1.27-alpine
+    ports:
+      - "80"
+  api:
+    image: python:3.12-slim
+    command: ["python", "-m", "http.server", "8000"]
+    enviroment:
+      DATABASE_HOST: db
+  db:
+    image: postgres:16-alpine
+    volumes:
+      - db-data:/var/lib/postgresql/data
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[run]]
+cmd = ["delonix", "compose", "config", "-f", "compose.yaml", "-p", "shop"]
+save = "resolved.yaml"
+message = "delonix compose config must accept the file and resolve the project."
+
+[[check]]
+file = "compose.yaml"
+path = "services"
+only_keys = ["web", "api", "db"]
+message = "Three services: web, api and db."
+
+[[check]]
+file = "compose.yaml"
+path = "services.api.environment"
+equals = { DATABASE_HOST = "db" }
+message = "api has environment DATABASE_HOST: db (environment, spelled right)."
+
+[[check]]
+file = "compose.yaml"
+path = "services.db.environment.POSTGRES_DB"
+equals = "shop"
+message = "db has POSTGRES_DB: shop."
+
+[[check]]
+file = "compose.yaml"
+path = "services.web.depends_on"
+contains = "api"
+message = "web depends on api."
+
+[[check]]
+file = "compose.yaml"
+path = "services.api.depends_on"
+contains = "db"
+message = "api depends on db."
+
+[[check]]
+file = "resolved.yaml"
+path = "[\"service web\"]"
+contains = { container = "shop-web", image = "nginx:1.27-alpine", network = "shop_front", ports = ["8080:80"] }
+message = "web resolves to shop-web on shop_front, publishing 8080:80."
+
+[[check]]
+file = "resolved.yaml"
+path = "[\"service api\"].network"
+equals = "shop_front"
+message = "api's first network is front (shop_front)."
+
+[[check]]
+file = "resolved.yaml"
+path = "[\"service api\"][\"extra networks\"]"
+equals = ["shop_back"]
+message = "api also joins back (shop_back)."
+
+[[check]]
+file = "resolved.yaml"
+path = "[\"service db\"]"
+contains = { network = "shop_back", volumes = ["shop_db-data:/var/lib/postgresql/data"] }
+message = "db is on shop_back only, with the volume shop_db-data at its data directory."
+
+[[check]]
+file = "resolved.yaml"
+path = "[\"service db\"][\"extra networks\"]"
+len = 0
+message = "db joins no other network."
+'''
+
+[unit.step.project.solution]
+"compose.yaml" = '''
+name: shop
+services:
+  web:
+    image: nginx:1.27-alpine
+    ports:
+      - "8080:80"
+    networks: [front]
+    depends_on:
+      - api
+  api:
+    image: python:3.12-slim
+    command: ["python", "-m", "http.server", "8000"]
+    environment:
+      DATABASE_HOST: db
+    networks: [front, back]
+    depends_on:
+      - db
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: shop
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    networks: [back]
+networks:
+  front: {}
+  back: {}
+volumes:
+  db-data: {}
+'''
+
+[[unit]]
+id = "dlx-u8-compose-health"
+title = "Compose: health, start order and profiles"
+level = "advanced"
+difficulty = 8
+intro = "Healthchecks and `depends_on` conditions start services in the right order; profiles keep tools out of the default run."
+concepts = '''
+`depends_on: [db]` only orders **creation**: `api` may start while Postgres is still initialising and
+fail its first connection. The long form waits for a **condition**:
+
+```yaml
+depends_on:
+  db:
+    condition: service_healthy   # or service_started, service_completed_successfully
+```
+
+`service_healthy` needs a **healthcheck** on `db`:
+
+```yaml
+healthcheck:
+  test: ["CMD-SHELL", "pg_isready -U shop -d shop"]   # or ["CMD", "prog", "arg"]
+  interval: 5s       # Go-style durations: 500ms, 5s, 1m30s
+  timeout: 3s
+  retries: 10
+  start_period: 30s  # failures during start-up do not count
+```
+
+`service_completed_successfully` waits for a one-off service (a migration) to exit with 0.
+
+**Restart policies.** `restart: no` (default), `always`, `on-failure` or `unless-stopped` — the
+last restarts the service except after you stopped it yourself.
+
+**Profiles.** A service with `profiles: [tools]` is **not** part of a plain `up` (or `config`); it
+starts only with `--profile tools`, or when an active service depends on it. Debugging tools and
+admin UIs go there.
+
+**Not repeating yourself.** Top-level keys starting with `x-` are extension fields that compose
+ignores, and YAML anchors let services share them: `x-app: &app {...}` then `<<: *app` in each
+service, overriding what differs. Delonix applies the `<<` merge before reading the file, so it sees
+the keys each service really ends up with.
+
+Durations, conditions and anchors are where compose files go wrong quietly: a misspelt condition or
+an anchor that drops a key still produces a valid-looking file. Read the resolved project.
+
+Official docs: https://ngolacloud.github.io/delonix/commands/compose.html
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "dlx-c8-compose-health"
+title = "Order is not readiness"
+points = 5
+difficulty = 8
+intro = '''
+Why depends_on alone is not enough, and what a healthcheck adds.
+'''
+body = '''
+- `depends_on: [db]` → `db` is **created** first.
+- `depends_on: {db: {condition: service_healthy}}` → `api` waits until `db`'s **healthcheck** passes.
+- `profiles: [tools]` → the service exists only when asked for.
+
+The resolved project of `compose config` lists only the active services — a profiled one is absent
+unless requested.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dlx-d8-health"
+title = "A healthcheck and a condition"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+Wait for Postgres to be ready.
+'''
+prompt = '''
+Type the compose file.
+'''
+target = '''
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: shop
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shop"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  api:
+    image: ghcr.io/example/shop-api:2.4.1
+    depends_on:
+      db:
+        condition: service_healthy
+'''
+line_comments = [
+  "Services.",
+  "The database.",
+  "Pinned image.",
+  "Environment.",
+  "The user the healthcheck uses.",
+  "How to tell it is ready:",
+  "run pg_isready in a shell;",
+  "every 5 seconds;",
+  "each try may take 3 s;",
+  "10 failures in a row = unhealthy.",
+  "The API.",
+  "Pinned image.",
+  "Start after…",
+  "…db…",
+  "…has passed its healthcheck.",
+]
+explanation = "The API's first database connection now happens after Postgres accepts connections."
+
+[[unit.step]]
+kind = "drill"
+id = "dlx-d8-anchors"
+title = "Shared settings with an anchor"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+Two services from one image, without repeating it.
+'''
+prompt = '''
+Type the file. `<<: *app` merges the anchored map into each service.
+'''
+target = '''
+x-app: &app
+  image: ghcr.io/example/shop-api:2.4.1
+  restart: unless-stopped
+services:
+  api:
+    <<: *app
+    ports: ["8000:8000"]
+  worker:
+    <<: *app
+    command: ["python", "-m", "shop.worker"]
+'''
+line_comments = [
+  "An extension field (ignored by compose), anchored as `app`.",
+  "Shared: the image…",
+  "…and the restart policy.",
+  "Services.",
+  "The API…",
+  "…gets everything from x-app…",
+  "…plus its own port.",
+  "The worker…",
+  "…the same base…",
+  "…with another command.",
+]
+explanation = "Change the image tag once, in `x-app`, and both services follow."
+
+[[unit.step]]
+kind = "challenge"
+id = "dlx-p8-compose-health"
+title = "Start in the right order"
+points = 45
+difficulty = 9
+intro = '''
+Healthchecks, conditions, a shared base and a profile — checked on the resolved project.
+'''
+instructions = '''
+Complete `compose.yaml` (project `shop`):
+
+- `db` (`postgres:16-alpine`, `POSTGRES_USER: shop`, `POSTGRES_DB: shop`) has a **healthcheck**:
+  test `["CMD-SHELL", "pg_isready -U shop -d shop"]`, `interval: 5s`, `timeout: 3s`, `retries: 10`;
+- `api` and `worker` both take their `image` (`ghcr.io/example/shop-api:2.4.1`) and
+  `restart: unless-stopped` from an **`x-app`** extension field through the anchor `<<: *app`;
+  `api` publishes `8000:8000`, `worker` runs `["python", "-m", "shop.worker"]`;
+- `api` and `worker` both wait for `db` with **`condition: service_healthy`**;
+- `adminer` (`adminer:4`, publishes `8081:8080`) runs only with the profile **`tools`**.
+'''
+
+[unit.step.project]
+main = "compose.yaml"
+explanation = '''
+The starter's two app services had drifted apart (2.4.1 vs 2.4.0) — the anchor makes that
+impossible. `depends_on` with `service_healthy` waits for `pg_isready`, not just for the container
+to exist. And `adminer` no longer starts with every `up`: it is in the resolved project only when the
+`tools` profile is asked for.
+'''
+
+[unit.step.project.starter]
+"compose.yaml" = '''
+name: shop
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: shop
+      POSTGRES_DB: shop
+  api:
+    image: ghcr.io/example/shop-api:2.4.1
+    ports:
+      - "8000:8000"
+    depends_on: [db]
+  worker:
+    image: ghcr.io/example/shop-api:2.4.0
+    command: ["python", "-m", "shop.worker"]
+  adminer:
+    image: adminer:4
+    ports:
+      - "8081:8080"
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[run]]
+cmd = ["delonix", "compose", "config", "-f", "compose.yaml", "-p", "shop"]
+save = "resolved.yaml"
+message = "delonix compose config must accept the file and resolve the project."
+
+[[check]]
+file = "compose.yaml"
+path = "services.db.healthcheck"
+equals = { test = ["CMD-SHELL", "pg_isready -U shop -d shop"], interval = "5s", timeout = "3s", retries = 10 }
+message = "db's healthcheck: test [CMD-SHELL, pg_isready -U shop -d shop], interval 5s, timeout 3s, retries 10."
+
+[[check]]
+file = "compose.yaml"
+path = "x-app"
+contains = { image = "ghcr.io/example/shop-api:2.4.1", restart = "unless-stopped" }
+message = "x-app holds the shared image and restart: unless-stopped."
+
+[[check]]
+file = "compose.yaml"
+path = "services.api.depends_on.db.condition"
+equals = "service_healthy"
+message = "api waits for db with condition: service_healthy."
+
+[[check]]
+file = "compose.yaml"
+path = "services.worker.depends_on.db.condition"
+equals = "service_healthy"
+message = "worker waits for db with condition: service_healthy."
+
+[[check]]
+file = "compose.yaml"
+path = "services.worker.image"
+same_as = { path = "x-app.image" }
+message = "worker's image must be x-app's image: write the tag once, in x-app, and merge it with <<: *app."
+
+[[check]]
+file = "compose.yaml"
+path = "services.api.restart"
+equals = "unless-stopped"
+message = "api restarts unless-stopped (from x-app)."
+
+[[check]]
+file = "compose.yaml"
+path = "services.worker.restart"
+equals = "unless-stopped"
+message = "worker restarts unless-stopped (from x-app)."
+
+[[check]]
+file = "compose.yaml"
+path = "services.adminer.profiles"
+equals = ["tools"]
+message = "adminer belongs to the profile tools."
+
+[[check]]
+file = "resolved.yaml"
+path = "[\"service adminer\"]"
+exists = false
+message = "Without --profile tools, adminer is not part of the resolved project."
+
+[[check]]
+file = "resolved.yaml"
+path = "[\"service worker\"].image"
+equals = "ghcr.io/example/shop-api:2.4.1"
+message = "The resolved worker runs ghcr.io/example/shop-api:2.4.1."
+
+[[check]]
+file = "resolved.yaml"
+path = "[\"service api\"].ports"
+equals = ["8000:8000"]
+message = "The resolved api publishes 8000:8000."
+'''
+
+[unit.step.project.solution]
+"compose.yaml" = '''
+name: shop
+
+x-app: &app
+  image: ghcr.io/example/shop-api:2.4.1
+  restart: unless-stopped
+  depends_on:
+    db:
+      condition: service_healthy
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: shop
+      POSTGRES_DB: shop
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shop -d shop"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  api:
+    <<: *app
+    ports:
+      - "8000:8000"
+  worker:
+    <<: *app
+    command: ["python", "-m", "shop.worker"]
+  adminer:
+    image: adminer:4
+    profiles: [tools]
+    ports:
+      - "8081:8080"
+'''
+
+[[unit]]
+id = "dlx-u9-stack"
+title = "Capstone: a whole project in one Stack"
+level = "advanced"
+difficulty = 9
+intro = "A Stack groups every document of a project by Kind, under one namespace — and render expands it back."
+concepts = '''
+As a project grows, its manifest becomes a long list of documents that all repeat the same
+namespace. A **`Stack`** (`core.delonix.io/v1beta1`) is one document that holds them, grouped by
+Kind:
+
+```yaml
+apiVersion: core.delonix.io/v1beta1
+kind: Stack
+metadata:
+  name: shop
+  namespace: shop            # every child inherits it
+spec:
+  networks:     [{name: shop-net, spec: {driver: bridge}}]
+  volumes:      [{name: pg-data,  spec: {driver: local}}]
+  secrets:      [{name: db,       spec: {fromEnvFile: ./db.env}}]
+  applications: [{name: web, labels: {app: web}, spec: {replicas: 2, …}}]
+  jobs:         [{name: migrate,  spec: {…}}]
+  services:     [{name: web, spec: {selector: {matchLabels: {app: web}}, port: 80}}]
+```
+
+Each group item has a `name`, optional `labels`, `annotations` and `namespace`, and the `spec` the
+Kind would have on its own. The group names are the Kind's plural in camelCase: `secrets`,
+`configs`, `networks`, `volumes`, `pods`, `applications`, `jobs`, `services`, … A misspelt group is an
+unknown field — refused like any other.
+
+**Namespace.** The Stack's `metadata.namespace` is propagated to every child that does not set its
+own. A Stack without a namespace puts everything in the shared `default` namespace, where every
+other workload can reach it — the engine warns, and `delonix stack init` writes a namespace for new
+stacks.
+
+**Render shows the parts.** A Stack does not survive the load: it expands into its children (and an
+`applications` item then lowers to its Pods, a `jobs` item to its Pod). `delonix manifest render`
+prints that final list — which is what `apply` creates, in dependency order. Reading that render is
+the review of the whole project; the checks of this capstone do the same.
+
+`delonix stack apply` (or `delonix apply`) converges it; `delonix stack destroy` removes what the
+stack created; `plan`, `diff` and `drift` compare it with the machine. Those touch the engine — this
+course stops at the manifest.
+
+Official docs: https://ngolacloud.github.io/delonix/commands/stack.html and
+https://ngolacloud.github.io/delonix/kinds.html (Stack)
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "dlx-c9-stack"
+title = "One document, every Kind"
+points = 5
+difficulty = 9
+intro = '''
+Groups, the inherited namespace, and the expansion render shows.
+'''
+body = '''
+A Stack is a container of documents, not a new kind of resource: after loading, only its children
+exist. Two rules make a good Stack:
+
+1. a `metadata.namespace`, so the project is isolated from `default`;
+2. references between children (a Service's selector, an Application's network, a volume's source)
+   that resolve inside the Stack.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dlx-d9-stack"
+title = "A small Stack"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+A network, a volume and a Pod in one document.
+'''
+prompt = '''
+Type the Stack.
+'''
+target = '''
+apiVersion: core.delonix.io/v1beta1
+kind: Stack
+metadata:
+  name: lab
+  namespace: lab
+spec:
+  networks:
+    - name: lab-net
+      spec: {driver: bridge}
+  volumes:
+    - name: lab-data
+      spec: {driver: local}
+  pods:
+    - name: notes
+      labels: {app: notes}
+      spec:
+        network: lab-net
+        containers:
+          - name: notes
+            image: alpine:3.20
+            command: ["sleep", "infinity"]
+'''
+line_comments = [
+  "Stack is in the core group.",
+  "One document for a whole project.",
+  "Identity…",
+  "…the stack's name…",
+  "…and the namespace every child inherits.",
+  "The groups:",
+  "Networks:",
+  "a network named lab-net…",
+  "…with the spec a Network document would have.",
+  "Volumes:",
+  "a volume…",
+  "…on local disk.",
+  "Pods:",
+  "a Pod named notes…",
+  "…with labels at the item level…",
+  "…and a Pod spec:",
+  "on lab-net,",
+  "with…",
+  "…one container…",
+  "…pinned,",
+  "…that just waits.",
+]
+explanation = "Rendered, this is three documents — a Network, a Volume and a Pod — each with `namespace: lab`."
+
+[[unit.step]]
+kind = "drill"
+id = "dlx-d9-groups"
+title = "Applications and Services in a Stack"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+The groups for workloads and their Service.
+'''
+prompt = '''
+Type the Stack fragment.
+'''
+target = '''
+apiVersion: core.delonix.io/v1beta1
+kind: Stack
+metadata:
+  name: blog
+  namespace: blog
+spec:
+  applications:
+    - name: web
+      labels: {app: web}
+      spec:
+        replicas: 2
+        containers:
+          - name: web
+            image: ghost:5-alpine
+  services:
+    - name: web
+      spec:
+        selector: {matchLabels: {app: web}}
+        port: 2368
+'''
+line_comments = [
+  "The core group.",
+  "A Stack.",
+  "Identity.",
+  "The stack.",
+  "Its namespace.",
+  "Groups:",
+  "Applications (lowered to Pods):",
+  "web, instances web-0 and web-1…",
+  "…labelled app=web…",
+  "…with an Application spec:",
+  "two replicas,",
+  "and…",
+  "…one container…",
+  "…pinned.",
+  "Services:",
+  "web.blog.delonix.internal…",
+  "…selecting…",
+  "…every workload labelled app=web…",
+  "…on Ghost's container port.",
+]
+explanation = "After expansion and lowering: a Service and two Pods, all in `blog`, and the Service's selector matches both Pods."
+
+[[unit.step]]
+kind = "challenge"
+id = "dlx-p9-stack"
+title = "Ship the shop as one Stack"
+points = 50
+difficulty = 10
+intro = '''
+Fold a scattered manifest into a namespaced Stack; the checks read the expansion.
+'''
+instructions = '''
+`manifest.yaml` must become **one** `Stack` document named `shop` in the namespace `shop` with:
+
+- `networks`: `shop-net` (`driver: bridge`);
+- `volumes`: `pg-data` (`driver: local`);
+- `secrets`: `db`, whose values come from `fromEnvFile: ./db.env`;
+- `applications`: `web` (labels `app: web`, **2** replicas, on `shop-net`, container `web`
+  `nginx:1.27-alpine` port `80`) and `db` (labels `app: db`, 1 replica, on `shop-net`, container
+  `postgres` `postgres:16-alpine` mounting a Pod volume `data` with `source: pg-data` at
+  `/var/lib/postgresql/data`);
+- `jobs`: `migrate` on `shop-net`, container `migrate` `migrate/migrate:v4.17.0` with the command
+  `["migrate", "-path", "/migrations", "up"]`;
+- `services`: `web` selecting `app: web` on port `80`.
+
+The checks render the manifest and inspect what the Stack expands to.
+'''
+
+[unit.step.project]
+main = "manifest.yaml"
+explanation = '''
+One document now describes the whole project, isolated in `shop`. The render is the review: a
+Secret that carries no value, a Network, a Volume, a Service, and the Pods the Applications and the
+Job lower to — every one in `shop`, every reference resolving inside the Stack.
+'''
+
+[unit.step.project.starter]
+"manifest.yaml" = '''
+# Fold these documents into ONE Stack named shop, in the namespace shop.
+apiVersion: networking.delonix.io/v1beta1
+kind: Network
+metadata:
+  name: shop-net
+spec:
+  driver: bridge
+---
+apiVersion: compute.delonix.io/v1beta1
+kind: Application
+metadata:
+  name: web
+  labels:
+    app: web
+spec:
+  replicas: 2
+  network: shop-net
+  containers:
+    - name: web
+      image: nginx:1.27-alpine
+      ports:
+        - containerPort: 80
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[run]]
+cmd = ["delonix", "manifest", "render", "-f", "manifest.yaml"]
+save = "rendered.yaml"
+message = "delonix manifest render must load the manifest (no unknown field, every type right)."
+
+[[check]]
+file = "manifest.yaml"
+doc_count = 1
+message = "The manifest is one document: the Stack."
+
+[[check]]
+file = "manifest.yaml"
+path = "kind"
+equals = "Stack"
+message = "That document is a Stack (core.delonix.io/v1beta1)."
+
+[[check]]
+file = "manifest.yaml"
+path = "metadata"
+equals = { name = "shop", namespace = "shop" }
+message = "The Stack is shop, in the namespace shop."
+
+[[check]]
+file = "manifest.yaml"
+path = "spec"
+only_keys = ["networks", "volumes", "secrets", "applications", "jobs", "services"]
+message = "Use the groups networks, volumes, secrets, applications, jobs and services."
+
+[[check]]
+file = "rendered.yaml"
+doc_count = 8
+message = "The Stack expands to 8 documents: a Secret, a Network, a Volume, a Service and four Pods (web-0, web-1, db-0, migrate) — check every group."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Pod", namespace = "shop" }
+doc_count = 4
+message = "Four Pods in shop: web-0, web-1, db-0 and migrate."
+
+[[check]]
+file = "rendered.yaml"
+doc = { namespace = "shop" }
+doc_count = 8
+message = "Every expanded document is in the namespace shop (inherited from the Stack)."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Secret", name = "db" }
+path = "spec.fromEnvFile"
+equals = "./db.env"
+message = "The Secret db reads ./db.env — no inline value."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Pod", name = "db-0" }
+path = "spec.volumes[name=data].source"
+among = { doc = { kind = "Volume" }, path = "metadata.name" }
+message = "db-0's volume data has source: pg-data, a Volume of the Stack."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Pod", name = "db-0" }
+path = "spec.containers[name=postgres].volumeMounts[name=data].mountPath"
+equals = "/var/lib/postgresql/data"
+message = "postgres mounts data at /var/lib/postgresql/data."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Pod", name = "web-0" }
+path = "spec.network"
+equals = "shop-net"
+message = "The web instances join shop-net."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Pod", name = "migrate" }
+path = "spec.network"
+equals = "shop-net"
+message = "The migrate job joins shop-net."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Pod", name = "migrate" }
+path = "spec.restartPolicy"
+equals = "OnFailure"
+message = "The job migrate becomes a Pod with restartPolicy: OnFailure."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Service", name = "web" }
+path = "spec.selector.matchLabels"
+selects = { doc = { kind = "Pod", name = "web-1" }, path = "metadata.labels" }
+message = "The Service web selects the web instances (app: web)."
+
+[[check]]
+file = "rendered.yaml"
+doc = { kind = "Service", name = "web" }
+path = "spec.port"
+equals = 80
+message = "The Service web uses the container port 80."
+'''
+
+[unit.step.project.solution]
+"manifest.yaml" = '''
+apiVersion: core.delonix.io/v1beta1
+kind: Stack
+metadata:
+  name: shop
+  namespace: shop
+spec:
+  networks:
+    - name: shop-net
+      spec:
+        driver: bridge
+  volumes:
+    - name: pg-data
+      spec:
+        driver: local
+  secrets:
+    - name: db
+      spec:
+        fromEnvFile: ./db.env
+  applications:
+    - name: web
+      labels:
+        app: web
+      spec:
+        replicas: 2
+        network: shop-net
+        containers:
+          - name: web
+            image: nginx:1.27-alpine
+            ports:
+              - containerPort: 80
+    - name: db
+      labels:
+        app: db
+      spec:
+        replicas: 1
+        network: shop-net
+        containers:
+          - name: postgres
+            image: postgres:16-alpine
+            volumeMounts:
+              - name: data
+                mountPath: /var/lib/postgresql/data
+        volumes:
+          - name: data
+            source: pg-data
+  jobs:
+    - name: migrate
+      spec:
+        network: shop-net
+        containers:
+          - name: migrate
+            image: migrate/migrate:v4.17.0
+            command: ["migrate", "-path", "/migrations", "up"]
+  services:
+    - name: web
+      spec:
+        selector:
+          matchLabels:
+            app: web
+        port: 80
+'''

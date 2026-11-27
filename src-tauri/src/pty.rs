@@ -155,6 +155,10 @@ pub fn shells_from(
 
 /// Open a PTY, spawn `cmd` on its slave, stream its output, and store the session under
 /// `id` (replacing a previous one with the same id).
+/// What runs when a terminal ends (r23 F4c: revoke its Vault lease).
+type OnExit = Option<Box<dyn FnOnce(&AppHandle) + Send>>;
+
+#[allow(clippy::too_many_arguments)]
 fn spawn_with_command(
     app: AppHandle,
     state: State<'_, PtyState>,
@@ -163,6 +167,8 @@ fn spawn_with_command(
     cols: u16,
     cmd: CommandBuilder,
     shell: String,
+    on_exit: OnExit,
+    hold: bool,
 ) -> Result<(), String> {
     let pair = native_pty_system()
         .openpty(PtySize {
@@ -209,6 +215,14 @@ fn spawn_with_command(
     thread::spawn(move || {
         let mut buf = [0u8; 16384];
         let mut carry: Vec<u8> = Vec::new();
+        // r23 F4a (X04): secrets in the output are masked before they reach the webview
+        // a task holds back a possible secret's start until the next read (a secret split between two
+        // reads is masked too); an interactive shell cannot wait — its echo comes a key at a time
+        let mut mask = if hold {
+            tutor_protect::stream::Masker::holding()
+        } else {
+            tutor_protect::stream::Masker::new()
+        };
         loop {
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => break,
@@ -218,15 +232,25 @@ fn spawn_with_command(
                     if cut == 0 {
                         continue;
                     }
-                    let data = String::from_utf8_lossy(&carry[..cut]).into_owned();
+                    let data = mask.push(&String::from_utf8_lossy(&carry[..cut]));
                     carry.drain(..cut);
                     let _ = app.emit("pty://data", DataEvent { id: &id, data });
                 }
             }
         }
         if !carry.is_empty() {
-            let data = String::from_utf8_lossy(&carry).into_owned();
+            let data = mask.push(&String::from_utf8_lossy(&carry));
             let _ = app.emit("pty://data", DataEvent { id: &id, data });
+        }
+        let rest = mask.flush();
+        if !rest.is_empty() {
+            let _ = app.emit(
+                "pty://data",
+                DataEvent {
+                    id: &id,
+                    data: rest,
+                },
+            );
         }
         let code = child.wait().map(|s| i64::from(s.exit_code())).unwrap_or(-1);
         if let Ok(mut map) = app.state::<PtyState>().0.lock() {
@@ -234,9 +258,25 @@ fn spawn_with_command(
                 map.remove(&id);
             }
         }
+        if let Some(f) = on_exit {
+            f(&app);
+        }
         let _ = app.emit("pty://exit", ExitEvent { id: &id, code });
     });
     Ok(())
+}
+
+/// What a terminal takes from Vault (r23 F4c): the Vault (its token, from the keychain, as
+/// `VAULT_TOKEN` — never through the UI) and, optionally, a lease of dynamic credentials, revoked
+/// when the terminal ends.
+#[derive(serde::Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PtyVault {
+    pub addr: String,
+    #[serde(default)]
+    pub namespace: Option<String>,
+    #[serde(default)]
+    pub lease: Option<String>,
 }
 
 /// Common environment of every terminal: a capable TERM, truecolor, a UTF-8 locale when
@@ -261,7 +301,7 @@ fn base_env(cmd: &mut CommandBuilder, env: Option<HashMap<String, String>>) {
 /// arrives in `pty://exit`. `cwd` defaults to HOME.
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
-pub fn pty_spawn(
+pub async fn pty_spawn(
     app: AppHandle,
     state: State<'_, PtyState>,
     id: String,
@@ -271,7 +311,32 @@ pub fn pty_spawn(
     shell: Option<String>,
     command: Option<String>,
     env: Option<HashMap<String, String>>,
+    vault: Option<PtyVault>,
 ) -> Result<(), String> {
+    // r23 F4c: the Vault environment is resolved here, in Rust (the token never crosses the IPC)
+    let mut on_exit: OnExit = None;
+    let mut env = env;
+    if let Some(v) = &vault {
+        let (t, venv) = crate::commands::vault::terminal_env(
+            &v.addr,
+            v.namespace.as_deref(),
+            v.lease.as_deref(),
+        )?;
+        env.get_or_insert_with(HashMap::new).extend(venv);
+        if let Some(lease) = v.lease.clone() {
+            on_exit = Some(Box::new(move |app: &AppHandle| {
+                let r = crate::commands::vault::revoke_after(&t, &lease);
+                let _ = app.emit(
+                    "vault://lease-revoked",
+                    serde_json::json!({"lease": lease, "ok": r.is_ok(), "error": r.err()}),
+                );
+            }));
+        }
+    }
+    let is_task = command
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|c| !c.is_empty());
     let (mut cmd, label) = match command.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
         Some(line) => {
             #[cfg(windows)]
@@ -306,14 +371,14 @@ pub fn pty_spawn(
     if let Some(d) = dir {
         cmd.cwd(d);
     }
-    spawn_with_command(app, state, id, rows, cols, cmd, label)
+    spawn_with_command(app, state, id, rows, cols, cmd, label, on_exit, is_task)
 }
 
 /// Spawn a terminal instance INSIDE the persistent devcontainer session for `root`
 /// (`<engine> exec -it <session> sh`) on a PTY — a live terminal attached to the container.
 /// Errors when no session is running.
 #[tauri::command]
-pub fn pty_spawn_in_session(
+pub async fn pty_spawn_in_session(
     app: AppHandle,
     state: State<'_, PtyState>,
     id: String,
@@ -340,6 +405,8 @@ pub fn pty_spawn_in_session(
         cols,
         cmd,
         format!("{program} (container)"),
+        None,
+        false,
     )
 }
 
@@ -388,7 +455,7 @@ pub fn pty_kill(state: State<'_, PtyState>, id: String) -> bool {
 
 /// The shells this machine offers for a new terminal (the "+ ▾" profile menu).
 #[tauri::command]
-pub fn pty_shells() -> Vec<ShellProfile> {
+pub async fn pty_shells() -> Vec<ShellProfile> {
     #[cfg(windows)]
     {
         let mut out = Vec::new();

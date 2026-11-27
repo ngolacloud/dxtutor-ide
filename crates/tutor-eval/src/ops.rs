@@ -121,13 +121,25 @@ pub struct AttrChange {
     pub sensitive: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ResourceChange {
     pub address: String,
     /// create | update | delete | replace | read | no-op
     pub action: String,
     pub attrs: Vec<AttrChange>,
+    /// the module the resource lives in (`module.db`), none at the root (r23 F4b, P02)
+    pub module: Option<String>,
+    /// why the tool chose this action (`replace_because_cannot_update`…)
+    pub reason: Option<String>,
+    /// the attributes that force the replacement
+    pub replace_paths: Vec<String>,
+    /// the blast radius: the resources of the configuration that depend on this one, directly or not
+    pub dependents: Vec<String>,
+    /// write-only arguments set in the configuration (`password_wo`): never kept in the plan or the state
+    pub write_only: Vec<String>,
+    /// the monthly cost infracost gives this resource (none without infracost)
+    pub monthly_cost: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Default)]
@@ -143,8 +155,6 @@ pub struct IacPlan {
     pub changes: Vec<ResourceChange>,
     /// what changed outside the IaC (refresh-only, or found while planning)
     pub drift: Vec<ResourceChange>,
-    /// the command the human runs to apply this plan
-    pub apply_command: String,
     pub notes: String,
 }
 
@@ -230,9 +240,150 @@ fn attr_diff(change: &Value) -> Vec<AttrChange> {
         .collect()
 }
 
-/// Reads `show -json` of a plan into the per-resource diff.
+/// The configuration address of a resource instance (`module.a["x"].aws_s3_bucket.b[0]` →
+/// `module.a.aws_s3_bucket.b`): the indexes go, the modules stay.
+pub fn config_address(address: &str) -> String {
+    let mut out = String::new();
+    let mut depth = 0;
+    let mut in_str = false;
+    for c in address.chars() {
+        match c {
+            '"' if depth > 0 => in_str = !in_str,
+            '[' if !in_str => depth += 1,
+            ']' if !in_str => depth -= 1,
+            _ if depth == 0 => out.push(c),
+            _ => {}
+        }
+    }
+    out
+}
+
+/// The resource a reference names (`aws_s3_bucket.b.arn` → `aws_s3_bucket.b`, `data.x.y.id` →
+/// `data.x.y`, `module.m.out` → `module.m`; `var.`/`local.`/`each.`… → none), under `prefix`.
+fn referenced(reference: &str, prefix: &str) -> Option<String> {
+    let r = config_address(reference);
+    let parts: Vec<&str> = r.split('.').collect();
+    let own = match parts.as_slice() {
+        ["var" | "local" | "each" | "count" | "self" | "path" | "terraform", ..] => return None,
+        ["module", m, ..] => format!("module.{m}"),
+        ["data", t, n, ..] => format!("data.{t}.{n}"),
+        [t, n, ..] => format!("{t}.{n}"),
+        _ => return None,
+    };
+    Some(format!("{prefix}{own}"))
+}
+
+fn collect_refs(v: &Value, out: &mut Vec<String>) {
+    match v {
+        Value::Object(m) => {
+            for (k, x) in m {
+                if k == "references" {
+                    if let Some(a) = x.as_array() {
+                        out.extend(a.iter().filter_map(|r| r.as_str().map(String::from)));
+                    }
+                } else {
+                    collect_refs(x, out);
+                }
+            }
+        }
+        Value::Array(a) => a.iter().for_each(|x| collect_refs(x, out)),
+        _ => {}
+    }
+}
+
+/// The configuration's edges, from `show -json`'s `configuration`: for each resource (and module
+/// call) the resources it references, and the write-only arguments it sets. Addresses are
+/// configuration addresses, with their module prefix.
+#[derive(Default)]
+struct ConfigGraph {
+    /// dependency → its direct dependents
+    dependents: std::collections::HashMap<String, Vec<String>>,
+    write_only: std::collections::HashMap<String, Vec<String>>,
+}
+
+fn walk_module(m: &Value, prefix: &str, g: &mut ConfigGraph) {
+    for r in m["resources"].as_array().into_iter().flatten() {
+        let addr = format!("{prefix}{}", r["address"].as_str().unwrap_or(""));
+        let mut refs = vec![];
+        collect_refs(&r["expressions"], &mut refs);
+        for d in r["depends_on"].as_array().into_iter().flatten() {
+            if let Some(d) = d.as_str() {
+                refs.push(d.to_string());
+            }
+        }
+        for dep in refs.iter().filter_map(|x| referenced(x, prefix)) {
+            if dep != addr {
+                let e = g.dependents.entry(dep).or_default();
+                if !e.contains(&addr) {
+                    e.push(addr.clone());
+                }
+            }
+        }
+        if let Some(ex) = r["expressions"].as_object() {
+            let wo: Vec<String> = ex.keys().filter(|k| k.ends_with("_wo")).cloned().collect();
+            if !wo.is_empty() {
+                g.write_only.insert(addr.clone(), wo);
+            }
+        }
+    }
+    for (name, call) in m["module_calls"].as_object().into_iter().flatten() {
+        let me = format!("{prefix}module.{name}");
+        let mut refs = vec![];
+        collect_refs(&call["expressions"], &mut refs);
+        for dep in refs.iter().filter_map(|x| referenced(x, prefix)) {
+            let e = g.dependents.entry(dep).or_default();
+            if !e.contains(&me) {
+                e.push(me.clone());
+            }
+        }
+        walk_module(&call["module"], &format!("{me}."), g);
+    }
+}
+
+/// The modules an address lives in (`module.a.module.b.x.y` → `module.a`, `module.a.module.b`).
+fn enclosing_modules(address: &str) -> Vec<String> {
+    let parts: Vec<&str> = address.split('.').collect();
+    let mut out = vec![];
+    let mut i = 0;
+    while i + 2 < parts.len() && parts[i] == "module" {
+        out.push(parts[..i + 2].join("."));
+        i += 2;
+    }
+    out
+}
+
+impl ConfigGraph {
+    fn of(plan: &Value) -> Self {
+        let mut g = ConfigGraph::default();
+        walk_module(&plan["configuration"]["root_module"], "", &mut g);
+        g
+    }
+
+    /// Everything that depends on `address` (a resource, or the module it is in), transitively.
+    fn blast_radius(&self, address: &str) -> Vec<String> {
+        let start = config_address(address);
+        let mut seen: Vec<String> = vec![];
+        // a resource inside a module also reaches what depends on that module's outputs
+        let mut queue = vec![start.clone()];
+        queue.extend(enclosing_modules(&start));
+        while let Some(x) = queue.pop() {
+            for d in self.dependents.get(&x).into_iter().flatten() {
+                if *d != start && !seen.contains(d) {
+                    seen.push(d.clone());
+                    queue.push(d.clone());
+                }
+            }
+        }
+        seen.sort();
+        seen
+    }
+}
+
+/// Reads `show -json` of a plan into the per-resource diff, with each change's module, the reason
+/// for its action, its blast radius and the write-only arguments its configuration sets.
 pub fn parse_plan(json: &str) -> Result<(Vec<ResourceChange>, Vec<ResourceChange>), String> {
     let v: Value = serde_json::from_str(json).map_err(|e| format!("plan JSON: {e}"))?;
+    let graph = ConfigGraph::of(&v);
     let read = |key: &str| -> Vec<ResourceChange> {
         v[key]
             .as_array()
@@ -246,10 +397,30 @@ pub fn parse_plan(json: &str) -> Result<(Vec<ResourceChange>, Vec<ResourceChange
                         .map(Vec::as_slice)
                         .unwrap_or(&[]),
                 );
+                let address = r["address"].as_str().unwrap_or("").to_string();
+                let paths = r["change"]["replace_paths"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|p| match p {
+                        Value::Array(a) => a.iter().map(text).collect::<Vec<_>>().join("."),
+                        other => text(other),
+                    })
+                    .collect();
                 ResourceChange {
-                    address: r["address"].as_str().unwrap_or("").to_string(),
                     attrs: attr_diff(&r["change"]),
+                    module: r["module_address"].as_str().map(String::from),
+                    reason: r["action_reason"].as_str().map(String::from),
+                    replace_paths: paths,
+                    dependents: graph.blast_radius(&address),
+                    write_only: graph
+                        .write_only
+                        .get(&config_address(&address))
+                        .cloned()
+                        .unwrap_or_default(),
+                    monthly_cost: None,
                     action,
+                    address,
                 }
             })
             .collect()
@@ -362,11 +533,6 @@ pub fn iac_plan(root: &Path, dir: &str, refresh_only: bool) -> IacPlan {
                 add,
                 change,
                 destroy,
-                apply_command: if refresh_only {
-                    format!("{tool} apply -refresh-only")
-                } else {
-                    format!("{tool} plan -out=tfplan && {tool} apply tfplan")
-                },
                 notes: if changes.is_empty() && drift.is_empty() {
                     "No changes: the infrastructure matches the configuration.".into()
                 } else {

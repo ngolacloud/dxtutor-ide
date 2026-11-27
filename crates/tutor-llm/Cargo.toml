@@ -14,3 +14,8 @@ serde_json = "1"
 # Evita-se reqwest/tokio de propósito: a TUI é síncrona e a chamada corre numa
 # thread dedicada.
 ureq = { version = "2.12", features = ["json"] }
+# r23 F4a (X02): every outgoing request is filtered for secrets
+tutor-protect = { path = "../tutor-protect" }
+
+[dev-dependencies]
+tempfile.workspace = true

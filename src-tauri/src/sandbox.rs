@@ -162,6 +162,39 @@ pub fn set_engine(engine: &str) -> Result<String, SandboxError> {
     Ok(tutor_eval::engine_name(parsed).to_string())
 }
 
+/// The sandbox engine is one process-wide value and the unit tests run in parallel: a test that
+/// changes it, or that grades code and needs a known engine, holds this lock and restores the engine
+/// it found ([`EngineGuard`]).
+#[cfg(test)]
+pub(crate) static ENGINE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Holds [`ENGINE_TEST_LOCK`] and puts back the engine it found when dropped.
+#[cfg(test)]
+pub(crate) struct EngineGuard {
+    before: String,
+    _lock: std::sync::MutexGuard<'static, ()>,
+}
+
+#[cfg(test)]
+impl EngineGuard {
+    pub(crate) fn take() -> Self {
+        let lock = ENGINE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        Self {
+            before: current_engine_name(),
+            _lock: lock,
+        }
+    }
+}
+
+#[cfg(test)]
+impl Drop for EngineGuard {
+    fn drop(&mut self) {
+        let _ = set_engine(&self.before);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -200,6 +233,7 @@ mod tests {
     /// canónico; um nome desconhecido dá o erro tipado com a mensagem de contrato.
     #[test]
     fn set_engine_roundtrips_known_and_types_unknown() {
+        let _engine = EngineGuard::take();
         assert_eq!(set_engine("docker").unwrap(), "docker");
         assert_eq!(current_engine_name(), "docker");
         assert_eq!(set_engine("DELONIX").unwrap(), "delonix"); // case-insensitive

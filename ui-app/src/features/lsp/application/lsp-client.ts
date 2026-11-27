@@ -7,15 +7,24 @@
      • quando chegam diagnósticos do ficheiro aberto → volta a pintar o editor.
    Sem DOM e sem `window`: tudo entra pelas portas. Um ficheiro fora da pasta real, ou de uma
    linguagem que o backend não conhece, é ignorado. Se a linguagem tem servidor mas ele não está
-   instalado (`lsp_server_status`), o editor mostra um aviso com o que falta e como o instalar —
-   antes ficava calado (o backend não abre sessão nem dá erro). */
+   instalado (`lsp_server_status`), o editor mostra um aviso com o que falta e as maneiras de o instalar
+   que o backend constrói a partir das receitas do registo (`lsp_install_plan`, LSP P3) — antes ficava
+   calado (o backend não abre sessão nem dá erro). Se o `.dxtutor/lsp.json` do projecto pede
+   um comando ainda não aprovado (LSP P2), a faixa diz qual e abre a aprovação; o registo efectivo (com os
+   overrides) é posto em uso antes de abrir o primeiro ficheiro da pasta (`overrides.ready`).
+   As linguagens dos VSIX instalados (LSP P4) vão ao backend antes de decidir que linguagem é um ficheiro
+   (`contributions.sync`, só quando mudaram); quando mudam (`onLanguagesChanged`), um documento aberto que
+   perdeu o servidor (ou mudou de linguagem) fecha-se no servidor e o ficheiro à vista é revisto. */
 
 import { languageIdFor } from "../domain/languages";
 import { keyToAbsolute, absoluteToKey } from "../domain/paths";
 import { offsetToPosition, positionToOffset, wordAt } from "../domain/positions";
 import { allTargets, firstTarget, hoverBlocks, isIndexing, renameRange, uriToPath, workspaceEditFiles, type HoverBlock, type Target } from "../domain/results";
 import { applyTextEdits } from "../domain/edits";
-import { missingServerNotice, type ServerStatus } from "../domain/server-status";
+import { MANAGER_NAMES, missingServerNotice, pendingApproval, runnable, type InstallOption, type InstallPlan, type MissingNotice, type ServerApproval, type ServerStatus } from "../domain/server-status";
+import { englishCopy } from "./override-messages";
+import { englishInstallCopy, type InstallCopy } from "./install-messages";
+import type { Copy } from "./overrides";
 import { completionItems, wordStartAt, type CompletionItem } from "../domain/completion";
 import { signatureView, type SignatureView } from "../domain/signature";
 import { clientSideEdit, codeActionItems, type CodeActionItem } from "../domain/code-actions";
@@ -23,7 +32,7 @@ import { caretAfterFormatting, formattingEdits } from "../domain/formatting";
 import { flattenSymbols, type SymbolEntry } from "../domain/symbols";
 import { locateInFile, rankWorkspaceSymbols, workspaceSymbolHits, type WorkspaceSymbolHit } from "../domain/workspace-symbols";
 import { preparedTypes, typeNodes, type TypeDirection, type TypeNode } from "../domain/type-hierarchy";
-import type { Defer, EditorPort, LspPort, WorkspacePort } from "./ports";
+import type { InstallPort, Defer, EditorNotice, EditorPort, LspPort, NoticeWay, WorkspacePort } from "./ports";
 
 export interface LspClientDeps {
   lsp: LspPort;
@@ -32,6 +41,19 @@ export interface LspClientDeps {
   defer: Defer;
   /** Esperar (os testes passam uma que não espera). */
   sleep?: (ms: number) => Promise<void>;
+  /** Copiar/instalar o servidor em falta (sem ela, o aviso só tem «Dismiss»). */
+  installer?: InstallPort;
+  /** Os overrides do registo (LSP P2): o registo efectivo da pasta e a revisão de um comando que o
+   *  projecto pede. Sem eles, o registo embutido e a faixa de aprovação sem «Review…». */
+  overrides?: { ready(root: string): Promise<void>; review(a: ServerApproval): Promise<boolean> };
+  /** Abre o `lsp.json` do utilizador (o botão «Configure…» da faixa de servidor em falta). */
+  configure?: () => void;
+  /** Os textos novos na língua da interface (por omissão, inglês). */
+  copy?: Copy;
+  /** Os textos do aviso de servidor em falta e da instalação (LSP P3; por omissão, inglês). */
+  installCopy?: InstallCopy;
+  /** Manda ao backend as linguagens dos VSIX instalados, se mudaram desde a última vez (LSP P4). */
+  contributions?: { sync(): Promise<void> };
 }
 
 /** Quantas vezes, e com que intervalo, repetir um rename que voltou vazio. */
@@ -87,6 +109,18 @@ export interface LspClient {
   opened(): ReadonlyMap<string, number>;
   /** O editor desenhou o ficheiro `key`: repõe o aviso de servidor em falta, se for o caso. */
   onFileView(key: string): Promise<void>;
+  /** Um ficheiro de overrides mudou (o registo novo já está em uso): esquece o estado dos servidores
+   *  e revê o ficheiro aberto (a faixa, e abre-o no servidor se agora tem um). */
+  onConfigChanged(): Promise<void>;
+  /** Um separador fechou (`key`: o ficheiro dele): o servidor recebe o `didClose` (LSP P6). */
+  onTabClosed(key: string | null): Promise<void>;
+  /** O workspace mudou: um documento aberto cujo ficheiro desapareceu (apagado, renomeado) fecha no servidor. */
+  onWorkspaceChanged(): Promise<void>;
+  /** Abriu-se a pasta `root`: se é outra, os servidores da anterior param e os documentos dela esquecem-se. */
+  onFolder(root: string): Promise<void>;
+  /** As linguagens dos VSIX instalados mudaram (LSP P4): vão ao backend, os documentos abertos que perderam
+   *  o servidor ou mudaram de linguagem fecham-se nele, e o ficheiro à vista é revisto. */
+  onLanguagesChanged(): Promise<void>;
 }
 
 /** Uma referência: onde está (chave do editor, `null` se fora da pasta) e a linha de texto. */
@@ -174,7 +208,19 @@ export function makeLspClient(d: LspClientDeps): LspClient {
   const sent = new Map<string, string>();
   /** O estado do servidor por linguagem (perguntado uma vez) e as linguagens cujo aviso se fechou. */
   const servers = new Map<string, Promise<ServerStatus | null>>();
+  /** As maneiras de instalar o servidor de cada linguagem em falta (perguntadas uma vez, com o estado). */
+  const plans = new Map<string, Promise<InstallPlan | null>>();
   const dismissed = new Set<string>();
+  const copy: Copy = d.copy ?? englishCopy;
+  const ic: InstallCopy = d.installCopy ?? englishInstallCopy;
+  /** A chave do editor de cada documento aberto no servidor (caminho → chave): fecha-se quando o separador
+   *  fecha ou o ficheiro desaparece. */
+  const keys = new Map<string, string>();
+  /** O `languageId` com que cada documento abriu (caminho → id): se a linguagem do ficheiro muda (um VSIX
+   *  instalado ou desinstalado), fecha-se. */
+  const languageIds = new Map<string, string>();
+  /** A pasta dos documentos abertos: quando abre outra, os servidores desta param. */
+  let folder: string | null = null;
 
   function statusOf(doc: Doc): Promise<ServerStatus | null> {
     let p = servers.get(doc.languageId);
@@ -185,19 +231,171 @@ export function makeLspClient(d: LspClientDeps): LspClient {
     return p;
   }
 
-  /** O servidor da linguagem está instalado? Se não, mostra o aviso no editor (até ser fechado). */
+  /** O servidor da linguagem está instalado (e, se o projecto o pede com outro comando, aprovado)? Se
+   *  não, mostra o aviso no editor (até ser fechado). */
   async function serverOk(doc: Doc): Promise<boolean> {
     const st = await statusOf(doc);
-    const n = st && !dismissed.has(st.language) ? missingServerNotice(st) : null;
-    d.editor.notice(doc.key, n, st ? () => dismissed.add(st.language) : undefined);
+    const appr = pendingApproval(st);
+    if (st && appr) {
+      // só definições/initOptions: o servidor corre (com as de confiança) e a faixa pede a revisão
+      const fields = appr.changed.filter((f) => f === "settings" || f === "initOptions").join(", ");
+      const text = appr.blocksStart
+        ? { title: copy("approvalTitle", { label: appr.label }), detail: copy("approvalDetail", { command: appr.command }) }
+        : { title: copy("approvalSettingsTitle", { label: appr.label }), detail: copy("approvalSettingsDetail", { label: appr.label, fields }) };
+      const n = dismissed.has(st.language) ? null : { kind: "approval" as const, ...text, hint: appr.insideProject ? copy("approvalInside") : undefined };
+      const ov = d.overrides;
+      d.editor.notice(doc.key, n, () => dismissed.add(st.language), ov ? { review: () => void reviewApproval(doc, appr) } : undefined);
+      return !appr.blocksStart;
+    }
+    const plan = st && !st.installed && !dismissed.has(st.language) && d.installer ? await planOf(doc) : null;
+    const miss = st && !dismissed.has(st.language) ? missingServerNotice(st, plan) : null;
+    const n = miss ? missingText(miss) : null;
+    const ins = d.installer;
+    const acts = n && miss
+      ? {
+          copy: ins
+            ? (way: string | null) => {
+                const text = (way && miss.options.find((o) => o.id === way)?.command) || n.install || "";
+                void ins.copy(text).then((ok) => d.editor.notify(ic(ok ? "copied" : "copyFailed", { text })));
+              }
+            : undefined,
+          install: ins && miss.options.some(runnable) ? (way: string) => void installServer(doc, plan!, way) : undefined,
+          recheck: () => void recheck(doc),
+          configure: d.configure,
+        }
+      : undefined;
+    d.editor.notice(doc.key, n, st ? () => dismissed.add(st.language) : undefined, acts);
     return !st || st.installed;
+  }
+
+  function planOf(doc: Doc): Promise<InstallPlan | null> {
+    let p = plans.get(doc.languageId);
+    if (!p) {
+      p = d.installer!.plan(doc.path).catch(() => null); // sem resposta: só a instrução
+      plans.set(doc.languageId, p);
+    }
+    return p;
+  }
+
+  /** O rótulo de uma maneira (o gestor; `(corres tu)` para apt/brew; o que falta, se falta). */
+  function wayLabel(o: InstallOption, platform: string): string {
+    const name = o.manager === "github" ? ic("wayGithub") : MANAGER_NAMES[o.manager] ?? o.manager;
+    const way = o.mode === "manual" ? ic("wayManual", { manager: name }) : name;
+    if (o.available) return way;
+    return o.missing === "platform" ? ic("wayNoPlatform", { way, platform }) : ic("wayMissing", { way, program: o.missing ?? "?" });
+  }
+
+  /** A frase de uma maneira: onde fica e como corre (ou porque não serve). */
+  function wayNote(o: InstallOption, platform: string): string {
+    if (!o.available) return o.missing === "platform" ? ic("noteNoPlatform", { platform }) : ic("noteMissing", { program: o.missing ?? "?" });
+    if (o.mode === "manual") return ic("noteManual");
+    if (o.mode === "download") return ic("noteDownload", { dir: o.target });
+    return o.target === "toolchain" ? ic("noteToolchain") : ic("noteUser", { dir: o.target });
+  }
+
+  /** O aviso de servidor em falta com o texto na língua da interface. */
+  function missingText(m: MissingNotice): EditorNotice {
+    const ways: NoticeWay[] = m.options.map((o) => ({
+      id: o.id,
+      label: wayLabel(o, m.platform),
+      shown: o.mode === "download" ? (o.url ?? "") : o.command,
+      runnable: runnable(o),
+      available: o.available,
+      note: wayNote(o, m.platform),
+    }));
+    const detail = ic("missingDetail", { server: m.server });
+    const why = m.withheld === "project" ? ic("withheldProject") : m.withheld === "command" ? ic("withheldCommand") : "";
+    return {
+      kind: "missing",
+      title: ic("missingTitle", { language: m.languageName }),
+      detail: why ? `${detail} ${why}` : detail,
+      install: m.manual ?? ic("noWay", { server: m.server }),
+      ways: ways.length ? ways : undefined,
+      way: m.selected ?? ways.find((w) => w.available)?.id ?? ways[0]?.id ?? null,
+      hint: copy("overridesHint"),
+      labels: {
+        toInstall: ic("toInstall"), way: ic("way"), copy: ic("copy"), install: ic("install"), installTip: ic("installTip"),
+        recheck: ic("recheck"), dismiss: ic("dismiss"), configure: copy("configure"),
+      },
+    };
+  }
+
+  /** «Review…» na faixa: o diálogo de aprovação; aprovado, o servidor arranca para o ficheiro. */
+  async function reviewApproval(doc: Doc, a: ServerApproval): Promise<void> {
+    if (!d.overrides) return;
+    const ok = await d.overrides.review(a);
+    servers.delete(doc.languageId);
+    if (ok) dismissed.delete(doc.languageId);
+    if (ok && (await ensureOpen(doc))) d.editor.repaint(doc.key);
+    else await serverOk(doc);
+  }
+
+  /** Esquece o estado e as maneiras de instalar da linguagem (o servidor pode ter aparecido). */
+  function forget(doc: Doc): void {
+    servers.delete(doc.languageId);
+    plans.delete(doc.languageId);
+    dismissed.delete(doc.languageId);
+  }
+
+  /** Onde o backend diz que o servidor está, para o aviso (`?` se não diz). */
+  async function whereOf(doc: Doc): Promise<string> {
+    return (await statusOf(doc))?.foundAt ?? "?";
+  }
+
+  /** Instala o servidor em falta pela maneira `way` do plano do backend: aprovação com o comando EXACTO
+   *  do plano → auditoria (sem ela, não corre) → terminal de tarefa com a pasta e o ambiente do plano, ou o
+   *  download conferido pelo backend (`lsp_install_download`) → auditoria do resultado → volta a perguntar
+   *  se está instalado e, se sim, arranca-o (sem reiniciar a app). apt/brew nunca correm daqui. */
+  let installing = false;
+  async function installServer(doc: Doc, plan: InstallPlan, way: string): Promise<void> {
+    const ins = d.installer, root = d.workspace.diskRoot();
+    const opt = plan.options.find((o) => o.id === way);
+    if (!ins || !root || installing || !opt || !runnable(opt)) return;
+    const manager = MANAGER_NAMES[opt.manager] ?? opt.manager;
+    const download = opt.mode === "download";
+    const title = download ? ic("dialogTitleDownload", { label: plan.label }) : ic("dialogTitle", { label: plan.label, manager });
+    const scope = download ? ic("scopeDownload", { dir: opt.target }) : opt.target === "toolchain" ? ic("scopeToolchain") : ic("scopeUser", { dir: opt.target });
+    const dec = await ins.approve({ title, command: opt.command, scope });
+    const row = { action: "lsp.install", command: opt.command, scope, approved: dec.approved, reason: dec.reason, decidedAt: dec.decidedAt };
+    if (!dec.approved) { void ins.audit(root, row).catch(() => undefined); return; }
+    try { await ins.audit(root, { ...row, outcome: "sent" }); } catch (e) { d.editor.notify(ic("notAudited", { error: e instanceof Error ? e.message : String(e) })); return; }
+    installing = true;
+    let failure: string | null = null;
+    try {
+      if (download) {
+        d.editor.notify(ic("downloading", { label: plan.label }));
+        await ins.download(doc.path, opt.id);
+      } else {
+        d.editor.notify(ic("installing", { label: plan.label }));
+        const code = await ins.run(opt.command, opt.cwd, opt.env, `install ${plan.label}`).catch(() => -1);
+        if (code !== 0) failure = ic("failedExit", { label: plan.label, code });
+      }
+    } catch (e) {
+      failure = ic("failedDownload", { label: plan.label, error: e instanceof Error ? e.message : String(e) });
+    } finally {
+      installing = false;
+    }
+    void ins.audit(root, { ...row, outcome: failure ? "failed" : "ok" }).catch(() => undefined);
+    if (failure) { d.editor.notify(failure); return; }
+    forget(doc);
+    if (await ensureOpen(doc)) { d.editor.notify(ic("installed", { label: plan.label, where: await whereOf(doc) })); d.editor.repaint(doc.key); }
+    else d.editor.notify(ic("installedNotFound", { label: plan.label }));
+  }
+
+  /** «Check again»: depois de instalado à mão (apt, brew, um download), procura outra vez sem reiniciar. */
+  async function recheck(doc: Doc): Promise<void> {
+    const before = await statusOf(doc);
+    forget(doc);
+    const label = before?.server ?? doc.languageId;
+    if (await ensureOpen(doc)) { d.editor.notify(ic("found", { label, where: await whereOf(doc) })); d.editor.repaint(doc.key); }
+    else d.editor.notify(ic("stillMissing", { label }));
   }
 
   /** O documento LSP de uma chave do editor, ou `null` se não há servidor para ele. */
   function docOf(key: string | null): Doc | null {
     if (!key) return null;
     const root = d.workspace.diskRoot();
-    const languageId = languageIdFor(key);
+    const languageId = languageIdFor(key, d.workspace.text(key)); // o texto só conta se o nome não diz nada (shebang)
     if (!root || !languageId) return null;
     const path = keyToAbsolute(key, d.workspace.virtualPrefix(), root);
     return path ? { key, path, languageId } : null;
@@ -219,13 +417,15 @@ export function makeLspClient(d: LspClientDeps): LspClient {
     if (versions.has(doc.path)) return true;
     const text = d.workspace.text(doc.key);
     if (text == null) return false;
+    folder ??= root;
     versions.set(doc.path, 1);
     sent.set(doc.path, text);
+    keys.set(doc.path, doc.key);
+    languageIds.set(doc.path, doc.languageId);
     const p = d.lsp.didOpen(doc.path, text, doc.languageId).then(
       () => true,
       () => {
-        versions.delete(doc.path);
-        sent.delete(doc.path);
+        forgetDoc(doc.path);
         return false;
       },
     );
@@ -234,7 +434,52 @@ export function makeLspClient(d: LspClientDeps): LspClient {
     return p;
   }
 
+  /** Esquece um documento (o servidor deixa de o ter aberto). */
+  function forgetDoc(path: string): void {
+    versions.delete(path);
+    sent.delete(path);
+    keys.delete(path);
+    languageIds.delete(path);
+  }
+
+  /** Fecha um documento no servidor (depois do `didOpen` em curso, se houver). */
+  async function closeDoc(path: string): Promise<void> {
+    await opening.get(path);
+    if (!versions.has(path)) return;
+    forgetDoc(path);
+    await d.lsp.didClose(path).catch(() => {});
+  }
+
+  async function onTabClosed(key: string | null): Promise<void> {
+    if (!key) return;
+    // pela chave (a pasta pode já ser outra: ao abrir uma pasta, os separadores da anterior fecham depois)
+    for (const [path, k] of [...keys]) if (k === key) await closeDoc(path);
+  }
+
+  async function onWorkspaceChanged(): Promise<void> {
+    for (const [path, k] of [...keys]) if (d.workspace.text(k) == null) await closeDoc(path);
+  }
+
+  async function onFolder(root: string): Promise<void> {
+    const prev = folder;
+    folder = root;
+    if (!prev || prev === root) return;
+    // o backend esquece os documentos dela e pára os servidores dela; aqui só se esquece o estado
+    for (const path of [...keys.keys()]) if (path === prev || path.startsWith(`${prev}/`)) forgetDoc(path);
+    starting.delete(prev);
+    servers.clear();
+    await d.lsp.closeFolder(prev).catch(() => {});
+  }
+
+  /** O registo efectivo da pasta aberta em uso, antes de decidir que linguagem é um ficheiro. */
+  async function registryReady(): Promise<void> {
+    const root = d.workspace.diskRoot();
+    if (root && d.overrides) await d.overrides.ready(root);
+    if (d.contributions) await d.contributions.sync().catch(() => {});
+  }
+
   async function onTab(tabId: string | null): Promise<void> {
+    await registryReady();
     const doc = docOf(d.workspace.fileKeyOfTab(tabId));
     if (doc) await ensureOpen(doc);
   }
@@ -667,9 +912,31 @@ export function makeLspClient(d: LspClientDeps): LspClient {
   }
 
   async function onFileView(key: string): Promise<void> {
+    await registryReady();
     const doc = docOf(key);
     if (doc) await serverOk(doc);
   }
 
-  return { onTab, onEdit, hoverAt, definitionAt, referencesAt, prepareRenameAt, renameAt, completionAt, signatureHelpAt, codeActionsAt, applyCodeAction, onApplyEdit, formatAt, symbolsFor, workspaceSymbolsFor, openWorkspaceSymbol, typeHierarchyAt, typeHierarchyChildren, openType, onDiagnostics, opened: () => versions, onFileView };
+  async function onConfigChanged(): Promise<void> {
+    servers.clear();
+    plans.clear();
+    const doc = docOf(d.workspace.currentFileKey());
+    if (!doc) {
+      const key = d.workspace.currentFileKey();
+      if (key) d.editor.notice(key, null); // a linguagem deixou de ter servidor: tira a faixa
+      return;
+    }
+    if (await ensureOpen(doc)) d.editor.repaint(doc.key);
+  }
+
+  async function onLanguagesChanged(): Promise<void> {
+    await registryReady();
+    for (const [path, key] of [...keys]) {
+      const doc = docOf(key);
+      if (!doc || doc.path !== path || doc.languageId !== languageIds.get(path)) await closeDoc(path);
+    }
+    await onConfigChanged();
+  }
+
+  return { onTab, onEdit, hoverAt, definitionAt, referencesAt, prepareRenameAt, renameAt, completionAt, signatureHelpAt, codeActionsAt, applyCodeAction, onApplyEdit, formatAt, symbolsFor, workspaceSymbolsFor, openWorkspaceSymbol, typeHierarchyAt, typeHierarchyChildren, openType, onDiagnostics, opened: () => versions, onFileView, onConfigChanged, onTabClosed, onWorkspaceChanged, onFolder, onLanguagesChanged };
 }

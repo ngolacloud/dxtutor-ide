@@ -2,6 +2,7 @@
 //! Every path coming from the UI is relative and is checked to stay inside the root.
 
 use serde::Serialize;
+use std::collections::HashSet;
 use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
@@ -24,6 +25,25 @@ pub const IGNORED_DIRS: &[&str] = &[
     "vendor",
 ];
 
+/// A Terraform/OpenTofu state file (r23 F4b, P05): it holds every value the infrastructure has,
+/// secrets included. The editor never loads, opens or writes one; the state is read through the
+/// IaC state view (addresses and ids only).
+pub fn is_state_file(path: &str) -> bool {
+    let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+    name.ends_with(".tfstate")
+        || name.ends_with(".tfstate.backup")
+        || name.ends_with(".tfstate.lock.info")
+}
+
+/// The refusal of a state file, in the words the UI shows.
+pub fn refuse_state_file(path: &str) -> Result<(), String> {
+    if is_state_file(path) {
+        Err(format!("{path}: a state file is not opened in the editor (it holds the infrastructure's secrets) — use Ops › State"))
+    } else {
+        Ok(())
+    }
+}
+
 #[derive(Debug, Serialize, Clone, PartialEq)]
 pub struct FileEntry {
     pub path: String,
@@ -38,18 +58,55 @@ pub struct Loaded {
     pub files: Vec<FileEntry>,
     /// Files left out because they are binary, too big, or over the file limit.
     pub skipped: usize,
+    /// The file limit or the size budget was reached: the rest of the folder was not loaded.
     pub truncated: bool,
+    /// Folders git ignores as a whole (build output, caches, coverage…), not loaded.
+    pub ignored_dirs: usize,
 }
 
-/// Loads every text file under `root`, up to `max_files` files of at most `max_bytes` each.
-pub fn load(root: &Path, max_files: usize, max_bytes: u64) -> io::Result<Loaded> {
+/// The folders under `root` that git ignores as a whole (`out/`, `coverage/`…), relative to `root` and
+/// without the trailing `/`. `--directory` names a folder only when nothing in it is tracked, so a tracked
+/// file is never hidden; an ignored FILE (a `.env`) is not a folder and stays in the editor. Not a
+/// repository, or no git: none.
+pub fn git_ignored_dirs(root: &Path) -> HashSet<String> {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args([
+            "ls-files",
+            "-z",
+            "--others",
+            "--ignored",
+            "--exclude-standard",
+            "--directory",
+        ])
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output();
+    match out {
+        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout)
+            .split('\0')
+            .filter_map(|p| p.strip_suffix('/'))
+            .map(String::from)
+            .collect(),
+        _ => HashSet::new(),
+    }
+}
+
+/// Loads every text file under `root`, within the policy: at most `max_files` files of at most
+/// `max_bytes` each and `max_total` bytes in all (the page keeps about as much as it is given — measured:
+/// 150 MB of text took the page from 205 to 358 MB). Folders git ignores as a whole are not walked.
+pub fn load(root: &Path, policy: LoadPolicy) -> io::Result<Loaded> {
     let root = root.canonicalize()?;
     if !root.is_dir() {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "not a folder"));
     }
+    let ignored = git_ignored_dirs(&root);
     let mut files = Vec::new();
     let mut skipped = 0usize;
     let mut truncated = false;
+    let mut total = 0u64;
+    let mut ignored_dirs = 0usize;
     let mut stack = vec![root.clone()];
     while let Some(dir) = stack.pop() {
         let mut entries: Vec<_> = match fs::read_dir(&dir) {
@@ -69,18 +126,34 @@ pub fn load(root: &Path, max_files: usize, max_bytes: u64) -> io::Result<Loaded>
                 continue;
             }
             if ft.is_dir() {
-                if !IGNORED_DIRS.contains(&name.as_str()) {
-                    stack.push(p);
+                if IGNORED_DIRS.contains(&name.as_str()) {
+                    continue;
                 }
+                if !ignored.is_empty()
+                    && ignored.contains(&to_slash(p.strip_prefix(&root).unwrap_or(&p)))
+                {
+                    ignored_dirs += 1;
+                    continue;
+                }
+                stack.push(p);
                 continue;
             }
-            if files.len() >= max_files {
+            if is_state_file(&name) {
+                skipped += 1;
+                continue;
+            }
+            if files.len() >= policy.max_files {
                 truncated = true;
                 skipped += 1;
                 continue;
             }
             let len = e.metadata().map(|m| m.len()).unwrap_or(u64::MAX);
-            if len > max_bytes {
+            if len > policy.max_bytes {
+                skipped += 1;
+                continue;
+            }
+            if total + len > policy.max_total {
+                truncated = true;
                 skipped += 1;
                 continue;
             }
@@ -88,6 +161,7 @@ pub fn load(root: &Path, max_files: usize, max_bytes: u64) -> io::Result<Loaded>
                 Ok(bytes) => match String::from_utf8(bytes) {
                     Ok(content) if !content.contains('\0') => {
                         let rel = p.strip_prefix(&root).unwrap_or(&p);
+                        total += content.len() as u64;
                         files.push(FileEntry {
                             path: to_slash(rel),
                             content,
@@ -110,16 +184,19 @@ pub fn load(root: &Path, max_files: usize, max_bytes: u64) -> io::Result<Loaded>
         files,
         skipped,
         truncated,
+        ignored_dirs,
     })
 }
 
 /// Política do caso de uso «abrir workspace»: quantos ficheiros e de que tamanho máximo o
 /// editor carrega. É a *regra* (não o mecanismo) — vive no caso de uso, não no comando Tauri
-/// nem no walk de disco. O `Default` é o contrato público actual (4000 ficheiros, 768 KiB cada).
+/// nem no walk de disco. O `Default` é o contrato público actual (4000 ficheiros, 768 KiB cada,
+/// 48 MiB ao todo — P2: a página guarda tanto quanto recebe; antes, o pior caso eram 3 GB).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LoadPolicy {
     pub max_files: usize,
     pub max_bytes: u64,
+    pub max_total: u64,
 }
 
 impl Default for LoadPolicy {
@@ -127,6 +204,7 @@ impl Default for LoadPolicy {
         Self {
             max_files: 4000,
             max_bytes: 768 * 1024,
+            max_total: 48 * 1024 * 1024,
         }
     }
 }
@@ -158,7 +236,7 @@ impl std::error::Error for OpenError {}
 /// erro tipado. O comando `bridge::load_workspace` é apenas o adaptador fino que o invoca e
 /// mapeia `OpenError` → `String` na fronteira IPC.
 pub fn open_workspace(root: &Path, policy: LoadPolicy) -> Result<Loaded, OpenError> {
-    load(root, policy.max_files, policy.max_bytes).map_err(|e| match e.kind() {
+    load(root, policy).map_err(|e| match e.kind() {
         io::ErrorKind::InvalidInput => OpenError::NotADirectory,
         _ => OpenError::Io(e),
     })
@@ -194,6 +272,7 @@ pub fn ensure_within(root: &Path, p: &Path) -> Result<(), String> {
 }
 
 pub fn write(root: &Path, rel: &str, content: &str) -> Result<(), String> {
+    refuse_state_file(rel)?;
     let p = safe_join(root, rel)?;
     ensure_within(root, &p)?;
     if let Some(parent) = p.parent() {
@@ -228,6 +307,14 @@ pub fn expand_home(p: &str) -> String {
 mod tests {
     use super::*;
 
+    fn policy(max_files: usize, max_bytes: u64) -> LoadPolicy {
+        LoadPolicy {
+            max_files,
+            max_bytes,
+            max_total: u64::MAX,
+        }
+    }
+
     fn tmp(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("dxtutor-test-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&d);
@@ -244,10 +331,16 @@ mod tests {
         fs::write(d.join("README.md"), "# hi\n").unwrap();
         fs::write(d.join("node_modules/x/a.js"), "x").unwrap();
         fs::write(d.join("logo.bin"), [0u8, 159, 146, 150]).unwrap();
-        let l = load(&d, 100, 1024).unwrap();
+        // r23 F4b: a state file is never loaded into the editor, nor written from it
+        fs::write(d.join("terraform.tfstate"), "{\"serial\": 1}").unwrap();
+        let l = load(&d, policy(100, 1024)).unwrap();
         let paths: Vec<_> = l.files.iter().map(|f| f.path.as_str()).collect();
         assert_eq!(paths, vec!["README.md", "src/main.rs"]);
-        assert_eq!(l.skipped, 1);
+        assert_eq!(l.skipped, 2);
+        assert!(write(&d, "infra/terraform.tfstate", "{}")
+            .unwrap_err()
+            .contains("state file"));
+        assert!(is_state_file("a/b.tfstate.backup") && !is_state_file("main.tf"));
         assert!(!l.truncated);
     }
 
@@ -257,7 +350,7 @@ mod tests {
         for i in 0..5 {
             fs::write(d.join(format!("f{i}.txt")), "x").unwrap();
         }
-        let l = load(&d, 3, 1024).unwrap();
+        let l = load(&d, policy(3, 1024)).unwrap();
         assert_eq!(l.files.len(), 3);
         assert!(l.truncated);
     }
@@ -306,6 +399,71 @@ mod tests {
         let p = LoadPolicy::default();
         assert_eq!(p.max_files, 4000);
         assert_eq!(p.max_bytes, 768 * 1024);
+        assert_eq!(p.max_total, 48 * 1024 * 1024);
+    }
+
+    #[test]
+    fn respects_the_size_budget() {
+        let d = tmp("budget");
+        for i in 0..5 {
+            fs::write(d.join(format!("f{i}.txt")), "x".repeat(100)).unwrap();
+        }
+        let l = load(
+            &d,
+            LoadPolicy {
+                max_files: 100,
+                max_bytes: 1024,
+                max_total: 250,
+            },
+        )
+        .unwrap();
+        assert_eq!(l.files.len(), 2, "two files of 100 bytes fit in 250");
+        assert!(l.truncated);
+        assert_eq!(l.skipped, 3);
+    }
+
+    #[test]
+    fn skips_the_folders_git_ignores_but_not_ignored_files_or_tracked_ones() {
+        let d = tmp("gitignore");
+        let git = |args: &[&str]| {
+            std::process::Command::new("git")
+                .args(["-c", "user.email=t@t", "-c", "user.name=t"])
+                .args(args)
+                .current_dir(&d)
+                .output()
+                .unwrap()
+        };
+        if !git(&["init", "-q"]).status.success() {
+            eprintln!("skipped: no git");
+            return;
+        }
+        fs::create_dir_all(d.join("src")).unwrap();
+        fs::create_dir_all(d.join("out/deep")).unwrap();
+        fs::create_dir_all(d.join("logs")).unwrap();
+        fs::write(d.join(".gitignore"), "out/\n.env\nlogs/\n").unwrap();
+        fs::write(d.join("src/main.rs"), "fn main() {}\n").unwrap();
+        fs::write(d.join(".env"), "A=1\n").unwrap();
+        fs::write(d.join("out/deep/gen.js"), "x").unwrap();
+        // a tracked file inside an ignored folder keeps the folder in the editor
+        fs::write(d.join("logs/keep.md"), "kept\n").unwrap();
+        fs::write(d.join("logs/run.log"), "noise\n").unwrap();
+        git(&["add", "-f", "logs/keep.md"]);
+        git(&["add", "-A"]);
+        git(&["commit", "-qm", "init"]);
+        let l = load(&d, policy(100, 1024)).unwrap();
+        let paths: Vec<_> = l.files.iter().map(|f| f.path.as_str()).collect();
+        assert!(!paths.iter().any(|p| p.starts_with("out/")), "{paths:?}");
+        assert!(paths.contains(&".env"), "an ignored file stays: {paths:?}");
+        assert!(paths.contains(&"logs/keep.md"), "{paths:?}");
+        assert_eq!(l.ignored_dirs, 1);
+        // not a repository: nothing is ignored by git
+        let plain = tmp("gitignore-plain");
+        fs::create_dir_all(plain.join("out")).unwrap();
+        fs::write(plain.join(".gitignore"), "out/\n").unwrap();
+        fs::write(plain.join("out/gen.js"), "x").unwrap();
+        let l = load(&plain, policy(100, 1024)).unwrap();
+        assert!(l.files.iter().any(|f| f.path == "out/gen.js"));
+        assert_eq!(l.ignored_dirs, 0);
     }
 
     #[test]
@@ -317,6 +475,7 @@ mod tests {
         let policy = LoadPolicy {
             max_files: 3,
             max_bytes: 1024,
+            max_total: u64::MAX,
         };
         let l = open_workspace(&d, policy).unwrap();
         assert_eq!(l.files.len(), 3, "a política do caso de uso é respeitada");

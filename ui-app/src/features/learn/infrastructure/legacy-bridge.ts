@@ -3,7 +3,9 @@
 
 import { isDesktop } from "../../../platform/tauri/core";
 import * as ipc from "../../../platform/tauri/learn";
-import type { CourseGateway } from "../application/ports";
+import { auditClient } from "../../../platform/tauri/audit";
+import type { AuditPort, CourseGateway } from "../application/ports";
+import type { ClusterState, PrepareStatus } from "../domain/types";
 import { fromCourseDto, toPluginRow } from "../domain/course-adapter";
 
 export const tauriCourseGateway: CourseGateway = {
@@ -11,13 +13,52 @@ export const tauriCourseGateway: CourseGateway = {
   listPlugins: async () => (await ipc.pluginList()).map(toPluginRow),
   install: async (source) => {
     const o = await ipc.pluginInstall(source);
-    return { id: o.entry.id, version: o.entry.version, languageName: o.language.name, replaced: o.replaced, warnings: o.warnings };
+    return { id: o.entry.id, version: o.entry.version, languageName: o.subject ? o.subject.name : o.language.name, replaced: o.replaced, warnings: o.warnings };
   },
   remove: async (id) => { await ipc.pluginRemove(id); },
-  courseLanguages: async () => [...new Set((await ipc.listCourses()).map(c => c.language))],
-  getCourse: async (language) => fromCourseDto(await ipc.getCourse(language)),
-  submitStep: async (stepId, code, language) => {
-    const a = await ipc.submitStep(stepId, code, language);
+  listCourses: async () => (await ipc.listCourses()).map(c => ({ id: c.id, language: c.language, category: c.category ?? "language", subject: c.subject ?? "" })),
+  getCourse: async (language, subject) => fromCourseDto(await ipc.getCourse(language, subject)),
+  submitStep: async (stepId, code, language, files) => {
+    const a = await ipc.submitStep(stepId, code, language, files);
     return { passed: a.correctness.passed, summary: a.correctness.summary, raw: a.correctness.raw, gabarito: a.gabarito };
   },
+  prepareStatus: async (courseId) => prepareStatus(await ipc.coursePrepareStatus(courseId)),
+  prepare: async (courseId, decision) => {
+    const r = await ipc.coursePrepare(courseId, decision);
+    return { ok: r.ok, output: r.output, status: prepareStatus(r.status) };
+  },
+  clusterStatus: async courseId => clusterState(await ipc.learnClusterStatus(courseId)),
+  clusterAction: async (courseId, action, decision) =>
+    clusterState(await (action === "start" ? ipc.learnClusterStart(courseId, decision) : ipc.learnClusterDelete(courseId, decision))),
+};
+
+const clusterState = (d: ipc.ClusterDto): ClusterState => ({
+  live: d.live,
+  prepared: d.prepared,
+  support: d.support,
+  status: d.status
+    ? {
+        name: d.status.name,
+        exists: d.status.exists,
+        running: d.status.running,
+        createdAt: d.status.createdAt,
+        lastUsed: d.status.lastUsed,
+        createSecs: d.status.createSecs,
+        memoryBytes: d.status.memoryBytes,
+        idleDeadline: d.status.idleDeadline,
+      }
+    : null,
+  startCommand: d.startCommand,
+  deleteCommand: d.deleteCommand,
+  dir: d.dir,
+  idleMinutes: d.idleMinutes,
+});
+
+const prepareStatus = (s: ipc.CoursePrepareDto): PrepareStatus => ({
+  needed: s.needed, state: s.state, command: s.command, kind: s.kind ?? "", packages: s.packages ?? [], dir: s.dir, timeoutSecs: s.timeoutSecs, fetchSecs: s.fetchSecs, warmSecs: s.warmSecs,
+});
+
+/** O registo de auditoria das operações do IDE (`audit_record`). */
+export const tauriLearnAudit: AuditPort = {
+  record: (root, entry) => auditClient().record(root, entry),
 };

@@ -33,8 +33,8 @@ use tutor_agent::tools::flow::SubagentSpec;
 use tutor_agent::tools::{agent_tools, FileState, FlowState, ToolsetOptions, TOOLSET_VERSION};
 use tutor_agent::{trust, Tool};
 use tutor_agent::{
-    Agent, AgentConfig, AgentError, AgentEvent, Decision, Effort, Message, PendingCall, Provider,
-    SystemBlock, ToolCtx, Transcript, TurnOutcome,
+    Agent, AgentConfig, AgentError, AgentEvent, CacheTtl, Decision, Effort, Message, PendingCall,
+    Provider, SystemBlock, ToolCtx, Transcript, TurnOutcome,
 };
 
 /// Um pedido de aprovação à espera: o canal onde a UI responde e a regra sugerida.
@@ -60,10 +60,18 @@ pub struct StartSpec {
     /// conjunto versão ≥ 3, sempre pela mesma ordem.
     pub host_tools: Vec<Arc<dyn Tool>>,
     /// Ferramentas do anfitrião que só entram no conjunto versão ≥ 4 (ex.: `arch_propose`):
-    /// uma sessão gravada antes retoma sem elas (o prefixo do pedido não pode mudar).
+    /// uma sessão gravada antes retoma sem elas (o prefixo do pedido não pode mudar). Desde o
+    /// conjunto 9 são as ferramentas de arquitectura: só nas sessões com `architecture`.
     pub host_tools_v4: Vec<Arc<dyn Tool>>,
     /// Ferramentas do anfitrião do conjunto versão ≥ 8 (ex.: `outline`, RF-E04).
     pub host_tools_v8: Vec<Arc<dyn Tool>>,
+    /// Toolset 11: as ferramentas das sessões de backlog (`backlog_propose`, `project_propose`),
+    /// só nas sessões com `backlog`.
+    pub host_tools_v11: Vec<Arc<dyn Tool>>,
+    /// Toolset 13 (H3): the host tools of the sessions of exactly this version (`ide` with its reads).
+    pub host_tools_v13: Vec<Arc<dyn Tool>>,
+    /// Toolset 14 (H4): in their place from this version (`ide` with the Platform/SRE/DevOps actions).
+    pub host_tools_v14: Vec<Arc<dyn Tool>>,
     /// Ficheiro de confiança (hooks/MCP do projecto). `None` = nada é confiado (o adaptador
     /// passa `~/.config/dxtutor/trusted.json`).
     pub trust_store: Option<PathBuf>,
@@ -86,6 +94,122 @@ pub struct StartSpec {
     /// The interface language (`en`, `ptAO`): Co-Dev answers in it. Saved with the session,
     /// so a resume keeps the language it started with. `None` → Portuguese (older UIs).
     pub lang: Option<String>,
+    /// Toolset 9: an architecture session (the UI says so when the Architecture Studio is open
+    /// or the first request is about architecture): it gets `arch_propose`. The others do not
+    /// pay for its ~5 KB definition on every request. Saved with the session (`scopes`).
+    pub architecture: bool,
+    /// Toolset 11: a backlog session (the UI opens one for `/backlog` and `/project`): it gets
+    /// `backlog_propose` and `project_propose`. Saved with the session (`scopes`).
+    pub backlog: bool,
+    /// Multi Co-Dev (phase 3): the folder the session works in — the project folder inside a linked
+    /// git worktree of `root` on the issue's branch. The adapter resolves it from the app's Co-Dev
+    /// worktrees (`tutor_eval::gitwork::codev::find`), never from a path the UI typed; only with
+    /// `issue_key`. Ignored on a resume (the saved one counts). `None`: `root` itself, as always.
+    pub worktree: Option<PathBuf>,
+    /// H1: `Some(false)` runs the agent's commands without the OS sandbox (the tests that need it);
+    /// `None`/`Some(true)`: the sandbox, when this machine has it.
+    pub sandbox: Option<bool>,
+    /// H2: the project of the workspace the session works in (relative to `root`; `None` or `"."`: the whole
+    /// workspace). Its test/lint commands replace `test_cmd`/`lint_cmd`, its instruction files join the
+    /// root's, and a chat request may change only its files without asking. Ignored on a resume.
+    pub project: Option<String>,
+}
+
+/// H1: the OS sandbox of a session (`None`: off by the spec, by a trusted project file, or not
+/// available on this machine — then a notice says so). A project file that loosens it (network on,
+/// sandbox off, a folder outside the project writable) counts only when the person trusted it, as it
+/// is — in a worktree, only when its copy is the trusted one byte for byte.
+fn session_sandbox(
+    root: &Path,
+    work_root: &Path,
+    spec: &StartSpec,
+    notes: &mut Vec<String>,
+) -> (
+    Option<Arc<tutor_agent::os_sandbox::OsSandbox>>,
+    Option<tutor_agent::net_proxy::Proxy>,
+) {
+    use tutor_agent::os_sandbox::{self, SandboxConfig, CONFIG_FILE};
+    if spec.sandbox == Some(false) {
+        return (None, None);
+    }
+    let mut cfg = match SandboxConfig::load(work_root) {
+        Ok(c) => c.unwrap_or_default(),
+        Err(e) => {
+            notes.push(format!("{e} — a sandbox fica com as regras por omissão"));
+            SandboxConfig::default()
+        }
+    };
+    if cfg.loosens(work_root) {
+        let trusted = spec
+            .trust_store
+            .as_deref()
+            .is_some_and(|st| trust::is_trusted(st, root, CONFIG_FILE))
+            && (work_root == root
+                || std::fs::read(root.join(CONFIG_FILE)).ok()
+                    == std::fs::read(work_root.join(CONFIG_FILE)).ok());
+        if !trusted {
+            notes.push(format!(
+                "o {CONFIG_FILE} do projecto afrouxa a sandbox (rede, desligar ou pastas de fora) e ainda não o confiaste — vale a sandbox por omissão; vê /comandos"
+            ));
+            cfg = SandboxConfig {
+                writable: cfg
+                    .writable
+                    .into_iter()
+                    .filter(|w| !w.contains("..") && !Path::new(w).is_absolute())
+                    .collect(),
+                ..Default::default()
+            };
+        }
+    }
+    if cfg.enabled == Some(false) {
+        notes.push(format!("sandbox desligada pelo {CONFIG_FILE} do projecto (confiado): os comandos correm sem ela"));
+        return (None, None);
+    }
+    match os_sandbox::available() {
+        Ok(bwrap) => {
+            let home = std::env::var_os("HOME").map(PathBuf::from);
+            let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from);
+            let sb = os_sandbox::OsSandbox::for_project(
+                &bwrap,
+                work_root,
+                home.as_deref(),
+                runtime.as_deref(),
+                &cfg,
+            );
+            if sb.network {
+                notes.push(format!(
+                    "a rede está ligada para os comandos deste projecto ({CONFIG_FILE})"
+                ));
+            }
+            // H1b: only the allowed domains, through a proxy outside the sandbox
+            if cfg.network.as_deref() == Some("allowlist") && !cfg.allow_domains.is_empty() {
+                let dir = std::env::temp_dir().join(format!("dxtutor-net-{}", new_id()));
+                let allow = tutor_agent::net_proxy::Allowlist::new(&cfg.allow_domains, &[]);
+                match (tutor_agent::net_proxy::Proxy::start(&dir, allow), std::env::current_exe()) {
+                    (Ok(proxy), Ok(exe)) => {
+                        notes.push(format!(
+                            "a rede dos comandos deste projecto só chega a: {} ({CONFIG_FILE})",
+                            cfg.allow_domains.join(", ")
+                        ));
+                        let net = os_sandbox::NetBridge {
+                            dir,
+                            bridge: vec![exe.into_os_string()],
+                            denied: proxy.denied_log(),
+                        };
+                        return (Some(Arc::new(sb.with_net(net))), Some(proxy));
+                    }
+                    (Err(e), _) | (_, Err(e)) => notes.push(format!(
+                        "a lista de domínios do {CONFIG_FILE} não arrancou ({e}): a rede fica desligada"
+                    )),
+                }
+            }
+            (Some(Arc::new(sb)), None)
+        }
+        Err(why) => {
+            notes.push(format!("sem sandbox do sistema nesta máquina ({why}): os comandos do Co-Dev correm sem ela"));
+            (None, None)
+        }
+    }
 }
 
 /// Prefixo do erro de um modelo sem tool calling nativo: a UI reconhece-o e recua para o
@@ -259,6 +383,16 @@ pub struct ApprovalRequest {
 }
 
 struct Session {
+    /// The session's id (claims and the Agent map name it).
+    id: String,
+    /// The project folder: the Project database, the audit log, roles, permissions and the claims
+    /// are keyed by it. The tools work in `agent.ctx.root` — the same folder, or the session's
+    /// worktree (Multi Co-Dev, phase 3).
+    project_root: PathBuf,
+    /// The worktree's project folder when the session works in one (= `agent.ctx.root`).
+    worktree: Option<PathBuf>,
+    /// H2: the project of the workspace (relative), from the session's meta.
+    project: Option<String>,
     agent: Agent,
     transcript: Mutex<Transcript>,
     busy: AtomicBool,
@@ -275,6 +409,8 @@ struct Session {
     /// editada, por isso o que muda entre turnos vai como mensagem `system`.
     notes: Mutex<Vec<String>>,
     /// Avisos do arranque para o humano (MCP que falhou, hooks por confiar…).
+    /// H1b: the allowlist proxy of this session's sandbox (stops with the session).
+    _net_proxy: Option<tutor_agent::net_proxy::Proxy>,
     startup_notices: Vec<String>,
     /// Live hunks on ([`StartSpec::review_edits`]).
     review_edits: bool,
@@ -298,6 +434,57 @@ struct Session {
     budget: Mutex<Option<Budget>>,
     /// Who drove the PairCode session at the last human decision (RF-P04; `None` outside one).
     driver: Mutex<Option<String>>,
+    /// RF-A03/A04: tool_use_id → the architect's rules a call under review breaks …
+    violating: Mutex<HashMap<String, Vec<tutor_agent::conformance::Violation>>>,
+    /// … and → the accepted ADR the architect overrode them with.
+    overrides: Mutex<HashMap<String, String>>,
+    /// RF-G03: tool_use_id of a running `bash` → the working tree's dirty files before it.
+    bash_snaps: Mutex<HashMap<String, DirtyState>>,
+    /// Board B (XP test-first): what this session changed for its issue, in order, until the first
+    /// failing `run_tests` — the proof the Project checks before Review.
+    tdd: Mutex<TddTrace>,
+    /// When the session was opened in this run of the app (ms since the epoch; the Agent map).
+    opened: u64,
+}
+
+/// A session open in this run of the app, as the Agent map lists it (`codev_agent_live`): the
+/// map shows each one — today the chat's, later one per issue of a sprint — with its sub-agents.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveSession {
+    pub id: String,
+    pub root: String,
+    pub model: String,
+    pub issue: Option<String>,
+    pub busy: bool,
+    pub opened: u64,
+    /// Multi Co-Dev (phase 3): the worktree folder the session works in, and its branch.
+    pub worktree: Option<String>,
+    pub branch: Option<String>,
+}
+
+/// The open sessions, oldest first (read-only: nothing changes).
+pub fn live_sessions() -> Vec<LiveSession> {
+    let mut v: Vec<LiveSession> = sessions()
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(id, s)| LiveSession {
+            id: id.clone(),
+            root: s.project_root.display().to_string(),
+            model: s.agent.cfg.model.clone(),
+            issue: s.issue_key.lock().unwrap().clone(),
+            busy: s.busy.load(Ordering::Relaxed),
+            opened: s.opened,
+            worktree: s.worktree.as_ref().map(|w| w.display().to_string()),
+            branch: s
+                .worktree
+                .as_deref()
+                .and_then(tutor_eval::git::current_branch),
+        })
+        .collect();
+    v.sort_by(|a, b| a.opened.cmp(&b.opened).then_with(|| a.id.cmp(&b.id)));
+    v
 }
 
 /// RF-P04: the UI says who drives a PairCode session when the human decides; the audit log
@@ -330,7 +517,7 @@ fn budget_for(s: &Session, key: &str) -> Option<Budget> {
     let db = s.change_log.as_ref()?;
     let st = tutor_board::project::ProjectStore::open(db).ok()?;
     let p = st
-        .load(&s.agent.ctx.root.display().to_string(), now_ms())
+        .load(&s.project_root.display().to_string(), now_ms())
         .ok()?;
     let i = p.issues.iter().find(|i| i.key == key)?;
     let mut options = vec![];
@@ -421,7 +608,7 @@ fn record_change_sets(
         return;
     }
     let issue = s.issue_key.lock().unwrap().clone();
-    let root = s.agent.ctx.root.display().to_string();
+    let root = s.project_root.display().to_string();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
@@ -558,6 +745,9 @@ pub fn start(
     key_for: &dyn Fn(&str) -> Option<String>,
     workspace_id: Option<String>,
 ) -> Result<String, String> {
+    // a session that works in a worktree is checked and opened while no close removes one
+    let _guard = (spec.worktree.is_some() || spec.resume.is_some())
+        .then(|| worktree_lock().lock().unwrap_or_else(|p| p.into_inner()));
     let root = PathBuf::from(spec.root.trim());
     if !root.is_dir() {
         return Err(format!(
@@ -599,27 +789,72 @@ pub fn start(
             if !PROVIDERS.contains(&provider.as_str()) {
                 return Err(format!("provedor desconhecido para o agente: {provider}"));
             }
+            let worktree = match &spec.worktree {
+                Some(w) => Some(worktree_of(&root, w, spec.issue_key.as_deref())?),
+                None => None,
+            };
+            // H2: the project of the workspace, with its commands
+            let base = worktree.clone().unwrap_or_else(|| root.clone());
+            let ws = tutor_agent::workspace::detect(&base);
+            let project = session_project(&base, spec.project.as_deref())?;
+            let wsp = project
+                .as_deref()
+                .and_then(|p| ws.projects.iter().find(|x| x.path == p));
+            let in_project = |c: &Option<String>| -> Option<String> {
+                let p = project.as_deref()?;
+                c.as_deref()
+                    .map(|c| format!("cd {} && {c}", shell_quote(p)))
+            };
+            let (test_cmd, lint_cmd) = match &project {
+                Some(_) => (
+                    in_project(&wsp.and_then(|w| w.test.clone())),
+                    in_project(&wsp.and_then(|w| w.lint.clone())),
+                ),
+                None => (
+                    spec.test_cmd.clone().filter(|c| !c.trim().is_empty()),
+                    spec.lint_cmd.clone().filter(|c| !c.trim().is_empty()),
+                ),
+            };
             let meta = SessionMeta {
                 id: new_id(),
                 root: root_s.clone(),
                 model: resolve_model(&provider, spec.model.as_deref()),
                 effort: parse_effort(spec.effort.as_deref()).as_str().to_string(),
-                system: session_system(
-                    &root,
+                system: session_system_for(
+                    &base,
                     spec.review_edits,
                     ReplyLang::from_ui(spec.lang.as_deref()),
+                    &ws,
+                    project.as_deref(),
                 ),
-                test_cmd: spec.test_cmd.clone().filter(|c| !c.trim().is_empty()),
-                lint_cmd: spec.lint_cmd.clone().filter(|c| !c.trim().is_empty()),
+                test_cmd,
+                lint_cmd,
                 compaction: provider_features(&provider).compaction,
                 created: session::now(),
                 toolset: TOOLSET_VERSION,
                 mcp_tools: vec![], // preenchido abaixo, depois de ligar os servidores
                 provider,
                 lang: spec.lang.clone().filter(|l| !l.trim().is_empty()),
+                scopes: session_scopes(&spec),
+                worktree: worktree.map(|w| w.display().to_string()),
+                project,
             };
             (meta, Transcript::new(), None)
         }
+    };
+    // Multi Co-Dev (phase 3): the tools work in the session's worktree, when it has one; the
+    // project (database, audit log, roles, permissions, claims) stays `root`
+    let work_root = match meta.worktree.as_deref() {
+        Some(w) => {
+            let p = PathBuf::from(w);
+            if !p.is_dir() {
+                return Err(format!(
+                    "a worktree desta sessão já não existe ({w}): começa a issue de novo para a criar"
+                ));
+            }
+            p
+        }
+        None => root.clone(),
     };
 
     let provider = make_provider(
@@ -632,10 +867,17 @@ pub fn start(
     // servidores MCP: ligam-se sempre; numa sessão nova as definições anunciadas ficam
     // gravadas, numa retoma usam-se as gravadas (o prefixo do pedido não pode mudar)
     let mut notes = vec![];
+    // H1: what the agent runs (bash, run_tests/lint, hooks, MCP servers) runs in the OS sandbox of the
+    // folder it works in; H1b: with the project's domain allowlist, through a proxy kept by the session
+    let (sandbox, net_proxy) = session_sandbox(&root, &work_root, &spec, &mut notes);
     let mut meta = meta;
     let new_session = log.is_none();
     let connected = if meta.toolset >= 3 {
-        let (tools, mut n) = mcp::connect_all(&mcp_servers(&root, &spec, &mut notes), &root);
+        let (tools, mut n) = mcp::connect_all_in(
+            &mcp_servers(&root, &spec, &mut notes),
+            &work_root,
+            sandbox.as_deref(),
+        );
         notes.append(&mut n);
         tools
     } else {
@@ -667,6 +909,10 @@ pub fn start(
     let mut acfg = AgentConfig::new(meta.model.clone());
     acfg.effort = parse_effort(Some(&meta.effort));
     acfg.compaction = meta.compaction;
+    // the human's review pauses often pass 5 minutes: the prefix (tools + system) lives an hour
+    if meta.provider == "claude" {
+        acfg.cache_ttl = CacheTtl::OneHour;
+    }
     acfg.system = meta
         .system
         .iter()
@@ -680,7 +926,7 @@ pub fn start(
     let mut policy = Policy::new(
         mode,
         Rules::load(&root, Rules::user_file().as_deref()),
-        root.clone(),
+        work_root.clone(),
     );
     policy.plan = flow.plan_mode.clone();
     // RF-G01: in the IDE every action answers a human request (the UI sends its origin)
@@ -698,7 +944,7 @@ pub fn start(
     if let Some(l) = log.as_mut() {
         l.set_redactor(redactor.clone());
     }
-    let checkpoints = Checkpoints::new(&root, &meta.id).map(Arc::new);
+    let checkpoints = Checkpoints::new(&work_root, &meta.id).map(Arc::new);
     // live hunks: the read/edit/write state is shared between the tools and the loop
     let files = spec.review_edits.then(|| Arc::new(FileState::default()));
     let checks: Vec<String> = [meta.test_cmd.clone(), meta.lint_cmd.clone()]
@@ -708,7 +954,7 @@ pub fn start(
         .filter(|c| !c.is_empty())
         .collect();
     let ctx = ToolCtx {
-        root,
+        root: work_root.clone(),
         cancel: Arc::new(AtomicBool::new(false)),
     };
     let subagent = SubagentSpec {
@@ -722,12 +968,14 @@ pub fn start(
             test_cmd: meta.test_cmd.clone(),
             lint_cmd: meta.lint_cmd.clone(),
             files: files.clone(),
+            issue: meta.has_scope(session::SCOPE_ISSUE),
+            sandbox: sandbox.clone(),
             ..Default::default()
         },
         meta.toolset,
         &flow,
         Some(subagent),
-        session_host_tools(&spec, meta.toolset)
+        session_host_tools(&spec, &meta)
             .into_iter()
             .chain(mcp_tools)
             .collect(),
@@ -735,17 +983,26 @@ pub fn start(
     let mut agent = Agent::new(provider, tools, acfg, ctx);
     agent.checkpoints = checkpoints;
     agent.hunks = files;
-    // hooks do projecto: só se o humano confiou neste ficheiro, tal como está
-    let root_ref = agent.ctx.root.clone();
-    if root_ref.join(HOOKS_FILE).exists() {
+    // hooks do projecto: só se o humano confiou neste ficheiro, tal como está. Numa worktree
+    // (fase 3) correm lá, e só se o ficheiro de lá for byte a byte o que foi confiado
+    if root.join(HOOKS_FILE).exists() {
         let store = spec.trust_store.clone();
         if store
             .as_deref()
-            .is_some_and(|st| trust::is_trusted(st, &root_ref, HOOKS_FILE))
+            .is_some_and(|st| trust::is_trusted(st, &root, HOOKS_FILE))
         {
-            match Hooks::load(&root_ref) {
-                Ok(h) => agent.hooks = h.map(Arc::new),
-                Err(e) => notes.push(e),
+            let same = work_root == root
+                || std::fs::read(root.join(HOOKS_FILE)).ok()
+                    == std::fs::read(work_root.join(HOOKS_FILE)).ok();
+            if same {
+                match Hooks::load(&work_root) {
+                    Ok(h) => agent.hooks = h.map(|h| Arc::new(h.sandboxed(sandbox.clone()))),
+                    Err(e) => notes.push(e),
+                }
+            } else {
+                notes.push(format!(
+                    "os hooks ({HOOKS_FILE}) da worktree desta sessão não são os que confiaste: ficam desligados nela"
+                ));
             }
         } else {
             notes.push(format!(
@@ -759,6 +1016,10 @@ pub fn start(
     }
     let id = meta.id.clone();
     let s = Session {
+        id: id.clone(),
+        project_root: root.clone(),
+        worktree: meta.worktree.as_ref().map(PathBuf::from),
+        project: meta.project.clone(),
         agent,
         transcript: Mutex::new(transcript),
         busy: AtomicBool::new(false),
@@ -769,6 +1030,7 @@ pub fn start(
         flow,
         notes: Mutex::new(vec![]),
         startup_notices: notes,
+        _net_proxy: net_proxy,
         review_edits: spec.review_edits,
         checks,
         review: Mutex::new(HashMap::new()),
@@ -779,21 +1041,80 @@ pub fn start(
         redactor,
         budget: Mutex::new(None),
         driver: Mutex::new(None),
+        violating: Mutex::new(HashMap::new()),
+        overrides: Mutex::new(HashMap::new()),
+        bash_snaps: Mutex::new(HashMap::new()),
+        tdd: Mutex::new(TddTrace::default()),
+        opened: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0),
     };
     sessions().lock().unwrap().insert(id.clone(), Arc::new(s));
     Ok(id)
 }
 
+/// The extra toolsets of a new session (toolset 9): `issue` when it works on a Project issue
+/// (the board/Project always open a new session for one), `arch` when the UI marks it as an
+/// architecture session.
+fn session_scopes(spec: &StartSpec) -> Vec<String> {
+    let mut v = vec![];
+    if spec
+        .issue_key
+        .as_deref()
+        .is_some_and(|k| !k.trim().is_empty())
+    {
+        v.push(session::SCOPE_ISSUE.to_string());
+    }
+    if spec.architecture {
+        v.push(session::SCOPE_ARCH.to_string());
+    }
+    if spec.backlog {
+        v.push(session::SCOPE_BACKLOG.to_string());
+    }
+    v
+}
+
+/// Multi Co-Dev (phase 3): the worktree a new issue session works in must be a linked worktree of the
+/// project's own repository (never the project folder itself, never another repository).
+fn worktree_of(root: &Path, w: &Path, issue: Option<&str>) -> Result<PathBuf, String> {
+    if !issue.is_some_and(|k| !k.trim().is_empty()) {
+        return Err("uma worktree só serve uma sessão que trabalha numa issue".into());
+    }
+    if !w.is_dir() {
+        return Err(format!("a worktree não existe: {}", w.display()));
+    }
+    if !tutor_eval::gitwork::codev::same_repo(root, w) {
+        return Err(format!(
+            "{} não é uma worktree do repositório de {}",
+            w.display(),
+            root.display()
+        ));
+    }
+    std::fs::canonicalize(w).map_err(|e| format!("{}: {e}", w.display()))
+}
+
 /// As ferramentas do anfitrião de uma sessão com o conjunto `toolset`: as da versão 3
 /// sempre, as da versão 4 só a partir dela (uma sessão antiga retoma sem elas — o prefixo
-/// do pedido não pode mudar). Ordem fixa.
-fn session_host_tools(spec: &StartSpec, toolset: u32) -> Vec<Arc<dyn Tool>> {
-    let v4 = spec.host_tools_v4.iter().filter(|_| toolset >= 4);
+/// do pedido não pode mudar) e, desde a 9, só nas sessões de arquitectura. Ordem fixa.
+fn session_host_tools(spec: &StartSpec, meta: &SessionMeta) -> Vec<Arc<dyn Tool>> {
+    let toolset = meta.toolset;
+    let arch = meta.has_scope(session::SCOPE_ARCH);
+    let v4 = spec.host_tools_v4.iter().filter(|_| toolset >= 4 && arch);
     let v8 = spec.host_tools_v8.iter().filter(|_| toolset >= 8);
+    // toolset 11: only the sessions that started as backlog sessions (never an older one)
+    let backlog = toolset >= 11 && meta.scopes.iter().any(|s| s == session::SCOPE_BACKLOG);
+    let v11 = spec.host_tools_v11.iter().filter(|_| backlog);
+    // H4: from 14, `ide` of 14 takes the place of 13's (same position: the order is fixed)
+    let v13 = spec.host_tools_v13.iter().filter(|_| toolset == 13);
+    let v14 = spec.host_tools_v14.iter().filter(|_| toolset >= 14);
     spec.host_tools
         .iter()
         .chain(v4)
         .chain(v8)
+        .chain(v11)
+        .chain(v13)
+        .chain(v14)
         .cloned()
         .collect()
 }
@@ -826,8 +1147,15 @@ pub fn send(
     // blocked); «try again» (`text: None`) answers the same request as before.
     if text.is_some() {
         let o = origin.map(|mut o| {
-            o.by = crate::board::actor(&s.agent.ctx.root.display().to_string());
+            o.by = crate::board::actor(&s.project_root.display().to_string());
             o.scope.retain(|p| !p.trim().is_empty());
+            // H2: a chat (or editor) request in a project's session changes that project's files; outside
+            // it, the policy asks (RF-G03)
+            if o.scope.is_empty() && o.issue.is_none() {
+                if let Some(p) = &s.project {
+                    o.scope = vec![format!("{p}/**")];
+                }
+            }
             o
         });
         // a new request needs its own plan, answers the last question and starts a new issue run
@@ -835,11 +1163,24 @@ pub fn send(
         *s.flow.question.lock().unwrap() = None;
         *s.flow.finished.lock().unwrap() = None;
         s.flow.criteria.lock().unwrap().clear();
+        s.flow.dod.lock().unwrap().clear();
         let mut o = o;
         if let Some(k) = o.as_ref().and_then(|o| o.issue.clone()) {
             *s.issue_key.lock().unwrap() = Some(k.clone());
             // RF-B02/G01: an issue request counts only when the issue is Ready
-            match issue_of(&s, &k) {
+            let project = project_of(&s);
+            let issue = project
+                .as_ref()
+                .and_then(|p| p.issues.iter().find(|i| i.key == k).cloned());
+            // Board B: starting work moves a Ready issue to In progress by the normal move (WIP,
+            // readiness); refused, the request does nothing until the human moves it
+            let started = match &issue {
+                Some(i) if i.missing.is_empty() && i.state == "todo" => {
+                    start_work(&s, &k, o.as_ref())
+                }
+                _ => Ok(()),
+            };
+            match issue {
                 Some(i) if !i.missing.is_empty() => {
                     (*on_event)(AgentEvent::Notice {
                         text: format!(
@@ -849,9 +1190,20 @@ pub fn send(
                     });
                     o = None;
                 }
+                Some(_) if started.is_err() => {
+                    let why = started.err().unwrap_or_default();
+                    (*on_event)(AgentEvent::Notice {
+                        text: format!(
+                            "{k} não passou a Em curso ({why}): as acções deste pedido ficam bloqueadas. Move-a no quadro — com um motivo, se for uma excepção — e pede de novo."
+                        ),
+                    });
+                    o = None;
+                }
                 Some(i) => {
                     *s.flow.criteria.lock().unwrap() =
                         i.acceptance.iter().map(|c| c.text.clone()).collect();
+                    *s.flow.dod.lock().unwrap() =
+                        project.as_ref().map(|p| p.dod.clone()).unwrap_or_default();
                     if let Some(origin) = o.as_mut() {
                         if origin.scope.is_empty() {
                             origin.scope = i.scope.clone();
@@ -968,6 +1320,7 @@ pub fn send(
                 hunk, provisional, ..
             } => {
                 let m = metas.borrow().get(hunk).cloned().unwrap_or_default();
+                tdd_observe(&session, &e, Some((&m.path, &m.text)));
                 if *provisional {
                     let mut a = auto.borrow_mut();
                     a.provisional.push(hunk.clone());
@@ -980,6 +1333,24 @@ pub fn send(
             AgentEvent::Done { .. } => {
                 *held_done.borrow_mut() = Some(e);
                 return;
+            }
+            // RF-G03: a `bash` command may write outside the issue's scope without the policy seeing
+            // the files — the working tree before and after it says what it changed
+            AgentEvent::ToolStart { id, name, .. } if name == "bash" => {
+                bash_scope_start(&session, id)
+            }
+            AgentEvent::ToolResult { id, name, .. } if name == "bash" => {
+                bash_scope_end(&session, id, &mut |n| emit(n))
+            }
+            // Board B: a failing run_tests with only tests changed is the red step of TDD
+            AgentEvent::ToolResult { .. } => {
+                if let Some(tests) = tdd_observe(&session, &e, None) {
+                    let mut a = audit_entry(&session, "tdd");
+                    a.tool = Some("run_tests".into());
+                    a.path = Some(tests);
+                    a.outcome = Some("red".into());
+                    audit(&session, a);
+                }
             }
             _ => {}
         }
@@ -1030,16 +1401,26 @@ pub fn send(
                 .lock()
                 .unwrap()
                 .insert(call.id.clone(), call.hunks.clone());
+            let violations = session
+                .violating
+                .lock()
+                .unwrap()
+                .get(&call.id)
+                .cloned()
+                .unwrap_or_default();
             emit(AgentEvent::HunkReview {
                 call: call.id.clone(),
                 hunks: call.hunks.clone(),
                 reason,
                 why: None,
+                violations,
             });
             asked_human.set(true);
             let d = wait_decision(&rx, &session.agent.ctx.cancel);
             session.pending.lock().unwrap().remove(&call.id);
             session.review.lock().unwrap().remove(&call.id);
+            session.violating.lock().unwrap().remove(&call.id);
+            session.overrides.lock().unwrap().remove(&call.id);
             return d;
         }
         let (reason, dangerous, suggested_rule) = match verdict {
@@ -1076,10 +1457,54 @@ pub fn send(
             &session.agent.ctx.root,
             &metas.borrow(),
         );
-        let verdict = conformance_gate(verdict, call, &session.agent.ctx.root, &metas.borrow());
-        let verdict = role_gate(verdict, call, &session.agent.ctx.root);
+        // RF-A03/A04: in the IDE's review a change that breaks the rules reaches the human, in red,
+        // and is accepted only with the architect's override; elsewhere (CLI/TUI) it is refused
+        let verdict = if session.review_edits && !call.hunks.is_empty() {
+            match violations_of(
+                call,
+                &session.project_root,
+                &session.agent.ctx.root,
+                &metas.borrow(),
+            ) {
+                Ok(v) => {
+                    let verdict = review_conformance(verdict, &v);
+                    if !v.is_empty() && !matches!(verdict, Verdict::Deny { .. }) {
+                        session.violating.lock().unwrap().insert(call.id.clone(), v);
+                    }
+                    verdict
+                }
+                Err(reason) => Verdict::Deny { reason },
+            }
+        } else {
+            conformance_gate(
+                verdict,
+                call,
+                &session.project_root,
+                &session.agent.ctx.root,
+                &metas.borrow(),
+            )
+        };
+        let verdict = role_gate(
+            verdict,
+            call,
+            &session.project_root,
+            &session.agent.ctx.root,
+        );
+        // Multi Co-Dev (phase 3): a file another open session claimed is refused here
+        let (verdict, claimed_now) = claim_gate(&session, call, verdict);
         asked_human.set(false);
         let d = decide_call(call, verdict.clone());
+        if let Some(path) = &claimed_now {
+            // the write did not happen: the claim it took goes back
+            let refused = match &d {
+                Decision::Deny(_) => true,
+                Decision::Hunks { accepted, .. } => accepted.is_empty(),
+                _ => false,
+            };
+            if refused {
+                release_claim(&session, path);
+            }
+        }
         let mut e = audit_entry(&session, "call");
         e.tool = Some(call.name.clone());
         e.call = Some(call.id.clone());
@@ -1099,7 +1524,23 @@ pub fn send(
             })
             .collect();
         e.lines = (!ranges.is_empty()).then(|| ranges.join(","));
-        e.command = call.command.clone();
+        e.command = call.command.clone().or_else(|| {
+            // H4: an `ide` call keeps its action and arguments (compact) in the log
+            (call.name == crate::ide_tool::IDE_TOOL).then(|| {
+                let a = call.input["action"].as_str().unwrap_or("?");
+                let mut s = format!(
+                    "ide {a} {}",
+                    call.input
+                        .get("args")
+                        .map(|v| v.to_string())
+                        .unwrap_or_default()
+                );
+                if s.chars().count() > 500 {
+                    s = s.chars().take(499).collect::<String>() + "…";
+                }
+                s.trim_end().to_string()
+            })
+        });
         let (verdict_s, reason) = match &verdict {
             Verdict::Allow => ("allow", None),
             Verdict::Ask { reason, .. } => ("ask", Some(reason.clone())),
@@ -1131,7 +1572,7 @@ pub fn send(
     let r = match text {
         Some(q) => {
             // slash commands do projecto (.dxtutor/commands): o modelo recebe o prompt expandido
-            let q = match extensions::expand(&s.agent.ctx.root, &q) {
+            let q = match extensions::expand(&s.project_root, &q) {
                 Some((_, prompt)) => prompt,
                 None => q,
             };
@@ -1164,14 +1605,17 @@ pub fn send(
         let _ = log.sync(&t); // append-only: só as mensagens novas
     }
     drop(t);
-    // RF-G07: after Stop, what was already written stays, and the human is told how to drop it
-    if let (Ok(TurnOutcome::Cancelled), Some(text)) = (&r, stop_notice(auto.borrow().checkpoint)) {
-        emit(AgentEvent::Notice { text });
-    }
+    let stopped = matches!(&r, Ok(TurnOutcome::Cancelled));
     // Auto: validate the provisional changes, then tell the UI the turn is done
     let turn = auto.take();
+    let turn_checkpoint = turn.checkpoint;
     if !turn.provisional.is_empty() {
         validate(&s, turn, &emit);
+    }
+    // RF-G07: after Stop, what was already written stays (after Auto's validation, which may have
+    // undone it) — the human keeps it or drops it, from the chat
+    if stopped {
+        stop_review(&s, turn_checkpoint, &emit);
     }
     settle_flow(&s, &emit);
     if let Some(log) = turn_log.take() {
@@ -1223,26 +1667,32 @@ fn audit(s: &Session, mut e: tutor_board::project::AuditEntry) {
     mask(&mut e.command);
     mask(&mut e.path);
     mask(&mut e.reason);
-    let root = s.agent.ctx.root.display().to_string();
+    let root = s.project_root.display().to_string();
     if let Ok(mut st) = tutor_board::project::ProjectStore::open(db) {
         let _ = st.record_audit(&root, &e);
     }
+}
+
+/// The project-relative path of a tool's `path` (relative already, or absolute inside the folder
+/// the session works in — its worktree — or the project folder).
+fn project_rel<'a>(path: &'a str, root: &Path, work: &Path) -> &'a str {
+    path.strip_prefix(&format!("{}/", work.display()))
+        .or_else(|| path.strip_prefix(&format!("{}/", root.display())))
+        .unwrap_or(path)
 }
 
 /// RF-A06/A04 (docs/v2/RF-DELONIX-PLANO.md F5.7): a change to the architect's rules or to an
 /// ADR is approved only by an architect, and to a prompt template by an architect or the tech
 /// lead (`.dxtutor/team.json`). Such a change always asks — in Auto too, so the agent never
 /// accepts an ADR on its own — and when the person here lacks the role it is refused.
-fn role_gate(verdict: Verdict, call: &PendingCall, root: &Path) -> Verdict {
+fn role_gate(verdict: Verdict, call: &PendingCall, root: &Path, work: &Path) -> Verdict {
     if matches!(verdict, Verdict::Deny { .. }) {
         return verdict;
     }
     let Some(path) = call.input.get("path").and_then(|p| p.as_str()) else {
         return verdict;
     };
-    let rel = path
-        .strip_prefix(&format!("{}/", root.display()))
-        .unwrap_or(path);
+    let rel = project_rel(path, root, work);
     let Some(need) = crate::roles::approvers_of(rel) else {
         return verdict;
     };
@@ -1272,13 +1722,62 @@ fn conformance_gate(
     verdict: Verdict,
     call: &PendingCall,
     root: &Path,
+    work: &Path,
     metas: &HashMap<String, HunkMeta>,
 ) -> Verdict {
     if matches!(verdict, Verdict::Deny { .. }) {
         return verdict;
     }
-    let Some(path) = call.input.get("path").and_then(|p| p.as_str()) else {
+    match violations_of(call, root, work, metas) {
+        Err(reason) => Verdict::Deny { reason },
+        Ok(left) if left.is_empty() => verdict,
+        Ok(left) => Verdict::Deny {
+            reason: format!(
+                "viola as regras do arquitecto (RF-A03): {} — um desvio só com um ADR aceite em [[exceptions]] de {} (pede-o com ask_human; podes redigir o ADR, não o aprovas)",
+                left.iter().map(|v| v.message.clone()).collect::<Vec<_>>().join("; "),
+                tutor_agent::conformance::RULES_FILE
+            ),
+        },
+    }
+}
+
+/// RF-A03/A04 (sessão de fecho, bloco 3): in the IDE's review, a change that breaks the rules is
+/// not refused before the human sees it — it asks (in Auto too: `dangerous`), drawn in red, and
+/// `review` accepts it only after `override_violation`.
+fn review_conformance(
+    verdict: Verdict,
+    violations: &[tutor_agent::conformance::Violation],
+) -> Verdict {
+    if violations.is_empty() || matches!(verdict, Verdict::Deny { .. }) {
         return verdict;
+    }
+    Verdict::Ask {
+        reason: format!(
+            "viola as regras do arquitecto (RF-A03): {} — só se aceita com o override do Arquitecto e um ADR aceite",
+            violation_text(violations)
+        ),
+        dangerous: true,
+        suggested_rule: None,
+    }
+}
+
+fn violation_text(v: &[tutor_agent::conformance::Violation]) -> String {
+    v.iter()
+        .map(|x| x.message.clone())
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+/// The architect's rules a call breaks and no accepted ADR excuses; `Err` when the rules file
+/// cannot be read. Empty when there are no rules or the call writes no file.
+fn violations_of(
+    call: &PendingCall,
+    root: &Path,
+    work: &Path,
+    metas: &HashMap<String, HunkMeta>,
+) -> Result<Vec<tutor_agent::conformance::Violation>, String> {
+    let Some(path) = call.input.get("path").and_then(|p| p.as_str()) else {
+        return Ok(vec![]);
     };
     let text = if call.hunks.is_empty() {
         ["new_string", "new_text", "content"]
@@ -1295,30 +1794,297 @@ fn conformance_gate(
     };
     let rules = match tutor_agent::conformance::Rules::load(root) {
         Ok(Some(r)) => r,
-        Ok(None) => return verdict,
+        Ok(None) => return Ok(vec![]),
         Err(e) => {
-            return Verdict::Deny {
-                reason: format!(
-                    "as regras do arquitecto não se lêem ({e}): pede ao humano para as corrigir"
-                ),
-            }
+            return Err(format!(
+                "as regras do arquitecto não se lêem ({e}): pede ao humano para as corrigir"
+            ))
         }
     };
-    let rel = path
-        .strip_prefix(&format!("{}/", root.display()))
-        .unwrap_or(path);
+    let rel = project_rel(path, root, work);
     let found = tutor_agent::conformance::check(&rules, rel, &text);
-    let left = tutor_agent::conformance::unexcused(&rules, root, found);
-    if left.is_empty() {
-        return verdict;
+    Ok(tutor_agent::conformance::unexcused(&rules, root, found))
+}
+
+/// The working tree's changed files (path relative to the project → size and modification time;
+/// a deleted file has none). What `git status` lists, untracked files one by one.
+type DirtyState = HashMap<String, Option<(u64, i128)>>;
+
+/// RF-G03 (sessão de fecho dos RF, bloco 5): the dirty files of the working tree now, or `None`
+/// without git (then a `bash` command cannot be checked against the scope).
+fn dirty_state(root: &Path) -> Option<DirtyState> {
+    let out = std::process::Command::new("git")
+        .args(["status", "--porcelain=v1", "-z", "-uall"])
+        .current_dir(root)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut parts = text.split('\0');
+    let mut state = DirtyState::new();
+    while let Some(entry) = parts.next() {
+        if entry.len() < 4 {
+            continue;
+        }
+        let (xy, path) = (&entry[..2], &entry[3..]);
+        if xy.starts_with('R') || xy.starts_with('C') {
+            parts.next(); // the old path of a rename or copy
+        }
+        let meta = std::fs::metadata(root.join(path)).ok().map(|m| {
+            let t = m
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0, |d| d.as_nanos() as i128);
+            (m.len(), t)
+        });
+        state.insert(path.to_string(), meta);
     }
-    Verdict::Deny {
-        reason: format!(
-            "viola as regras do arquitecto (RF-A03): {} — um desvio só com um ADR aceite em [[exceptions]] de {} (pede-o com ask_human; podes redigir o ADR, não o aprovas)",
-            left.iter().map(|v| v.message.clone()).collect::<Vec<_>>().join("; "),
-            tutor_agent::conformance::RULES_FILE
+    Some(state)
+}
+
+/// The files a command changed: dirty now and not before, dirty before and changed again, or dirty
+/// before and clean now (reverting a file is writing it too). Sorted.
+fn changed_files(before: &DirtyState, after: &DirtyState) -> Vec<String> {
+    let mut out: Vec<String> = after
+        .iter()
+        .filter(|(p, m)| before.get(*p) != Some(m))
+        .map(|(p, _)| p.clone())
+        .chain(before.keys().filter(|p| !after.contains_key(*p)).cloned())
+        .collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// Before a `bash` of a request with a scope, or of a session that claims files (phase 3): the
+/// working tree as it is.
+fn bash_scope_start(s: &Session, call: &str) {
+    let scoped = s
+        .origin
+        .lock()
+        .unwrap()
+        .as_ref()
+        .is_some_and(|o| !o.scope.is_empty());
+    if !scoped && s.change_log.is_none() {
+        return;
+    }
+    if let Some(snap) = dirty_state(&s.agent.ctx.root) {
+        s.bash_snaps.lock().unwrap().insert(call.to_string(), snap);
+    }
+}
+
+/// After it: what it changed outside the scope goes to the chat (a notice), to the model (a note in
+/// the next request) and to the audit log. The command already ran — this cannot refuse it; the
+/// human keeps or undoes it («Rewind to here»), and the model is told not to do it again.
+fn bash_scope_end(s: &Session, call: &str, emit: &mut dyn FnMut(AgentEvent)) {
+    let Some(before) = s.bash_snaps.lock().unwrap().remove(call) else {
+        return;
+    };
+    let Some(after) = dirty_state(&s.agent.ctx.root) else {
+        return;
+    };
+    let changed = changed_files(&before, &after);
+    bash_claims(s, call, &changed, emit);
+    let Some(origin) = s.origin.lock().unwrap().clone() else {
+        return;
+    };
+    if origin.scope.is_empty() {
+        return;
+    }
+    let outside: Vec<String> = changed
+        .into_iter()
+        .filter(|p| !origin.in_scope(p))
+        .collect();
+    if outside.is_empty() {
+        return;
+    }
+    let scope = origin.scope.join(", ");
+    let files = outside.join(", ");
+    emit(AgentEvent::Notice {
+        text: format!(
+            "O `bash` alterou ficheiros fora do âmbito do pedido ({scope}): {files}. Confirma que ficam, ou desfaz com «Rewind to here»."
+        ),
+    });
+    s.notes.lock().unwrap().push(format!(
+        "O teu último comando bash alterou ficheiros fora do âmbito do pedido ({scope}): {files}. Não escrevas fora do âmbito: se for preciso, pede autorização com ask_human ou sugere-o com suggest."
+    ));
+    let mut e = audit_entry(s, "scope");
+    e.tool = Some("bash".into());
+    e.call = Some(call.to_string());
+    e.path = Some(files);
+    e.verdict = Some("warn".into());
+    e.outcome = Some("outside_scope".into());
+    e.reason = Some(format!("o bash escreveu fora do âmbito ({scope})"));
+    audit(s, e);
+}
+
+// ───── Multi Co-Dev, phase 3: file claims ─────
+// Each session claims the files it writes (the Project database, `tutor_board::project::claims`):
+// with a worktree per session nothing collides on disk, but two branches that change one file clash
+// when they are integrated. The first writer owns the path until its session closes; another open
+// session's write to it is refused here, in the tool layer, naming the owner. Claims of a session
+// that is gone (closed, or its app process died) are abandoned and taken over.
+
+/// The tools that write the file named in their `path`.
+const WRITERS: [&str; 3] = ["write", "edit", "edit_lines"];
+
+/// Is the process `pid` still running?
+fn pid_alive(pid: u32) -> bool {
+    #[cfg(unix)]
+    {
+        // signal 0 only asks; EPERM means it exists under another user
+        let r = unsafe { libc::kill(pid as libc::pid_t, 0) };
+        r == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
+        true
+    }
+}
+
+/// A claim whose holder is gone: a session of this app that is no longer open, or a session of an
+/// app process that no longer runs.
+pub(crate) fn claim_abandoned(c: &tutor_board::project::claims::Claim) -> bool {
+    if c.pid == std::process::id() {
+        !sessions().lock().unwrap().contains_key(&c.session)
+    } else {
+        !pid_alive(c.pid)
+    }
+}
+
+/// The refusal a write to a claimed file gets (the model reads it; the audit log keeps it).
+fn held_text(path: &str, c: &tutor_board::project::claims::Claim) -> String {
+    let by = match &c.issue {
+        Some(k) => format!("pelo Co-Dev da issue {k} (sessão {})", c.session),
+        None => format!("pela sessão Co-Dev {}", c.session),
+    };
+    format!(
+        "{path} está reservado {by}: outro Co-Dev não o muda enquanto essa sessão estiver aberta. Trabalha noutros ficheiros, ou pergunta ao humano (ask_human) se deves esperar que ela feche."
+    )
+}
+
+/// Claims `path` (project-relative) for the session.
+fn claim_path(s: &Session, path: &str) -> Result<tutor_board::project::claims::Outcome, String> {
+    let db = s.change_log.as_ref().ok_or("sem base do Project")?;
+    let issue = s.issue_key.lock().unwrap().clone();
+    let who = tutor_board::project::claims::Claimant {
+        session: &s.id,
+        issue: issue.as_deref(),
+        pid: std::process::id(),
+    };
+    tutor_board::project::ProjectStore::open(db)?
+        .claim(
+            &s.project_root.display().to_string(),
+            path,
+            &who,
+            now_ms(),
+            &claim_abandoned,
+        )
+        .map_err(|e| e.message)
+}
+
+/// Gives back one path the session claimed for a write that did not happen.
+fn release_claim(s: &Session, path: &str) {
+    if let Some(db) = &s.change_log {
+        if let Ok(mut st) = tutor_board::project::ProjectStore::open(db) {
+            let _ = st.release_claim(&s.project_root.display().to_string(), &s.id, path);
+        }
+    }
+}
+
+/// Before a write: the file must not be claimed by another open session; the session claims it.
+/// Returns the verdict and the path when this call claimed it now (released if the write is refused).
+/// Without a Project database (tests, CLI) nothing is claimed.
+fn claim_gate(s: &Session, call: &PendingCall, verdict: Verdict) -> (Verdict, Option<String>) {
+    if matches!(verdict, Verdict::Deny { .. })
+        || !WRITERS.contains(&call.name.as_str())
+        || s.change_log.is_none()
+    {
+        return (verdict, None);
+    }
+    let Some(given) = call.input.get("path").and_then(|p| p.as_str()) else {
+        return (verdict, None);
+    };
+    // a path that leaves the folder is the tool's own refusal
+    let Ok(abs) = tutor_agent::sandbox::resolve(&s.agent.ctx.root, given) else {
+        return (verdict, None);
+    };
+    let rel = tutor_agent::sandbox::rel(&s.agent.ctx.root, &abs);
+    match claim_path(s, &rel) {
+        Ok(tutor_board::project::claims::Outcome::Claimed { new }) => (verdict, new.then_some(rel)),
+        Ok(tutor_board::project::claims::Outcome::Held(c)) => (
+            Verdict::Deny {
+                reason: held_text(&rel, &c),
+            },
+            None,
+        ),
+        Err(e) => (
+            Verdict::Deny {
+                reason: format!(
+                    "as reservas de ficheiros do Project não se verificam ({e}): a escrita em {rel} fica bloqueada"
+                ),
+            },
+            None,
         ),
     }
+}
+
+/// The project folder inside its repository (`sub/`), to make `git status` paths project-relative.
+fn repo_prefix(dir: &Path) -> String {
+    std::process::Command::new("git")
+        .args(["rev-parse", "--show-prefix"])
+        .current_dir(dir)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default()
+}
+
+/// After a `bash`: the files it changed become the session's; one another open session holds goes
+/// to the chat, to the model and to the audit log (the command already ran — the human keeps or
+/// undoes it).
+fn bash_claims(s: &Session, call: &str, changed: &[String], emit: &mut dyn FnMut(AgentEvent)) {
+    if s.change_log.is_none() || changed.is_empty() {
+        return;
+    }
+    let pre = repo_prefix(&s.agent.ctx.root);
+    let mut held: Vec<String> = vec![];
+    for p in changed {
+        let Some(rel) = p.strip_prefix(pre.as_str()) else {
+            continue; // outside the project folder
+        };
+        match claim_path(s, rel) {
+            Ok(tutor_board::project::claims::Outcome::Held(c)) => held.push(match &c.issue {
+                Some(k) => format!("{rel} ({k})"),
+                None => format!("{rel} ({})", c.session),
+            }),
+            Ok(_) => {}
+            Err(e) => held.push(format!("{rel} (sem verificação: {e})")),
+        }
+    }
+    if held.is_empty() {
+        return;
+    }
+    let files = held.join(", ");
+    emit(AgentEvent::Notice {
+        text: format!(
+            "O `bash` alterou ficheiros reservados por outro Co-Dev: {files}. Confirma que ficam, ou desfaz com «Rewind to here»."
+        ),
+    });
+    s.notes.lock().unwrap().push(format!(
+        "O teu último comando bash alterou ficheiros que outro Co-Dev reservou: {files}. Não mexas neles enquanto essa sessão estiver aberta."
+    ));
+    let mut e = audit_entry(s, "claim");
+    e.tool = Some("bash".into());
+    e.call = Some(call.to_string());
+    e.path = Some(files);
+    e.verdict = Some("warn".into());
+    e.outcome = Some("held".into());
+    e.reason = Some("o bash escreveu ficheiros reservados por outra sessão".into());
+    audit(s, e);
 }
 
 /// RF-E05 (docs/v2/RF-DELONIX-PLANO.md F2.4): a `write` over an existing file is turned into
@@ -1384,20 +2150,144 @@ fn stop_notice(checkpoint: Option<u32>) -> Option<String> {
     })
 }
 
-/// The issue `key` of the session's folder, from the project database.
-fn issue_of(s: &Session, key: &str) -> Option<tutor_board::project::Issue> {
+/// RF-G07 (sessão de fecho dos RF, bloco 6): after Stop, the files the turn left changed — the
+/// notice says how to drop them, and the `stop_review` event gives the chat its «keep / discard»
+/// bar (discard = back to the turn's checkpoint). Nothing changed: nothing to say.
+fn stop_review(s: &Session, checkpoint: Option<u32>, emit: &dyn Fn(AgentEvent)) {
+    let Some(cp) = checkpoint else {
+        return;
+    };
+    let files = s
+        .agent
+        .checkpoints
+        .as_ref()
+        .and_then(|c| c.changed_since(cp).ok())
+        .unwrap_or_default();
+    if files.is_empty() {
+        return;
+    }
+    if let Some(text) = stop_notice(Some(cp)) {
+        emit(AgentEvent::Notice { text });
+    }
+    emit(AgentEvent::StopReview {
+        checkpoint: cp,
+        files,
+    });
+}
+
+/// The project of the session's folder, from the project database.
+fn project_of(s: &Session) -> Option<tutor_board::project::Project> {
     let db = s.change_log.as_ref()?;
     let st = tutor_board::project::ProjectStore::open(db).ok()?;
-    let p = st
-        .load(&s.agent.ctx.root.display().to_string(), now_ms())
-        .ok()?;
-    p.issues.into_iter().find(|i| i.key == key)
+    st.load(&s.project_root.display().to_string(), now_ms())
+        .ok()
+}
+
+/// Board B: why `key` did not go to Review after `finish_issue` (the store's `held` note), or
+/// `None` when it is in Review or past it.
+fn held_reason(s: &Session, key: &str) -> Option<String> {
+    let p = project_of(s)?;
+    let i = p.issues.iter().find(|i| i.key == key)?;
+    if matches!(i.state.as_str(), "review" | "accept" | "done") {
+        return None;
+    }
+    let db = s.change_log.as_ref()?;
+    let st = tutor_board::project::ProjectStore::open(db).ok()?;
+    let d = st.detail(&p.root, key).ok()?;
+    Some(
+        d.activity
+            .iter()
+            .find(|a| a.kind == "held")
+            .map(|a| a.note.clone())
+            .unwrap_or_else(|| format!("fica em «{}»", i.state)),
+    )
+}
+
+/// Board B: Co-Dev starts work on `key` — the normal move to In progress, by the human who asked
+/// (the store checks WIP and readiness; an override is the human's, on the board). `Err`: why not.
+fn start_work(s: &Session, key: &str, origin: Option<&Origin>) -> Result<(), String> {
+    let Some(db) = s.change_log.as_ref() else {
+        return Ok(());
+    };
+    let root = s.project_root.display().to_string();
+    let actor = origin
+        .map(|o| o.by.clone())
+        .filter(|b| !b.is_empty())
+        .unwrap_or_else(|| crate::board::actor(&root));
+    let op =
+        serde_json::from_value(serde_json::json!({"op": "move", "key": key, "to": "progress"}))
+            .map_err(|e| e.to_string())?;
+    tutor_board::project::ProjectStore::open(db)
+        .and_then(|mut st| st.apply(&root, &actor, now_ms(), op).map_err(|e| e.message))
+        .map(|_| ())
+}
+
+/// Board B (XP test-first): what a session changed for its issue until the first failing test
+/// run. A failing `run_tests` while only tests were changed is the red step of TDD.
+#[derive(Default)]
+struct TddTrace {
+    issue: Option<String>,
+    /// the test files changed so far (test hunks: by the file or by the text, `is_test_change`)
+    tests: std::collections::BTreeSet<String>,
+    /// a non-test hunk was applied
+    implementation: bool,
+    /// the red step was already recorded
+    recorded: bool,
+}
+
+/// A `run_tests` result that ran and failed (an exit code other than 0). A refused, cancelled or
+/// timed-out call is not a test run.
+pub fn is_red_run(name: &str, is_error: bool, content: &str) -> bool {
+    name == "run_tests"
+        && is_error
+        && content.starts_with("$ ")
+        && content
+            .lines()
+            .nth(1)
+            .is_some_and(|l| l.starts_with("exit ") && l.trim() != "exit 0")
+}
+
+/// Follows the session's hunks and test runs for the test-first proof; returns the test files
+/// of the red step the first time a failing `run_tests` comes with only tests changed.
+fn tdd_observe(s: &Session, e: &AgentEvent, path_text: Option<(&str, &str)>) -> Option<String> {
+    let issue = s.issue_key.lock().unwrap().clone()?;
+    let mut t = s.tdd.lock().unwrap();
+    if t.issue.as_deref() != Some(issue.as_str()) {
+        *t = TddTrace {
+            issue: Some(issue),
+            ..TddTrace::default()
+        };
+    }
+    match e {
+        AgentEvent::HunkApplied { .. } => {
+            let (path, text) = path_text?;
+            if tutor_board::project::methods::is_test_change(path, text) {
+                t.tests.insert(path.to_string());
+            } else {
+                t.implementation = true;
+            }
+            None
+        }
+        AgentEvent::ToolResult {
+            name,
+            is_error,
+            content,
+            ..
+        } if is_red_run(name, *is_error, content) => {
+            if t.recorded || t.implementation || t.tests.is_empty() {
+                return None;
+            }
+            t.recorded = true;
+            Some(t.tests.iter().cloned().collect::<Vec<_>>().join("\n"))
+        }
+        _ => None,
+    }
 }
 
 /// After a turn: the question the agent asked goes to the human (and blocks the turn's issue,
 /// RF-G06); the suggestions go to the Project inbox (RF-G02/B05). Both are in the audit log.
 fn settle_flow(s: &Session, emit: &dyn Fn(AgentEvent)) {
-    let root = s.agent.ctx.root.display().to_string();
+    let root = s.project_root.display().to_string();
     let store = || {
         s.change_log
             .as_ref()
@@ -1445,10 +2335,25 @@ fn settle_flow(s: &Session, emit: &dyn Fn(AgentEvent)) {
         let r = apply(
             serde_json::json!({"op": "codev_finished", "key": k, "report": report, "template_version": template}),
         );
+        // Board B: the store moved it by the normal move — or kept it, and said why
+        let held = r.is_ok().then(|| held_reason(s, k)).flatten();
         let mut e = audit_entry(s, "finish");
-        e.outcome = Some(if r.is_ok() { "review" } else { "failed" }.into());
-        e.reason = r.err();
+        e.outcome = Some(
+            match (&r, &held) {
+                (Err(_), _) => "failed",
+                (Ok(_), Some(_)) => "held",
+                _ => "review",
+            }
+            .into(),
+        );
+        e.reason = r.err().or_else(|| held.clone());
         audit(s, e);
+        let place = match &held {
+            Some(why) => format!(
+                "a issue não passou a Review ({why}); move-a no quadro, com um motivo se for uma excepção"
+            ),
+            None => "a issue está em Review".to_string(),
+        };
         if !s.checks.is_empty() {
             let checks = hunks::run_checks(&s.checks, &s.agent.ctx);
             let passed = checks.iter().all(|c| c.ok);
@@ -1463,7 +2368,7 @@ fn settle_flow(s: &Session, emit: &dyn Fn(AgentEvent)) {
             );
             emit(AgentEvent::Notice {
                 text: if passed {
-                    format!("{k}: critérios respondidos e testes verdes — a issue está em Review; o Done é teu.")
+                    format!("{k}: critérios respondidos e testes verdes — {place}; o Done é teu.")
                 } else {
                     format!("{k}: os testes falharam ({summary}) — a issue volta a Em curso, com o erro no próximo pedido.")
                 },
@@ -1474,8 +2379,13 @@ fn settle_flow(s: &Session, emit: &dyn Fn(AgentEvent)) {
             audit(s, e);
         } else {
             emit(AgentEvent::Notice {
-                text: format!("{k}: critérios respondidos — a issue está em Review (sem testes detectados no projecto); o Done é teu."),
+                text: format!("{k}: critérios respondidos — {place} (sem testes detectados no projecto); o Done é teu."),
             });
+        }
+        // Multi Co-Dev, phase 5: with `review` delegated, the backend requests the review of the
+        // issue now in Review (nothing happens without a delegation)
+        if held.is_none() && s.change_log.is_some() {
+            crate::codev_autonomy::session_finished(&root, k);
         }
     }
     let suggestions = std::mem::take(&mut *s.flow.suggestions.lock().unwrap());
@@ -1568,7 +2478,7 @@ fn report_turn(s: &Session, log: tutor_agent::report::TurnLog, emit: &dyn Fn(Age
     });
     if let Some(db) = &s.change_log {
         let issue = s.issue_key.lock().unwrap().clone();
-        let root = s.agent.ctx.root.display().to_string();
+        let root = s.project_root.display().to_string();
         let r = tutor_board::project::ProjectStore::open(db).and_then(|mut st| {
             let id = s
                 .log
@@ -1673,6 +2583,54 @@ pub const REVIEW_EDITS_NOTE: &str = "No IDE, as tuas alterações aparecem no ed
 
 /// The system prompt of a new session; with live hunks, the core block also carries
 /// [`REVIEW_EDITS_NOTE`]. It is saved with the session, so a resume keeps it byte for byte.
+/// H2: the project a new session works in — a folder inside the workspace, or `None` for the whole of it.
+fn session_project(base: &Path, p: Option<&str>) -> Result<Option<String>, String> {
+    let Some(p) = p
+        .map(|p| p.trim().trim_start_matches("./").trim_end_matches('/'))
+        .filter(|p| !p.is_empty() && *p != ".")
+    else {
+        return Ok(None);
+    };
+    if p.starts_with('/') || p.contains('\\') || p.split('/').any(|s| s == ".." || s.is_empty()) {
+        return Err(format!("o projecto «{p}» não é uma pasta do workspace"));
+    }
+    if !base.join(p).is_dir() {
+        return Err(format!("o projecto «{p}» não existe no workspace"));
+    }
+    Ok(Some(p.to_string()))
+}
+
+/// A path for `sh`: single-quoted.
+fn shell_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+/// The system prompt of a new session in a workspace: the core and the root's instructions, then (H2) the
+/// project's own instruction files and the workspace's projects (only when there are several), with the
+/// cache breakpoint on the last block.
+fn session_system_for(
+    root: &Path,
+    review_edits: bool,
+    lang: ReplyLang,
+    ws: &tutor_agent::workspace::Workspace,
+    project: Option<&str>,
+) -> Vec<(String, bool)> {
+    let mut v = session_system(root, review_edits, lang);
+    if let Some(p) = project {
+        if let Some(text) = tutor_agent::context::project_instructions(&root.join(p)) {
+            v.push((format!("Instructions of the project `{p}`:\n{text}"), false));
+        }
+    }
+    if let Some(block) = tutor_agent::workspace::prompt_block(ws, Some(project.unwrap_or("."))) {
+        v.push((block, false));
+    }
+    let n = v.len();
+    for (i, b) in v.iter_mut().enumerate() {
+        b.1 = i + 1 == n;
+    }
+    v
+}
+
 fn session_system(root: &Path, review_edits: bool, lang: ReplyLang) -> Vec<(String, bool)> {
     let mut v: Vec<(String, bool)> = tutor_agent::context::system_prompt_in(root, lang)
         .into_iter()
@@ -1754,19 +2712,43 @@ pub fn review(id: &str, call: &str, decisions: &[HunkVerdict]) -> Result<(), Str
     if let Some(d) = decisions.iter().find(|d| !hunks.contains(&d.hunk)) {
         return Err(format!("hunk desconhecido nesta revisão: {}", d.hunk));
     }
+    // RF-A03/A04: a change that breaks the rules is accepted only after the architect's override
+    let violating = s
+        .violating
+        .lock()
+        .unwrap()
+        .get(call)
+        .cloned()
+        .unwrap_or_default();
+    if !violating.is_empty()
+        && !s.overrides.lock().unwrap().contains_key(call)
+        && decisions.iter().any(|d| d.accept)
+    {
+        return Err(format!(
+            "esta alteração viola as regras do arquitecto ({}): aceitá-la pede o override do Arquitecto com um ADR aceite",
+            violation_text(&violating)
+        ));
+    }
+    let broke = (!violating.is_empty()).then(|| violation_text(&violating));
     let mut accepted = vec![];
     let mut rejected = vec![];
     for h in &hunks {
         // the last decision about a hunk wins
         match decisions.iter().rev().find(|d| &d.hunk == h) {
             Some(d) if d.accept => accepted.push(h.clone()),
-            Some(d) => rejected.push((
-                h.clone(),
-                d.reason
+            Some(d) => {
+                let why = d
+                    .reason
                     .clone()
                     .filter(|r| !r.trim().is_empty())
-                    .unwrap_or_else(|| "recusado".into()),
-            )),
+                    .unwrap_or_else(|| "recusado".into());
+                // the model learns which rule it broke
+                let why = match &broke {
+                    Some(b) => format!("{why} — viola as regras do arquitecto: {b}"),
+                    None => why,
+                };
+                rejected.push((h.clone(), why))
+            }
             None => rejected.push((h.clone(), "sem decisão".into())),
         }
     }
@@ -1784,6 +2766,47 @@ pub fn review(id: &str, call: &str, decisions: &[HunkVerdict]) -> Result<(), Str
     .map_err(|_| "o turno já não está à espera desta decisão".to_string())
 }
 
+/// RF-A03/A04 (sessão de fecho, bloco 3): the architect overrides the rules a call under review
+/// breaks, naming an accepted ADR. Only the architect (`.dxtutor/team.json`, F5.7), only an ADR
+/// that is accepted (`conformance::adr_accepted`); the override goes to the audit log. After it,
+/// the human may accept the call's hunks.
+pub fn override_violation(id: &str, call: &str, adr: &str) -> Result<(), String> {
+    let s = get(id)?;
+    let violating = s
+        .violating
+        .lock()
+        .unwrap()
+        .get(call)
+        .cloned()
+        .ok_or_else(|| format!("nenhuma alteração que viole as regras à espera com o id {call}"))?;
+    let root = s.project_root.clone();
+    crate::roles::require(
+        &root,
+        &["architect"],
+        "aprovar um desvio às regras do arquitecto",
+    )?;
+    let adr = adr.trim();
+    if adr.is_empty() || !tutor_agent::conformance::adr_accepted(&root, adr) {
+        return Err(format!(
+            "o ADR «{adr}» não está aceite (docs/adr, docs/architecture ou docs/decisions, com Status: accepted / Estado: aceite)"
+        ));
+    }
+    s.overrides
+        .lock()
+        .unwrap()
+        .insert(call.to_string(), adr.to_string());
+    let mut e = audit_entry(&s, "override");
+    e.actor = crate::board::actor(&root.display().to_string());
+    e.call = Some(call.to_string());
+    e.verdict = Some("override".into());
+    e.outcome = Some("allowed".into());
+    e.reason = Some(format!("{adr}: {}", violation_text(&violating)));
+    e.decided_by = Some(format!("human:{}", e.actor));
+    e.decided_at = Some(e.at);
+    audit(&s, e);
+    Ok(())
+}
+
 /// Muda o modo da sessão (a modebar). Vale a partir da próxima decisão.
 pub fn set_mode(id: &str, mode: &str) -> bool {
     match get(id) {
@@ -1793,7 +2816,7 @@ pub fn set_mode(id: &str, mode: &str) -> bool {
             if old != new {
                 // RF-G04: the mode change is in the audit log
                 let mut e = audit_entry(&s, "mode");
-                e.actor = crate::board::actor(&s.agent.ctx.root.display().to_string());
+                e.actor = crate::board::actor(&s.project_root.display().to_string());
                 e.reason = Some(format!("{} → {}", old.as_str(), new.as_str()));
                 e.decided_by = Some(format!("human:{}", e.actor));
                 e.decided_at = Some(e.at);
@@ -1962,7 +2985,7 @@ pub fn save_permissions(root: &str, rules: Rules) -> Result<(), String> {
     let canon = |x: &Path| std::fs::canonicalize(x).unwrap_or_else(|_| x.to_path_buf());
     let target = canon(&root_p);
     for sess in sessions().lock().unwrap().values() {
-        if canon(&sess.agent.ctx.root) == target {
+        if canon(&sess.project_root) == target {
             sess.policy.lock().unwrap().rules = Rules::load(&target, Rules::user_file().as_deref());
         }
     }
@@ -1984,6 +3007,8 @@ pub struct ExtensionsStatus {
     pub skills: Vec<Skill>,
     pub hooks: FileTrust,
     pub mcp: FileTrust,
+    /// H1: `.dxtutor/sandbox.json` (only what loosens the sandbox needs trust).
+    pub sandbox: FileTrust,
     /// Nomes dos servidores MCP configurados (utilizador + projecto).
     pub mcp_servers: Vec<String>,
 }
@@ -2013,10 +3038,11 @@ pub fn extensions_status(
     servers.sort();
     servers.dedup();
     ExtensionsStatus {
-        commands: extensions::commands(&root),
-        skills: extensions::skills(&root),
+        commands: extensions::all_commands(&root),
+        skills: extensions::all_skills(&root),
         hooks: file(HOOKS_FILE),
         mcp: file(mcp::PROJECT_FILE),
+        sandbox: file(tutor_agent::os_sandbox::CONFIG_FILE),
         mcp_servers: servers,
     }
 }
@@ -2027,6 +3053,7 @@ pub fn trust_project_file(root: &str, kind: &str, store: Option<&Path>) -> Resul
     let rel = match kind {
         "hooks" => HOOKS_FILE,
         "mcp" => mcp::PROJECT_FILE,
+        "sandbox" => tutor_agent::os_sandbox::CONFIG_FILE,
         other => return Err(format!("tipo desconhecido: {other}")),
     };
     let store = store.ok_or("sem HOME para guardar a confiança")?;
@@ -2059,11 +3086,87 @@ pub fn cancel(id: &str) -> bool {
     }
 }
 
-/// Fecha a sessão (cancela o que estiver a correr e esquece o histórico em memória).
+/// Fecha a sessão (cancela o que estiver a correr e esquece o histórico em memória). Multi Co-Dev
+/// (fase 3): as reservas de ficheiros da sessão voltam; a sua worktree sai se não tiver alterações
+/// por commitar (o ramo fica) — senão fica, e a faixa lista-a. Quem chama deve correr isto fora da
+/// thread da interface: espera (pouco) que um turno cancelado pare antes de tocar na worktree.
 pub fn close(id: &str) -> bool {
-    cancel(id);
-    sessions().lock().unwrap().remove(id).is_some()
+    close_keeping(id, false)
 }
+
+/// [`close`]; with `keep_worktree`, the session's worktree stays whatever it holds (the same issue
+/// starts over in it right away — the UI's «start again»).
+pub fn close_keeping(id: &str, keep_worktree: bool) -> bool {
+    cancel(id);
+    let Some(s) = sessions().lock().unwrap().remove(id) else {
+        return false;
+    };
+    if let Some(db) = &s.change_log {
+        if let Ok(mut st) = tutor_board::project::ProjectStore::open(db) {
+            let _ = st.release_session_claims(&s.project_root.display().to_string(), &s.id);
+        }
+    }
+    if let Some(wt) = s.worktree.as_ref().filter(|_| !keep_worktree) {
+        close_worktree(&s, wt);
+    }
+    true
+}
+
+/// Starting a session in a worktree and removing a closing session's worktree never interleave: a
+/// worktree another open session works in is never removed.
+fn worktree_lock() -> &'static Mutex<()> {
+    static L: OnceLock<Mutex<()>> = OnceLock::new();
+    L.get_or_init(|| Mutex::new(()))
+}
+
+/// How long `close` waits for a cancelled turn to stop before it leaves the worktree alone.
+const CLOSE_WAIT: Duration = Duration::from_secs(10);
+
+/// The worktree of a closing session: removed when clean (the branch stays), kept otherwise; both
+/// go to the audit log. A turn still running after [`CLOSE_WAIT`] keeps it (a write in flight
+/// could otherwise recreate files under a removed folder).
+fn close_worktree(s: &Session, wt: &Path) {
+    let t0 = std::time::Instant::now();
+    while s.busy.load(Ordering::SeqCst) && t0.elapsed() < CLOSE_WAIT {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let mut e = audit_entry(s, "worktree");
+    e.tool = Some("git".into());
+    e.path = Some(wt.display().to_string());
+    e.decided_by = Some("policy".into());
+    e.decided_at = Some(now_ms());
+    let _guard = worktree_lock().lock().unwrap_or_else(|p| p.into_inner());
+    let shared = sessions()
+        .lock()
+        .unwrap()
+        .values()
+        .any(|o| o.worktree.as_deref() == Some(wt));
+    if shared {
+        e.outcome = Some("kept".into());
+        e.reason = Some("outra sessão aberta trabalha nesta worktree".into());
+    } else if s.busy.load(Ordering::SeqCst) {
+        e.outcome = Some("kept".into());
+        e.reason = Some("um turno ainda corria ao fechar".into());
+    } else {
+        match tutor_eval::gitwork::codev::remove_at(&s.project_root, wt) {
+            Ok(r) => {
+                e.command = Some(r.command.clone());
+                e.outcome = Some(if r.removed { "removed" } else { "kept" }.into());
+                if !r.removed {
+                    e.reason = Some(format!("alterações por commitar: {}", r.dirty.join(", ")));
+                }
+            }
+            Err(err) => {
+                e.outcome = Some("failed".into());
+                e.reason = Some(err);
+            }
+        }
+    }
+    audit(s, e);
+}
+
+#[cfg(test)]
+mod worktree_tests;
 
 #[cfg(test)]
 mod tests {
@@ -2190,6 +3293,95 @@ mod tests {
             scope: vec![],
             template: None,
         });
+    }
+
+    #[test]
+    fn a_session_in_a_project_of_the_workspace_takes_its_commands_instructions_and_boundaries() {
+        let dir = tempfile::tempdir().unwrap();
+        let r = dir.path();
+        let put = |rel: &str, text: &str| {
+            let p = r.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, text).unwrap();
+        };
+        put(
+            "services/orders/Cargo.toml",
+            "[package]\nname = \"orders\"\n",
+        );
+        put("services/orders/AGENTS.md", "Errors use thiserror.\n");
+        put(
+            "apps/web/package.json",
+            r#"{"scripts": {"test": "vitest"}}"#,
+        );
+        let spec = |project: Option<&str>| StartSpec {
+            root: r.display().to_string(),
+            sessions_base: Some(r.join(".sessions")),
+            test_cmd: Some("npm test".into()),
+            project: project.map(String::from),
+            sandbox: Some(false),
+            ..Default::default()
+        };
+        let id = start(spec(Some("services/orders/")), &key("sk-test"), None).unwrap();
+        let s = get(&id).unwrap();
+        assert_eq!(s.project.as_deref(), Some("services/orders"));
+        assert_eq!(
+            s.checks,
+            [
+                "cd 'services/orders' && cargo test",
+                "cd 'services/orders' && cargo clippy"
+            ],
+            "the project's commands, run in its folder (not the workspace's)"
+        );
+        let system: Vec<&str> = s.agent.cfg.system.iter().map(|b| b.text.as_str()).collect();
+        assert!(system.iter().any(|t| t
+            .starts_with("Instructions of the project `services/orders`:")
+            && t.contains("thiserror")));
+        let ws = system
+            .iter()
+            .find(|t| t.starts_with("Projects of this workspace"))
+            .expect("the workspace block");
+        assert!(
+            ws.contains("`services/orders` (rust)")
+                && ws.contains("← this conversation")
+                && ws.contains("`apps/web`"),
+            "{ws}"
+        );
+        assert!(
+            s.agent.cfg.system.last().unwrap().cache,
+            "the cache breakpoint stays on the last block"
+        );
+        close(&id);
+        // the whole workspace: the UI's commands, as before
+        let id = start(spec(None), &key("sk-test"), None).unwrap();
+        assert_eq!(get(&id).unwrap().checks, ["npm test"]);
+        close(&id);
+        // a folder outside the workspace is refused
+        assert!(start(spec(Some("../x")), &key("sk-test"), None).is_err());
+        assert!(start(spec(Some("nope")), &key("sk-test"), None).is_err());
+    }
+
+    #[test]
+    fn live_sessions_list_the_open_ones_with_their_issue_until_closed() {
+        let dir = tempfile::tempdir().unwrap();
+        let spec = StartSpec {
+            root: dir.path().display().to_string(),
+            model: Some("claude-opus-5-5".into()),
+            sessions_base: Some(dir.path().join(".sessions")),
+            issue_key: Some("DX-7".into()),
+            ..Default::default()
+        };
+        let id = start(spec, &key("sk-test"), None).unwrap();
+        // other tests open sessions in parallel: look only at this one
+        let mine = || live_sessions().into_iter().find(|l| l.id == id);
+        let l = mine().expect("listed while open");
+        assert_eq!(l.issue.as_deref(), Some("DX-7"));
+        assert_eq!(l.model, "claude-opus-5-5");
+        assert_eq!(l.root, dir.path().display().to_string());
+        assert!(!l.busy && l.opened > 0);
+        let v = serde_json::to_value(&l).unwrap();
+        assert!(v.get("opened").is_some() && v.get("issue").is_some());
+        assert!(close(&id));
+        assert!(mine().is_none(), "a closed session leaves the map");
     }
 
     #[test]
@@ -2330,6 +3522,82 @@ mod tests {
     }
 
     #[test]
+    fn backlog_tools_enter_only_backlog_sessions_of_toolset_11() {
+        struct T(&'static str);
+        impl Tool for T {
+            fn name(&self) -> &str {
+                self.0
+            }
+            fn description(&self) -> &str {
+                ""
+            }
+            fn input_schema(&self) -> serde_json::Value {
+                serde_json::json!({"type": "object"})
+            }
+            fn read_only(&self) -> bool {
+                true
+            }
+            fn run(&self, _: &serde_json::Value, _: &ToolCtx) -> tutor_agent::ToolOutput {
+                tutor_agent::ToolOutput::ok("")
+            }
+        }
+        let spec = StartSpec {
+            host_tools: vec![Arc::new(T("lsp_diagnostics"))],
+            host_tools_v11: vec![
+                Arc::new(T("backlog_propose")),
+                Arc::new(T("project_propose")),
+            ],
+            host_tools_v13: vec![Arc::new(T("ide"))],
+            host_tools_v14: vec![Arc::new(T("ide14"))],
+            backlog: true,
+            ..Default::default()
+        };
+        assert_eq!(session_scopes(&spec), [session::SCOPE_BACKLOG]);
+        let names = |v: u32, scopes: &[&str]| -> Vec<String> {
+            let meta: SessionMeta = serde_json::from_value(serde_json::json!({
+                "id": "s", "root": "/p", "model": "m", "effort": "high", "system": [],
+                "test_cmd": null, "lint_cmd": null, "compaction": true, "created": 1,
+                "toolset": v, "scopes": scopes,
+            }))
+            .unwrap();
+            session_host_tools(&spec, &meta)
+                .iter()
+                .map(|t| t.name().to_string())
+                .collect()
+        };
+        assert_eq!(
+            names(11, &["backlog"]),
+            ["lsp_diagnostics", "backlog_propose", "project_propose"]
+        );
+        // a plain session, and any older one (toolset < 9 had every scope), stay as they were
+        assert_eq!(names(11, &[]), ["lsp_diagnostics"]);
+        assert_eq!(names(10, &["backlog"]), ["lsp_diagnostics"]);
+        assert_eq!(names(5, &[]), ["lsp_diagnostics"]);
+        // H3: `ide` in every session from toolset 13 (an older one resumes without it)
+        assert_eq!(names(13, &[]), ["lsp_diagnostics", "ide"]);
+        // H4: from 14, the `ide` of 14 in the same place (13's never next to it)
+        assert_eq!(names(14, &[]), ["lsp_diagnostics", "ide14"]);
+        assert_eq!(
+            names(14, &["backlog"]),
+            [
+                "lsp_diagnostics",
+                "backlog_propose",
+                "project_propose",
+                "ide14"
+            ]
+        );
+        assert_eq!(
+            names(13, &["backlog"]),
+            [
+                "lsp_diagnostics",
+                "backlog_propose",
+                "project_propose",
+                "ide"
+            ]
+        );
+    }
+
+    #[test]
     fn arch_propose_enters_only_sessions_of_toolset_4() {
         let tool = |name: &'static str| -> Arc<dyn Tool> {
             struct T(&'static str);
@@ -2357,14 +3625,25 @@ mod tests {
             host_tools_v4: vec![tool("arch_propose")],
             ..Default::default()
         };
-        let names = |v: u32| -> Vec<String> {
-            session_host_tools(&spec, v)
+        let names = |v: u32, scopes: &[&str]| -> Vec<String> {
+            let meta: SessionMeta = serde_json::from_value(serde_json::json!({
+                "id": "s", "root": "/p", "model": "m", "effort": "high", "system": [],
+                "test_cmd": null, "lint_cmd": null, "compaction": true, "created": 1,
+                "toolset": v, "scopes": scopes,
+            }))
+            .unwrap();
+            session_host_tools(&spec, &meta)
                 .iter()
                 .map(|t| t.name().to_string())
                 .collect()
         };
-        assert_eq!(names(3), ["lsp_diagnostics"]);
-        assert_eq!(names(4), ["lsp_diagnostics", "arch_propose"]);
+        assert_eq!(names(3, &[]), ["lsp_diagnostics"]);
+        assert_eq!(names(4, &[]), ["lsp_diagnostics", "arch_propose"]);
+        assert_eq!(names(8, &[]), ["lsp_diagnostics", "arch_propose"]);
+        // toolset 9: only architecture sessions carry it
+        assert_eq!(names(9, &[]), ["lsp_diagnostics"]);
+        assert_eq!(names(9, &["issue"]), ["lsp_diagnostics"]);
+        assert_eq!(names(9, &["arch"]), ["lsp_diagnostics", "arch_propose"]);
 
         // uma sessão nova grava o conjunto actual (4 com o arch_propose; 5 desde a A3)
         let proj = tempfile::tempdir().unwrap();
@@ -2409,6 +3688,176 @@ mod tests {
                 "the arch_propose tool needs toolset 4 or later"
             )
         };
+    }
+
+    #[test]
+    fn toolset_9_sessions_get_the_tools_of_their_kind_and_resume_with_them() {
+        let tool = |name: &'static str| -> Arc<dyn Tool> {
+            struct T(&'static str);
+            impl Tool for T {
+                fn name(&self) -> &str {
+                    self.0
+                }
+                fn description(&self) -> &str {
+                    ""
+                }
+                fn input_schema(&self) -> serde_json::Value {
+                    serde_json::json!({"type": "object"})
+                }
+                fn read_only(&self) -> bool {
+                    true
+                }
+                fn run(&self, _: &serde_json::Value, _: &ToolCtx) -> tutor_agent::ToolOutput {
+                    tutor_agent::ToolOutput::ok("")
+                }
+            }
+            Arc::new(T(name))
+        };
+        let proj = tempfile::tempdir().unwrap();
+        let base = tempfile::tempdir().unwrap();
+        let spec = |architecture: bool, issue: Option<&str>, resume: Option<String>| StartSpec {
+            root: proj.path().display().to_string(),
+            sessions_base: Some(base.path().to_path_buf()),
+            host_tools_v4: vec![tool("arch_propose")],
+            architecture,
+            issue_key: issue.map(String::from),
+            resume,
+            ..Default::default()
+        };
+        let names = |id: &str| -> Vec<String> {
+            get(id)
+                .unwrap()
+                .agent
+                .tool_defs()
+                .into_iter()
+                .map(|d| d.name)
+                .collect()
+        };
+        // a plain chat: neither arch_propose nor finish_issue
+        let chat = start(spec(false, None, None), &key("sk"), None).unwrap();
+        let n = names(&chat);
+        assert!(
+            !n.iter().any(|t| t == "arch_propose" || t == "finish_issue"),
+            "{n:?}"
+        );
+        assert!(n.iter().any(|t| t == "ask_human") && n.iter().any(|t| t == "suggest"));
+        // the Claude prefix lives an hour (the review pauses)
+        assert_eq!(get(&chat).unwrap().agent.cfg.cache_ttl, CacheTtl::OneHour);
+        // an issue run: finish_issue; an architecture session: arch_propose
+        let issue = start(spec(false, Some("DX-1"), None), &key("sk"), None).unwrap();
+        assert!(names(&issue).iter().any(|t| t == "finish_issue"));
+        assert!(!names(&issue).iter().any(|t| t == "arch_propose"));
+        let arch = start(spec(true, None, None), &key("sk"), None).unwrap();
+        let before = names(&arch);
+        assert!(before.iter().any(|t| t == "arch_propose"));
+        assert!(!before.iter().any(|t| t == "finish_issue"));
+        // a resume keeps the saved kind, whatever the UI says now
+        close(&arch);
+        let again = start(spec(false, None, Some(arch.clone())), &key("sk"), None).unwrap();
+        assert_eq!(names(&again), before);
+        close(&issue);
+        let again = start(spec(true, None, Some(issue.clone())), &key("sk"), None).unwrap();
+        assert!(names(&again).iter().any(|t| t == "finish_issue"));
+        assert!(!names(&again).iter().any(|t| t == "arch_propose"));
+        for id in [chat, again, arch] {
+            close(&id);
+        }
+    }
+
+    /// The first request of a Co-Dev chat in THIS repository (system + tool definitions, before
+    /// the human types): before phase 1 of the token work (toolset 8 with every tool, the
+    /// instruction files cut at 40k characters) and now (toolset 9, a plain chat session).
+    /// `cargo test -p dxtutor-ide --lib first_request_size -- --nocapture` prints the numbers.
+    #[test]
+    fn first_request_size_of_this_repository() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let host: Vec<Arc<dyn Tool>> = vec![Arc::new(crate::lsp::LspDiagnosticsTool)];
+        let arch: Arc<dyn Tool> = Arc::new(crate::agent::ArchProposeTool {
+            emit: Arc::new(|_| {}),
+        });
+        let outline: Arc<dyn Tool> = Arc::new(crate::codeintel::OutlineTool);
+        let opts = |issue: bool| ToolsetOptions {
+            test_cmd: Some("cargo test".into()),
+            lint_cmd: Some("cargo clippy".into()),
+            issue,
+            ..Default::default()
+        };
+        let subagent = || SubagentSpec {
+            provider: Arc::new(tutor_agent::anthropic::Anthropic::new(Config::new("k"))),
+            model: "claude-opus-5-5".into(),
+            effort: Effort::High,
+            lang: ReplyLang::Pt,
+        };
+        let tools_bytes = |tools: &[Arc<dyn Tool>]| -> usize {
+            tools
+                .iter()
+                .map(|t| {
+                    serde_json::json!({"name": t.name(), "description": t.description(), "input_schema": t.input_schema()})
+                        .to_string()
+                        .len()
+                })
+                .sum()
+        };
+        let extras = |with_arch: bool| -> Vec<Arc<dyn Tool>> {
+            let mut v = host.clone();
+            if with_arch {
+                v.push(arch.clone());
+            }
+            v.push(outline.clone());
+            v
+        };
+        // before: toolset 8, every tool, and the old instruction files (40k chars each, 120 KB in all)
+        let before_tools = agent_tools(
+            &opts(false),
+            8,
+            &FlowState::default(),
+            Some(subagent()),
+            extras(true),
+        );
+        let mut old = String::new();
+        for name in tutor_agent::context::INSTRUCTION_FILES {
+            let Ok(text) = std::fs::read_to_string(root.join(name)) else {
+                continue;
+            };
+            let mut body: String = text.chars().take(40 * 1024).collect();
+            if body.len() < text.len() {
+                body.push_str("\n…[ficheiro cortado]");
+            }
+            if old.len() + body.len() > 120 * 1024 {
+                continue;
+            }
+            old.push_str(&format!(
+                "\n\n<instructions file=\"{name}\">\n{}\n</instructions>",
+                body.trim_end()
+            ));
+        }
+        let core_len = session_system(root, true, ReplyLang::Pt)[0].0.len();
+        let before_system = core_len + old.len();
+        // now: toolset 9, a plain chat (no arch_propose, no finish_issue), condensed instructions
+        let after_tools = agent_tools(
+            &opts(false),
+            9,
+            &FlowState::default(),
+            Some(subagent()),
+            extras(false),
+        );
+        let after_system: usize = session_system(root, true, ReplyLang::Pt)
+            .iter()
+            .map(|b| b.0.len())
+            .sum();
+        let (b_tools, a_tools) = (tools_bytes(&before_tools), tools_bytes(&after_tools));
+        let tok = |b: usize| b * 10 / 35; // ~3.5 bytes per token (Portuguese prose, code, JSON)
+        println!(
+            "first request (bytes ≈ tokens): before system {} ≈ {}, tools {} ({}) ≈ {}, total ≈ {}; \
+             after system {} ≈ {}, tools {} ({}) ≈ {}, total ≈ {}; issue run +finish_issue, architecture +arch_propose {} bytes",
+            before_system, tok(before_system), b_tools, before_tools.len(), tok(b_tools), tok(before_system + b_tools),
+            after_system, tok(after_system), a_tools, after_tools.len(), tok(a_tools), tok(after_system + a_tools),
+            tools_bytes(std::slice::from_ref(&arch)),
+        );
+        assert!(
+            after_system + a_tools < (before_system + b_tools) / 2,
+            "the first request must at least halve"
+        );
     }
 
     #[test]
@@ -2464,7 +3913,14 @@ mod tests {
         let r = root.display().to_string();
 
         let st = extensions_status(&r, Some(&store), None);
-        assert_eq!(st.commands.len(), 1);
+        // the project's command, then the IDE's (/backlog, /project)
+        assert_eq!(
+            st.commands
+                .iter()
+                .map(|c| (c.name.as_str(), c.builtin))
+                .collect::<Vec<_>>(),
+            [("rever", false), ("backlog", true), ("project", true)]
+        );
         assert_eq!(
             st.hooks,
             FileTrust {
@@ -3203,6 +4659,13 @@ mod tests {
             op(serde_json::json!({"op": "update_issue", "key": "DX-1", "ready": true})),
         )
         .unwrap();
+        st.apply(
+            &root,
+            "ana",
+            2,
+            op(serde_json::json!({"op": "settings", "dod": ["Docs updated"]})),
+        )
+        .unwrap();
         let _ = send(
             &id,
             Some("implementa".into()),
@@ -3213,6 +4676,10 @@ mod tests {
         let o = s.origin.lock().unwrap().clone().unwrap();
         assert_eq!(o.scope, vec!["src/**"], "the issue's scope");
         assert_eq!(s.flow.criteria.lock().unwrap().len(), 1);
+        // Board B: the DoD goes to finish_issue, and starting work moved the issue to In progress
+        assert_eq!(*s.flow.dod.lock().unwrap(), ["Docs updated"]);
+        let p = st.load(&root, 3).unwrap();
+        assert_eq!(p.issues[0].state, "progress");
         // the prompt «Ver prompt» shows is the one the issue goes with
         let r = crate::board::issue_prompt_from(&st, &root, "DX-1", None).unwrap();
         assert_eq!(r.lang, "pt");
@@ -3227,6 +4694,8 @@ mod tests {
         for (check, state, attempts) in [("true", "review", 0), ("false", "progress", 1)] {
             let (d, _id, s, root) = issue_session(check);
             *s.issue_key.lock().unwrap() = Some("DX-1".into());
+            // Board B: Co-Dev's work is in progress when it finishes (the start moved it)
+            assert!(start_work(&s, "DX-1", None).is_ok());
             *s.flow.finished.lock().unwrap() =
                 Some(serde_json::json!({"criteria": [{"index": 1, "met": true, "evidence": "t"}]}));
             let evs = RefCell::new(vec![]);
@@ -3254,6 +4723,136 @@ mod tests {
                 .collect();
             assert_eq!(kinds, ["finish", "tests"]);
         }
+    }
+
+    #[test]
+    fn starting_codev_is_the_normal_move_and_a_refusal_blocks_the_request() {
+        let (d, id, s, root) = issue_session("true");
+        let db = d.path().join("board.sqlite3");
+        let mut st = tutor_board::project::ProjectStore::open(&db).unwrap();
+        let op = |v: serde_json::Value| serde_json::from_value(v).unwrap();
+        for v in [
+            serde_json::json!({"op": "update_issue", "key": "DX-1", "story_as": "cliente", "story_want": "páginas", "story_so": "menos linhas", "scope": ["src/**"]}),
+            serde_json::json!({"op": "update_issue", "key": "DX-1", "ready": true}),
+            serde_json::json!({"op": "create_issue", "title": "Outra"}),
+            serde_json::json!({"op": "move", "key": "DX-2", "to": "progress"}),
+            serde_json::json!({"op": "settings", "wip": {"progress": 1}}),
+        ] {
+            st.apply(&root, "ana", 2, op(v)).unwrap();
+        }
+        let notes = RefCell::new(vec![]);
+        let _ = send(
+            &id,
+            Some("implementa".into()),
+            Some(Origin {
+                kind: tutor_agent::permissions::OriginKind::Issue,
+                issue: Some("DX-1".into()),
+                by: String::new(),
+                scope: vec![],
+                template: None,
+            }),
+            &mut |e| {
+                if let AgentEvent::Notice { text } = e {
+                    notes.borrow_mut().push(text)
+                }
+            },
+            &mut |_| {},
+        );
+        assert!(s.origin.lock().unwrap().is_none(), "refused: no request");
+        assert!(
+            notes
+                .borrow()
+                .iter()
+                .any(|n| n.contains("DX-1 não passou a Em curso") && n.contains("limite de WIP")),
+            "{:?}",
+            notes.borrow()
+        );
+        assert_eq!(st.load(&root, 3).unwrap().issues[0].state, "todo");
+        // the human overrides on the board, with a reason; then the request goes
+        st.apply(&root, "ana", 3, op(serde_json::json!({"op": "move", "key": "DX-1", "to": "progress", "reason": "urgente"})))
+            .unwrap();
+        assert!(
+            start_work(&s, "DX-1", None).is_ok(),
+            "already in progress: nothing to do"
+        );
+    }
+
+    #[test]
+    fn a_full_review_column_keeps_the_finished_issue_in_progress_and_says_why() {
+        let (d, _id, s, root) = issue_session("true");
+        let db = d.path().join("board.sqlite3");
+        let mut st = tutor_board::project::ProjectStore::open(&db).unwrap();
+        let op = |v: serde_json::Value| serde_json::from_value(v).unwrap();
+        for v in [
+            serde_json::json!({"op": "move", "key": "DX-1", "to": "progress"}),
+            serde_json::json!({"op": "settings", "wip": {"review": 0}}),
+        ] {
+            st.apply(&root, "ana", 2, op(v)).unwrap();
+        }
+        *s.issue_key.lock().unwrap() = Some("DX-1".into());
+        *s.flow.finished.lock().unwrap() =
+            Some(serde_json::json!({"criteria": [{"index": 1, "met": true, "evidence": "t"}]}));
+        let evs = RefCell::new(vec![]);
+        settle_flow(&s, &|e| evs.borrow_mut().push(e));
+        assert_eq!(st.load(&root, 3).unwrap().issues[0].state, "progress");
+        let finish = st
+            .audit(&root, Some("DX-1"))
+            .unwrap()
+            .into_iter()
+            .find(|e| e.event == "finish")
+            .unwrap();
+        assert_eq!(finish.outcome.as_deref(), Some("held"));
+        assert!(finish.reason.unwrap().contains("limite de WIP de «review»"));
+        assert!(evs.borrow().iter().any(
+            |e| matches!(e, AgentEvent::Notice { text } if text.contains("não passou a Review"))
+        ));
+    }
+
+    #[test]
+    fn a_failing_test_run_with_only_tests_changed_is_the_red_step() {
+        assert!(is_red_run(
+            "run_tests",
+            true,
+            "$ cargo test\nexit 101\nfailed"
+        ));
+        assert!(!is_red_run("run_tests", false, "$ cargo test\nexit 0\nok"));
+        assert!(
+            !is_red_run("run_tests", true, "recusado pela política"),
+            "a refusal did not run"
+        );
+        assert!(!is_red_run("lint", true, "$ clippy\nexit 1"));
+        let (d, _id, s, root) = issue_session("true");
+        *s.issue_key.lock().unwrap() = Some("DX-1".into());
+        let applied = AgentEvent::HunkApplied {
+            hunk: "h".into(),
+            provisional: false,
+            fingerprint: String::new(),
+        };
+        let red = AgentEvent::ToolResult {
+            id: "t".into(),
+            name: "run_tests".into(),
+            is_error: true,
+            content: "$ cargo test\nexit 101".into(),
+        };
+        // red before any test: nothing
+        assert_eq!(tdd_observe(&s, &red, None), None);
+        tdd_observe(
+            &s,
+            &applied,
+            Some(("src/lib.rs", "    #[test]\n    fn pages() {}")),
+        );
+        tdd_observe(&s, &applied, Some(("tests/api.rs", "fn x() {}")));
+        assert_eq!(
+            tdd_observe(&s, &red, None).as_deref(),
+            Some("src/lib.rs\ntests/api.rs")
+        );
+        assert_eq!(tdd_observe(&s, &red, None), None, "recorded once");
+        // implementation first: no red step for this issue
+        *s.issue_key.lock().unwrap() = Some("DX-2".into());
+        tdd_observe(&s, &applied, Some(("src/lib.rs", "pub fn pages() {}")));
+        tdd_observe(&s, &applied, Some(("tests/api.rs", "#[test] fn p() {}")));
+        assert_eq!(tdd_observe(&s, &red, None), None);
+        drop((d, root));
     }
 
     #[test]
@@ -3333,7 +4932,7 @@ mod tests {
             },
         )]
         .into();
-        match conformance_gate(Verdict::Allow, &call, d.path(), &metas) {
+        match conformance_gate(Verdict::Allow, &call, d.path(), d.path(), &metas) {
             Verdict::Deny { reason } => assert!(
                 reason.contains("lodash") && reason.contains("ADR"),
                 "{reason}"
@@ -3347,7 +4946,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            conformance_gate(Verdict::Allow, &call, d.path(), &metas),
+            conformance_gate(Verdict::Allow, &call, d.path(), d.path(), &metas),
             Verdict::Allow
         );
         // the repository scan (the drift of the rules) sees the same rule
@@ -3499,14 +5098,19 @@ mod tests {
         };
         // no people defined: an ADR change still asks (never accepted by Auto alone)
         assert!(matches!(
-            role_gate(Verdict::Allow, &call("docs/adr/ADR-0001.md"), d.path()),
+            role_gate(
+                Verdict::Allow,
+                &call("docs/adr/ADR-0001.md"),
+                d.path(),
+                d.path()
+            ),
             Verdict::Ask {
                 dangerous: true,
                 ..
             }
         ));
         assert_eq!(
-            role_gate(Verdict::Allow, &call("src/lib.rs"), d.path()),
+            role_gate(Verdict::Allow, &call("src/lib.rs"), d.path(), d.path()),
             Verdict::Allow
         );
         // with people: a developer at the keyboard cannot approve the rules
@@ -3531,7 +5135,12 @@ mod tests {
             dangerous: true,
             suggested_rule: None,
         };
-        match role_gate(ask.clone(), &call(".dxtutor/architecture.toml"), d.path()) {
+        match role_gate(
+            ask.clone(),
+            &call(".dxtutor/architecture.toml"),
+            d.path(),
+            d.path(),
+        ) {
             Verdict::Deny { reason } => assert!(reason.contains("Arquitecto"), "{reason}"),
             v => panic!("{v:?}"),
         }
@@ -3541,8 +5150,318 @@ mod tests {
             .status()
             .unwrap();
         assert_eq!(
-            role_gate(ask.clone(), &call(".dxtutor/architecture.toml"), d.path()),
+            role_gate(
+                ask.clone(),
+                &call(".dxtutor/architecture.toml"),
+                d.path(),
+                d.path()
+            ),
             ask
         );
+    }
+
+    #[test]
+    fn a_change_that_breaks_the_rules_asks_in_red_and_only_the_architects_override_lets_it_in() {
+        use tutor_agent::conformance::Violation;
+        let v = vec![Violation {
+            rule: "library:moment".into(),
+            message: "biblioteca proibida: moment".into(),
+            path: "src/a.ts".into(),
+            line: Some(1),
+        }];
+        // in the review a violation asks — dangerous, so in Auto too — and a Deny stays a Deny
+        match review_conformance(Verdict::Allow, &v) {
+            Verdict::Ask {
+                reason,
+                dangerous: true,
+                ..
+            } => assert!(reason.contains("moment") && reason.contains("override")),
+            x => panic!("{x:?}"),
+        }
+        let deny = Verdict::Deny {
+            reason: "fora da raiz".into(),
+        };
+        assert_eq!(review_conformance(deny.clone(), &v), deny);
+        assert_eq!(review_conformance(Verdict::Allow, &[]), Verdict::Allow);
+
+        // a session with a call waiting in review that breaks the rules
+        let (d, id, s, root) = issue_session("true");
+        let git = |args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .args(args)
+                .current_dir(d.path())
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "git {args:?}");
+        };
+        git(&["init", "-q"]);
+        git(&["config", "user.email", "rui@x.pt"]);
+        git(&["config", "user.name", "Rui"]);
+        std::fs::create_dir_all(d.path().join(".dxtutor")).unwrap();
+        std::fs::write(
+            d.path().join(".dxtutor/team.json"),
+            r#"{"people": [{"email": "rui@x.pt", "roles": ["developer"]}, {"email": "ana@x.pt", "roles": ["architect"]}]}"#,
+        )
+        .unwrap();
+        let (tx, rx) = mpsc::channel();
+        s.pending.lock().unwrap().insert("c1".into(), (tx, None));
+        s.review
+            .lock()
+            .unwrap()
+            .insert("c1".into(), vec!["c1:1".into()]);
+        s.violating.lock().unwrap().insert("c1".into(), v.clone());
+        let accept = [HunkVerdict {
+            hunk: "c1:1".into(),
+            accept: true,
+            reason: None,
+        }];
+        // accepting without the override is refused (the review keeps waiting)
+        assert!(review(&id, "c1", &accept).unwrap_err().contains("override"));
+        // the override: only the architect, only with an accepted ADR
+        assert!(override_violation(&id, "c1", "ADR-0007")
+            .unwrap_err()
+            .contains("Arquitecto"));
+        git(&["config", "user.email", "ana@x.pt"]);
+        assert!(override_violation(&id, "c1", "ADR-0007")
+            .unwrap_err()
+            .contains("não está aceite"));
+        std::fs::create_dir_all(d.path().join("docs/adr")).unwrap();
+        std::fs::write(
+            d.path().join("docs/adr/ADR-0007-moment.md"),
+            "# Use moment\n\nStatus: accepted\n",
+        )
+        .unwrap();
+        assert!(override_violation(&id, "nope", "ADR-0007")
+            .unwrap_err()
+            .contains("nenhuma"));
+        override_violation(&id, "c1", "ADR-0007").unwrap();
+        // now the hunks can be accepted
+        review(&id, "c1", &accept).unwrap();
+        match rx.try_recv().unwrap() {
+            Decision::Hunks {
+                accepted, rejected, ..
+            } => assert_eq!((accepted, rejected.len()), (vec!["c1:1".to_string()], 0)),
+            x => panic!("{x:?}"),
+        }
+        // the override is in the audit log, with the ADR and the rule
+        let st = tutor_board::project::ProjectStore::open(&d.path().join("board.sqlite3")).unwrap();
+        let log = st.audit(&root, None).unwrap();
+        let o = log
+            .iter()
+            .find(|e| e.event == "override")
+            .expect("override in the audit log");
+        // who: the git user.name (the test keeps «Rui»; only the email became the architect's)
+        assert_eq!(o.decided_by.as_deref(), Some("human:Rui"));
+        assert!(o
+            .reason
+            .as_deref()
+            .unwrap()
+            .starts_with("ADR-0007: biblioteca proibida: moment"));
+
+        // rejecting a violating change tells the model which rule it broke
+        let (tx, rx) = mpsc::channel();
+        s.pending.lock().unwrap().insert("c2".into(), (tx, None));
+        s.review
+            .lock()
+            .unwrap()
+            .insert("c2".into(), vec!["c2:1".into()]);
+        s.violating.lock().unwrap().insert("c2".into(), v);
+        review(
+            &id,
+            "c2",
+            &[HunkVerdict {
+                hunk: "c2:1".into(),
+                accept: false,
+                reason: None,
+            }],
+        )
+        .unwrap();
+        match rx.try_recv().unwrap() {
+            Decision::Hunks { rejected, .. } => assert!(rejected[0]
+                .1
+                .contains("viola as regras do arquitecto: biblioteca proibida: moment")),
+            x => panic!("{x:?}"),
+        }
+    }
+
+    fn git_in(d: &Path, args: &[&str]) {
+        let ok = std::process::Command::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@x"])
+            .args(args)
+            .current_dir(d)
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok, "git {args:?}");
+    }
+
+    #[test]
+    fn the_working_tree_before_and_after_a_command_says_which_files_it_changed() {
+        let d = tempfile::tempdir().unwrap();
+        assert!(
+            dirty_state(d.path()).is_none(),
+            "no git: nothing to compare"
+        );
+        git_in(d.path(), &["init", "-q"]);
+        std::fs::create_dir_all(d.path().join("src")).unwrap();
+        for f in ["src/a.rs", "src/b.rs", "README.md", "old.txt"] {
+            std::fs::write(d.path().join(f), "x\n").unwrap();
+        }
+        git_in(d.path(), &["add", "."]);
+        git_in(d.path(), &["commit", "-qm", "init"]);
+        std::fs::write(d.path().join("src/b.rs"), "dirty before\n").unwrap();
+        let before = dirty_state(d.path()).unwrap();
+        assert_eq!(before.keys().cloned().collect::<Vec<_>>(), ["src/b.rs"]);
+        // what a command does: a new file, a tracked file changed, the dirty one changed again
+        // (another size), a tracked file deleted
+        std::thread::sleep(std::time::Duration::from_millis(15));
+        std::fs::write(d.path().join("new.txt"), "n\n").unwrap();
+        std::fs::write(d.path().join("README.md"), "changed\n").unwrap();
+        std::fs::write(d.path().join("src/b.rs"), "dirty before, and again\n").unwrap();
+        std::fs::remove_file(d.path().join("old.txt")).unwrap();
+        let after = dirty_state(d.path()).unwrap();
+        assert_eq!(
+            changed_files(&before, &after),
+            ["README.md", "new.txt", "old.txt", "src/b.rs"]
+        );
+        // nothing ran: nothing changed
+        assert!(changed_files(&after, &dirty_state(d.path()).unwrap()).is_empty());
+        // reverting a dirty file to the commit is a change too
+        git_in(d.path(), &["checkout", "--", "src/b.rs"]);
+        assert_eq!(
+            changed_files(&after, &dirty_state(d.path()).unwrap()),
+            ["src/b.rs"]
+        );
+        // a rename lists the new path
+        git_in(d.path(), &["mv", "src/a.rs", "src/c.rs"]);
+        assert!(dirty_state(d.path()).unwrap().contains_key("src/c.rs"));
+    }
+
+    #[test]
+    fn a_bash_command_that_writes_outside_the_scope_is_told_to_the_human_the_model_and_the_audit_log(
+    ) {
+        let (d, _id, s, root) = issue_session("true");
+        git_in(d.path(), &["init", "-q"]);
+        let origin = |scope: Vec<String>| Origin {
+            kind: tutor_agent::permissions::OriginKind::Issue,
+            issue: Some("DX-1".into()),
+            by: String::new(),
+            scope,
+            template: None,
+        };
+        // without a scope there is no scope to check (Multi Co-Dev phase 3: the snapshot is still taken, for
+        // the file claims of what the command changes)
+        *s.origin.lock().unwrap() = Some(origin(vec![]));
+        bash_scope_start(&s, "b0");
+        let none = RefCell::new(vec![]);
+        bash_scope_end(&s, "b0", &mut |e| none.borrow_mut().push(e));
+        assert!(none.borrow().is_empty());
+        *s.origin.lock().unwrap() = Some(origin(vec!["src/**".into()]));
+        std::fs::create_dir_all(d.path().join("src")).unwrap();
+        bash_scope_start(&s, "b1");
+        std::fs::write(d.path().join("src/lib.rs"), "in scope\n").unwrap();
+        std::fs::write(d.path().join("deploy.sh"), "outside\n").unwrap();
+        let events = RefCell::new(vec![]);
+        bash_scope_end(&s, "b1", &mut |e| events.borrow_mut().push(e));
+        let notices: Vec<String> = events
+            .borrow()
+            .iter()
+            .filter_map(|e| match e {
+                AgentEvent::Notice { text } => Some(text.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(notices.len(), 1);
+        assert!(
+            notices[0].contains("fora do âmbito do pedido (src/**): deploy.sh"),
+            "{}",
+            notices[0]
+        );
+        assert!(!notices[0].contains("src/lib.rs"));
+        assert!(s
+            .notes
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|n| n.contains("deploy.sh") && n.contains("ask_human")));
+        let st = tutor_board::project::ProjectStore::open(&d.path().join("board.sqlite3")).unwrap();
+        let e = st
+            .audit(&root, None)
+            .unwrap()
+            .into_iter()
+            .find(|e| e.event == "scope")
+            .expect("the scope warning in the audit log");
+        assert_eq!(
+            (e.tool.as_deref(), e.path.as_deref(), e.outcome.as_deref()),
+            (Some("bash"), Some("deploy.sh"), Some("outside_scope"))
+        );
+        // only in scope: nothing to say
+        bash_scope_start(&s, "b2");
+        std::fs::write(d.path().join("src/lib.rs"), "in scope, again\n").unwrap();
+        let quiet = RefCell::new(vec![]);
+        bash_scope_end(&s, "b2", &mut |e| quiet.borrow_mut().push(e));
+        assert!(quiet.borrow().is_empty());
+    }
+
+    #[test]
+    fn after_stop_the_files_the_turn_changed_are_offered_to_keep_or_discard() {
+        let d = tempfile::tempdir().unwrap();
+        let git = |args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .args(["-c", "user.name=t", "-c", "user.email=t@x"])
+                .args(args)
+                .current_dir(d.path())
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "git {args:?}");
+        };
+        git(&["init", "-q"]);
+        std::fs::write(d.path().join("lib.rs"), "fn a() {}\n").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-qm", "init"]);
+        let spec = StartSpec {
+            root: d.path().display().to_string(),
+            sessions_base: Some(d.path().join(".sessions")),
+            provider: Some("ollama".into()),
+            ollama_host: Some("http://127.0.0.1:9".into()),
+            ..Default::default()
+        };
+        let id = start(spec, &key("sk-test"), None).unwrap();
+        let s = get(&id).unwrap();
+        let cps = s
+            .agent
+            .checkpoints
+            .as_ref()
+            .expect("a git folder has checkpoints");
+        let cp = cps.snapshot("turno").unwrap().id;
+        let events = RefCell::new(vec![]);
+        let collect = |e: AgentEvent| events.borrow_mut().push(e);
+        // no checkpoint, or nothing changed since it: nothing to offer
+        stop_review(&s, None, &collect);
+        stop_review(&s, Some(cp), &collect);
+        assert!(events.borrow().is_empty());
+        // the stopped turn wrote two files
+        std::fs::write(d.path().join("lib.rs"), "fn a() { b() }\n").unwrap();
+        std::fs::write(d.path().join("b.rs"), "fn b() {}\n").unwrap();
+        stop_review(&s, Some(cp), &collect);
+        let evs = events.borrow();
+        assert!(
+            matches!(&evs[0], AgentEvent::Notice { text } if text.contains(&format!("checkpoint {cp}")))
+        );
+        match &evs[1] {
+            AgentEvent::StopReview { checkpoint, files } => {
+                assert_eq!(*checkpoint, cp);
+                assert!(
+                    files.contains(&"lib.rs".to_string()) && files.contains(&"b.rs".to_string()),
+                    "{files:?}"
+                );
+            }
+            e => panic!("{e:?}"),
+        }
+        // the event as the UI reads it
+        let j = serde_json::to_value(&evs[1]).unwrap();
+        assert_eq!(j["kind"], "stop_review");
     }
 }

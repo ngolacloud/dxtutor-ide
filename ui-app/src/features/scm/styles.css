@@ -65,3 +65,32 @@
   /* RF-E08 (F2.7): the Co-Dev change sets of the working tree, by issue */
   #pane-scm .gx-cs-head .gx-da,#pane-scm .gx-cs-head .gx-dd{background:none}
   #pane-scm .gx-cs-file{padding-left:24px;cursor:pointer}
+/* r23 F3 (UI-SCM-10): os hunks de um ficheiro por baixo da sua linha no pane */
+.hk-box{margin:2px 8px 8px 22px;border-left:2px solid var(--seam);padding-left:8px;display:flex;flex-direction:column;gap:6px}
+.hk-grp{font-size:10.5px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;color:var(--fg-dim);margin-top:4px}
+.hk{display:grid;grid-template-columns:auto 1fr;gap:2px 8px;align-items:start;cursor:pointer}
+.hk input{margin-top:3px}.hk-h{display:flex;gap:8px;align-items:center;font-size:11px}.hk-h code{font-family:var(--font-mono);color:var(--fg-dim)}
+.hk-n .add,.hk-l.add{color:var(--green)}.hk-n .del,.hk-l.del{color:var(--red)}
+.hk-pre{grid-column:2;margin:0;font-family:var(--font-mono);font-size:11px;line-height:1.45;background:var(--bg-base);border:1px solid var(--border);border-radius:5px;padding:4px 6px;overflow:auto;max-height:140px;white-space:pre}
+.hk-dim{color:var(--fg-muted);font-size:11.5px}.hk-err{color:var(--red);font-size:11.5px}
+/* r23 F3 (UI-SCM-13): o separador do merge a três */
+.gm-cols{display:grid;grid-template-columns:200px minmax(0,1fr);gap:12px;margin-top:10px}
+.gm-files{display:flex;flex-direction:column;gap:2px}
+.gm-file{display:flex;gap:6px;align-items:center;text-align:left;background:none;border:1px solid transparent;border-radius:6px;padding:4px 8px;font-size:12px;color:var(--fg);cursor:pointer}
+.gm-file.on{border-color:var(--accent);background:var(--bg-elevated)}.gm-file span:first-child{color:var(--yellow,#e0b64a)}.gm-file.ok span:first-child{color:var(--green)}
+.gm-three{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.gm-pre{margin:0;font-family:var(--font-mono);font-size:11.5px;line-height:1.45;background:var(--bg-base);border:1px solid var(--border);border-radius:6px;padding:6px 8px;overflow:auto;max-height:220px;white-space:pre}
+.gm-result{width:100%;min-height:200px;font-family:var(--font-mono);font-size:12px;line-height:1.45;background:var(--bg-input);border:1px solid var(--border-strong);border-radius:6px;padding:8px;resize:vertical}
+.gm-check{font-size:12px;margin-top:6px}.gm-check.ok{color:var(--green)}.gm-check.bad{color:var(--red)}
+/* r23 F3 (UI-SCM-14): o Launchpad */
+.lp-row{display:grid;grid-template-columns:6px minmax(0,1fr) auto auto auto auto;gap:10px;align-items:center;padding:8px 6px;border-bottom:1px solid var(--seam)}
+.lp-sev{width:6px;height:28px;border-radius:3px;background:var(--border-strong)}.sev-high .lp-sev{background:var(--red)}.sev-medium .lp-sev{background:var(--yellow,#e0b64a)}
+.lp-main{min-width:0;font-size:12.5px}.lp-main>div{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.lp-issue{color:var(--accent-hover)}
+.lp-checks{font-size:11.5px;font-family:var(--font-mono)}.lp-link{text-decoration:none}
+/* r23 F3 (UI-SCM-14): o Commit Composer */
+.cp-card{border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-top:10px;display:flex;flex-direction:column;gap:4px}
+.cp-card.bad{border-color:color-mix(in srgb,var(--yellow,#e0b64a) 60%,var(--border))}
+.cp-msg{width:100%;font-family:var(--font-mono);font-size:12px}.cp-prob{font-size:11.5px;color:var(--yellow,#e0b64a)}
+.cp-file{display:grid;grid-template-columns:auto auto minmax(0,1fr) auto auto auto;gap:6px;align-items:center;font-size:12px}
+.cp-file.out .cp-path{text-decoration:line-through;color:var(--fg-muted)}.cp-path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cp-file select,.cp-lane select{font-size:11px;max-width:140px}.cp-lane{font-size:11.5px;color:var(--fg-dim)}

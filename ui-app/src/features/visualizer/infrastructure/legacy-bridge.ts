@@ -39,26 +39,12 @@ export interface VizState {
 
 export interface FileEntry { content: string }
 
-/* ───── estado window-backed (publicado pelo resíduo; onclick inline e camadas
-   v5/v6 aliasam estes nomes como globais, por isso partilham a MESMA referência) ───── */
-export const viz = (): VizState | null => G.VZ ?? null;
-export const samples = (): Record<string, [string, string]> => G.VZS;
 export const files = (): Record<string, FileEntry> => G.FS;
 
 /* ───── preferências persistidas (porta de armazenamento do monólito) ───── */
 export const lsGet = <T>(k: string, d: T): T => G.LS.get(k, d);
 export const lsSet = (k: string, v: unknown): void => { G.LS.set(k, v); };
 
-/* ───── controlos do overlay (donos do resíduo; resolvidos por window no ACTO —
-   late-binding, como os onclick inline antigos). Consumidos por `ui/actions.ts`. ───── */
-export const vizOpen = (src: string, title: string, origin?: string | null): void => G.vizOpen(src, title, origin);
-export const vizClose = (): void => G.vizClose();
-export const vizFromEditor = (): void => G.vizFromEditor();
-export const vzGo = (i: number): void => G.vzGo(i);
-export const vzPlay = (): void => G.vzPlay();
-export const vzAnswer = (): void => G.vzAnswer();
-export const vzAsk = (): void => { void G.vzAsk(); };
-export const vzRender = (): void => G.vzRender();
 
 /* ───── publicação da superfície pública no `window` ─────
    Os nomes reais resolvem os `onclick` inline (escopo global), o arranque `boot7`

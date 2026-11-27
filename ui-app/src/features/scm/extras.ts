@@ -15,9 +15,25 @@ import { makeGitExtras } from "./application/git-extras";
 import { tauriGitExtras } from "./infrastructure/tauri";
 import * as B from "./infrastructure/legacy-bridge";
 import { GIT_MESSAGES, type GitKey } from "./ui/git-messages";
-import { blameText, renderCompare, renderHistory, renderRebase, renderReview, renderSide, renderText } from "./ui/git-views";
+import { blameText, renderCompare, renderHistory, renderRebase, renderReview, renderSide, renderText, renderUndo } from "./ui/git-views";
 import type { ActionTable } from "./ui/actions";
 import type { RebaseAction } from "./domain/git-extras";
+import { makeHunks } from "./application/hunks";
+import { tauriHunks, tauriUndo, tauriScmAudit, tauriMerge, tauriSync } from "./infrastructure/tauri";
+import { makeSync } from "./application/sync";
+import { makeLaunchpad } from "./application/launchpad";
+import { renderLaunchpad } from "./ui/launchpad-view";
+import { tauriGh, openExternal, tauriCommits } from "./infrastructure/tauri";
+import { makeComposer } from "./application/composer";
+import { services } from "../../app/services";
+import { renderComposer } from "./ui/composer-view";
+import { makeMerge3 } from "./application/merge3";
+import { renderMerge3 } from "./ui/merge3-view";
+import { makeUndo } from "./application/undo";
+import { requestApproval } from "../../app/approval";
+import type { GitExtrasPort } from "./application/extras-ports";
+import { HUNK_MESSAGES } from "./ui/hunk-messages";
+import { renderHunks } from "./ui/hunks-view";
 
 const t = translator(GIT_MESSAGES);
 const say = (k: string, p?: Record<string, string | number>): string => t(k as GitKey, p);
@@ -25,8 +41,22 @@ const say = (k: string, p?: Record<string, string | number>): string => t(k as G
 /** A path of the editor (the FS key = ROOT + relative path) as a project path, or null. */
 const relOf = (p: string): string | null => { const r = B.rootKey(); return r && p.startsWith(r) ? p.slice(r.length) : null; };
 
+/* r23 F3 (UI-SCM-12): undo for git — a snapshot before each operation, an approved and audited restore */
+export const undo = makeUndo({
+  git: tauriUndo(), root: () => B.gitRoot(), changed: () => B.reloadFromGit(),
+  human: { approve: (r) => requestApproval(r), toast: (m) => B.toast(m) },
+  audit: tauriScmAudit(), say,
+});
+undo.subscribe(() => { if (active()) B.panes().scm?.(); });
+/** The A4 commands that change the repository take a snapshot first (stash push/apply/drop, amend). */
+const withUndo = (g: GitExtrasPort): GitExtrasPort => ({
+  ...g,
+  stash: async (root, op) => { if (op.op !== "list" && op.op !== "show") await undo.snapshot(`stash ${op.op}`); return g.stash(root, op); },
+  amend: async (root, message, allowPublished) => { await undo.snapshot("amend"); return g.amend(root, message, allowPublished); },
+});
+
 export const gitExtras = makeGitExtras({
-  git: tauriGitExtras(),
+  git: withUndo(tauriGitExtras()),
   ws: {
     root: () => B.gitRoot(),
     project: () => B.projectName(),
@@ -38,11 +68,12 @@ export const gitExtras = makeGitExtras({
     commitMessage: () => B.commitMsg(),
     setCommitMessage: (m) => B.setCommitMsg(m),
     stage: (paths) => { const r = B.rootKey(), s = B.staged(); paths.forEach((p) => s.add(r + p)); B.panes().scm?.(); },
-    discard: (paths) => { const r = B.rootKey(), fs = B.files(); paths.forEach((p) => { if (fs[r + p]) B.decoratedDiscard(r + p); }); },
+    discard: (paths) => { const r = B.rootKey(), fs = B.files(); void undo.snapshot(`discard ${paths.join(", ")}`).then(() => paths.forEach((p) => { if (fs[r + p]) B.decoratedDiscard(r + p); })); },
     open: (p, l) => B.openRel(p, l),
   },
+  audit: tauriScmAudit(),
   human: {
-    confirm: (m) => B.confirmBox(m),
+    approve: (r) => requestApproval(r),
     text: (ph, verb, initial) => new Promise((res) => { B.palette(initial ?? "", { ph, verb, text: (q) => res(q) }); }),
     pick: (ph, items) => new Promise((res) => { B.palette("", { ph, items: items.map((i) => ({ l: i.label, d: i.detail, run: () => res(i.value) })) }); }),
     toast: (m) => B.toast(m),
@@ -50,6 +81,72 @@ export const gitExtras = makeGitExtras({
   codev: { available: () => codevAsk.available(), ask: (r) => { void codevAsk.ask(r); } },
   tabs: { open: (id, title, kind) => B.openTab({ id, title, kind }), repaint: (kind) => paint(kind) },
   say,
+});
+
+/* ── r23 F3 (UI-SCM-10): staging part of a file, under its row in the pane (desktop with a repository only) ── */
+const th = translator(HUNK_MESSAGES);
+export const hunks = makeHunks({ git: tauriHunks(), root: () => B.gitRoot(), changed: async () => { B.panes().scm?.(); } });
+hunks.subscribe(() => B.panes().scm?.());
+/** The button on a changed file's row that opens its hunks (nothing outside the desktop: the goldens stay). */
+export function hunkButton(fsKey: string): string {
+  const rel = relOf(fsKey);
+  if (!active() || rel === null) return "";
+  return `<button title="${th("showHunks")}" data-action="scm-hunks" data-on="${escAttr(rel)}">${hunks.entry(rel) ? "▾" : "▸"}</button>`;
+}
+/** A changed file's hunks, when open (or nothing). */
+export function hunkBox(fsKey: string): string {
+  const rel = relOf(fsKey), e = rel === null ? undefined : hunks.entry(rel);
+  return active() && rel !== null && e ? renderHunks(th, rel, e) : "";
+}
+const escAttr = (s: string): string => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
+
+/* ── r23 F3 (UI-SCM-13): the three-way merge tab ── */
+export const merge3 = makeMerge3({
+  git: tauriMerge(), root: () => B.gitRoot(), changed: () => B.reloadFromGit(),
+  openTab: () => B.openTab({ id: "git-merge", title: t("mergeTab"), kind: "git-merge" }),
+  check: async () => { const r = await B.projectCheck(); return r ?? { cmd: null, ok: true, summary: "" }; },
+  human: { approve: (r) => requestApproval(r), toast: (m) => B.toast(m) },
+  audit: tauriScmAudit(),
+  codev: { available: () => codevAsk.available(), ask: (r) => { void codevAsk.ask(r); } },
+  say,
+});
+merge3.subscribe(() => paint("git-merge"));
+
+/* ── r23 F3 (UI-SCM-14): the Launchpad ── */
+export const launchpad = makeLaunchpad({
+  gh: tauriGh(), git: tauriGitExtras(), root: () => B.gitRoot(), project: () => B.projectName(),
+  remote: () => (graphRemote() ?? "origin"),
+  human: { approve: (r) => requestApproval(r), text: (ph, verb, initial) => new Promise((res) => { B.palette(initial ?? "", { ph, verb, text: (q) => res(q) }); }), toast: (m) => B.toast(m) },
+  audit: tauriScmAudit(), changed: async () => { await gitExtras.refreshSide(); },
+  openTab: () => B.openTab({ id: "git-launchpad", title: "Launchpad", kind: "git-launchpad" }), say,
+});
+launchpad.subscribe(() => paint("git-launchpad"));
+/** The remote the Launchpad fetches pull requests from: the current branch's, else origin (from the graph's refs). */
+let graphRemote: () => string | null = () => null;
+export const setRemoteSource = (f: () => string | null): void => { graphRemote = f; };
+
+/* ── r23 F3 (UI-SCM-14): the Commit Composer (and the lanes, experimental) ── */
+/* r23 F4a (X03): a commit the secret scan blocked asks the human (features/protect, which evaluates later) */
+const scanned = <T>(f: () => Promise<T>): Promise<T> => (services.protect ? services.protect.guard(f) : f());
+const commitsPort = tauriCommits();
+export const composer = makeComposer({
+  git: tauriGitExtras(),
+  commits: {
+    commitPaths: (r, ps, m) => scanned(() => commitsPort.commitPaths(r, ps, m)),
+    laneCommit: (r, b, ps, m) => scanned(() => commitsPort.laneCommit(r, b, ps, m)),
+  }, root: () => B.gitRoot(), snapshot: (l) => undo.snapshot(l),
+  changed: () => B.reloadFromGit(), lanesOn: () => B.lanesOn(),
+  openTab: () => B.openTab({ id: "git-composer", title: "Commit Composer", kind: "git-composer" }),
+  codev: { available: () => codevAsk.available(), ask: (r) => { void codevAsk.ask(r); } },
+  toast: (m) => B.toast(m), say,
+});
+composer.subscribe(() => paint("git-composer"));
+
+/* ── r23 F3: fetch, pull and push, approved and audited ── */
+export const sync = makeSync({
+  git: tauriSync(), root: () => B.gitRoot(), changed: () => B.reloadFromGit(), snapshot: (l) => undo.snapshot(l),
+  human: { approve: (r) => requestApproval(r), toast: (m) => B.toast(m) },
+  audit: tauriScmAudit(), say,
 });
 
 /** The A4 git work is on (desktop app, the open folder is a git repository). */
@@ -63,6 +160,9 @@ const RENDER: Record<string, () => string> = {
   "git-rebase": () => renderRebase(t, gitExtras.state().rebase),
   "git-text": () => renderText(gitExtras.state().text),
   "git-review": () => renderReview(t, gitExtras.state().review, codevAsk.available()),
+  "git-composer": () => renderComposer(t, composer.state(), { canAsk: codevAsk.available(), lanes: B.lanesOn(), branches: Object.keys(B.git().refs), current: B.branch(), problem: (d) => composer.problem(d) }),
+  "git-launchpad": () => renderLaunchpad(t, launchpad.state()),
+  "git-merge": () => renderMerge3(t, merge3.state(), codevAsk.available(), (p) => merge3.blocks(p)),
 };
 function paint(kind: string): void {
   const h = hosts[kind];
@@ -113,9 +213,15 @@ let csSig: string | null = null;
 let sideAsked = false;
 export function sideSections(): string {
   if (!active()) { sideAsked = false; csSig = null; return ""; }
-  if (!sideAsked) { sideAsked = true; csSig = dirtySignature(); void gitExtras.refreshSide(); }
+  if (!sideAsked) { sideAsked = true; csSig = dirtySignature(); void gitExtras.refreshSide(); void undo.refresh(); }
   else { const sig = dirtySignature(); if (sig !== csSig) { csSig = sig; void gitExtras.refreshChangeSets(); } }
-  return renderSide(t, gitExtras.state(), codevAsk.available(), Date.now());
+  return renderSide(t, gitExtras.state(), codevAsk.available(), Date.now()) + renderUndo(t, undo.entries(), undo.busy(), Math.floor(Date.now() / 1000));
+}
+
+/** Discarding a file from the pane: snapshot first on the desktop (the browser discards at once). */
+export function discardWithUndo(fsKey: string, discard: (p: string) => void): void {
+  if (!active()) { discard(fsKey); return; }
+  void undo.snapshot(`discard ${relOf(fsKey) ?? fsKey}`).then(() => discard(fsKey));
 }
 
 /** The palette's git commands (app/commands.ts): outside the desktop with a repository they say why. */
@@ -125,6 +231,14 @@ export const GIT_COMMANDS: Array<[string, () => void]> = [
   ["Git: Line History (selection)", guard(() => { const c = B.editorCursor(); return c ? gitExtras.openHistory(c.path, [c.start, c.end]) : gitExtras.openHistory(); })],
   ["Git: Compare Branches…", guard(() => gitExtras.openCompare())],
   ["Git: Interactive Rebase…", guard(() => gitExtras.openRebase())],
+  ["Git: Undo Last Operation", guard(() => undo.undoLast())],
+  ["Git: Resolve Merge Conflicts", guard(() => merge3.open())],
+  ["Git: Launchpad (pull requests)", guard(() => launchpad.open())],
+  ["Git: Commit Composer", guard(() => composer.open())],
+  ["Git: Lanes (experimental) on/off", guard(() => { B.setLanes(!B.lanesOn()); B.toast(t(B.lanesOn() ? "lanesOn" : "lanesOff")); paint("git-composer"); })],
+  ["Git: Fetch", guard(() => sync.run("fetch"))],
+  ["Git: Pull", guard(() => sync.run("pull"))],
+  ["Git: Push", guard(() => sync.run("push"))],
   ["Git: Stash Changes", guard(() => gitExtras.stashPush(false))],
   ["Git: Stash Including Untracked", guard(() => gitExtras.stashPush(true))],
   ["Git: New Worktree…", guard(() => gitExtras.worktreeAdd())],
@@ -137,6 +251,28 @@ export const GIT_COMMANDS: Array<[string, () => void]> = [
 
 const n = (s: string): number => Number(s) || 0;
 export const GIT_ACTIONS: ActionTable = {
+  "gx-merge-file": { on: "click", run: (e) => { void merge3.select(e.on); } },
+  "gx-merge-draft": { on: "input", run: (e) => merge3.setDraft(e.on, e.value) },
+  "gx-merge-take": { on: "click", run: (e) => { const [p, side] = e.on.split("|"); merge3.take(p, side as "ours" | "theirs" | "both"); } },
+  "gx-merge-ask": { on: "click", run: (e) => merge3.askCodev(e.on) },
+  "gx-merge-resolve": { on: "click", run: (e) => { void merge3.resolve(e.on); } },
+  "gx-merge-complete": { on: "click", run: () => { void merge3.complete(); } },
+  "gx-merge-abort": { on: "click", run: () => { void merge3.abort(); } },
+  "gx-cp-msg": { on: "input", run: (e) => composer.setMessage(e.on, e.value) },
+  "gx-cp-lane": { on: "change", run: (e) => composer.setLane(e.on, e.value || null) },
+  "gx-cp-move": { on: "change", run: (e) => { if (e.value) composer.move(e.on, e.value); } },
+  "gx-cp-toggle": { on: "change", run: (e) => composer.toggle(e.on) },
+  "gx-cp-ask": { on: "click", run: () => composer.askCodev() },
+  "gx-cp-reload": { on: "click", run: () => { void composer.load(); } },
+  "gx-cp-commit": { on: "click", run: () => { void composer.commitAll(); } },
+  "gx-composer": { on: "click", run: () => { void composer.open(); } },
+  "gx-lp-open": { on: "click", run: (e) => openExternal(e.on, B.desktopOs()) },
+  "gx-lp-refresh": { on: "click", run: () => { void launchpad.load(); } },
+  "gx-lp-worktree": { on: "click", run: (e) => { void launchpad.checkoutWorktree(n(e.on)); } },
+  "gx-launchpad": { on: "click", run: () => { void launchpad.open(); } },
+  "gx-undo": { on: "click", run: (e) => { void undo.undo(n(e.on)); } },
+  "scm-hunks": { on: "click", run: (e) => { void hunks.toggle(e.on); } },
+  "scm-hunk": { on: "change", run: (e) => { const [path, id, op] = e.on.split("|"); void (op === "unstage" ? hunks.unstage(path, id) : hunks.stage(path, id)); } },
   "gx-stash-push": { on: "click", run: () => { void gitExtras.stashPush(false); } },
   "gx-stash-push-all": { on: "click", run: () => { void gitExtras.stashPush(true); } },
   "gx-stash-show": { on: "click", run: (e) => { void gitExtras.stashShow(n(e.on)); } },

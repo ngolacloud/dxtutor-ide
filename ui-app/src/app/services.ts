@@ -17,6 +17,15 @@ import type * as Menus from "../features/menus";
 import type * as Explorer from "../features/explorer";
 import type * as Terminal from "../features/terminal";
 import type * as Theme from "../features/theme";
+import type * as Infra from "../features/infra";
+import type * as Scm from "../features/scm";
+import type * as Diagnostics from "../features/diagnostics";
+import type * as Project from "../features/project/index";
+import type * as Protect from "../features/protect/index";
+import type * as Testing from "../features/testing/index";
+import type * as CodevIndex from "../features/codev/index";
+import type { DeployRecord } from "../features/deploy/domain/types";
+import type { BacklogCreated } from "../features/project/domain/backlog";
 
 export interface Services {
   /** o Learning Track (features/learn.ts), lido pelo pane do tutor, que avalia antes */
@@ -30,21 +39,63 @@ export interface Services {
   /** os caminhos do workspace (features/workspace.ts): a ponte do Co-Dev, a equipa e o Learning Track (U7h) */
   workspace: Pick<typeof Workspace, "norm" | "LF">;
   /** os separadores (features/tabs.ts): a ponte do Co-Dev, a equipa e o Learning Track (U7h) */
-  tabs: Pick<typeof Tabs, "miniOff" | "closeTab">;
+  tabs: Pick<typeof Tabs, "miniOff" | "closeTab" | "rerender" | "EACT">;
   /** restaurar um checkpoint (features/checkpoint.ts), da ponte do Co-Dev (U7h) */
   checkpoint: Pick<typeof Checkpoint, "restoreCkpt">;
   /** abrir o Studio (features/studio.ts), da ponte do Co-Dev e das tarefas (U7h) */
-  studio: Pick<typeof Studio, "openStudio">;
+  studio: Pick<typeof Studio, "openStudio" | "TECH" | "KIND" | "isApp" | "sl">;
   /** o layout (features/shell.ts): o boot, os separadores e a ponte do Co-Dev (U7h) */
-  shell: Pick<typeof Shell, "hydrate" | "setVar" | "badges">;
+  shell: Pick<typeof Shell, "hydrate" | "setVar" | "badges" | "getVar">;
   /** fechar os menus (features/menus.ts): o boot, a paleta e o shell (U7h) */
-  menus: Pick<typeof Menus, "closeMenus">;
+  menus: Pick<typeof Menus, "closeMenus" | "buildMenubar">;
   /** a árvore e o Outline (features/explorer.ts): os separadores e o workspace, que avaliam antes (U7l) */
   explorer: Pick<typeof Explorer, "syncTree" | "drawOutline" | "markActive">;
   /** o comando do terminal com a porta desktop (features/terminal.ts), da ponte do Co-Dev (U7m) */
-  terminal: Pick<typeof Terminal, "termExec">;
+  terminal: Pick<typeof Terminal, "termExec" | "echo" | "echoCmd" | "newInput">;
   /** os temas (features/theme.ts), lidos pelo config ao restaurar (U7m) */
   theme: Pick<typeof Theme, "THEMES">;
+  /** o runtime, o desenho do pane e o contexto do projecto (features/infra.ts): o stack, a equipa e a ponte da ext (U7p2) */
+  infra: Pick<typeof Infra, "needRt" | "infraDraw" | "projectContext">;
+  /** o merge publicado (a porta desktop), o discard e as cores das faixas (features/scm.ts): a ponte do scm, que avalia antes (U7p3) */
+  scm: Pick<typeof Scm, "gitMerge" | "discard" | "LANE">;
+  /** os problemas (features/diagnostics.ts, com o painel real por cima no desktop): o editor, o workspace e os geradores (U7p6) */
+  diagnostics: Pick<typeof Diagnostics, "diagnostics" | "drawProblems" | "has">;
+  /** o atalho «a tecla é da shell» do terminal real (o painel, só no desktop): os atalhos globais (U7p6) */
+  panel: {
+    termOwnsKey: (e: KeyboardEvent) => boolean;
+    /** mostra o canal «Language servers» do Output (o registo dos servidores de linguagem, LSP P6) */
+    showLspLog?: () => void;
+  };
+  /** abrir o Project (features/project/index.ts, que avalia depois das boas-vindas — r23 F6) */
+  project: Pick<typeof Project, "openProject"> & {
+    /** `/project`: creates the Project from the backlog and the plan Co-Dev proposed (after the human confirms) */
+    createFromBacklog(o: { hash: string; plan: unknown; ready: boolean; issues: number; sprints: number }): Promise<BacklogCreated | null>;
+    /** hands a Project issue to Co-Dev («Work on it with Co-Dev») */
+    workOn(key: string): Promise<void>;
+    /** Multi Co-Dev (phase 4): reads the Project again, when it is open (an integration moved an issue) */
+    refresh(): void;
+  };
+  /** r23 F4a: um commit da UI que o secret scan bloqueou pergunta ao humano (features/protect, que avalia depois);
+   *  e o hook de pre-commit (endurecimento r23), pedido pela paleta */
+  protect: Pick<typeof Protect.protect, "guard" | "installHook">;
+  /** o runner ao vivo do separador «Tests» do painel (features/testing, só no desktop): o «Accept & test» do Code review */
+  tests: Pick<typeof Testing, "runLive">;
+  /** propostas de ficheiro inteiro revistas no editor, bloco a bloco (features/codev/index.ts): o painel Explain / Code review */
+  proposals: Pick<typeof CodevIndex, "proposeInEditor">;
+  /** r23 F4c2: o deploy guiado (features/deploy, que avalia depois da infra): o «Promote»/«Redeploy» abrem-no */
+  deploy: { open: (env: string) => void; recent: () => DeployRecord[] };
+  /** LSP P5: o Shift+Alt+F do editor é do formatador do servidor de linguagem (features/lsp, só desktop com pasta), que
+   *  cai no «Format Document» do dxtutor quando não há servidor; os atalhos globais, que avaliam antes, perguntam-lhe */
+  lspFormat: { handles: () => boolean };
+  /** Multi Co-Dev (fase 4): o que o painel de revisão precisa do Co-Dev (features/codev/index.ts) — o provedor e o
+   *  modelo com que o revisor corre, e fechar a sessão de uma issue integrada (as reservas e a worktree saem pelas
+   *  regras da fase 3) */
+  codevReview: { reviewer(): { provider: string; model: string }; closeSession(session: string): boolean };
+  /** Multi Co-Dev (fase 4): o painel «Rever e integrar» de uma issue (features/integration, que avalia depois da faixa
+   *  «Co-Devs» e do Project, que o abrem no acto) */
+  integration: { open(key: string): void };
+  /** r23 F4c/F5a: the Vault the IDE is signed in to (features/vault, que avalia depois do Ops), null otherwise */
+  vault: { signedIn: () => { addr: string; namespace: string | null } | null };
 }
 
 export const services: Partial<Services> = {};

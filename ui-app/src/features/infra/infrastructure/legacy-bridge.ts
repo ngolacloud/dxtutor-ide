@@ -25,6 +25,11 @@ import type {
   Design, Files, Envs, EnvX, K8sState, Commit, TechSpec, KindSpec, DesignNode,
   Devc, StackItem, ComposeSvc, DlgCfg, OpenTabArg,
 } from "../domain/types";
+/* donos que avaliam antes desta ponte importam-se; os que avaliam depois, pelo registo (ADR-0004, U7p1) */
+import { echo as echoImpl, echoCmd as echoCmdImpl, newInput as newInputImpl } from "../../terminal";
+import { note as noteImpl } from "../../notifications";
+import { services } from "../../../app/services";
+import { stackState, setStackState, composeServices as composeServicesImpl, drawStack as drawStackImpl } from "../../stack";
 
 export { toast, log, rerender, writeFile, svg, esc, show };
 export type {
@@ -36,25 +41,32 @@ const G = window as unknown as Record<string, any>;
 
 /* ───── estado window-backed (o resíduo é dono; aqui só os acessores) ───── */
 export const envs = (): Envs => G.ENVS;
-export const envx = (): EnvX => G.ENVX;
-export const k8s = (): K8sState | null => G.K8S;
-export const setK8s = (v: K8sState | null): void => { G.K8S = v; };
-export const stack = (): StackItem[] | null => G.STACK;
-export const setStack = (v: StackItem[] | null): void => { G.STACK = v; };
-export const devc = (): Devc | null => G.DEVC;
-export const setDevc = (v: Devc | null): void => { G.DEVC = v; };
-export const pDc = (): string => G.P_DC;
-export const setPDc = (v: string): void => { G.P_DC = v; };
+/* o ENVX/K8S/DEVC/P_DC são deste módulo desde a U7p2 do ADR-0004 (eram window.*): o resíduo dá a referência do
+   ENVX ao avaliar, e o desktop, o auto-teste e os testes lêem-nos e escrevem-nos por estes acessores */
+let ENVX_REF: EnvX;
+let K8S: K8sState | null = null;
+let DEVC: Devc | null = null;
+let P_DC: string | undefined;
+export const setEnvxRef = (v: EnvX): void => { ENVX_REF = v; };
+export const envx = (): EnvX => ENVX_REF;
+export const k8s = (): K8sState | null => K8S;
+export const setK8s = (v: K8sState | null): void => { K8S = v; };
+export const stack = (): StackItem[] | null => stackState() as StackItem[] | null;
+export const setStack = (v: StackItem[] | null): void => { setStackState(v as never); };
+export const devc = (): Devc | null => DEVC;
+export const setDevc = (v: Devc | null): void => { DEVC = v; };
+export const pDc = (): string => P_DC as string;
+export const setPDc = (v: string): void => { P_DC = v; };
 
 /* ───── design do Studio + catálogo + FS + raiz (donos do monólito/studio) ───── */
 export const design = (): Design => G.SD;
 export const files = (): Files => G.FS;
 export const root = (): string => G.ROOT;
-export const tech = (): Record<string, TechSpec> => G.TECH;
-export const kind = (): Record<string, KindSpec> => G.KIND;
-export const isApp = (n: DesignNode): boolean => G.isApp(n);
-export const nodeSlug = (n: DesignNode): string => G.sl(n);
-export const composeServices = (): ComposeSvc[] | null => G.composeServices();
+export const tech = (): Record<string, TechSpec> => services.studio!.TECH as Record<string, TechSpec>;
+export const kind = (): Record<string, KindSpec> => services.studio!.KIND as Record<string, KindSpec>;
+export const isApp = (n: DesignNode): boolean => services.studio!.isApp(n as never);
+export const nodeSlug = (n: DesignNode): string => services.studio!.sl(n as never);
+export const composeServices = (): ComposeSvc[] | null => composeServicesImpl() as ComposeSvc[] | null;
 
 /* ───── git (promoções lêem as refs + o grafo de commits) ───── */
 export const gitRefs = (): Record<string, string> => G.GIT.refs;
@@ -71,20 +83,14 @@ export const openTab = (t: OpenTabArg): void => { G.openTab(t); };
 export const dlg = (cfg: DlgCfg): void => { coreDlg(cfg); };  /* o diálogo é do core (era window.dlg do v6.ts; ADR-0004, U4g7) */
 
 /* ───── terminal (saída simulada no browser) ───── */
-export const echo = (html: string): void => { G.echo(html); };
-export const echoCmd = (cmd: string): void => { G.echoCmd(cmd); };
-export const newInput = (nofocus?: boolean): void => { G.newInput(nofocus); };
+export const echo = (html: string): void => { echoImpl(html); };
+export const echoCmd = (cmd: string): void => { echoCmdImpl(cmd); };
+export const newInput = (nofocus?: boolean): void => { newInputImpl(nofocus); };
 export const setPanelTab = (tab: string, nofocus?: boolean): void => { G.setPanelTab(tab, nofocus); };
-export const getVar = (k: string): string => G.getVar(k);
+export const getVar = (k: string): string => services.shell!.getVar(k);
 
 /* ───── estado da vista + notificações ───── */
-export const drawStack = (): void => { G.drawStack(); };
-export const note = (m: string): void => { G.note(m); };
+export const drawStack = (): void => { drawStackImpl(); };
+export const note = (m: string): void => { noteImpl(m); };
 export const rel = (at: number): string => G.rel(at);
 
-/* ───── publicação da superfície pública no `window` ─────
-   Os nomes reais resolvem os onclick inline (escopo global), os decoradores de
-   v5/v6 (dxRun/dxStop/dxDeploy/drawStudio) e os consumidores por global. */
-export const publish = (surface: Record<string, unknown>): void => {
-  Object.assign(window, surface);
-};

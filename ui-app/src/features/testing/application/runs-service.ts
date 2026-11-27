@@ -12,7 +12,7 @@
 
 import { caseFilter, failureContext, flakyContext } from "../domain/runs";
 import type { CaseResult, Runner, TestHistory, TestRunReport, TestScope } from "../domain/types";
-import type { CodevPort, RunnersPort, WorkspacePort } from "./ports";
+import type { CodevPort, ResultsPort, RunnersPort, WorkspacePort } from "./ports";
 import { ptCopy, type RunsCopy } from "./messages";
 
 export interface RunsState {
@@ -65,6 +65,8 @@ export function makeRuns(deps: {
   busy?: () => boolean;
   /** cada corrida terminada (para acender a lista descoberta) */
   onReport?: (rep: TestRunReport) => void;
+  /** r23 F3: grava o resultado de uma corrida da suite inteira no commit actual (o ciclo de vida do commit) */
+  results?: ResultsPort;
   /** o atraso do «Watch» (juntar as gravações seguidas); injectável nos testes */
   debounce?: (f: () => void, ms: number) => () => void;
   /** os pedidos ao Co-Dev na língua da interface (`./messages`); sem ela, os de antes (português) */
@@ -131,6 +133,10 @@ export function makeRuns(deps: {
         st.reports[id] = { ...prev, results };
       } else st.reports[id] = rep;
       deps.onReport?.(rep);
+      if (scope.kind === "all" && rep.ran && deps.results) {
+        const n = (s: string) => rep.results.filter((c) => c.status === s).length;
+        void deps.results.record(root, { runner: rep.runner, command: rep.command, passed: n("passed"), failed: n("failed"), ignored: n("skipped") }).catch(() => undefined);
+      }
     } catch (e) {
       if (st.root !== root) return;
       st.errors[id] = msg(e);

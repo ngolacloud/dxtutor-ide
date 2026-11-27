@@ -24,6 +24,15 @@ export interface StartAgentArgs {
   issue?: string | null;
   /** A língua em que o Co-Dev responde (`en`/`ptAO`); por omissão, a da interface. Fica gravada com a sessão. */
   language?: string | null;
+  /** Sessão de arquitectura (conjunto 9): só estas levam a ferramenta `arch_propose`. Fica gravada com a sessão. */
+  architecture?: boolean;
+  /** Sessão de backlog (conjunto 11, `/backlog` e `/project`): só estas levam `backlog_propose` e
+   *  `project_propose`. Fica gravada com a sessão. */
+  backlog?: boolean;
+  /** H2: the project of the workspace the session works in (relative; `null` or `"."`: the whole workspace). */
+  project?: string | null;
+  /** Multi Co-Dev (fase 3): a sessão da issue trabalha na worktree dela (o backend encontra-a; tem de existir). */
+  worktree?: boolean;
 }
 
 /** Abre uma sessão; devolve o id. Falha se faltar a chave do provedor ou a pasta não existir. */
@@ -40,10 +49,17 @@ export const startAgent = (a: StartAgentArgs): Promise<string> =>
     reviewEdits: a.reviewEdits ?? false,
     issue: a.issue ?? null,
     language: a.language ?? currentLocale(),
+    architecture: a.architecture ?? false,
+    backlog: a.backlog ?? false,
+    project: a.project ?? null,
+    ...(a.worktree ? { worktree: true } : {}),
   });
 
 /** As sessões gravadas do projecto (mais recentes primeiro) — `Vec<SessionSummary>`. */
 export const listAgentSessions = (root: string): Promise<unknown> => invoke<unknown>("codev_agent_sessions", { root });
+
+/** As sessões abertas nesta execução da app (o mapa de agentes) — `Vec<LiveSession>`. */
+export const liveAgentSessions = (): Promise<unknown> => invoke<unknown>("codev_agent_live");
 
 /** O histórico simplificado de uma sessão aberta — `Vec<HistoryItem>`. */
 export const agentHistory = (sessionId: string): Promise<unknown> => invoke<unknown>("codev_agent_history", { sessionId });
@@ -68,12 +84,17 @@ export interface HunkDecision {
 export const reviewAgentHunks = (sessionId: string, call: string, decisions: HunkDecision[], driver?: string | null): Promise<void> =>
   invoke<void>("codev_agent_review", { sessionId, call, decisions, driver: driver ?? null });
 
+/** RF-A03/A04: the architect's override of a change under review that breaks the rules (an accepted ADR). */
+export const overrideAgentViolation = (sessionId: string, call: string, adr: string): Promise<void> =>
+  invoke<void>("codev_agent_override", { sessionId, call, adr });
+
 export const cancelAgent = (sessionId: string): Promise<boolean> => invoke<boolean>("codev_agent_cancel", { sessionId });
 
 export const setAgentMode = (sessionId: string, mode: string): Promise<boolean> =>
   invoke<boolean>("codev_agent_set_mode", { sessionId, mode });
 
-export const closeAgent = (sessionId: string): Promise<boolean> => invoke<boolean>("codev_agent_close", { sessionId });
+export const closeAgent = (sessionId: string, keepWorktree?: boolean): Promise<boolean> =>
+  invoke<boolean>("codev_agent_close", keepWorktree ? { sessionId, keepWorktree: true } : { sessionId });
 
 /** `codev-agent://event` `{session, event}` — eventos do loop. */
 export const onAgentEvent = (h: (payload: unknown) => void): Promise<() => void> => listen("codev-agent://event", h);
@@ -104,5 +125,5 @@ export const saveAgentPermissions = (root: string, rules: { allow: string[]; den
 export const agentExtensions = (root: string): Promise<unknown> => invoke<unknown>("codev_agent_extensions", { root });
 
 /** Confia nos hooks (`"hooks"`) ou nos servidores MCP (`"mcp"`) do projecto, tal como estão. */
-export const trustAgentFile = (root: string, kind: "hooks" | "mcp"): Promise<void> =>
+export const trustAgentFile = (root: string, kind: "hooks" | "mcp" | "sandbox"): Promise<void> =>
   invoke<void>("codev_agent_trust", { root, kind });

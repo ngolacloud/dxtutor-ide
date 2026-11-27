@@ -49,14 +49,15 @@ it("o histórico: Enter guarda, ↑/↓ percorre, history lista", () => {
   expect(term()).toMatch(/1\s+whoami/);
 });
 
-it("Tab completa o nome único da pasta; o registo XC tem prioridade sobre os comandos de base", () => {
+it("Tab completa o nome único da pasta; o registo XC tem prioridade sobre os comandos de base", async () => {
   enter("cd dxtutor");
   const c = document.querySelector("#cmd") as HTMLInputElement;
   c.value = "cd cra";
   key("Tab");
   expect((document.querySelector("#cmd") as HTMLInputElement).value).toBe("cd crates");
   // help vem do XC do terminal.ts (não do help de base)
-  w.XC.__xcteste = () => w.echo("via XC");
+  const TMM = await import("../src/features/terminal");
+  (TMM.XC as Record<string, () => void>).__xcteste = () => TMM.echo("via XC");
   enter("__xcteste");
   expect(term()).toContain("via XC");
 });

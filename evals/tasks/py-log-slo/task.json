@@ -1,0 +1,9 @@
+{
+  "id": "py-log-slo",
+  "title": "Latency p95 and error rate from the access log",
+  "language": "python",
+  "category": "sre",
+  "prompt": "For the SLO dashboard, implement `summarize(lines)` in app/slo.py. Each line of the access log looks like\n`2026-11-20T10:00:01Z GET /api/orders 200 123ms`. Return a dict keyed by path with `{\"requests\": n, \"p95_ms\": int,\n\"error_rate\": float}`: p95 uses the nearest-rank method (the value at position ceil(0.95*n) of the sorted latencies),\n`error_rate` is the share of 5xx responses rounded to 4 decimals. Lines that do not match the format are skipped.",
+  "check": "python3 -m unittest discover -s tests -q 2>&1",
+  "test": "python3 -m unittest discover -s tests -q"
+}

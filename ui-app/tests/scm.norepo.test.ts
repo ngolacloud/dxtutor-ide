@@ -8,11 +8,13 @@ import { bootApp, golden } from "./harness";
  * gitflow às versões publicadas (no desktop, as decoradas com git real pelo bridge.ts). */
 
 let w: any;
+let SCMM: any; // eslint-disable-line @typescript-eslint/no-explicit-any — o módulo da cadeia do bootApp (U7p3)
 
 beforeEach(async () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
   w = await bootApp();
+  SCMM = await import("../src/features/scm");
 });
 
 afterEach(() => {
@@ -63,7 +65,7 @@ describe("sem repositório git", () => {
     expect(w.commit("feat: x")).toBe(null);
     expect(w.checkout("develop")).toBe(false);
     expect(w.checkout("feature/x", true)).toBe(false);
-    expect(w.gitMerge("develop")).toBe(null);
+    expect(SCMM.gitMerge("develop")).toBe(null);
     expect(w.gfStart("feature", "x")).toBe("");
     expect(w.gfFinish("feature/x")).toBe(null);
     expect(toast).toHaveBeenCalledWith(expect.stringMatching(/No git repository/));
@@ -81,23 +83,23 @@ describe("sem repositório git", () => {
     expect(w.checkout("main")).toBe(true); // repo real aberto: o espelho muda de ramo
   });
 
-  it("terminal emulado: `git` responde como o git real fora de um repositório", () => {
+  it("terminal emulado: `git` responde como o git real fora de um repositório", async () => {
     noRepo();
     const before = document.querySelectorAll("#term .line").length;
-    expect(w.gitCmd(["status"], "git status")).toEqual({ ok: false });
+    expect((await import("../src/features/termgit")).gitCmd(["status"], "git status")).toEqual({ ok: false });
     const lines = [...document.querySelectorAll("#term .line")].slice(before).map((d) => d.textContent || "");
     expect(lines.join("\n")).toMatch(/fatal: not a git repository/);
   });
 
   it("o changelog do browser não inventa commits (o desktop usa git_log)", async () => {
-    expect(await w.clLog()).toEqual([]);
-    expect(await w.clShow("1a2b3c4")).toBe("");
+    expect(await (await import("../src/features/changelog")).clLog()).toEqual([]);
+    expect(await (await import("../src/features/changelog")).clShow("1a2b3c4")).toBe("");
   });
 });
 
 describe("com repositório (espelho da fixture)", () => {
-  it("terminal emulado: `git push` já não finge um push", () => {
-    expect(w.gitCmd(["push"], "git push")).toEqual({ ok: false });
+  it("terminal emulado: `git push` já não finge um push", async () => {
+    expect((await import("../src/features/termgit")).gitCmd(["push"], "git push")).toEqual({ ok: false });
   });
 
   it("gfStart muda de ramo pelo checkout PUBLICADO (no desktop, o decorado com git real)", () => {
@@ -107,10 +109,10 @@ describe("com repositório (espelho da fixture)", () => {
     expect(decorated).toHaveBeenCalledWith("feature/exportar-relatorio", true);
   });
 
-  it("gfFinish faz checkout e merge pelas versões PUBLICADAS", () => {
+  it("gfFinish faz checkout e merge pelas versões PUBLICADAS", async () => {
     const b = w.gfStart("feature", "fim");
     const co = vi.fn(() => true), merge = vi.fn(() => ({ h: "abc1234", m: "Merge" }));
-    w.checkout = co; w.gitMerge = merge;
+    w.checkout = co; (await import("../src/app/services")).services.scm!.gitMerge = merge; // desde a U7p3 o merge publicado vem do registo
     expect(w.gfFinish(b)).toEqual({ h: "abc1234", m: "Merge" });
     expect(co).toHaveBeenCalledWith("develop", undefined);
     expect(merge).toHaveBeenCalledWith(b, undefined);

@@ -1,0 +1,9 @@
+{
+  "id": "js-deep-equal",
+  "title": "deepEqual gets dates, NaN and arrays wrong",
+  "language": "javascript",
+  "category": "bugfix",
+  "prompt": "Our `deepEqual` (src/equal.js) is used to skip saving unchanged forms, and it lies: two equal `Date`s compare\nunequal, `NaN` is not equal to `NaN`, `[1,2]` equals `{0:1,1:2}`, and objects with an extra `undefined` key compare\nequal. Fix it for primitives, arrays, plain objects, Dates (by time) and nested combinations; key order does not\nmatter; arrays and objects are never equal to each other.",
+  "check": "node --test 2>&1",
+  "test": "node --test"
+}

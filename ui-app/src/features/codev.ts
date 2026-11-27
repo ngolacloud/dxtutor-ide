@@ -42,6 +42,9 @@ import { isDesktop } from "../platform/tauri/core";
 import { currentLocale, translator } from "../app/i18n";
 import { CODEV_ENGINE_MESSAGES } from "./codev/application/messages";
 import { CODEV_CHAT_MESSAGES } from "./codev/ui/chat-messages";
+import { BACKLOG_MESSAGES } from "./codev/ui/backlog-messages";
+import { backlogCommand } from "./codev/domain/backlog";
+import { cacheHitPercent } from "./codev/domain/pricing";
 import {
   codevEngine,
   decisions as DECS_ARR,
@@ -59,11 +62,14 @@ import {
   tl,
   hunkReview,
   codevRun,
+  agentMapView,
+  codevsView,
 } from "./codev/index";
 import { services } from "../app/services";
 import type { ChatMessage } from "../app/store/agent";
 
 const tc = translator(CODEV_CHAT_MESSAGES);
+const tb = translator(BACKLOG_MESSAGES);
 
 /* ───── dados de config/estado do Co-Dev: exportados; o config e a ponte (avaliam antes) lêem-nos pelo registo (U7j) ───── */
 export const ROLE: Record<string, string> = { plan: 'Planeador', code: 'Programador', review: 'Revisor', judge: 'Juiz', local: 'Privado / offline' };
@@ -142,35 +148,46 @@ function newChat() {
    O backend devolve, no fim de cada volta, os tokens que o provider reportou
    (platform/desktop/llm.ts anuncia-os em `dx:llm-usage`). O `ctx` mostra o tamanho do último
    contexto enviado (tokens de entrada da última volta) e o título dá a soma da conversa; antes
-   da primeira volta (e no browser, sem backend) fica vazio. «Nova conversa» repõe-no. */
-const CTX = { turns: 0, last: 0, lastOut: 0, inTotal: 0, outTotal: 0 };
+   da primeira volta (e no browser, sem backend) fica vazio. «Nova conversa» repõe-no.
+   O agente v2 também diz quanto da entrada veio da cache e o custo de cada pedido: o `ctx`
+   mostra a percentagem lida da cache na conversa e o título a cache e o custo acumulados. */
+const CTX = { turns: 0, last: 0, lastOut: 0, inTotal: 0, outTotal: 0, cacheIn: 0, cacheRead: 0, cacheWrite: 0, cost: 0, priced: false };
 const fmtTok = (n: number): string => (n >= 10000 ? Math.round(n / 1000) + "k" : n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n));
 function drawCtx(): void {
   const st = $('#st-ctx');
   if (!st) return;
-  st.textContent = CTX.turns && CTX.last ? 'ctx ' + fmtTok(CTX.last) : '';
-  st.title = !CTX.turns ? 'Contexto usado na conversa' : CTX.last
+  const hit = CTX.cacheIn ? cacheHitPercent(CTX.cacheIn, CTX.cacheRead) : null;
+  st.textContent = CTX.turns && CTX.last ? 'ctx ' + fmtTok(CTX.last) + (hit !== null ? ' · ' + tc('ctxCacheShort', { pct: hit }) : '') : '';
+  let title = !CTX.turns ? 'Contexto usado na conversa' : CTX.last
     ? tc('ctxLast', { in: CTX.last, out: CTX.lastOut, inTotal: CTX.inTotal, outTotal: CTX.outTotal, turns: CTX.turns })
     : tc('ctxNoUsage');
+  if (hit !== null) title += '\n' + tc('ctxCache', { pct: hit, read: CTX.cacheRead, write: CTX.cacheWrite });
+  if (CTX.priced) title += '\n' + tc('ctxCost', { cost: CTX.cost.toFixed(CTX.cost < 0.01 ? 4 : CTX.cost < 1 ? 3 : 2) });
+  st.title = title;
 }
 document.addEventListener('dx:llm-usage', (e) => {
-  const d = (e as CustomEvent<{ input?: number; output?: number }>).detail || {};
+  const d = (e as CustomEvent<{ input?: number; output?: number; cacheRead?: number; cacheWrite?: number; cost?: number | null }>).detail || {};
   const i = Number(d.input) || 0, o = Number(d.output) || 0;
   CTX.turns++; CTX.last = i; CTX.lastOut = o; CTX.inTotal += i; CTX.outTotal += o;
+  /* só o agente v2 diz a cache (os outros caminhos não a mandam: o ctx fica como era) */
+  if (typeof d.cacheRead === 'number') {
+    CTX.cacheIn += i; CTX.cacheRead += Number(d.cacheRead) || 0; CTX.cacheWrite += Number(d.cacheWrite) || 0;
+  }
+  if (typeof d.cost === 'number' && Number.isFinite(d.cost)) { CTX.cost += d.cost; CTX.priced = true; }
   drawCtx();
 });
 const _newChatBase = newChat;
-function newChatWithCtx() { _newChatBase(); Object.assign(CTX, { turns: 0, last: 0, lastOut: 0, inTotal: 0, outTotal: 0 }); drawCtx(); }
+function newChatWithCtx() { _newChatBase(); Object.assign(CTX, { turns: 0, last: 0, lastOut: 0, inTotal: 0, outTotal: 0, cacheIn: 0, cacheRead: 0, cacheWrite: 0, cost: 0, priced: false }); drawCtx(); }
 
 /* publica no window os helpers de transcript/UI (donos agora do chat-view) + a cola local
    de modos/providers, p/ o resíduo app.ts, os onclick inline e as outras features (board) */
-Object.assign(window, { user, card, md, waiting, ask });
+Object.assign(window, { user, card, waiting, ask });
 
 /* o doTool com o gate de direitos do harness acima: exportado (ADR-0004, U7k — era publicado no window, que só os
    testes liam). O motor de missões guionadas e os cenários de demonstração foram removidos (ADR-0006, R1b). */
 export { harnessDoTool as doTool };
 /* os helpers do transcript que o board, os separadores e o arranque usam: por import (ADR-0004, U7l — eram publicados no window) */
-export { ctxPill, scrollMsgs, beat, runState, runLabel, tl };
+export { ctxPill, scrollMsgs, beat, runState, runLabel, tl, md, agSend };
 /* os botões da moldura (app/chrome-actions.ts), os comandos e o arranque importam-nos (ADR-0004, U7n — eram publicados no window) */
 export { cycleMode, pickModel, newChatWithCtx as newChat, agCtl, assistantCenter, toggleAgent, openManager };
 
@@ -181,6 +198,11 @@ function handlePrompt(q: string) {
     const pedido = q.replace(/^\/plano\s*/, '');
     if (!pedido) { user(q); card('co-dev', tc('planUsage', { example: `<code>${esc(tc('planExample'))}</code>` })); return; }
     if (!codevEngine.agentPlan(pedido)) { user(q); card('co-dev', tc('needsDesktopPlan')); }
+    return;
+  }
+  if (backlogCommand(q)) {
+    // /backlog and /project (toolset 11): a backlog session; the backend expands the command
+    if (!codevEngine.agentBacklog(q)) { user(q); card('co-dev', tb('needsDesktop')); }
     return;
   }
   if (q === '/comandos') {
@@ -224,7 +246,7 @@ function assistantDock() { bridge.closeTab('agent'); }
 function toggleAgent() { if (bridge.tabOf('agent')) { bridge.closeTab('agent'); return; } const show = bridge.getVar('--agent-w') === '0px'; bridge.setVar('--agent-w', show ? '380px' : '0px'); $('#tgl-agent')!.classList.toggle('on', show); }
 function focusAgent(nofocus?: boolean) { if (bridge.tabOf('agent')) { if (bridge.monolith.currentTabId !== 'agent') bridge.show('agent'); } else if (bridge.getVar('--agent-w') === '0px') toggleAgent(); if (!nofocus) ($('#ag-input') as HTMLElement)!.focus(); }
 /* publica o ponto de entrada de conversa livre + posicionamento; VIEW.agent fica como shim em app.ts (VIEW nasce depois) */
-Object.assign(window, { handlePrompt, agSend, liveChat: codevEngine.liveChat, focusAgent });
+Object.assign(window, { handlePrompt, liveChat: codevEngine.liveChat, focusAgent });
 /* Board (opção 2 do ADR-0003): o Board pede ao Co-Dev pelo seu legacy-bridge, sem importar a feature */
 Object.assign(window, { codevAgentStory: codevEngine.agentStory, codevAgentAvailable: codevEngine.agentAvailable });
 
@@ -339,6 +361,8 @@ const ACTIONS: ActionTable = {
   /* live hunks in the editor (RF-CODEV-STREAM §8) */
   "hunk-accept": { on: "click", run: (e) => hunkReview.decide(e.on, true) },
   "hunk-reject": { on: "click", run: (e) => hunkReview.decide(e.on, false) },
+  /* RF-A03/A04: the architect's override (data-on = the hunk; the review is its call's) */
+  "hunk-override": { on: "click", run: (e) => { const h = hunkReview.state().hunks.find((x) => x.id === e.on); if (h) void hunkReview.override(h.call); } },
   "hunk-pause": { on: "click", run: () => hunkReview.togglePause() },
   "hunk-faster": { on: "click", run: () => hunkReview.faster() },
   "hunk-stop": { on: "click", run: () => hunkReview.stop() },
@@ -354,7 +378,7 @@ const ACTIONS: ActionTable = {
       void codevRun.savePermissions(lines('allow'), lines('deny'));
     },
   },
-  "hx-trust": { on: "click", run: (e) => void codevRun.trust(e.on as 'hooks' | 'mcp') },
+  "hx-trust": { on: "click", run: (e) => void codevRun.trust(e.on as 'hooks' | 'mcp' | 'sandbox') },
   "hx-refresh": { on: "click", run: () => void codevRun.refresh() },
   "hunk-explain": {
     on: "click",
@@ -374,7 +398,7 @@ const ACTIONS: ActionTable = {
     run: (e) => { ROUTE[e.on] = e.value; bridge.save(); bridge.show(bridge.monolith.currentTabId as string); },
   },
 };
-bindActions({ ...ACTIONS, ...composerActions() });
+bindActions({ ...ACTIONS, ...composerActions(), ...agentMapView.actions(), ...codevsView.actions() });
 
 /* ───── o compositor da conversa (ui/composer.ts): o mundo chega por este host ───── */
 function exportConversation() {

@@ -26,8 +26,13 @@ export const agentGateway: AgentGateway = {
       resume: o.resume ?? null,
       reviewEdits: o.reviewEdits ?? false,
       issue: o.issue ?? null,
+      architecture: o.architecture ?? false,
+      backlog: o.backlog ?? false,
+      project: o.project ?? null,
+      ...(o.worktree ? { worktree: true } : {}),
     }),
   review: (s, call, decisions) => ipc.reviewAgentHunks(s, call, decisions, pairState.driver()),
+  override: (s, call, adr) => ipc.overrideAgentViolation(s, call, adr),
   sessions: async (root) => parseSessions(await ipc.listAgentSessions(root)),
   history: async (s) => parseHistory(await ipc.agentHistory(s)),
   setPlan: (s, on) => ipc.setAgentPlan(s, on),
@@ -41,7 +46,7 @@ export const agentGateway: AgentGateway = {
   approve: (s, id, allow, reason, remember) => ipc.approveAgent(s, id, allow, reason, remember, pairState.driver()),
   cancel: (s) => ipc.cancelAgent(s),
   setMode: (s, mode) => ipc.setAgentMode(s, mode),
-  close: (s) => ipc.closeAgent(s),
+  close: (s, keepWorktree) => ipc.closeAgent(s, keepWorktree),
   async subscribe(h) {
     const offs = await Promise.all([
       ipc.onAgentEvent((p) => {

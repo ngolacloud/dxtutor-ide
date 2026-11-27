@@ -19,13 +19,19 @@
 
 import { $, esc } from "../../../core";
 import * as bridge from "../infrastructure/legacy-bridge";
-import { composerContext, trackSubagent } from "./composer";
+import { composerContext } from "./composer";
 import { bus } from "../../../app/bus";
 import { explainProviderError, type ProviderError } from "../domain/provider-errors";
 import { translator } from "../../../app/i18n";
 import { CODEV_CHAT_MESSAGES } from "./chat-messages";
+import { CODEV_STREAM_MESSAGES } from "./stream-messages";
+import { CODE_IN_EDITOR } from "../domain/prose";
+import { plannedLabel, rangeLabel, type LinesCheck, type PlanPlace } from "../domain/plan-order";
+import { codevAsk } from "../../../app/codev-ask";
+import { proposalHtml } from "./backlog-view";
 
 const tc = translator(CODEV_CHAT_MESSAGES);
+const ts = translator(CODEV_STREAM_MESSAGES);
 import type {
   ApprovalGate,
   CardRef,
@@ -33,6 +39,7 @@ import type {
   ToolHost,
   ToolRef,
 } from "../application/ports";
+import type { BacklogProposal } from "../domain/backlog";
 
 /* animation speed multiplier; only ever 1 in production, left as a knob the
    engine used to carry locally. */
@@ -88,23 +95,24 @@ export function providerErrorHtml(msg: string, active?: string | null): string {
   return `<b>${esc(title)}</b><div style="margin-top:4px">${esc(hint)}</div>${e.url ? `<div style="margin-top:6px">${tc("fixHere")} <code>${esc(e.url)}</code></div>` : ""}${actions}<details style="margin-top:8px;color:var(--fg-muted)"><summary>${tc("details")}</summary><code style="white-space:pre-wrap;word-break:break-word">${esc(e.detail)}</code></details>`;
 }
 
-export function user(t: string): void {
-  const i = $("#ag-intro");
+/** O balão do humano. `into`: o transcript de uma sessão Co-Dev que não está à vista (Multi Co-Dev). */
+export function user(t: string, into?: HTMLElement): void {
+  const i = into ? null : $("#ag-intro");
   if (i) i.remove();
-  $("#ag-msgs")!.insertAdjacentHTML(
+  (into ?? $("#ag-msgs")!).insertAdjacentHTML(
     "beforeend",
     `<div class="m user"><div class="bub"><div class="bh"><span class="br2">tu</span><span class="bt">${bridge.hhmm()}</span></div><div class="bd">${userHtml(t)}</div></div></div>`,
   );
   scrollMsgs();
 }
 
-export function card(w: string, html: string): FullCard {
-  const i = $("#ag-intro");
+export function card(w: string, html: string, into?: HTMLElement): FullCard {
+  const i = into ? null : $("#ag-intro");
   if (i) i.remove();
   const d = document.createElement("div");
   d.className = "m ai";
   d.innerHTML = `<div class="bub"><div class="bh"><span class="br2">${esc(w || "co-dev")}</span><span class="bt">${bridge.hhmm()}</span></div><div class="bd">${html}</div><div class="tools"></div></div>`;
-  $("#ag-msgs")!.appendChild(d);
+  (into ?? $("#ag-msgs")!).appendChild(d);
   scrollMsgs();
   const bd = d.querySelector(".bd") as HTMLElement;
   return { el: d, bd, body: bd, tools: d.querySelector(".tools") as HTMLElement };
@@ -200,10 +208,21 @@ export function waiting(): void {
   bridge.note("O Co-Dev precisa da tua decisão");
 }
 
-export function ask<T>(host: ToolHost, btns: Array<{ l: string; v: T; pri?: unknown; done?: string }>): Promise<T> {
+/** A barra de decisão. `rs`: onde fica o «parar» pendente — a execução à vista (`RUN`) ou, numa sessão
+ *  Co-Dev em segundo plano, o registo dela (Multi Co-Dev); `onWait`: o aviso «à espera da tua decisão». */
+export function ask<T>(
+  host: ToolHost,
+  btns: Array<{ l: string; v: T; pri?: unknown; done?: string }>,
+  rs: { pend: (() => void) | null } = bridge.run(),
+  onWait: () => void = waiting,
+): Promise<T> {
   return new Promise((res, rej) => {
     const bar = document.createElement("div");
     bar.className = "gate";
+    const pend = (): void => {
+      bar.remove();
+      rej(bridge.stopSignal());
+    };
     btns.forEach((b) => {
       const x = document.createElement("button");
       x.className = "gb" + (b.pri ? " pri" : "");
@@ -214,19 +233,53 @@ export function ask<T>(host: ToolHost, btns: Array<{ l: string; v: T; pri?: unkn
         done.className = "gdone";
         done.textContent = b.done || b.l;
         bar.replaceChildren(done);
-        bridge.run().pend = null;
+        // só o «parar» desta barra: a sessão pode ter mudado de sítio (à vista ↔ segundo plano)
+        if (rs.pend === pend) rs.pend = null;
+        const R = bridge.run();
+        if (R.pend === pend) R.pend = null;
         res(b.v);
       };
       bar.appendChild(x);
     });
     (host as HTMLElement).appendChild(bar);
     scrollMsgs();
-    bridge.run().pend = () => {
-      bar.remove();
-      rej(bridge.stopSignal());
-    };
-    waiting();
+    rs.pend = pend;
+    onWait();
   });
+}
+
+/* ───── Multi Co-Dev: a execução de cada sessão (a à vista é o `RUN` partilhado) ───── */
+
+/** O que a barra de execução mostra de uma sessão. */
+export interface RunRecord {
+  active: boolean;
+  paused: boolean;
+  stop: boolean;
+  pend: (() => void) | null;
+  label: string;
+  t0: number;
+  abort: AbortController | null;
+}
+
+export const idleRun = (): RunRecord => ({ active: false, paused: false, stop: false, pend: null, label: "", t0: 0, abort: null });
+
+/** A execução à vista (para a guardar quando a sessão sai de vista). */
+export function snapshotRun(): RunRecord {
+  const R = bridge.run();
+  return { active: R.active, paused: R.paused, stop: R.stop, pend: R.pend, label: R.label, t0: R.t0, abort: R.abort };
+}
+
+/** Põe à vista a execução de uma sessão: a barra, o tempo e o compositor (enviar ↔ parar). */
+export function applyRun(r: RunRecord): void {
+  const R = bridge.run();
+  Object.assign(R, { active: r.active, paused: r.paused, stop: r.stop, pend: r.pend, label: r.label, t0: r.t0, abort: r.abort });
+  if (!r.active) R.M = null;
+  $("#ag-runctl")?.classList.toggle("hidden", !r.active);
+  const p = $("#rc-pause");
+  if (p) p.innerHTML = r.paused ? "<kbd>p</kbd> retomar" : "<kbd>p</kbd> pausar";
+  runLabel();
+  bridge.badges();
+  bus.emit("agent:run", { active: r.active, label: r.label });
 }
 
 export function tl(host: ToolHost, name: string, arg: unknown): HTMLElement {
@@ -264,7 +317,6 @@ export const presenter: ChatPresenter = {
   scrollMsgs,
   userMessage: user,
   beginRun: (label: string) => runState(true, label),
-  subagent: (id: string, label: string, state: "running" | "done" | "error") => trackSubagent(id, label, state),
   endRun: () => runState(false),
   startAbort(): AbortSignal {
     const ctl = new AbortController();
@@ -318,7 +370,21 @@ export const presenter: ChatPresenter = {
     return card(speaker, '<span class="spin"></span> a pensar…');
   },
   assistantText(ref: CardRef, text: string) {
-    asCard(ref).bd.innerHTML = md(text);
+    const bd = asCard(ref).bd;
+    bd.innerHTML = md(text);
+    // RF-S01 (F3.2): where a long code block was left out of the chat, a button asks Co-Dev to make
+    // the change in the editor (edit_lines/edit) instead
+    if (text.includes(CODE_IN_EDITOR)) {
+      bd.innerHTML = bd.innerHTML.split(esc(CODE_IN_EDITOR)).join(`<span class="cd-code-ed">${esc(CODE_IN_EDITOR)}</span>`);
+      bd.querySelectorAll<HTMLElement>(".cd-code-ed").forEach((span) => {
+        const b = document.createElement("button");
+        b.className = "mini cd-apply";
+        b.textContent = ts("applyCode");
+        b.disabled = !codevAsk.available();
+        b.onclick = () => { b.disabled = true; void codevAsk.ask({ intent: "chat", text: ts("applyAsk"), context: [], send: true }); };
+        span.after(b);
+      });
+    }
     scrollMsgs();
   },
   liveError(ref: CardRef, aborted: boolean, code: string | undefined, msg: string) {
@@ -402,6 +468,14 @@ export const presenter: ChatPresenter = {
     c.el.querySelector(".bub")!.appendChild(d);
     scrollMsgs();
   },
+  /* `/backlog` and `/project`: the proposal and what the human can do with it, under the reply */
+  backlogProposal(ref: CardRef, proposal: BacklogProposal) {
+    const c = asCard(ref);
+    const box = document.createElement("div");
+    box.innerHTML = proposalHtml(proposal);
+    c.el.querySelector(".bub")!.appendChild(box.firstElementChild!);
+    scrollMsgs();
+  },
   agentPlan(ref: ToolRef, markdown: string) {
     const box = document.createElement("div");
     box.className = "agent-plan";
@@ -424,15 +498,13 @@ export const presenter: ChatPresenter = {
     t.appendChild(w);
   },
   /* live hunks (RF-CODEV-STREAM): the review bar of a call; per-hunk choices live in the editor */
-  hunkReview(ref: ToolRef, info: { path: string; count: number; reason: string }, on: { acceptAll(): void; rejectAll(): void; open(): void }) {
-    const t = el(ref);
+  stopReview(ref: CardRef, info: { checkpoint: number; files: string[] }, on: { keep(): void; discard(): void }) {
+    const c = asCard(ref);
     const bar = document.createElement("div");
-    bar.className = "gate hk-gate";
-    const lead = document.createElement("span");
-    lead.className = "hk-lead";
-    const n = document.createElement("span");
-    n.textContent = tc("editorChanges", { n: info.count });
-    lead.appendChild(n);
+    bar.className = "gate stop-review";
+    const lead = document.createElement("div");
+    lead.className = "sr-lead";
+    lead.textContent = ts("stopReviewLead", { n: info.files.length, files: info.files.slice(0, 6).join(", ") + (info.files.length > 6 ? ` … (+${info.files.length - 6})` : "") });
     bar.appendChild(lead);
     const btn = (label: string, pri: boolean, run: () => void) => {
       const x = document.createElement("button");
@@ -441,13 +513,106 @@ export const presenter: ChatPresenter = {
       x.onclick = run;
       bar.appendChild(x);
     };
+    btn(ts("stopKeep"), true, () => on.keep());
+    btn(ts("stopDiscard", { id: info.checkpoint }), false, () => on.discard());
+    c.bd.after(bar);
+    scrollMsgs();
+    return {
+      settle(label: string) {
+        const done = document.createElement("span");
+        done.className = "gdone";
+        done.textContent = label;
+        bar.replaceChildren(done);
+      },
+    };
+  },
+  hunkWriting(ref: CardRef, info: { path: string; start: number; end: number; place: PlanPlace; lines?: LinesCheck }, open: () => void) {
+    const c = asCard(ref);
+    const line = document.createElement("div");
+    line.className = "cd-writing";
+    line.append(ts("writing") + " ");
+    const a = document.createElement("a");
+    a.className = "cd-writing-path";
+    a.textContent = info.path; // text, never HTML
+    a.title = ts("openAt", { path: info.path, line: info.start });
+    a.onclick = (ev) => { ev.preventDefault(); open(); };
+    line.appendChild(a);
+    line.append(" " + rangeLabel(info.start, info.end));
+    const p = info.place;
+    if (p.kind !== "none") {
+      const tag = document.createElement("span");
+      tag.className = "tag cd-plan" + (p.kind === "in-order" ? "" : " warn");
+      tag.textContent = p.kind === "in-order" ? ts("planStep", { step: p.step }) : p.kind === "ahead" ? ts("aheadOfPlan", { step: p.step, pending: p.pending.join(", ") }) : ts("outsidePlan");
+      line.append(" ", tag);
+    }
+    // RF-G08: outside the lines the plan gave for this file (a warning)
+    if (info.lines?.kind === "out") {
+      const tag = document.createElement("span");
+      tag.className = "tag cd-plan cd-lines warn";
+      tag.textContent = ts("outsideLines", { planned: plannedLabel(info.lines.planned) });
+      line.append(" ", tag);
+    }
+    (c.tools ?? c.bd).appendChild(line);
+    scrollMsgs();
+  },
+  hunkReview(ref: ToolRef, info: { path: string; count: number; reason: string; outside?: { n: number; planned: string }; violations?: string[]; where?: string }, on: { acceptAll(): void; rejectAll(): void; open(): void; override?(): void }) {
+    const t = el(ref);
+    const bar = document.createElement("div");
+    bar.className = "gate hk-gate";
+    const lead = document.createElement("span");
+    lead.className = "hk-lead";
+    const n = document.createElement("span");
+    n.textContent = tc("editorChanges", { n: info.count });
+    lead.appendChild(n);
+    // Multi Co-Dev (fase 3): a sessão trabalha numa worktree — os blocos são do ramo dela, não do editor
+    if (info.where) {
+      const w = document.createElement("span");
+      w.className = "tag hk-where notr";
+      w.textContent = info.where; // text, never HTML
+      lead.append(" ", w);
+    }
+    if (info.outside?.n) {
+      const w = document.createElement("span");
+      w.className = "tag warn hk-plan";
+      w.textContent = ts("blocksOutside", { n: info.outside.n, planned: info.outside.planned });
+      lead.append(" ", w);
+    }
+    bar.appendChild(lead);
+    const btn = (label: string, pri: boolean, run: () => void) => {
+      const x = document.createElement("button");
+      x.className = "gb" + (pri ? " pri" : "");
+      x.textContent = label; // text, never HTML
+      x.onclick = run;
+      bar.appendChild(x);
+    };
+    // RF-A03/A04: breaks the architect's rules — red, «accept» off until the architect's override
+    if (info.violations?.length) {
+      bar.classList.add("hk-violation");
+      const w = document.createElement("div");
+      w.className = "hk-rules";
+      w.textContent = ts("violatesRules") + ": " + info.violations.join("; ");
+      bar.appendChild(w);
+    }
     btn("Aceitar todas", true, () => on.acceptAll());
+    const acceptAll = bar.querySelector<HTMLButtonElement>("button.gb.pri");
+    if (info.violations?.length && acceptAll) {
+      acceptAll.disabled = true;
+      acceptAll.title = ts("acceptNeedsOverride");
+    }
     btn("Rejeitar todas", false, () => on.rejectAll());
     btn("Ver no editor", false, () => on.open());
+    const ov = on.override;
+    if (info.violations?.length && ov) btn(ts("overrideAdr"), false, () => ov());
     t.appendChild(bar);
     scrollMsgs();
     waiting();
     return {
+      unblock(adr: string) {
+        bar.classList.remove("hk-violation");
+        if (acceptAll) { acceptAll.disabled = false; acceptAll.title = ""; }
+        const w = bar.querySelector(".hk-rules");
+        if (w) w.textContent = `${w.textContent} — override: ${adr}`;
+      },
       settle(label: string) {
         const done = document.createElement("span");
         done.className = "gdone";

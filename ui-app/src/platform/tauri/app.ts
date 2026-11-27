@@ -9,6 +9,8 @@ export interface AppInfo {
   configDir?: string;
   openAtStart?: string;
   selftest?: string;
+  /** `DXTUTOR_SELFTEST_ONLY`: só estes passos do auto-teste (vírgulas) */
+  selftestOnly?: string;
   pairtest?: string;
 }
 

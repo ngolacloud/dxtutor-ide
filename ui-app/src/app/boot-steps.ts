@@ -1,13 +1,14 @@
 /* ═════════ arranque do IDE: boot, boot3…boot6 (ADR-0004, U4j5c) ═════════
    Os passos de arranque que viviam no app.ts — movidos sem mudar, na mesma posição do main.ts (logo
    depois do app/commands.ts). O src/startup.ts chama-os por ordem (`boot();…boot7();i18nBoot()`)
-   depois de todos os donos publicarem os seus. Ajustam ACTS/MENUS/CMD/LANG, que se dissolvem quando
+   depois de todos os donos publicarem os seus. Ajustam ACTS/MENUS/CMD, que se dissolvem quando
    cada feature registar os seus comandos (U7). O CMD, o buildMenus e o LCUR importam-se do
    app/commands.ts: são as mesmas ligações locais que estes passos usavam no app.ts. */
 import { setVar, hydrate, log, mkRz, badges } from "../features/shell";
-import { LANG } from "../features/editor";
 import { openArch } from "../features/arch/index";
 import { openProject } from "../features/project/index";
+import { showOnStartup as showWelcomeOnStartup, STORAGE_KEY as WELCOME_STORAGE_KEY } from "../features/welcome/domain/progress";
+import { LS } from "./store/storage";
 import { openCodevRun } from "../features/codev/index";
 import { CMD, buildMenus, LCUR } from "./commands";
 import { buildDocker, ACTS, OVERFLOW } from "../boot";
@@ -16,7 +17,7 @@ import { translator } from "./i18n";
 import { BOOT_MESSAGES } from "./boot-steps.messages";
 import { loadTeam, HT, HARN, MORD, applyTemplate, openTeam, agentPill } from "../features/team";
 import { ltResume, ltOnboard } from "../features/learn";
-import { loadSD, openStudio } from "../features/studio";
+import { loadSD, openStudio, setDrift } from "../features/studio";
 import { closePal, palDraw, palRun, PITEMS, palState } from "../features/palette";
 import { loadCfg } from "./store/config";
 import { resetWorkspace } from "../features/workspace";
@@ -26,6 +27,12 @@ import { agentStore, layoutStore, editorStore } from "./store";
 import { syncTree } from "../features/explorer";
 import { setTheme } from "../features/theme";
 import { termClear } from "../features/terminal";
+import { rtConnect, k8sConnect, dxDeploy, dcAttach, drawRemote, promote, openEnvs } from "../features/infra";
+import { gfPrompt } from "../features/scm";
+import { buildMenubar } from "../features/menus";
+import { startDebug, dbgStep, dbgStepInto, dbgStop, toggleBp, drawDbg } from "../features/debug";
+import { explainCmd, reviewCmd } from "../features/codereview";
+import { dxRun, dxStop, drawStack } from "../features/stack";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(BOOT_MESSAGES);
 
@@ -46,7 +53,8 @@ function boot(){loadCfg();resetWorkspace();syncTree();
   $('#pc-output')!.innerHTML='';log('co-dev','pronto · '+connected().length+' provedores ligados');
   termClear();setInterval(()=>{runLabel();},1000);
   newChat();setTheme(layoutStore.theme);
-  editorStore.tabs=[{id:'welcome',title:'Bem-vindo',kind:'welcome'}];refresh(false,true);show('welcome');
+  /* r23 F6: «Show welcome page on startup» (desligado, o arranque abre o editor vazio) */
+  const wel=showWelcomeOnStartup(LS.get(WELCOME_STORAGE_KEY,null));editorStore.tabs=wel?[{id:'welcome',title:'Bem-vindo',kind:'welcome'}]:[];refresh(false,true);show(wel?'welcome':null);
   if(innerWidth<1000){setVar('--side-w','0px');}else $('#tgl-side')!.classList.add('on');$('#tgl-panel')!.classList.add('on');
   if(innerWidth<860){setVar('--panel-h','0px');$('#tgl-panel')!.classList.remove('on');assistantCenter();}
   hydrate();if(document.activeElement&&(document.activeElement as HTMLElement).blur)(document.activeElement as HTMLElement).blur();
@@ -59,7 +67,7 @@ function boot3(){loadTeam();SD=loadSD();
   $('#st-lang')!.insertAdjacentHTML('beforebegin',`<button class="si opt" id="st-blame" title="${txt("lastCommitThatTouched")}"></button>`);
   MENUS.splice(7,0,{t:'Projecto',items:[{l:'Studio de arquitectura',act:openStudio},{l:'Quadro (kanban)',act:openBoard},{l:'Gerar backlog a partir do Studio',act:genBacklog},{sep:1},{l:'Equipa e harness',act:()=>openTeam()},{l:'Grafo de commits',act:()=>openGraph()},{l:'Gitflow',sub:[{l:'Iniciar feature…',act:()=>gfPrompt('feature')},{l:'Iniciar fix…',act:()=>gfPrompt('fix')},{l:'Iniciar release…',act:()=>gfPrompt('release')},{l:'Finalizar ramo actual',act:()=>gfFinish()}]},{sep:1},{l:'Tutor',act:()=>{goPane('tutor');openLesson(...(nextLesson()||LCUR));}}]});$('#menubar')!.innerHTML='';buildMenubar();
   refresh(false,true);show(cur);badges();}
-function boot4(){LANG.go='Go';const ci=CMD.findIndex(c=>c[0]==='Ajuda: O que mudou e porquê');if(ci>=0)CMD.splice(ci,1);
+function boot4(){const ci=CMD.findIndex(c=>c[0]==='Ajuda: O que mudou e porquê');if(ci>=0)CMD.splice(ci,1);
   CMD.push(['Learning Track: Continue','',ltResume],['Learning Track: Change language or level…','',()=>ltOnboard(1)],['Project: RUN the whole stack','Ctrl+F5',dxRun],['Project: Stop the stack','',dxStop],['Preferences: Language — English','',()=>setLocale('en')],['Preferences: Language — Português (Angola)','',()=>setLocale('ptAO')]);
   const hm=MENUS.find(m=>m.t==='Help');if(hm)hm.items=hm.items!.filter(i=>i.l!=='O que mudou e porquê');const pm=MENUS.find(m=>m.t==='Projecto');if(pm){pm.t='Project';pm.items!.unshift({l:'▶ RUN the whole stack',k:'Ctrl+F5',act:dxRun},{l:'Stop the stack',act:dxStop},{sep:1});const ti=pm.items!.findIndex(i=>i.l==='Tutor');if(ti>=0)pm.items![ti]={l:'Learning Track',act:ltResume};}
   const rm=MENUS.find(m=>m.t==='Run');if(rm)rm.items!.unshift({l:'▶ RUN the whole stack',k:'Ctrl+F5',act:dxRun},{l:'Stop the stack',act:dxStop},{sep:1});$('#menubar')!.innerHTML='';buildMenubar();
@@ -69,8 +77,8 @@ function boot4(){LANG.go='Go';const ci=CMD.findIndex(c=>c[0]==='Ajuda: O que mud
   SD=loadSD();/* o desenho do projecto (ou vazio) — o semeado saiu (ADR-0006, R6a) */
   drawStack();refresh(false,true);show(cur);}
 /* boot5/boot6: os passos de arranque das camadas v5/v6 (ADR-0004, U4g7), verbatim, junto do
-   boot/boot3/boot4 — a mesma natureza. Os nomes livres resolvem como no módulo de origem: o CMD/LANG
-   são os mesmos objectos publicados (só mutados) e o runTask é o publicado (ninguém o reatribui). */
+   boot/boot3/boot4 — a mesma natureza. Os nomes livres resolvem como no módulo de origem: o CMD
+   é o mesmo objecto publicado (só mutado) e o runTask é o publicado (ninguém o reatribui). */
 function boot5(){ENVS.rtOn=false;ENVS.k8sOn=false;if(MORD.indexOf(agentStore.mode)>MORD.indexOf(HARN.ceiling))agentStore.mode=HARN.ceiling;
   for(let i=ACTS.length-1;i>=0;i--)if(['run','ext','account'].includes(ACTS[i].pane!)||ACTS[i].overflow)ACTS.splice(i,1);const bi=ACTS.findIndex(a=>a.title==='Quadro');ACTS.splice(bi+1,0,{ic:'container',pane:'infra',title:'Infra'});const st=ACTS.find(a=>a.pane==='settings');if(st)st.spacer=1;buildActivity();$('.act')!.classList.add('on');
   $('.side')!.insertAdjacentHTML('beforeend','<div class="pane" id="pane-infra"></div>');const tm=$('.tmux');if(tm)tm.remove();const ab=$('.tb-ic[data-ic="account"]');if(ab)ab.onclick=openSettings;
@@ -79,7 +87,7 @@ function boot5(){ENVS.rtOn=false;ENVS.k8sOn=false;if(MORD.indexOf(agentStore.mod
   for(let i=CMD.length-1;i>=0;i--)if(/Run and Debug|Extensions/.test(CMD[i][0]))CMD.splice(i,1);
   CMD.push(['Project: Deploy to Kubernetes','',dxDeploy],['Infra: Connect container socket','',()=>{goPane('infra');if(!ENVS.rtOn)rtConnect();}],['Infra: Connect cluster (KUBECONFIG)','',()=>{goPane('infra');if(!ENVS.k8sOn)k8sConnect();}],['Infra: Attach project to a container','',dcAttach],...Object.entries(HT).map(([k,h]): AppCmd=>['Harness: Apply template — '+h.n,'',()=>{applyTemplate(k);openTeam();}]));
   const tt=tabOf('team');if(tt)tt.title='Team & harness';updateAgentUI();drawRemote();refresh(false,true);show(cur);}
-function boot6(){Object.assign(LANG,{yaml:'YAML',yml:'YAML',jsx:'JavaScript JSX',js:'JavaScript',go:'Go',py:'Python',sh:'Shell'});ACTS.length=0;ACTS.push({ic:'explorer',pane:'explorer',title:'Explorer (Ctrl+Shift+E)'},{ic:'search',pane:'search',title:'Search (Ctrl+Shift+F)'},{ic:'scm',pane:'scm',title:'Source Control (Ctrl+Shift+G)'},{ic:'debug',pane:'debug',title:'Run and Debug (Ctrl+Shift+D)'},{ic:'test',pane:'test',title:'Testing'},{ic:'ext',pane:'ext',title:'Extensions (Ctrl+Shift+X)'},
+function boot6(){ACTS.length=0;ACTS.push({ic:'explorer',pane:'explorer',title:'Explorer (Ctrl+Shift+E)'},{ic:'search',pane:'search',title:'Search (Ctrl+Shift+F)'},{ic:'scm',pane:'scm',title:'Source Control (Ctrl+Shift+G)'},{ic:'debug',pane:'debug',title:'Run and Debug (Ctrl+Shift+D)'},{ic:'test',pane:'test',title:'Testing'},{ic:'ext',pane:'ext',title:'Extensions (Ctrl+Shift+X)'},
    {ic:'sparkle',pane:'codev',title:'Co-Dev (Ctrl+Shift+A)',acc:1,sep:1},{ic:'tasks',pane:'tasks',title:'Tasks (Ctrl+Shift+T)'},{ic:'kanban',run:()=>openProject(),title:'Project'},{ic:'cube',run:openStudio,title:'Studio'},{ic:'container',pane:'infra',title:'Infra and environments'},{ic:'book',pane:'tutor',title:'Learning Track'},{ic:'settings',pane:'settings',title:'Settings (Ctrl+,)',spacer:1});buildActivity();
   ['debug','ext','tasks'].forEach(p=>{if(!$('#pane-'+p))$('.side')!.insertAdjacentHTML('beforeend',`<div class="pane" id="pane-${p}"></div>`);});const a=$(`.act[data-pane="${PANE}"]`);if(a)a.classList.add('on');
   $('.panel-tabs .panel-tools')!.insertAdjacentHTML('beforebegin','<button class="ptab" data-pt="dbg">Debug assistant</button>');$('.panel-body')!.insertAdjacentHTML('beforeend','<div class="pcontent" id="pc-dbg"></div>');$$('.ptab').forEach(b=>b.onclick=()=>{setPanelTab(b.dataset.pt!);if(b.dataset.pt==='dbg')drawDbg();});drawDbg();
@@ -89,7 +97,7 @@ function boot6(){Object.assign(LANG,{yaml:'YAML',yml:'YAML',jsx:'JavaScript JSX'
   const vm=MENUS.find(m=>m.t==='View');if(vm){const ds=Object.getOwnPropertyDescriptor(vm,'items'),g=()=>ds!.get?ds!.get.call(vm):ds!.value;Object.defineProperty(vm,'items',{configurable:true,get:()=>[...g(),{sep:1},{l:'Tasks',k:'Ctrl+Shift+T',act:()=>goPane('tasks')},{l:'Run and Debug',k:'Ctrl+Shift+D',act:()=>goPane('debug')},{l:'Extensions',k:'Ctrl+Shift+X',act:()=>goPane('ext')},{l:'Debug assistant',act:()=>setPanelTab('dbg')}]});}
   $('#menubar')!.innerHTML='';buildMenubar();
   CMD.push(['Co-Dev: Explain','Ctrl+K E',()=>explainCmd()],['Co-Dev: Code Review','Ctrl+K R',reviewCmd],['Co-Dev: Under the Hood','Ctrl+K U',hoodCmd],['Debug: Start Debugging','F5',()=>startDebug()],['Debug: Step Over','F10',dbgStep],['Debug: Stop','Shift+F5',dbgStop],['Debug: Toggle Breakpoint','F9',()=>{const t=tabOf(cur),ta=$('#ed-ta') as HTMLTextAreaElement|null;if(t&&t.path&&ta)toggleBp(t.path,ta.value.slice(0,ta.selectionStart).split('\n').length);}],
-   ['View: Tasks','Ctrl+Shift+T',()=>goPane('tasks')],['View: Run and Debug','Ctrl+Shift+D',()=>goPane('debug')],['View: Extensions','Ctrl+Shift+X',()=>goPane('ext')],['Extensions: Install from VSIX…','',()=>{goPane('ext');$('#vsix-in')!.click();}],['Environments: Open','',openEnvs],['Environments: Promote Local → Staging','',()=>promote('staging')],['Environments: Promote Staging → Production','',()=>promote('production')],['Studio: Compare design with Local','',()=>{DRIFT='local';openStudio();}],['Project: System architecture','',openArch],['Co-Dev: Run, checkpoints and permissions','',openCodevRun],['Project: Board','',()=>openProject('board')],['Project: Backlog','',()=>openProject('backlog')],['Project: Reports','',()=>openProject('reports')]);
+   ['View: Tasks','Ctrl+Shift+T',()=>goPane('tasks')],['View: Run and Debug','Ctrl+Shift+D',()=>goPane('debug')],['View: Extensions','Ctrl+Shift+X',()=>goPane('ext')],['Extensions: Install from VSIX…','',()=>{goPane('ext');$('#vsix-in')!.click();}],['Environments: Open','',openEnvs],['Environments: Promote Local → Staging','',()=>promote('staging')],['Environments: Promote Staging → Production','',()=>promote('production')],['Studio: Compare design with Local','',()=>{setDrift('local');openStudio();}],['Project: System architecture','',openArch],['Co-Dev: Run, checkpoints and permissions','',openCodevRun],['Project: Board','',()=>openProject('board')],['Project: Backlog','',()=>openProject('backlog')],['Project: Reports','',()=>openProject('reports')]);
   CMD.forEach(c=>{if(c[0]==='Project: RUN the whole stack')c[1]='Ctrl+F5';});window.vsxCmds();refresh(false,true);show(cur);badges();}
 
 Object.assign(window, { PANE, boot, boot3, boot4, boot5, boot6 });

@@ -18,7 +18,7 @@
 
    Mecânica (igual às migrações anteriores): a feature avalia ANTES de `app.ts`
    (ordem do index.html) e publica tudo no `window` no eval. Nada é lido ansiosamente —
-   `FS`/`extOf`/`LANG`/`diagnostics`/`hlLine`/`tabOf`/`cur`/`short`/`refresh` só são
+   `FS`/`extOf`/`diagnostics`/`hlLine`/`tabOf`/`cur`/`short`/`refresh` só são
    tocados DENTRO das funções, chamadas depois do arranque, e resolvem no escopo GLOBAL
    em runtime. Do core importa-se só o que é dono de lá (`$`, `toast`). */
 
@@ -29,6 +29,11 @@ import { editorOverlay, type OverlayView } from "../app/editor-overlay";
 import { lineAnnotation } from "../app/line-annotation";
 import { inlineValues } from "../app/inline-values";
 import { codevUndo } from "../app/codev-undo";
+import { authorOf } from "./scm";
+import { dbgBreaks, dbgCurrent } from "./debug";
+import { services } from "../app/services";
+import { languageFor } from "./lsp/domain/registry";
+import { fallbackHighlighter, fallbackCopy } from "./lsp/fallback";
 
 /* ───── overlay (RF-CODEV-STREAM §8): live Co-Dev hunks drawn over the file ─────
    With an overlay view, the textarea shows the view's text (the file plus the proposed
@@ -52,36 +57,48 @@ function renderFileView(t:{path:string},host:HTMLElement){const f=FS[t.path];hos
       if(real===null){const pos=Math.max(0,ta.selectionStart-1);ta.value=v.text;ta.setSelectionRange(Math.min(pos,v.text.length),Math.min(pos,v.text.length));toast('Estas linhas são uma proposta do Co-Dev: aceita ou rejeita primeiro');return;}
       f.content=real;setKeepingCaret(ta,syncView(t.path));}
     else f.content=ta.value;
-    paintEd(t.path);clearTimeout(ta._t);ta._t=setTimeout(()=>refresh(true),180);};
+    /* bug 8 (RF-S03): the full painter — the base one left out breakpoints, the debugger line, the inline values and diagnostics */
+    paintEdFull(t.path);clearTimeout(ta._t);ta._t=setTimeout(()=>refresh(true),180);};
   ta.onkeydown=e=>{
     /* RF-E07: Ctrl+Z right after a Co-Dev block (nothing typed since) puts back the text from before it */
     if((e.ctrlKey||e.metaKey)&&!e.shiftKey&&e.key.toLowerCase()==='z'){const prev=codevUndo.take(t.path);if(prev!==null){e.preventDefault();f.content=prev;ta.value=syncView(t.path);paintEd(t.path);refresh(true);toast('Desfeito o último bloco do Co-Dev');return;}}
     /* Fase 4: snippets e toggle de comentário das extensões VS Code instaladas (feature `ext`). */
     if(e.key==='Tab'&&!e.shiftKey&&window.vsxSnippet&&window.vsxSnippet(ta,t.path)){e.preventDefault();(ta.oninput as any)();return;}
     if((e.ctrlKey||e.metaKey)&&e.key==='/'&&window.vsxToggleComment&&window.vsxToggleComment(ta,t.path)){e.preventDefault();(ta.oninput as any)();return;}
+    /* LSP P5: Toggle Block Comment — Ctrl+Shift+A (o do VS Code no Linux; fora do editor continua a abrir o assistente) ou Shift+Alt+A */
+    if(isBlockCommentKey(e)){e.preventDefault();if(window.vsxToggleComment&&window.vsxToggleComment(ta,t.path,true))ta.oninput?.(new Event('input'));else toast(fallbackCopy('noBlockComment',{lang:languageFor(t.path,ta.value)?.name||fallbackCopy('plainText')}));return;}
     if(e.key==='Tab'){e.preventDefault();if(!document.execCommand('insertText',false,'    '))ta.setRangeText('    ',ta.selectionStart,ta.selectionEnd,'end');(ta.oninput as any)();}};
   ta.onkeyup=ta.onclick=ta.onfocus=()=>stPos();
   bus.emit('editor:file-view',{path:t.path});/* quem decora a vista do ficheiro (p.ex. o aviso de servidor de linguagem em falta) repõe-se aqui */}
 
+/** Ctrl+Shift+A ou Shift+Alt+A (Toggle Block Comment, LSP P5). */
+export function isBlockCommentKey(e:KeyboardEvent):boolean{const a=e.key.toLowerCase()==='a'||e.code==='KeyA';return a&&e.shiftKey&&(((e.ctrlKey||e.metaKey)&&!e.altKey)||(e.altKey&&!e.ctrlKey&&!e.metaKey));}
+
 /* ───── pintor do editor (gutter + realce + minimapa a partir dos diagnósticos) ───── */
-function paintEd(p:string){const f=FS[p],v=VIEWS.get(p)??null,lines=(v?v.text:f.content).split('\n'),dgReal:Record<number,string>={},ext=extOf(p);diagnostics().forEach(d=>{if(d.p===p&&dgReal[d.line]!=='e')dgReal[d.line]=d.sev;});
+/** o último ficheiro pintado: quando a gramática do dxtutor (ou o resto de um ficheiro grande) fica pronta, é ele que se repinta */
+let lastPainted:string|null=null;
+const repaintLater=(p:string)=>()=>{if(lastPainted===p&&FS[p]&&$('#ed-hl'))paintEdFull(p);};
+function paintEd(p:string){lastPainted=p;const f=FS[p],v=VIEWS.get(p)??null,lines=(v?v.text:f.content).split('\n'),dgReal:Record<number,string>={},ext=extOf(p);services.diagnostics!.diagnostics().forEach(d=>{if(d.p===p&&dgReal[d.line]!=='e')dgReal[d.line]=d.sev;});
   /* with an overlay, diagnostics follow the real line numbers; proposed lines have none */
   const dg:Record<number,string>={};lines.forEach((_,i)=>{const r=v?v.lines[i]?.real:i+1;if(r&&dgReal[r])dg[i+1]=dgReal[r];});
   const num=(i:number)=>{if(!v)return String(i+1);const m=v.lines[i];return m&&m.kind==='new'?'+':m&&m.real?String(m.real):'';};
   const hk=(i:number)=>{const m=v&&v.lines[i];return m&&m.kind!=='ctx'?` hk-${m.kind}${m.writing?' hk-writing':''}`:'';};
   $('#ed-gut')!.innerHTML=lines.map((_,i)=>{const c=((dg[i+1]?`g-${dg[i+1]}`:'')+hk(i)).trim();return `<div${c?` class="${c}"`:''}>${num(i)}</div>`;}).join('');
   /* Fase 4: se uma extensão VS Code instalada traz a gramática TextMate da linguagem, o
-     realce é do documento inteiro (com estado entre linhas); senão, o realce de sempre. */
-  const tm=window.vsxHighlight?window.vsxHighlight(ext,lines):null;
-  $('#ed-hl')!.innerHTML=lines.map((l,i)=>`<div class="l${dg[i+1]?' d-'+dg[i+1]:''}${hk(i)}">${(tm?tm[i]:hlLine(l,ext))||' '}</div>`).join('');
+     realce é do documento inteiro (com estado entre linhas); senão, a gramática que o dxtutor traz
+     para a linguagem (LSP P5: incremental; uma linha ainda por fazer fica com o realce de sempre);
+     senão, o realce de sempre. */
+  const tm:Array<string|undefined>|null=(window.vsxHighlight?window.vsxHighlight(ext,lines,p):null)??fallbackHighlighter.highlight(p,lines,repaintLater(p));
+  $('#ed-hl')!.innerHTML=lines.map((l,i)=>`<div class="l${dg[i+1]?' d-'+dg[i+1]:''}${hk(i)}">${(tm?.[i]??hlLine(l,ext))||' '}</div>`).join('');
   const mm=$('#minimap')!;mm.classList.remove('hidden');$('#ebody')!.classList.add('with-mm');
   mm.innerHTML='<div class="mm-view"></div>'+lines.slice(0,120).map((l,i)=>`<div class="mm-line${dg[i+1]==='e'?' err':''}" style="width:${l.trim()?Math.max(6,Math.min(52,l.length*.9)):0}px"></div>`).join('');
-  const ov=editorOverlay.get(),wrap=$('#ed-hl')!.parentElement;if(v&&ov&&wrap)ov.decorate(p,{wrap,hl:$('#ed-hl')!,gut:$('#ed-gut')!},v);annotateLine();}
+  const ov=editorOverlay.get(),wrap=$('#ed-hl')!.parentElement;if(ov&&wrap)ov.decorate(p,{wrap,hl:$('#ed-hl')!,gut:$('#ed-gut')!},v??null);annotateLine();}
 
 /* ───── ajudantes da barra de estado ───── */
 function gotoLine(n:number){const ta=$('#ed-ta') as HTMLTextAreaElement|null;if(!ta)return;const ls=ta.value.split('\n');n=Math.max(1,Math.min(ls.length,n|0));let o=0;for(let i=0;i<n-1;i++)o+=ls[i].length+1;ta.focus({preventScroll:true});ta.setSelectionRange(o,o+ls[n-1].length);$('#ebody')!.scrollTop=Math.max(0,(n-1)*22-90);stPos();}
 function stPos(){const ta=$('#ed-ta') as HTMLTextAreaElement|null,el=$('#st-pos');if(!el)return;if(!ta){el.textContent='';return;}const b=ta.value.slice(0,ta.selectionStart).split('\n');el.textContent=`Ln ${b.length}, Col ${b[b.length-1].length+1}`;annotateLine();}
-function stLang(){const t=tabOf(cur);$('#st-lang')!.textContent=t&&t.path?(LANG[extOf(t.path)]||'Texto'):'';stPos();}
+/* o nome da linguagem vem do registo de linguagens (pelo nome do ficheiro, a extensão ou o shebang) */
+function stLang(){const t=tabOf(cur);$('#st-lang')!.textContent=t&&t.path?(languageFor(t.path,FS[t.path]?.content)?.name||'Texto'):'';stPos();}
 export function edCmd(c:string){const ta=$('#ed-ta') as HTMLTextAreaElement|null;if(!ta){toast('Abre um ficheiro primeiro');return;}ta.focus();if(c==='selectAll')ta.select();else if(c==='line'){const b=ta.value.slice(0,ta.selectionStart).split('\n').length;gotoLine(b);}else{document.execCommand(c);(ta.oninput as any)();}}
 function selText(){const ta=$('#ed-ta') as HTMLTextAreaElement|null;return ta?ta.value.slice(ta.selectionStart,ta.selectionEnd):'';}
 
@@ -106,17 +123,15 @@ function paintEdFull(p: string): void {
   /* breakpoints, the debugger line and Error Lens use real line numbers: skipped while the overlay shows proposed lines */
   if (VIEWS.get(p)) return;
   const gs = gut.children, ls = hl.children;
-  [...PE.dbgBreaks].filter((b) => b.startsWith(p + ':')).forEach((b) => { const g = gs[+(b.split(':').pop() as string) - 1]; if (g) g.classList.add('bp'); });
+  [...dbgBreaks].filter((b) => b.startsWith(p + ':')).forEach((b) => { const g = gs[+(b.split(':').pop() as string) - 1]; if (g) g.classList.add('bp'); });
   /* a linha onde o gdb parou (ADR-0006, R4) */
-  const cur = PE.dbgCurrent ? PE.dbgCurrent() : null;
+  const cur = dbgCurrent();
   if (cur && cur.path === p && ls[cur.line - 1]) { ls[cur.line - 1].classList.add('dbg-cur'); if (gs[cur.line - 1]) gs[cur.line - 1].classList.add('dbg-cur'); }
   /* A7: os valores das variáveis no fim das linhas acima da paragem (app/inline-values.ts) */
-  const iv = inlineValues.of(p); if (iv) Object.entries(iv).forEach(([n, txt]) => { const l = ls[+n - 1]; if (l) l.insertAdjacentHTML('beforeend', `<span class="dv-inline">${esc(txt)}</span>`); });
-  if (PE.builtinOn('inline-diagnostics')) { /* «Inline diagnostics», do dxtutor (era o Error Lens a fingir — ADR-0006, R6b) */ const seen: Record<number, 1> = {}; diagnostics().filter((x) => x.p === p).forEach((x) => { if (seen[x.line]) return; seen[x.line] = 1; const l = ls[x.line - 1]; if (l) l.insertAdjacentHTML('beforeend', `<span class="el ${x.sev}">  ${esc(x.msg)}</span>`); }); }
+  const iv = inlineValues.of(p); if (iv) Object.entries(iv).forEach(([n, vs]) => { const l = ls[+n - 1]; if (l) for (const v of Array.isArray(vs) ? vs : [vs]) l.insertAdjacentHTML('beforeend', typeof v === 'string' ? `<span class="dv-inline">${esc(v)}</span>` : `<span class="dv-inline${v.cls ? ' ' + v.cls : ''}">${esc(v.text)}</span>`); });
+  if (PE.builtinOn('inline-diagnostics')) { /* «Inline diagnostics», do dxtutor (era o Error Lens a fingir — ADR-0006, R6b) */ const seen: Record<number, 1> = {}; services.diagnostics!.diagnostics().filter((x) => x.p === p).forEach((x) => { if (seen[x.line]) return; seen[x.line] = 1; const l = ls[x.line - 1]; if (l) l.insertAdjacentHTML('beforeend', `<span class="el ${x.sev}">  ${esc(x.msg)}</span>`); }); }
 }
 
-/* nomes das linguagens na barra de estado (ADR-0004, U4j3 — era do app.ts; o boot4/boot6 acrescentam) */
-const LANG: Record<string, string>={rs:'Rust',ts:'TypeScript',css:'CSS',json:'JSON',toml:'TOML',md:'Markdown',sql:'SQL',html:'HTML'};
 /* o último commit que tocou no ficheiro activo, na barra de estado (ADR-0004, U4j4a — era do app.ts). O stLang
    PUBLICADO acrescenta-o, como a decoração do app.ts fazia; as chamadas internas ao stLang local continuam sem ele. */
 /* A4 (docs/v2/UI-AUDIT.md item 9): o que o blame diz da linha do cursor, no fim dessa linha (o registo
@@ -132,7 +147,7 @@ function annotateLine(): void {
   blame();
 }
 lineAnnotation.onRedraw(() => annotateLine());
-function blame(): void{const BG=window as unknown as { GIT: { order: string[]; c: Record<string, { a: string; t: number; m: string; h: string; files: string[] }> }; stOf: (p: string) => unknown; authorOf: (a: string) => { n: string }; openGraph: (h?: string) => void };const GIT=BG.GIT,stOf=BG.stOf,authorOf=BG.authorOf,openGraph=BG.openGraph;const el=$('#st-blame'),t=tabOf(cur);if(!el)return;if(!t||!t.path||t.kind!=='file'){el.textContent='';return;}const la=lineAnnotation.get();if(la){const ta=$('#ed-ta') as HTMLTextAreaElement|null,ln=ta&&ta.dataset.path===t.path?ta.value.slice(0,ta.selectionStart).split('\n').length:1,st=la.status(t.path,ln);if(st){el.textContent=st.text;el.title=st.title;el.onclick=st.open;return;}}const h=GIT.order.find(x=>GIT.c[x]&&GIT.c[x].files.includes(t.path!)),c=h?GIT.c[h]:null;if(!c){/* nenhum commit do espelho toca o ficheiro (o syncGit dá files:[]; sem repo não há commits): só o estado local — ADR-0006, R1d */el.textContent=stOf(t.path)?'Tu · alterações por commitar':'';el.onclick=null;return;}el.textContent=stOf(t.path)?'Tu · alterações por commitar':`${authorOf(c.a).n}, ${rel(c.t)} · ${c.m.slice(0,38)}`;el.onclick=()=>openGraph(c.h);}
+function blame(): void{const BG=window as unknown as { GIT: { order: string[]; c: Record<string, { a: string; t: number; m: string; h: string; files: string[] }> }; stOf: (p: string) => unknown; authorOf: (a: string) => { n: string }; openGraph: (h?: string) => void };const GIT=BG.GIT,stOf=BG.stOf,openGraph=BG.openGraph;const el=$('#st-blame'),t=tabOf(cur);if(!el)return;if(!t||!t.path||t.kind!=='file'){el.textContent='';return;}const la=lineAnnotation.get();if(la){const ta=$('#ed-ta') as HTMLTextAreaElement|null,ln=ta&&ta.dataset.path===t.path?ta.value.slice(0,ta.selectionStart).split('\n').length:1,st=la.status(t.path,ln);if(st){el.textContent=st.text;el.title=st.title;el.onclick=st.open;return;}}const h=GIT.order.find(x=>GIT.c[x]&&GIT.c[x].files.includes(t.path!)),c=h?GIT.c[h]:null;if(!c){/* nenhum commit do espelho toca o ficheiro (o syncGit dá files:[]; sem repo não há commits): só o estado local — ADR-0006, R1d */el.textContent=stOf(t.path)?'Tu · alterações por commitar':'';el.onclick=null;return;}el.textContent=stOf(t.path)?'Tu · alterações por commitar':`${authorOf(c.a).n}, ${rel(c.t)} · ${c.m.slice(0,38)}`;el.onclick=()=>openGraph(c.h);}
 function stLangWithBlame(): void { stLang(); blame(); }
 /* e corre a cada mudança do workspace (era o fim do subscritor do app.ts) */
 bus.on('workspace:changed',()=>{blame();});
@@ -140,6 +155,5 @@ Object.assign(window, { paintEd: paintEdFull, gotoLine, stPos, blame, selText })
 /* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
 VIEW.file = (t, host) => renderFileView(t as { path: string }, host);
 
-export { LANG };
 /* o stLang com o blame (o publicado antes): os separadores importam-no (ADR-0004, U7m) */
 export { stLangWithBlame as stLang };

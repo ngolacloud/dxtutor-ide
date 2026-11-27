@@ -6,6 +6,72 @@
 
 import type { Blame, Compare, HistCommit, RebaseOp, RebasePlan, StashOp, StashResult, Worktree, WorktreeOp } from "../domain/git-extras";
 import type { ChangeSetGroup } from "../domain/changesets";
+import type { RefsSnapshot } from "../domain/refs";
+
+/** One file's hunks (r23 F3, UI-SCM-10): the shape of `git_hunks`. */
+export interface HunkData { id: string; header: string; oldStart: number; oldLines: number; newStart: number; newLines: number; lines: string[]; added: number; removed: number }
+export interface FileHunksData { path: string; staged: boolean; binary: boolean; hunks: HunkData[] }
+/** Staging part of a file: read its hunks, move some into (or out of) the index. */
+export interface HunksPort {
+  hunks(root: string, path: string, staged: boolean): Promise<FileHunksData>;
+  stageHunks(root: string, path: string, ids: string[], unstage: boolean): Promise<FileHunksData>;
+}
+
+/** The undo snapshots (r23 F3, UI-SCM-12): the shape of `git_undo_*`. */
+export interface UndoEntryData { id: number; label: string; at: number; head: string | null; headSha: string | null; refs: Array<{ name: string; sha: string }>; index: string | null; worktree: string | null }
+export interface UndoPlanData { entry: UndoEntryData; commands: string[][]; display: string }
+export interface UndoPort {
+  snapshot(root: string, label: string): Promise<UndoEntryData>;
+  list(root: string): Promise<UndoEntryData[]>;
+  plan(root: string, id: number): Promise<UndoPlanData>;
+  restore(root: string, id: number): Promise<UndoEntryData>;
+}
+
+/** The merge in progress (r23 F3, UI-SCM-13): the shape of `git_merge` / `git_conflict_stages`. */
+export interface MergeStateData { merging: boolean; message: string; conflicts: string[]; output: string }
+export interface ConflictStagesData { path: string; base: string | null; ours: string | null; theirs: string | null; working: string | null }
+export type MergeOp = { op: "status" } | { op: "resolve"; path: string; content: string } | { op: "commit"; message?: string | null } | { op: "abort" };
+export interface MergePort {
+  merge(root: string, op: MergeOp): Promise<MergeStateData>;
+  stages(root: string, path: string): Promise<ConflictStagesData>;
+}
+
+/** Sync (r23 F3): the shape of `git_sync_plan` / `git_sync`. */
+export type SyncOp = "fetch" | "pull" | "push";
+export interface SyncPlanData { op: SyncOp; branch: string | null; upstream: string | null; remote: string | null; ahead: number; behind: number; setsUpstream: boolean; argv: string[]; display: string }
+export interface SyncPort {
+  plan(root: string, op: SyncOp): Promise<SyncPlanData>;
+  run(root: string, op: SyncOp, expected: string): Promise<string>;
+}
+
+/** The GitHub CLI, read-only (r23 F3): the shape of `gh_status` / `gh_prs` / `gh_runs_for` / `gh_prs_for`. */
+export interface GhStatusData { installed: boolean; version: string; signedIn: boolean; notes: string }
+export interface GhRun { id: number; name: string; status: string; conclusion: string; url: string; createdAt: string }
+export interface GhPort {
+  status(): Promise<GhStatusData>;
+  prs(root: string, filter: "review" | "mine" | "open"): Promise<import("../domain/launchpad").Pr[]>;
+  runsFor(root: string, sha: string): Promise<GhRun[]>;
+  prsFor(root: string, sha: string): Promise<import("../domain/launchpad").Pr[]>;
+}
+
+/** What the Commit Graph reads (r23 F3): the refs for its sidebar and a commit's patch (for its files). */
+export interface ConflictPrediction { branch: string; clean: boolean; files: string[]; error: string | null }
+/** The commit lifecycle's sources (r23 F3, UI-SCM-09): stored test results, CI runs and PRs of a commit. */
+export interface LifecyclePort {
+  testsFor(root: string, shas: string[]): Promise<import("../domain/lifecycle").TestResultRow[]>;
+  ghStatus(): Promise<GhStatusData>;
+  runsFor(root: string, sha: string): Promise<GhRun[]>;
+  prsFor(root: string, sha: string): Promise<import("../domain/launchpad").Pr[]>;
+  /** r23 F4c2: the guided deploy's records of these commits */
+  deploysFor?(root: string, shas: string[]): Promise<import("../domain/lifecycle").DeployRow[]>;
+}
+
+export interface GitRefsPort {
+  refs(root: string): Promise<RefsSnapshot>;
+  /** whether merging each branch into HEAD would conflict (`git_predict_conflicts`; nothing touched) */
+  predict(root: string, branches: string[]): Promise<ConflictPrediction[]>;
+  show(root: string, hash: string): Promise<string>;
+}
 
 export interface GitExtrasPort {
   blame(root: string, path: string): Promise<Blame>;
@@ -53,8 +119,18 @@ export interface GitWorkspacePort {
   open(path: string, line?: number): void;
 }
 
+/** The request of `app/approval.ts` (structural type; the composition links them — r23 F3). */
+export interface ApprovalRequest { title: string; command: string; scope?: string; destructive?: boolean; reasonRequired?: boolean; confirmText?: string }
+export interface ApprovalDecision { approved: boolean; reason: string; decidedAt: number }
+
+/** The audit log (r23 F1, RF-BK-L01): every git operation that needs approval, decided and done. */
+export interface ScmAuditPort {
+  record(root: string, e: { action: string; command: string; scope: string; approved: boolean; reason: string; decidedAt: number; outcome?: "sent" | "ok" | "failed" }): Promise<void>;
+}
+
 export interface HumanPort {
-  confirm(message: string): boolean;
+  /** the shared approval dialog: the exact command and where it runs; resolves with the decision */
+  approve(r: ApprovalRequest): Promise<ApprovalDecision>;
   /** a line of text (palette); null when cancelled */
   text(placeholder: string, verb: string, initial?: string): Promise<string | null>;
   /** a choice (palette); null when cancelled */

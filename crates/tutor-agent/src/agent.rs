@@ -22,17 +22,20 @@ use crate::hunks::{
     Check, HunkOp, HunkTracker, LineCount, LineRange, RejectedBy, ValidationStatus,
 };
 use crate::provider::{
-    Effort, Provider, ProviderError, Request, Response, StopReason, StreamEvent, SystemBlock,
-    ThinkingDisplay, Usage,
+    CacheTtl, Effort, Provider, ProviderError, Request, Response, StopReason, StreamEvent,
+    SystemBlock, ThinkingDisplay, Usage,
 };
 use crate::retry;
 use crate::schema;
-use crate::tool::{Tool, ToolCtx, ToolOutput};
+use crate::tool::{SubagentStep, Tool, ToolCtx, ToolOutput};
 use crate::types::{Message, Role, ToolResult, Transcript};
 
 /// Tamanho máximo de um resultado de ferramenta devolvido ao modelo (as ferramentas de
-/// F2 truncam primeiro com critério próprio; isto é a rede de segurança do loop).
-pub const MAX_RESULT_CHARS: usize = 100_000;
+/// F2 truncam primeiro com critério próprio e dizem como pedir o resto; isto é a rede de
+/// segurança do loop, para MCP, sub-agentes e o resto). Cada resultado fica no histórico e é
+/// reenviado em todos os pedidos seguintes: ~30k caracteres (~8k tokens) chegam para um
+/// excerto útil, e o modelo pede mais quando precisa.
+pub const MAX_RESULT_CHARS: usize = 30_000;
 /// Repetições de um pedido cujo stream falhou a meio (overloaded, rede).
 pub const MID_STREAM_RETRIES: u32 = 2;
 /// `max_tokens` usado para repetir uma resposta cortada a meio de uma ferramenta.
@@ -50,6 +53,8 @@ pub struct AgentConfig {
     pub max_iterations: u32,
     /// Compactação no servidor (Claude).
     pub compaction: bool,
+    /// TTL dos breakpoints do system prompt (o Co-Dev do IDE usa 1 hora: as pausas de revisão).
+    pub cache_ttl: CacheTtl,
 }
 
 impl AgentConfig {
@@ -64,6 +69,7 @@ impl AgentConfig {
             fallbacks: base.fallbacks,
             max_iterations: 60,
             compaction: base.compaction,
+            cache_ttl: base.cache_ttl,
         }
     }
 }
@@ -129,6 +135,12 @@ pub enum AgentEvent {
         attempt: u32,
         reason: String,
     },
+    /// RF-G07: o humano parou o turno e ficaram ficheiros alterados — o IDE oferece mantê-los ou
+    /// descartá-los (voltar ao `checkpoint` do turno).
+    StopReview {
+        checkpoint: u32,
+        files: Vec<String>,
+    },
     /// Uma ferramenta vai correr (já validada e aprovada).
     ToolStart {
         id: String,
@@ -141,6 +153,12 @@ pub enum AgentEvent {
         name: String,
         is_error: bool,
         content: String,
+    },
+    /// Progresso de uma ferramenta que o conta enquanto corre (o sub-agente de um `task`):
+    /// `call` é o id da chamada (o mesmo do `tool_start`/`tool_result`).
+    Subagent {
+        call: String,
+        step: SubagentStep,
     },
     /// Tokens do último pedido e o total do turno.
     Usage {
@@ -194,6 +212,10 @@ pub enum AgentEvent {
         reason: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         why: Option<String>,
+        /// RF-A03/A04: the architect's rules the change breaks — the IDE shows it in red and it is
+        /// accepted only after the architect's override with an accepted ADR.
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        violations: Vec<crate::conformance::Violation>,
     },
     /// The hunk was written to disk (`provisional`: Auto, pending validation).
     HunkApplied {
@@ -298,9 +320,11 @@ fn add_usage(t: &mut Usage, u: &Usage) {
     t.output_tokens += u.output_tokens;
     t.cache_read_input_tokens += u.cache_read_input_tokens;
     t.cache_creation_input_tokens += u.cache_creation_input_tokens;
+    t.cache_creation_1h_input_tokens += u.cache_creation_1h_input_tokens;
 }
 
-/// Corta um resultado demasiado grande, mantendo o início e o fim.
+/// Corta um resultado demasiado grande, mantendo o início e o fim, e diz ao modelo como
+/// pedir menos de cada vez.
 pub fn clip(s: String) -> String {
     let n = s.chars().count();
     if n <= MAX_RESULT_CHARS {
@@ -309,7 +333,9 @@ pub fn clip(s: String) -> String {
     let head: String = s.chars().take(MAX_RESULT_CHARS * 4 / 5).collect();
     let tail: String = s.chars().skip(n - MAX_RESULT_CHARS / 5).collect();
     format!(
-        "{head}\n…[resultado truncado: {} caracteres omitidos]…\n{tail}",
+        "{head}\n…[resultado truncado: {} de {n} caracteres omitidos do meio. Pede menos de cada \
+         vez: `read` com offset/limit, `grep` com path/glob ou mode=\"count\", ou filtra a saída do \
+         comando (`| tail -n 80`, `| grep erro`)]…\n{tail}",
         n - MAX_RESULT_CHARS
     )
 }
@@ -331,6 +357,11 @@ impl Agent {
             hooks: None,
             hunks: None,
         }
+    }
+
+    /// As definições das ferramentas tal como vão em cada pedido (pela ordem fixa da sessão).
+    pub fn tool_defs(&self) -> Vec<crate::provider::ToolDef> {
+        self.tools.iter().map(|x| x.def()).collect()
     }
 
     /// Substitui a espera entre repetições (testes).
@@ -355,6 +386,7 @@ impl Agent {
             fallbacks: self.cfg.fallbacks,
             resume_paused,
             compaction: self.cfg.compaction,
+            cache_ttl: self.cfg.cache_ttl,
         }
     }
 
@@ -613,7 +645,7 @@ impl Agent {
                 id: c.id.clone(),
                 name: c.name.clone(),
                 input: c.input.clone(),
-                read_only: tool.read_only(),
+                read_only: tool.read_only_for(&c.input),
                 command: tool.command_preview(&c.input),
                 hunks: plan.as_ref().map(|p| p.ids()).unwrap_or_default(),
             };
@@ -727,11 +759,11 @@ impl Agent {
                 }
                 break;
             }
-            let ro = runnable[k].1.read_only();
+            let ro = runnable[k].1.read_only_for(&calls[runnable[k].0].input);
             let end = if ro {
                 runnable[k..]
                     .iter()
-                    .position(|(_, t)| !t.read_only())
+                    .position(|(i, t)| !t.read_only_for(&calls[*i].input))
                     .map(|p| k + p)
                     .unwrap_or(runnable.len())
             } else {
@@ -778,6 +810,8 @@ impl Agent {
                     t.settle(&job.plan);
                 }
                 vec![r]
+            } else if group.iter().any(|(_, t)| t.reports_progress()) {
+                run_observed_group(group, calls, &self.ctx, events)
             } else if group.len() == 1 {
                 vec![group[0].1.run(&calls[group[0].0].input, &self.ctx)]
             } else {
@@ -841,6 +875,48 @@ impl Agent {
             })
             .collect()
     }
+}
+
+/// Corre um grupo em que alguma ferramenta conta o progresso: cada chamada numa thread, e o
+/// progresso chega por um canal que esta thread despeja em `events` enquanto elas correm (o
+/// `events` não atravessa threads). Os resultados voltam pela ordem do grupo.
+fn run_observed_group(
+    group: &[(usize, Arc<dyn Tool>)],
+    calls: &[crate::types::ToolUse],
+    ctx: &ToolCtx,
+    events: &mut dyn FnMut(AgentEvent),
+) -> Vec<ToolOutput> {
+    let (tx, rx) = std::sync::mpsc::channel::<AgentEvent>();
+    std::thread::scope(|s| {
+        let hs: Vec<_> = group
+            .iter()
+            .map(|(i, t)| {
+                let input = &calls[*i].input;
+                let call = calls[*i].id.clone();
+                let tx = tx.clone();
+                s.spawn(move || {
+                    let progress = move |step: SubagentStep| {
+                        let _ = tx.send(AgentEvent::Subagent {
+                            call: call.clone(),
+                            step,
+                        });
+                    };
+                    t.run_observed(input, ctx, &progress)
+                })
+            })
+            .collect();
+        drop(tx);
+        // termina quando todas as threads acabam (e largam o seu `tx`)
+        for e in rx {
+            events(e);
+        }
+        hs.into_iter()
+            .map(|h| {
+                h.join()
+                    .unwrap_or_else(|_| ToolOutput::err("a ferramenta falhou (panic)"))
+            })
+            .collect()
+    })
 }
 
 /// Rejects every hunk still open (`by: cancel`).

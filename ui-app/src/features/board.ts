@@ -40,6 +40,7 @@ import { STAGES } from "./board/domain/issue";
 import { inView, points, autoSprint } from "./board/domain/kanban";
 import { makeBoardEngine } from "./board/application/board-engine";
 import { toBacklogDto, fromBacklogDto } from "./board/domain/persist";
+import { studioBacklogRequest, studioComponents } from "./board/domain/backlog-context";
 import { tauriBoard } from "./board/infrastructure/tauri";
 import { bindActions, type ActionTable } from "./board/ui/actions";
 import {
@@ -62,6 +63,7 @@ import { BOARD_DESKTOP_MESSAGES, type BoardDesktopKey } from "./board/applicatio
 /* o motor recebe uma só porta `copy`: os textos migrados (pares do motor) e os novos (desktop) */
 const tbe = translator(BOARD_ENGINE_MESSAGES), tbd = translator(BOARD_DESKTOP_MESSAGES);
 import { BOARD_MESSAGES } from "./board/ui/messages";
+import { XC as XCImport } from "./terminal";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(BOARD_MESSAGES);
 
@@ -113,7 +115,7 @@ for (const ev of ["click", "change", "drop"]) document.addEventListener(ev, save
    estado BL é a MESMA referência que `backlog()` do bridge devolve (window.BL). ───── */
 const engine = makeBoardEngine({
   copy: (k, p) => (k in BOARD_DESKTOP_MESSAGES.en ? tbd(k as BoardDesktopKey, p) : tbe(k as BoardEngineKey, p)),
-  store: { backlog: () => backlog(), design: () => design(), saveDesign: () => saveDesign() },
+  store: { backlog: () => backlog(), design: () => design(), saveDesign: () => saveDesign(), project: () => boardRoot() },
   catalog: { tech: () => tech(), kind: () => kindTable(), cloud: () => cloudTable(), isApp: (n) => isApp(n), nodeSlug: (n) => nodeSlug(n), appDir: (n) => appDir(n), root: () => root() },
   generators: { validateDesign: () => validateDesign() },
   directory: { agents: () => agents(), provs: () => provs(), taskProfiles: () => taskProfiles() },
@@ -142,6 +144,14 @@ const { mkIssue, setStage, autoTest, runIssue, delegate, runSprint, approveIssue
    Project (desktop, folder open), where a human accepts or dismisses each one. The board
    above keeps working as before. */
 async function genBacklog(): Promise<void> {
+  // with the agent (desktop, a folder open): Co-Dev drafts the backlog from the folder and the design, for the
+  // folder's Project (`/backlog`, then `/project`) — each issue scoped to real files, worked by «Work on it with Co-Dev»
+  if (agentAvailable()) {
+    if (validateDesign().some((f) => f[0] === "e")) return void genBacklogBase(); // the card with the design's errors
+    const D = design();
+    handlePrompt(studioBacklogRequest(studioComponents(D, (k) => (tech()[k] || { n: k }).n, (n) => appDir(n))));
+    return;
+  }
   const before = new Set(BL.issues.map((i) => i.id));
   await genBacklogBase();
   const made = BL.issues.filter((i) => !before.has(i.id));
@@ -196,7 +206,7 @@ const ACTIONS: ActionTable = {
 bindActions(ACTIONS);
 /* `dx test <ISSUE>` e `dx sprint <n>` no terminal (ADR-0004, U4j4a — eram do app.ts): chamam o dropIssue/runSprint
    PUBLICADOS (o runSprint com as guardas e a porta desktop), como o app.ts chamava pelo global. */
-const XCB=(window as unknown as { XC: Record<string, (a: string[], v?: string) => unknown> }).XC;
+const XCB=XCImport as Record<string, (a: string[], v?: string) => unknown>;
 const _dx=XCB.dx;XCB.dx=(a: string[])=>{if(a[0]==='test'&&a[1]){const it=(window as unknown as { BL: Backlog }).BL.issues.find(i=>i.id.toLowerCase()===a[1].toLowerCase());if(!it){(window as unknown as { echo: (h: string) => void }).echo('<span class="er">issue desconhecida</span>');return;}(window as unknown as { dropIssue: (id: string, st: string) => void }).dropIssue(it.id,'test');return;}if(a[0]==='sprint'){(window as unknown as { runSprint: (s: number) => unknown }).runSprint((+a[1]||1)-1);return;}return _dx(a);};
 /* redesenha o quadro aberto quando o workspace muda (ADR-0004, U4j4a — era um subscritor do app.ts) */
 bus.on('workspace:changed',({fromEditor:a})=>{if(!a){const t=(window as unknown as { tabOf: (id: string | null) => { kind?: string } | undefined; cur: string | null }).tabOf((window as unknown as { cur: string | null }).cur);if(t&&t.kind==='board'){const top=$('#ebody')!.scrollTop;(window as unknown as { show: (id: string | null) => void }).show((window as unknown as { cur: string | null }).cur);$('#ebody')!.scrollTop=top;}}});

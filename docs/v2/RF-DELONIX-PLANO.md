@@ -50,9 +50,74 @@ Efeito na matriz (coluna «+ramos»):
 Por isso a F4 encolhe: constrói-se sobre `crates/tutor-board/src/project/` (A5) e já não sobre o
 `tutor-board::Story` antigo.
 
+## 0.2 Estado em 2026-11-25 (reauditoria do bloco 1 da sessão de fecho)
+
+Medido no `develop` depois das F1–F7 e dos cinco blocos dos RF restantes (PRs #33, #35, #36, #38 e #39). A matriz
+da §1 fica como foi medida a 23–24 de Novembro (histórico); **esta tabela é o estado de hoje**. Dos 49 RF:
+**os 49 ✅**. Os seis que a reauditoria deu como 🟡 (G03, G07, G08, A03, A04, A05) fecharam-se nos blocos 2–6 da
+sessão de fecho (`.claude/sessions/rf-fecho.md`; PRs #41–#45).
+
+| RF | Hoje | Prova | O que falta |
+|---|---|---|---|
+| G01 origem obrigatória | ✅ | F1.1 (`permissions::Origin`, `require_origin`) | — |
+| G02 AI não cria issues nem move cartões | ✅ | F1.10 (`suggest` → caixa de entrada); ferramentas MCP perguntam também em Auto (bug 7, `mcp_tools_ask_in_assist_and_can_be_always_allowed`) | — |
+| G03 âmbito de ficheiros da issue | ✅ | F1.4 (escrita fora do âmbito → `Ask` em qualquer modo); a story tem âmbito (F4.1); bloco 5 da sessão de fecho (o que o `bash` escreve fora do âmbito: aviso, nota ao modelo e auditoria) | — |
+| G04 modos Manual/Assistido/Auto | ✅ | F1.6 (mudança de modo no registo; o Auto pára no `finish_issue`) | — |
+| G05 irreversíveis pedem sempre | ✅ | F1.5 (deploys, migrações, `rm`, `--force`, merges para ramos partilhados…) | — |
+| G06 dúvida → parar e «Bloqueada: dúvida» | ✅ | F1.7 (`ask_human`, issue bloqueada no Project) | — |
+| G07 Stop / Esc | ✅ | F1.9; o Esc pára o Co-Dev (bug 1); bloco 6 da sessão de fecho (depois do Stop, a barra «Keep / Discard» no chat, com o checkpoint do turno) | — |
+| G08 plano antes de executar | ✅ | F1.8 (sem plano aprovado, alterar ficheiros é recusado em Manual/Assistido); F3.3 (ficheiro fora da ordem ou do plano assinalado); bloco 2 da sessão de fecho (o bloco contra as linhas do passo, `linesInPlan`) | — |
+| B01 user story completa | ✅ | F4.1 | — |
+| B02 Definition of Ready | ✅ | F4.2 (`readiness()`, «Work on it» desactivado com a lista) | — |
+| B03 prompt pelo template + «Ver prompt» | ✅ | F4.3, F4.4 | — |
+| B04 template versionado, idioma | ✅ | F4.3, F4.4 (versão na issue; «Edit template» e «Commit template») | — |
+| B05 uma issue de cada vez, sem «aproveitar» | ✅ | ordem das issues (`rank`) no Project; F1.10 (`suggest` para o que está fora dos critérios) | — |
+| B06 tabela critério→prova; Done humano | ✅ | F4.5 | — |
+| B07 testes automáticos, 2 tentativas | ✅ | F4.6 | — |
+| B08 issue ↔ ramo/commits/prompt/modelo/custo | ✅ | F4.7, F2.7 | — |
+| E01 `edit_lines` | ✅ | F2.1 | — |
+| E02 âncora; recusa se mudou | ✅ | A2 (`a_human_edit_*` em `hunks.rs`) | — |
+| E03 contexto numerado e por trechos | ✅ | F2.3 | — |
+| E04 localização por símbolo | ✅ | F2.2 (`outline`) | — |
+| E05 reescrita só >60%, com aprovação | ✅ | F2.4 | — |
+| E06 indentação/EOL/codificação | ✅ | F2.5 (bug 5, `desktop.eol.test.ts`) | — |
+| E07 Ctrl+Z desfaz o bloco da AI | ✅ | F2.6 | — |
+| E08 conjunto por issue no SCM | ✅ | F2.7 | — |
+| S01 código no editor, não no chat | ✅ | F3.2 | — |
+| S02 velocidade regulável | ✅ | F3.1 | — |
+| S03 realce e cursor «Co-Dev» | ✅ | A2; bug 8 corrigido neste bloco (`editor.paint.test.ts`) | — |
+| S04 Seguir / «Voltar ao Co-Dev» | ✅ | A2 | — |
+| S05 Pausar/Acelerar/Parar | ✅ | A2 | — |
+| S06 barra Aceitar/Rejeitar/Explicar por bloco | ✅ | A2 | — |
+| S07 o humano escreve → a AI cede | ✅ | A2 (bug 4: autosave antes do turno e de cada decisão — `codev.agent-chat.test.ts`, `codev.hunk-review.test.ts`; `stale`/relocate em `hunks.rs`) | — |
+| S08 um ficheiro de cada vez pela ordem do plano | ✅ | F3.3 (sem segurar blocos: o plano manda a ordem e o chat assinala o que a não segue) | — |
+| S09 PairCode vê o stream | ✅ | F6.5 (sem verificação manual a duas máquinas) | — |
+| A01 ficheiro de regras editado no Studio | ✅ | F5.1, F5.2 | — |
+| A02 regras no prompt | ✅ | F4.3 (bloco «Restrições do arquitecto») | — |
+| A03 verificador de patch | ✅ | F5.3; bloco 3 da sessão de fecho (na revisão, a vermelho com «Aceitar» desligado até ao override) | — |
+| A04 desvios só com ADR | ✅ | F5.4, F5.5; bloco 3 (o override pede o Arquitecto e um ADR aceite, e fica na auditoria — `codev_agent_override`) | — |
+| A05 drift inclui as regras | ✅ | F5.6 (por ficheiro, no Problems); bloco 4 da sessão de fecho (por issue: no painel da issue e no Problems filtrado pelos ficheiros dela) | — |
+| A06 papéis | ✅ | F5.7 | — |
+| T01 registo de auditoria | ✅ | F1.2 | — |
+| T02 trailers, autor humano | ✅ | F4.8 (bug 3, `commit_identity.rs` neste bloco) | — |
+| T03 orçamento | ✅ | F6.1 | — |
+| T04 custo real | ✅ | F4.9, F4.7 | — |
+| T05 segredos mascarados | ✅ | F1.3 (no JSONL e no registo; o que se envia ao modelo não é mascarado — o RF pede o registo) | — |
+| P01 janela não cobre o chat | ✅ | `pair.ts`; `pairtest.sh` | — |
+| P02 controlo por pedido e aceitação | ✅ | `pairtest.sh` (pedir/aceitar controlo) | — |
+| P03 só o driver executa e aprova | ✅ | F6.2 | — |
+| P04 «driver: guest» no registo | ✅ | F6.3 | — |
+| P05 token de uso único + 30 min | ✅ | F6.4 (bug 2, `host_and_guest_exchange_over_loopback_through_the_facade`) | — |
+
+**Base medida (F0.4), 2026-11-25, neste ramo:** `cargo test --workspace` 696 passam, 0 falham (45 ignorados);
+`ui:test` 1000 testes em 101 ficheiros; `CI=1 ui:e2e` 27; auto-teste desktop 51 passos, 0 falhas; `pairtest.sh`
+(duas instâncias, Xvfb) sem erros no anfitrião nem no convidado — entrada, só leitura a navegar, seguir, pedir e
+aceitar controlo, edição do convidado no disco do anfitrião, terminal partilhado, edição do anfitrião no convidado,
+separadores privados por partilhar, vídeo e áudio nos dois sentidos (relay).
+
 ## 1. Matriz de estado
 
-Legenda: **dev** = `develop` hoje; **+ramos** = depois de fundir `feat/a2-codev-stream` e `feat/ide-real`.
+Legenda: **dev** = `develop` a 2026-11-23; **+ramos** = depois de fundir `feat/a2-codev-stream` e `feat/ide-real`. *Matriz histórica: o estado de hoje está na §0.2.*
 
 ### 1.1 Governação (RF-G)
 
@@ -140,16 +205,16 @@ Legenda: **dev** = `develop` hoje; **+ramos** = depois de fundir `feat/a2-codev-
 
 ## 2. Bugs encontrados que contradizem os RF (corrigir na F0)
 
-| # | Bug | RF | Onde |
-|---|---|---|---|
-| 1 | O Esc não pára o agente v2 | G07 | `features/codev/ui/chat-view.ts:174-188` (`agCtl` sem `'esc'`), `boot.ts:186` |
-| 2 | Token do PairCode reutilizável depois de o convidado sair | P05 | `src-tauri/src/pair.rs:161-198` |
-| 3 | `git_commit` do backend força o autor `dxtutor` | T02 | `crates/tutor-eval/src/git.rs:452-467` |
-| 4 | O autosave sobrescreve em silêncio uma escrita da AI feita durante o turno | S07 | `platform/desktop/workspace.ts:85-108` (verificar se a A2 o resolve) |
-| 5 | O editor converte CRLF→LF à primeira tecla (inferido) | E06 | `features/editor.ts:32` |
-| 6 | `autoTest` rebenta (`sleep` não publicado) | B07 | `board-engine.ts:34` (corrigido no ADR-0006 R3a) |
-| 7 | Ferramentas MCP que mudam estado correm sem perguntar em Auto | G02/G05 | `permissions/mod.rs:278-281` |
-| 8 | As decorações do editor desaparecem ao escrever (`paintEd` base vs `paintEdFull`) | S03 | `features/editor.ts:59-65` |
+| # | Bug | RF | Onde | Estado (2026-11-25) |
+|---|---|---|---|---|
+| 1 | O Esc não pára o agente v2 | G07 | `features/codev/ui/chat-view.ts:174-188` (`agCtl` sem `'esc'`), `boot.ts:186` | ✅ corrigido (F1.9); teste `RF-G07: Esc na caixa pára o Co-Dev…` |
+| 2 | Token do PairCode reutilizável depois de o convidado sair | P05 | `src-tauri/src/pair.rs:161-198` | ✅ corrigido (F6.4); teste `host_and_guest_exchange_over_loopback_through_the_facade` |
+| 3 | `git_commit` do backend força o autor `dxtutor` | T02 | `crates/tutor-eval/src/git.rs:452-467` | ✅ corrigido (F4.8); teste `the_commit_is_refused_without_a_git_identity_and_is_the_humans_with_one` (neste bloco) |
+| 4 | O autosave sobrescreve em silêncio uma escrita da AI feita durante o turno | S07 | `platform/desktop/workspace.ts:85-108` (verificar se a A2 o resolve) | ✅ resolvido pela A2: autosave antes do turno e de cada decisão (testes em `codev.agent-chat`/`codev.hunk-review`), `stale`/relocate no backend |
+| 5 | O editor converte CRLF→LF à primeira tecla (inferido) | E06 | `features/editor.ts:32` | ✅ corrigido (F2.5); `desktop.eol.test.ts` |
+| 6 | `autoTest` rebenta (`sleep` não publicado) | B07 | `board-engine.ts:34` (corrigido no ADR-0006 R3a) | ✅ corrigido (ADR-0006 R3a) |
+| 7 | Ferramentas MCP que mudam estado correm sem perguntar em Auto | G02/G05 | `permissions/mod.rs:278-281` | ✅ corrigido (F1.5); teste `mcp_tools_ask_in_assist_and_can_be_always_allowed` (também em Auto) |
+| 8 | As decorações do editor desaparecem ao escrever (`paintEd` base vs `paintEdFull`) | S03 | `features/editor.ts:59-65` | ✅ corrigido neste bloco: ao escrever, o editor usa o pintor completo; teste `editor.paint.test.ts` |
 
 ## 3. Decisões do dono (bloqueiam partes do plano)
 
@@ -182,24 +247,24 @@ Cada ferramenta nova sobe o `TOOLSET_VERSION`. Combinar a ordem antes da F1.
 
 | Passo | O quê | Prova |
 |---|---|---|
-| F0.1 | ✅ **Feita (2026-11-24): `origin/develop` @ `ad42c85`.** Reconciliado o `develop` local (A2, A5, A1 e, já durante a consolidação, a A3) com o `origin/develop` (ADR-0006), num worktree (merges `5fe0f4b` e `ad42c85`). O quadro Tasks ficou com o `board_load`/`board_save` num SQLite próprio (`tasks.sqlite3`) ao lado do Project (Q3 por decidir). Verificado: ui:test 744, cargo test 587/0, arch:check (173 comandos), e2e 14/14, selftest `errors []` em 45 passos, pairtest sem erros. **Falta:** reauditar na §1 o que a A3 trouxe (papéis, permissões, passos do plano, relatórios de turno → G08, A06, T01) | Testes todos verdes; selftest desktop com `errors []`; reaudit rápida das linhas da §1 que mudaram |
-| F0.2 | Bugs 1, 2, 3, 7 da §2 (o 6 vem com o ADR-0006) | Teste por bug (vitest para o Esc; `cargo test` para pair/git/permissions) |
-| F0.3 | Bugs 4, 5, 8: confirmar com teste se a A2 os resolve; se não, corrigir | Teste de integração «o humano edita durante o turno» e «ficheiro CRLF sobrevive a uma tecla» |
-| F0.4 | Base medida: `cargo test`, `selftest.sh`, `pairtest.sh` | Registo dos números na secção de estado deste documento |
+| F0.1 | ✅ **Feita (2026-11-24): `origin/develop` @ `ad42c85`.** Reconciliado o `develop` local (A2, A5, A1 e, já durante a consolidação, a A3) com o `origin/develop` (ADR-0006), num worktree (merges `5fe0f4b` e `ad42c85`). O quadro Tasks ficou com o `board_load`/`board_save` num SQLite próprio (`tasks.sqlite3`) ao lado do Project (Q3 por decidir). Verificado: ui:test 744, cargo test 587/0, arch:check (173 comandos), e2e 14/14, selftest `errors []` em 45 passos, pairtest sem erros. *(Reauditado a 2026-11-25: §0.2.)* | Testes todos verdes; selftest desktop com `errors []`; reaudit rápida das linhas da §1 que mudaram |
+| F0.2 | ✅ **Feito**: bugs 1, 2, 3 e 7 corrigidos (F1.9, F6.4, F4.8, F1.5), cada um com o seu teste (o do 3 é deste bloco: `commit_identity.rs`) | §2 |
+| F0.3 | ✅ **Feito**: o 4 está resolvido pela A2 (autosave antes do turno e de cada decisão, testado), o 5 pela F2.5; o 8 ainda falhava e foi corrigido neste bloco (`editor.paint.test.ts` falhava antes da correcção) | §2 |
+| F0.4 | ✅ **Feito** (2026-11-25): a base medida está no fim da §0.2 | §0.2 |
 
 ### F1 — Governação e registo (RF-G01–G08, T01, T05) (L)
 
 | Passo | O quê | Onde |
 |---|---|---|
 | F1.1 | ✅ **Feito** (ramo `feat/f1-governanca`): `permissions::Origin` (`chat`/`editor`/`issue`, `scope`), `Policy::require_origin` (só no IDE; a TUI/CLI não), `codev_agent_send` com `origin`, quem pediu = `board::actor` (git), «tentar de novo» herda. A UI envia `chat`, ou `issue` numa conversa aberta do quadro. **Origem**: `Origin {kind: issue\|chat\|editor, issue?, by}` em `StartSpec`/`send`, herdada por cada `PendingCall`. Ferramenta que muda estado num turno sem origem → `Verdict::Deny("bloqueada: sem pedido")` | `src-tauri/src/codev_agent.rs:41-68, 509`; `tutor-agent/src/agent.rs:69-78, 469`; `permissions/mod.rs:213` |
-| F1.2 | ✅ **Feito** (e «Export audit log» no painel da issue do Project): migração 3 do store do Project (`audit`), uma linha por decisão sobre uma chamada (veredicto, resultado `allowed/denied/blocked/partial`, `policy`/`human:<nome>`/`cancel`, quando), por mudança de modo e por turno (modelo, tokens); comando `project_audit {root, issue?}` (JSON). **Falta:** custo em moeda (F4.9) e `driver` (F6.3). **Registo de auditoria** (D4): uma linha por acção com data, origem, modo, ferramenta, ficheiro+linhas, comando, veredicto, quem/quando aprovou, modelo, tokens, custo e driver (reservado para P04). Comando `audit_export {issue}` → JSON | Novo módulo Rust (store SQLite da app); a aprovação passa a registar quem e quando (`codev_agent.rs:604-630`) |
+| F1.2 | ✅ **Feito** (e «Export audit log» no painel da issue do Project): migração 3 do store do Project (`audit`), uma linha por decisão sobre uma chamada (veredicto, resultado `allowed/denied/blocked/partial`, `policy`/`human:<nome>`/`cancel`, quando), por mudança de modo e por turno (modelo, tokens); comando `project_audit {root, issue?}` (JSON). *(Custo em moeda e `driver`: feitos em F4.9 e F6.3.)* **Registo de auditoria** (D4): uma linha por acção com data, origem, modo, ferramenta, ficheiro+linhas, comando, veredicto, quem/quando aprovou, modelo, tokens, custo e driver (reservado para P04). Comando `audit_export {issue}` → JSON | Novo módulo Rust (store SQLite da app); a aprovação passa a registar quem e quando (`codev_agent.rs:604-630`) |
 | F1.3 | ✅ **Feito** no que se grava: `tutor_agent::redact` (chaves conhecidas, Bearer, URL com senha, `chave=valor` secreto, valores secretos dos `.env`) no JSONL da sessão e no registo. Conservador: palavras comuns ficam (o JSONL volta ao modelo numa retoma). O que se **envia** ao modelo não é mascarado (o RF pede o registo). **Redacção (T05)**: mascarar chaves conhecidas, tokens e valores dos `.env` do projecto antes de gravar (JSONL e auditoria) e antes de enviar ao modelo | `SessionLog::sync` (`session.rs:210-221`), `Agent::request` (`agent.rs:255-268`) |
-| F1.4 | ✅ **Feito** (mecanismo): `Origin.scope` com globs (`src/**`, `*.md`, `crates/*/src/**`); fora do âmbito → `Ask` com `dangerous` (sem «permitir sempre»), em todos os modos. **Falta:** a story ter âmbito (F4.1) e o comando `bash` (não se sabe o que escreve). **Âmbito (G03)**: `Scope {globs}` no `ToolCtx`; mudança fora do âmbito → `Ask{reason:"fora do âmbito"}` em qualquer modo | `tool.rs:13-18`, `Policy::decide` |
+| F1.4 | ✅ **Feito** (mecanismo): `Origin.scope` com globs (`src/**`, `*.md`, `crates/*/src/**`); fora do âmbito → `Ask` com `dangerous` (sem «permitir sempre»), em todos os modos. **O `bash` (sessão de fecho, bloco 5):** o que um comando escreve não passa pela política, por isso o anfitrião compara a árvore de trabalho antes e depois de cada `bash` de um pedido com âmbito (`git status` com tamanho e data de cada ficheiro alterado: novos, alterados outra vez, apagados ou repostos). O que mudou fora do âmbito vai para o chat (aviso, com «Rewind to here» para desfazer), para o modelo (nota no pedido seguinte: pedir com `ask_human` ou sugerir com `suggest`) e para a auditoria (evento `scope`). O comando já correu: avisa-se, não se recusa. Sem git não se verifica. Testes `the_working_tree_before_and_after_a_command_says_which_files_it_changed` e `a_bash_command_that_writes_outside_the_scope_is_told_to_the_human_the_model_and_the_audit_log`. *(O âmbito da story: feito em F4.1.)* **Âmbito (G03)**: `Scope {globs}` no `ToolCtx`; mudança fora do âmbito → `Ask{reason:"fora do âmbito"}` em qualquer modo | `tool.rs:13-18`, `Policy::decide` |
 | F1.5 | ✅ **Feito**: deploys (`deploy`, `vercel --prod`, `pulumi up`), `helm` e `kubectl` que alteram o cluster, `gh pr merge`/`release`, migrações (prisma, rails, django, alembic, sqlx, diesel, flyway, liquibase, goose, `psql -f`), `rm`/`unlink`/`git rm`, `--force*` e merge/pull com um ramo partilhado em checkout → Dangerous; MCP pergunta também em Auto (salvo regra «permitir sempre»). **Classificador (G05)**: merge para `main`/`develop`, `gh pr merge`/`release`, `kubectl apply`, `helm`, `compose up`, `*deploy`, migrações, `rm`/`git rm` sem flags e `--force` genérico → Dangerous; MCP que muda estado → Ask | `permissions/shell.rs:483-755` + testes por comando |
 | F1.6 | ✅ **Feito**: a mudança de modo fica no registo de auditoria e o Auto pára no fim da issue (o `finish_issue` da F4.5 fecha-a; depois disso nada muda). *(Estado corrigido no bloco 1 dos RF restantes: estava 🟡 por lapso.)* | `codev_agent.rs` (`settle_flow`), `app/store/agent.ts` |
 | F1.7 | ✅ **Feito** (conjunto de ferramentas 6): `ask_human {question, options?}`; depois dela a política recusa qualquer mudança até à resposta; no fim do turno o anfitrião envia o evento `question` (o chat mostra-o), marca a issue do turno `blocked: "dúvida: …"` no Project e regista-o na auditoria. **Dúvida (G06)**: ferramenta `ask_human {question}` que termina o turno e emite o evento `question`; o Board marca `blocked:{reason:"dúvida"}` (golden do board: estado novo) | `tutor-agent/src/tools/flow.rs`; `board/domain/types.ts` |
-| F1.8 | ✅ **Feito** (conjunto 6; decisão do dono: só antes de alterar ficheiros): em Manual e Assistido, alterar um ficheiro sem plano aprovado neste pedido é recusado com instrução para usar `exit_plan` (com ficheiros e linhas); comandos e perguntas não precisam. `exit_plan` passa a funcionar fora do modo plano. **Falta:** confrontar os hunks com os intervalos do plano (aviso). **Plano (G08)**: `exit_plan` estruturado `{steps:[{path,start,end,symbol?,why}], commands:[]}` (o evento `plan` da A2 já tem `files`); em Manual/Assistido a primeira mutação sem plano aprovado é recusada; hunk fora do plano → aviso no cartão | `tools/flow.rs:100-136`, `permissions/mod.rs:222-235` |
-| F1.9 | ✅ **Feito** (no essencial): o Esc pára o Co-Dev (bug 1 da §2); depois do Stop nada mais é escrito (já era) e, se o turno já alterou ficheiros, o chat diz que ficaram e como os descartar (checkpoint do turno: «Rewind to here» / `/reverter`). **Falta (UI):** uma barra «aceitar/descartar» no próprio chat. **Stop (G07)**: depois do Stop, o *change set* do turno (incluindo os aplicados provisórios no Auto) aparece para aceitar ou descartar (descartar = checkpoint do turno) | `codev_agent.rs:671-687, 769-777`; UI codev |
+| F1.8 | ✅ **Feito** (conjunto 6; decisão do dono: só antes de alterar ficheiros): em Manual e Assistido, alterar um ficheiro sem plano aprovado neste pedido é recusado com instrução para usar `exit_plan` (com ficheiros e linhas); comandos e perguntas não precisam. `exit_plan` passa a funcionar fora do modo plano. **Hunks contra o plano (sessão de fecho, bloco 2):** cada bloco é confrontado com as linhas que o passo deu para o seu ficheiro (`linesInPlan`, 3 linhas de folga — os blocos anteriores deslocam as linhas e as do plano são uma estimativa); fora delas, aviso na linha «Writing» («outside the planned lines (40–52)») e na barra de revisão do chat («2 block(s) outside the planned lines»), sem bloquear. Testes `RF-G08: …` em `codev.stream-plan.test.ts` e `codev.agent-chat.test.ts`. **Plano (G08)**: `exit_plan` estruturado `{steps:[{path,start,end,symbol?,why}], commands:[]}` (o evento `plan` da A2 já tem `files`); em Manual/Assistido a primeira mutação sem plano aprovado é recusada; hunk fora do plano → aviso no cartão | `tools/flow.rs:100-136`, `permissions/mod.rs:222-235` |
+| F1.9 | ✅ **Feito** (no essencial): o Esc pára o Co-Dev (bug 1 da §2); depois do Stop nada mais é escrito (já era) e, se o turno já alterou ficheiros, o chat diz que ficaram e como os descartar (checkpoint do turno: «Rewind to here» / `/reverter`). **A barra no chat (sessão de fecho, bloco 6):** depois do Stop — e depois da validação do Auto, que pode já ter reposto os provisórios —, se o turno deixou ficheiros alterados desde o seu checkpoint (`Checkpoints::changed_since`), o anfitrião manda o evento `stop_review` e o chat mostra «Parado: o turno deixou N ficheiro(s) alterado(s) — …» com **Keep** (ficam) e **Discard** (com confirmação, volta ao checkpoint do turno — só os ficheiros, a conversa fica — e recarrega o editor). Testes `the_files_changed_since_a_checkpoint`, `after_stop_the_files_the_turn_changed_are_offered_to_keep_or_discard`, `RF-G07: …` em `codev.agent-chat.test.ts` e `codev.stream-plan.test.ts`. **Stop (G07)**: depois do Stop, o *change set* do turno (incluindo os aplicados provisórios no Auto) aparece para aceitar ou descartar (descartar = checkpoint do turno) | `codev_agent.rs:671-687, 769-777`; UI codev |
 | F1.10 | ✅ **Feito** (conjunto 6): `suggest {title, why}` → caixa de entrada do Project (`op: propose`, origem «Co-Dev»), aviso no chat e linha na auditoria; o humano aceita ou rejeita (A5). O `genBacklog` do Studio já escrevia na caixa de entrada (A5.4). **Sugestões (G02)**: ferramenta `suggest {title, why}` → inbox do Board com Aceitar/Rejeitar; o `genBacklog` do Studio passa a escrever na inbox | Board (com a A5 PROJ-01) |
 
 ### F2 — Edição cirúrgica, o que falta depois da A2 (RF-E) (M)
@@ -219,9 +284,9 @@ Cada ferramenta nova sobe o `TOOLSET_VERSION`. Combinar a ordem antes da F1.
 | Passo | O quê |
 |---|---|
 | F3.1 | ✅ **Feito**: «Velocidade de escrita no editor…» no menu «/» (Lento 20 / Normal 40 / Rápido 120 / Instantâneo), guardada entre execuções; critério RF-S02 testado (400 caracteres a Normal = 10 s). Opções de velocidade (D6) nas Definições; teste do ritmo (400 car em Normal = 10 s ±10%) sobre o `revealStep` puro |
-| F3.2 | Confirmar a rede de segurança dos blocos de código no chat (§7 da A2) e a linha «A escrever `path` a–b» com link |
-| F3.3 | Ordem do plano: hunks de um ficheiro fora da ordem do plano ficam à espera (ou o backend serializa pela ordem do `plan`) |
-| F3.4 | Capturas Playwright a 1440×900: linha activa, bloco escrito, marca na margem que desaparece ao aceitar |
+| F3.2 | ✅ **Feito**: a rede de segurança (`domain/prose.ts`: blocos de código com mais de 3 linhas na resposta não vão para o chat) passa a ter o botão **Ask Co-Dev to make the change**, que pede ao agente a alteração no editor com `edit_lines`/`edit` (`codev.ask`, uma vez); e cada bloco que o Co-Dev começa a escrever dá no chat a linha **«Writing `src/lib.rs` 40–52»**, com o caminho como link que abre o ficheiro (uma por chamada). Testes: `codev.stream-plan.test.ts`, `RF-S01/S08 (F3.2/F3.3)…` em `codev.agent-chat.test.ts`, e2e `F3.4 at 1440×900…` |
+| F3.3 | ✅ **Feito** (sem segurar blocos): o modelo chama uma ferramenta de cada vez e, no Assistido, cada uma espera pelo humano — segurar um bloco até chegarem os de um ficheiro anterior pararia o turno. Em vez disso: o plano aprovado manda executar os passos pela ordem, um ficheiro de cada vez (`exit_plan`, teste `the_approved_plan_is_followed_in_the_order_of_its_steps`), e a linha «Writing» de cada bloco diz onde cai no plano — «step N of the plan», **«ahead of the plan: step N, before `a.rs`»** (um ficheiro de um passo anterior ainda não foi escrito) ou **«not in the plan»** (o assinalar da G08) — por `domain/plan-order.ts` (puro) |
+| F3.4 | ✅ **Feito**: e2e `F3.4 at 1440×900…` em `codev-hunks.e2e.ts` — com o viewport a 1440×900, a linha em escrita (rótulo «Co-Dev»), o bloco escrito à espera da decisão e, depois de aceitar, a marca na margem e o overlay desaparecem; capturas `f34-writing/written/accepted-1440x900.png` nos artefactos do teste |
 
 ### F4 — Issues e template (RF-B01–B08, T02, T04) (L) · por cima do ADR-0006 R3 e da A5
 
@@ -244,9 +309,9 @@ Cada ferramenta nova sobe o `TOOLSET_VERSION`. Combinar a ordem antes da F1.
 | F5.1 | ✅ **Feito** (backend): `.dxtutor/architecture.toml` — TOML como o `harness.toml`, para não acrescentar uma dependência de YAML (o RF dá o YAML como exemplo): `[[layers]]` (nome, caminhos, `may_use`, `imports`), `[libraries]` (proibidas/aprovadas), `[[naming]]`, `[[exceptions]]` com o ADR. `.dxtutor/` é protegido do agente: só um humano as muda. As regras entram no prompt das issues (A02). Esquema `.dxtutor/architecture.yaml`: `layers[{name, paths}]`, `allow[{from,to}]`, `libraries{approved,forbidden}`, `naming[{glob, pattern}]`; tipos no domínio da feature `arch` e validação em Rust | `features/arch/domain/`, `tutor-eval/src/arch.rs` |
 | F5.2 | ✅ **Feito**: o Studio («Architecture» → **§ Rules**) edita o `.dxtutor/architecture.toml` como formulário — camadas (nome, caminhos, de quem podem depender ou «qualquer uma»), bibliotecas proibidas/aprovadas, regras de nomes e excepções com ADR. **Layers from the drawing** faz uma camada de cada grupo «Layer» (caminhos `src/<nome>/**`, a acertar) e cada seta entre componentes de duas camadas diz que a primeira pode depender da segunda (junta, nunca tira). Grava pelo backend (`arch_rules_save`: `conformance::validate` recusa com cada problema; só o Arquitecto quando o `team.json` nomeia pessoas; quem não o é vê as regras só para ler e porquê) e propõe o commit do arquitecto só com os ficheiros que mudaram (`arch_rules_commit`, `git commit --only`, identidade git humana). Testes: `the_architect_saves_the_rules_validated_and_a_developer_cannot`, `the_architects_commit_takes_only_the_rules_and_the_adrs`, `the_rules_the_studio_writes_are_validated_and_read_back_the_same`, `ui-app/tests/arch.rules.test.ts`; passo «archRules» do auto-teste desktop | `src-tauri/src/arch_rules.rs`, `tutor_agent::conformance`, `features/arch/{domain,application}/rules.ts`, `features/arch/ui/view.ts` |
 | F5.3 | ✅ **Feito**: `tutor_agent::conformance` (imports de Rust, TS/JS, Python, Go, Java/Kotlin, C#, Swift, C/C++) e um portão em cada alteração do agente: biblioteca proibida/não aprovada, dependência entre camadas não permitida ou nome fora da convenção → recusada em qualquer modo, com o motivo. Só se verificam as linhas que a alteração acrescenta. Verificador de conformidade (A03): extracção de imports por linguagem (rs/ts/js/py/go/java/kt/cs/swift/cpp; regex primeiro, como o A7 do `arch-check.sh`), ficheiro→camada, dependências permitidas, biblioteca vs manifesto; corre em cada `hunk_end` → o hunk leva `violations` | Rust (`tutor-eval` ou módulo novo); `hunks.rs` |
-| F5.4 | ✅ **Feito** (mecanismo): um desvio só passa com `[[exceptions]] adr = "ADR-…"` e esse ADR **aceite** em `docs/adr|architecture|decisions/` (linha `Status: accepted` / `Estado: aceite`); o agente pode redigir o ADR (proposto) mas não o aprova — mudar o estado é editar um ficheiro, coisa do humano. **Falta:** o override na UI e o papel Arquitecto (F5.7). Revisão: hunk com violação a vermelho e «Aceitar» bloqueado; o override exige o papel Arquitecto e o número de um ADR aceite (A04) | `codev_agent_review`; UI do overlay |
+| F5.4 | ✅ **Feito** (mecanismo): um desvio só passa com `[[exceptions]] adr = "ADR-…"` e esse ADR **aceite** em `docs/adr|architecture|decisions/` (linha `Status: accepted` / `Estado: aceite`); o agente pode redigir o ADR (proposto) mas não o aprova — mudar o estado é editar um ficheiro, coisa do humano. **Override na UI (sessão de fecho, bloco 3):** na revisão do IDE, uma alteração que viola as regras deixa de ser recusada antes de o humano a ver — pergunta (também em Auto), chega a vermelho com as regras que viola, e «Aceitar» fica desligado (na barra do bloco no editor e na barra do chat); o backend recusa aceitá-la sem o override (`review`). «Override (ADR)…» pede o número de um ADR aceite e o comando `codev_agent_override` só o concede ao Arquitecto (F5.7) com esse ADR aceite (`adr_accepted`), e regista-o na auditoria (evento `override`, com o ADR e as regras); rejeitar diz ao modelo que regra violou. Fora do IDE (CLI/TUI) continua recusada. Testes `a_change_that_breaks_the_rules_asks_in_red_and_only_the_architects_override_lets_it_in`, `codev.override.test.ts`, `RF-A03/A04: …` em `codev.agent-chat.test.ts`. Revisão: hunk com violação a vermelho e «Aceitar» bloqueado; o override exige o papel Arquitecto e o número de um ADR aceite (A04) | `codev_agent_review`; UI do overlay |
 | F5.5 | ✅ **Feito**: um ADR (`docs/adr/`, `docs/decisions/` e — agora também — os `ADR*` de `docs/architecture/`, `roles::is_adr`) é caminho protegido: a alteração do agente pede sempre aprovação e só a aprova o Arquitecto (`role_gate`, F5.7). No painel «Rules» do Studio, a lista de ADRs com o estado e **Accept** (`adr_accept`, só o Arquitecto): o estado passa a `accepted` (`aceite` quando está escrito «Estado»), por baixo fica «Approved by: nome <email> (data)» na mesma forma (lista a negrito, linha simples ou chave YAML do front matter), e a excepção da F5.4 que o nomeia passa a valer; o commit do arquitecto leva-o. Testes: `accepting_an_adr_keeps_its_form_and_says_who_approved_it`, `the_adrs_are_listed_and_only_the_architect_accepts_one`, `roles_by_git_identity_and_what_each_approves` | `src-tauri/src/arch_rules.rs`, `src-tauri/src/roles.rs`, `tutor_agent::conformance` |
-| F5.6 | ✅ **Feito** (por ficheiro): o scan do painel Problems junta o `arch_conformance` aos compiladores/linters — cada violação das regras aparece como erro com a fonte «arquitectura», agrupada por ficheiro, e volta a ser calculada a cada gravação (uma violação nova aparece na mesma sessão). **Falta:** a vista por issue. Drift de regras (A05): varredura de conformidade do repo e painel «Architecture» por ficheiro e por issue (via *change sets*), actualizado ao gravar | painel/Problems; `features/arch` |
+| F5.6 | ✅ **Feito** (por ficheiro): o scan do painel Problems junta o `arch_conformance` aos compiladores/linters — cada violação das regras aparece como erro com a fonte «arquitectura», agrupada por ficheiro, e volta a ser calculada a cada gravação (uma violação nova aparece na mesma sessão). **Por issue (sessão de fecho, bloco 4):** o painel da issue do Project lista as violações das regras nos ficheiros que o Co-Dev alterou para ela (os seus *change sets*, F2.7; `arch_conformance`, sem comando novo), cada uma abre o ficheiro na linha, e «Show in Problems» filtra o Problems por esses ficheiros (chip «Issue DXT-3 ✕»; `app/problems-scope.ts`). Sem violações: «✓ No violations in the N file(s) Co-Dev changed». Testes `RF-A05: …` em `project.test.ts` e `panel.domain.test.ts`, e2e em `project.e2e.ts`. Drift de regras (A05): varredura de conformidade do repo e painel «Architecture» por ficheiro e por issue (via *change sets*), actualizado ao gravar | painel/Problems; `features/arch` |
 | F5.7 | ✅ **Feito** (`4693df8`): `people[{email, roles}]` no `.dxtutor/team.json` (`src-tauri/src/roles.rs`); o Ready e o Done só com Product Owner ou Tech Lead (`project_apply`); as regras e os ADR só com o Arquitecto e os templates com o Arquitecto ou o Tech Lead (`role_gate` em `codev_agent.rs`, que também os faz perguntar sempre). Teste `rules_and_adrs_need_the_architect_and_never_pass_alone`. *(Estado corrigido no bloco 1 dos RF restantes: estava ❌ por lapso.)* | `src-tauri/src/roles.rs`, `codev_agent.rs`, `board.rs` |
 
 ### F6 — Custo e colaboração (RF-T03, P03–P05, S09) (M)

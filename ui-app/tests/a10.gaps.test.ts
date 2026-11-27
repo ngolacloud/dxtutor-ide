@@ -125,7 +125,8 @@ describe("rever uma alteração grande", () => {
     const x = makeGitExtras({
       git: port,
       ws: { root: () => "/p", project: () => "p", save: async () => undefined, changed: async () => undefined, branches: () => ["develop", "feature/x"], current: () => "feature/x", cursor: () => null, commitMessage: () => "", open: vi.fn() },
-      human: { confirm: () => true, text: async () => null, pick: async () => picks.shift() ?? null, toast: vi.fn() },
+      audit: { record: async () => undefined },
+      human: { approve: async () => ({ approved: true, reason: "", decidedAt: 1 }), text: async () => null, pick: async () => picks.shift() ?? null, toast: vi.fn() },
       codev: { available: () => true, ask: (r) => asked.push(r) },
       tabs: { open: vi.fn(), repaint: vi.fn() },
       say: (k) => k,

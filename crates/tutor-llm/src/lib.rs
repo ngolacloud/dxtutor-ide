@@ -22,6 +22,13 @@ use anyhow::{anyhow, Result};
 /// Local Dev-Assistant chat (Ollama). Separate from the pedagogical hint providers.
 pub mod chat;
 
+/// r23 F4a (X02): the body of an outgoing request with its secrets masked (and the count reported
+/// to the app, which shows it and audits it). Every request this crate sends goes through it.
+pub fn guarded(origin: &str, mut body: serde_json::Value) -> serde_json::Value {
+    tutor_protect::redact::guard_json(origin, &mut body);
+    body
+}
+
 /// Study-mode policy: the backend authority over what AI surfaces may do mid-exercise.
 pub mod policy;
 
@@ -167,7 +174,7 @@ impl ClaudeProvider {
             .set("x-api-key", &self.api_key)
             .set("anthropic-version", ANTHROPIC_VERSION)
             .set("content-type", "application/json")
-            .send_json(body);
+            .send_json(guarded("tutor", body));
 
         match resp {
             Ok(r) => {

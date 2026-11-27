@@ -1,0 +1,24 @@
+[package]
+name = "tutor-platform"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+# r23 F4c (docs/v2/AUDIT-r23.md §4.4 — K01–K05): the OS keychain and Vault, without Tauri.
+[dependencies]
+tutor-protect = { path = "../tutor-protect" }
+# r23 F4c2: the deploy's drift check reads the IaC (tutor_eval::iac)
+tutor-eval = { path = "../tutor-eval" }
+sha2 = "0.10"
+# r23 F5a: the runbooks' read-only allowlist builds on the agent's shell classifier
+tutor-agent = { path = "../tutor-agent" }
+regex = "1"
+# r23 F5b: the queue reads the project base's records (deploys, runbook runs, incidents)
+tutor-board = { path = "../tutor-board" }
+serde.workspace = true
+serde_json = "1"
+ureq = { version = "2.12", features = ["json"] }
+
+# r23 F5b: the PR review plans the PR head in a temporary worktree
+tempfile.workspace = true

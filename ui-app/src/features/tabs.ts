@@ -17,11 +17,18 @@
 import { tabMarks } from "../app/tab-marks";
 import { $, esc, svg, toast } from "../core";
 import { editorStore, type Tab } from "../app/store/editor";
+import { bus } from "../app/bus";
 import { VIEW } from "../app/store/registry";
-import { registerActions, globalCalls } from "../app/actions";
+import { translator } from "../app/i18n";
+import { isStateFile } from "./protect/domain/report";
+import { PROTECT_MESSAGES } from "./protect/ui/messages";
+import { registerActions, callGlobal } from "../app/actions";
 import { services } from "../app/services";
 import { ctxPill } from "./codev";
 import { stLang } from "./editor";
+import { explainCmd, reviewCmd } from "./codereview";
+import { startDebug } from "./debug";
+import { dxRun } from "./stack";
 
 interface LegacyGlobals {
   FS: Record<string, { content: string; orig: string | null }>;
@@ -44,7 +51,14 @@ function openTab(t: Tab, act?: boolean): void {
   else G.show(t.id);
 }
 
+const tp = translator(PROTECT_MESSAGES);
+
 function openPath(p: string, line?: number): void {
+  /* r23 F4b (P05): um ficheiro de estado nunca se abre no editor */
+  if (isStateFile(p)) {
+    toast(tp("stateFile", { file: p.split("/").pop() as string }));
+    return;
+  }
   if (!G.FS[p]) {
     toast("Ficheiro não existe: " + G.short(p));
     return;
@@ -161,6 +175,7 @@ function closeTab(id: string): void {
   if (i < 0) return;
   const t = TB()[i];
   TB().splice(i, 1);
+  bus.emit("editor:tab-closed", { id, path: t.kind === "file" && typeof t.path === "string" ? t.path : null });
   if (t.kind === "agent") {
     parkAgent();
     services.shell!.setVar("--agent-w", "380px");
@@ -185,7 +200,9 @@ function stepTab(d: number): void {
    locais e a barra deixara de aparecer ao abrir um ficheiro (regressão corrigida aqui). */
 const EACT: [string, string, string, string][] = [['bulb', 'Explain', 'Ctrl+K E', 'explainCmd'], ['review', 'Code review', 'Ctrl+K R', 'reviewCmd'], ['bug', 'Debug', 'F5', 'startDebug'], ['run', 'RUN', 'Ctrl+F5', 'dxRun'], ['eye', 'Under the hood', 'Ctrl+K U', 'hoodCmd']];
 /* os botões da barra de acções do editor chamam a função publicada, no acto (eram `onclick="f()"` — ADR-0004, U5a) */
-registerActions(globalCalls("tabs", EACT.map((a) => a[3])));
+/* os da barra que já não vão ao window chamam a função importada (ADR-0004, U7p5/U7p6); o hoodCmd a publicada */
+const EACT_LOCAL: Record<string, () => unknown> = { explainCmd: () => explainCmd(), reviewCmd: () => reviewCmd(), startDebug: () => startDebug(), dxRun: () => dxRun() };
+registerActions(Object.fromEntries(EACT.map((a) => [`tabs:${a[3]}`, { click: () => void (EACT_LOCAL[a[3]] ? EACT_LOCAL[a[3]]() : callGlobal(a[3])) }])));
 function showWithActions(id: string | null): void {
   show(id);
   const t = tabOf(editorStore.currentTabId), b = $("#breadcrumbs");
@@ -198,8 +215,8 @@ function showWithActions(id: string | null): void {
  *  ADR-0004 U4j3; como lá, usa o `show` publicado — o da barra de acções). */
 function rerender(kind: string): void { const t=tabOf(editorStore.currentTabId);if(t&&t.kind===kind){const top=$('#ebody')!.scrollTop;G.show(editorStore.currentTabId);$('#ebody')!.scrollTop=top;} }
 
-Object.assign(window, { rerender, tabOf, openTab, openPath, show: showWithActions, EACT });
+Object.assign(window, { tabOf, openTab, openPath, show: showWithActions });
 
-export { rerender, tabOf, openTab, openPath, openFile, setActive, tabIc, drawTabs, parkAgent, miniOff, show, closeTab, stepTab };
+export { EACT, rerender, tabOf, openTab, openPath, openFile, setActive, tabIc, drawTabs, parkAgent, miniOff, show, closeTab, stepTab };
 /* o que a ponte do Co-Dev, a equipa e o Learning Track lêem — avaliam antes (ADR-0004, U7h) */
-services.tabs = { miniOff, closeTab };
+services.tabs = { miniOff, closeTab, rerender, EACT };

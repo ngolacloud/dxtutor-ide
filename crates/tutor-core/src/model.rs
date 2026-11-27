@@ -85,6 +85,20 @@ pub struct Phase {
     /// `go mod tidy`, so this stays empty there.
     #[serde(default)]
     pub dependencies: Vec<String>,
+    /// Passo de projecto (vários ficheiros): os ficheiros iniciais, os testes ocultos e a
+    /// solução em ficheiros (ver [`crate::project`]). `None` num desafio de um só ficheiro,
+    /// que usa `starter`/`tests`/`gabarito.solution`.
+    #[serde(default)]
+    pub project: Option<crate::project::ProjectFiles>,
+    /// Como a fase se constrói e avalia (a `[build]` do curso: cache preparada, tempo limite).
+    /// Por omissão, o ambiente e os limites do avaliador.
+    #[serde(skip)]
+    pub build: crate::build::BuildEnv,
+    /// Os ficheiros de APOIO do curso (caminho na pasta de trabalho → conteúdo; ver
+    /// [`crate::support`]), escritos pelo avaliador ao lado dos do passo. Vazio fora de um curso
+    /// que os declare; nunca vem do TOML de uma fase (preenche-o [`crate::Course::phase`]).
+    #[serde(skip)]
+    pub support: std::sync::Arc<std::collections::BTreeMap<String, String>>,
 }
 
 /// Gabarito: a melhor forma de resolver, com a complexidade atada.

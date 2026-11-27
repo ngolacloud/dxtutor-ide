@@ -153,6 +153,30 @@ impl Checkpoints {
         self.list.lock().unwrap().clone()
     }
 
+    /// RF-G07: os ficheiros que diferem entre o checkpoint `id` e a árvore de trabalho agora (o que
+    /// `restore` repõe ou apaga), por caminho.
+    pub fn changed_since(&self, id: u32) -> Result<Vec<String>, String> {
+        let cp = self
+            .list()
+            .into_iter()
+            .find(|c| c.id == id)
+            .ok_or_else(|| format!("checkpoint {id} não existe"))?;
+        let now = self.worktree_tree()?;
+        let target = format!("{}^{{tree}}", cp.commit);
+        let diff = git(
+            &self.root,
+            &["diff", "--name-only", "--no-renames", "-z", &target, &now],
+            None,
+        )?;
+        let mut files: Vec<String> = diff
+            .split('\0')
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect();
+        files.sort();
+        Ok(files)
+    }
+
     /// Repõe os ficheiros como estavam no checkpoint `id`. Devolve um resumo.
     pub fn restore(&self, id: u32) -> Result<String, String> {
         let cp = self
@@ -325,5 +349,23 @@ mod tests {
         assert!(!refs.contains("refs/heads/dxtutor"));
         assert!(cps.restore(9).is_err());
         assert_eq!(cps.snapshot("outro").unwrap().id, 2);
+    }
+
+    /// RF-G07: what a stopped turn left changed since its checkpoint — modified, created and
+    /// deleted files — and nothing once restored.
+    #[test]
+    fn the_files_changed_since_a_checkpoint() {
+        let d = repo();
+        let cps = Checkpoints::new(d.path(), "s1").unwrap();
+        let cp = cps.snapshot("antes").unwrap();
+        assert!(cps.changed_since(cp.id).unwrap().is_empty());
+        std::fs::write(d.path().join("a.txt"), "dois\n").unwrap();
+        std::fs::write(d.path().join("novo.txt"), "n\n").unwrap();
+        std::fs::remove_file(d.path().join(".gitignore")).unwrap();
+        let files = cps.changed_since(cp.id).unwrap();
+        assert_eq!(files, [".gitignore", "a.txt", "novo.txt"]);
+        cps.restore(cp.id).unwrap();
+        assert!(cps.changed_since(cp.id).unwrap().is_empty());
+        assert!(cps.changed_since(99).unwrap_err().contains("não existe"));
     }
 }

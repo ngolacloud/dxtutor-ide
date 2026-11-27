@@ -17,16 +17,68 @@
 //! *internally-tagged enum* + `flatten` do serde (que não casa bem com o parser
 //! TOML de arrays-de-tabelas). Assim cada passo é só uma `[[unit.step]]` com os
 //! campos que o seu tipo precisa.
+//!
+//! # Categorias: linguagens, frameworks e ferramentas
+//!
+//! Um curso ensina uma LINGUAGEM (`category = "language"`, o omisso: o conteúdo antigo não
+//! muda) ou um FRAMEWORK/FERRAMENTA (`"framework"`/`"tool"`, ADR-0005, emenda de 2026-11-26).
+//! Num curso de framework ou ferramenta, `subject` é o id do que se ensina (`django`,
+//! `docker`) e `language` continua a ser a linguagem/runtime que AVALIA os passos (`python`):
+//! é por ela que o avaliador e a unicidade dos ids de passo se resolvem.
 
-use serde::Deserialize;
+use std::collections::BTreeMap;
+use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
+
+use crate::build::{BuildEnv, CourseBuild};
 use crate::model::{Gabarito, Level, Phase};
+use crate::project::ProjectFiles;
 
-/// Uma trilha de aprendizado guiado numa linguagem, para principiantes.
+/// O que um curso ensina. Serializa como `"language"`/`"framework"`/`"tool"`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CourseCategory {
+    /// Uma linguagem de programação (o catálogo oficial tem no máximo 10).
+    #[default]
+    Language,
+    /// Um framework sobre uma linguagem (Django, Dxjs, Seiva, Odoo…).
+    Framework,
+    /// Uma ferramenta (Docker, Podman, Kubernetes, Delonix…).
+    Tool,
+}
+
+impl CourseCategory {
+    /// O nome serializado (`"language"`, `"framework"`, `"tool"`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CourseCategory::Language => "language",
+            CourseCategory::Framework => "framework",
+            CourseCategory::Tool => "tool",
+        }
+    }
+
+    /// `false` para uma linguagem; `true` para um framework ou uma ferramenta (que precisam
+    /// de um `subject`).
+    pub fn has_subject(self) -> bool {
+        self != CourseCategory::Language
+    }
+}
+
+/// Uma trilha de aprendizado guiado (numa linguagem, num framework ou numa ferramenta).
 #[derive(Debug, Clone, Deserialize)]
 pub struct Course {
     pub id: String,
+    /// A linguagem/runtime que avalia os passos (`rust`, `python`…). Num curso de linguagem
+    /// é também o que o curso ensina.
     pub language: String,
+    /// O que o curso ensina: uma linguagem (omisso), um framework ou uma ferramenta.
+    #[serde(default)]
+    pub category: CourseCategory,
+    /// Id do framework/ferramenta ensinado (`django`, `docker`). Vazio num curso de
+    /// linguagem.
+    #[serde(default)]
+    pub subject: String,
     pub title: String,
     /// Nível pedagógico do curso em texto livre (ex.: `"beginner"`). É puramente
     /// de apresentação — os passos `challenge` recebem um [`Level`] tipado via
@@ -37,9 +89,24 @@ pub struct Course {
     /// curso vai construir. Lida antes da primeira unidade. Vazia no conteúdo antigo.
     #[serde(default)]
     pub overview: String,
+    /// Construção partilhada (`[build]`): as dependências de todos os passos, a origem num só
+    /// sítio (`[build.vars]`) e se a avaliação corre offline contra uma cache preparada uma vez
+    /// (ver [`crate::build`]). Vazia no conteúdo antigo.
+    #[serde(default)]
+    pub build: CourseBuild,
     /// `unit` no TOML (`[[unit]]`); `units` também é aceite (JSON dos plugins).
     #[serde(rename = "unit", alias = "units")]
     pub units: Vec<Unit>,
+    /// Ficheiros de APOIO, como o curso os declara: caminho na pasta de trabalho → ficheiro do
+    /// plugin (relativo à sua raiz). Só de leitura e partilhados por todos os passos (ver
+    /// [`crate::support`]). Vazio na maioria dos cursos.
+    #[serde(default)]
+    pub support: BTreeMap<String, String>,
+    /// O conteúdo dos ficheiros de apoio (caminho na pasta de trabalho → texto), preenchido por
+    /// quem lê o curso ([`Course::load_support`]): o plugin do disco, o embutido do binário.
+    /// Partilhado (`Arc`): clonar um curso não copia os megabytes.
+    #[serde(skip)]
+    pub support_files: Arc<BTreeMap<String, String>>,
 }
 
 /// Formato de origem de um ficheiro de curso.
@@ -66,15 +133,51 @@ impl CourseFormat {
 impl Course {
     /// Lê um curso de texto, sem panic: o erro descreve o problema para o autor do conteúdo
     /// (é o caminho dos plugins, onde o conteúdo vem de fora e pode estar mal formado).
+    ///
+    /// Aplica a `[build]` do curso ([`crate::build::resolve`]): os passos saem com as dependências
+    /// do curso juntas às suas e com o seu [`BuildEnv`].
     pub fn parse(raw: &str, format: CourseFormat) -> Result<Course, String> {
-        match format {
-            CourseFormat::Toml => toml::from_str(raw).map_err(|e| e.to_string()),
-            CourseFormat::Json => serde_json::from_str(raw).map_err(|e| e.to_string()),
-        }
+        let mut course: Course = match format {
+            CourseFormat::Toml => toml::from_str(raw).map_err(|e| e.to_string())?,
+            CourseFormat::Json => serde_json::from_str(raw).map_err(|e| e.to_string())?,
+        };
+        crate::build::resolve(&mut course)?;
+        Ok(course)
     }
 }
 
 impl Course {
+    /// A chave do percurso na interface: o `subject` de um framework/ferramenta, senão a
+    /// linguagem.
+    pub fn track(&self) -> &str {
+        if self.category.has_subject() {
+            &self.subject
+        } else {
+            &self.language
+        }
+    }
+
+    /// Carrega os ficheiros de apoio declarados em [`Course::support`] com `read` (fonte no
+    /// plugin → conteúdo). Com algum erro (forma, leitura, limites), o curso fica sem eles e
+    /// devolvem-se todos os erros.
+    pub fn load_support(
+        &mut self,
+        read: impl FnMut(&str) -> Result<String, String>,
+    ) -> Result<(), Vec<String>> {
+        let files = crate::support::resolve(&self.support, read)?;
+        self.support_files = Arc::new(files);
+        Ok(())
+    }
+
+    /// O [`Phase`] que avalia `step` neste curso: o de [`Step::as_phase`] (na linguagem do
+    /// curso) com os ficheiros de apoio do curso. `None` quando o passo não é um `challenge`
+    /// avaliável.
+    pub fn phase(&self, step: &Step, level: Level) -> Option<Phase> {
+        let mut phase = step.as_phase(&self.language, level)?;
+        phase.support = Arc::clone(&self.support_files);
+        Some(phase)
+    }
+
     /// Procura um passo pelo seu `id`, percorrendo todas as unidades.
     pub fn step(&self, id: &str) -> Option<&Step> {
         self.units
@@ -216,6 +319,18 @@ pub struct Step {
     /// the scaffolded `Cargo.toml` so drills and challenges compile.
     #[serde(default)]
     pub dependencies: Vec<String>,
+
+    // ── project (challenge de vários ficheiros) ──────────────────────────────
+    /// Passo de PROJECTO: ficheiros iniciais, testes ocultos, solução em ficheiros, ficheiro
+    /// principal e ficheiros só de leitura (ver [`crate::project`]). Só em passos
+    /// `challenge`, e no lugar de `starter`/`tests`/`gabarito`.
+    #[serde(default)]
+    pub project: Option<ProjectFiles>,
+
+    /// Como o passo se constrói e avalia, vindo da `[build]` do curso (preenchido no parse do
+    /// curso, nunca escrito no conteúdo).
+    #[serde(skip)]
+    pub build: BuildEnv,
 }
 
 impl Step {
@@ -226,11 +341,23 @@ impl Step {
     /// O passo guiado não cronometra complexidade, por isso o [`Phase`] resultante
     /// não tem sonda (`probe = None`) — a avaliação resume-se à correcção pelos
     /// testes, que é o que o modo guiado precisa.
+    ///
+    /// Um passo de PROJECTO não tem `gabarito` (a solução são os ficheiros de
+    /// `project.solution`, que viajam no `Phase::project`): o gabarito do `Phase` fica com a
+    /// solução vazia, sem complexidade, e com a `project.explanation` como justificação.
     pub fn as_phase(&self, language: &str, level: Level) -> Option<Phase> {
         if self.kind != StepKind::Challenge {
             return None;
         }
-        let gabarito = self.gabarito.clone()?;
+        let gabarito = match &self.project {
+            Some(p) => Gabarito {
+                solution: String::new(),
+                time: String::new(),
+                space: String::new(),
+                justification: p.explanation.clone(),
+            },
+            None => self.gabarito.clone()?,
+        };
         Some(Phase {
             id: self.id.clone(),
             title: self.title.clone(),
@@ -246,6 +373,10 @@ impl Step {
             // course's own (course.rs/request_hint), not Phase::hint.
             hints: Vec::new(),
             dependencies: self.dependencies.clone(),
+            project: self.project.clone(),
+            // Os ficheiros de apoio são do CURSO: junta-os o `Course::phase`.
+            support: Default::default(),
+            build: self.build.clone(),
         })
     }
 }
@@ -276,6 +407,89 @@ const KOTLIN_BASICS: &str = include_str!("../../../courses/kotlin/courses/kotlin
 const CSHARP_BASICS: &str = include_str!("../../../courses/csharp/courses/csharp.toml");
 /// Swift: também só no backend; avaliado pelo descritor Swift (swiftc em modo Swift 6).
 const SWIFT_BASICS: &str = include_str!("../../../courses/swift/courses/swift.toml");
+/// Dxjs: o primeiro curso de FRAMEWORK embutido (só no backend), avaliado pelo descritor
+/// TypeScript. A biblioteca não está no npm: o curso traz o bundle de uma versão fixa e um DOM
+/// para o Node como ficheiros de apoio ([`DXJS_SUPPORT`]), e a avaliação corre sem rede.
+const DXJS_BASICS: &str = include_str!("../../../courses/dxjs/courses/dxjs.toml");
+
+/// Os ficheiros de apoio do curso Dxjs, embutidos como o TOML: fonte no plugin → conteúdo.
+/// Cada fonte que o `[support]` do curso declara tem de estar aqui, e só essas (um teste
+/// verifica as duas coisas).
+const DXJS_SUPPORT: &[(&str, &str)] = &[
+    (
+        "support/dxjs-1.2.0.js",
+        include_str!("../../../courses/dxjs/support/dxjs-1.2.0.js"),
+    ),
+    (
+        "support/core/package.json",
+        include_str!("../../../courses/dxjs/support/core/package.json"),
+    ),
+    (
+        "support/core/index.js",
+        include_str!("../../../courses/dxjs/support/core/index.js"),
+    ),
+    (
+        "support/dom/package.json",
+        include_str!("../../../courses/dxjs/support/dom/package.json"),
+    ),
+    (
+        "support/dom/index.js",
+        include_str!("../../../courses/dxjs/support/dom/index.js"),
+    ),
+    (
+        "support/component/package.json",
+        include_str!("../../../courses/dxjs/support/component/package.json"),
+    ),
+    (
+        "support/component/index.js",
+        include_str!("../../../courses/dxjs/support/component/index.js"),
+    ),
+    (
+        "support/query/package.json",
+        include_str!("../../../courses/dxjs/support/query/package.json"),
+    ),
+    (
+        "support/query/index.js",
+        include_str!("../../../courses/dxjs/support/query/index.js"),
+    ),
+    (
+        "support/forms/package.json",
+        include_str!("../../../courses/dxjs/support/forms/package.json"),
+    ),
+    (
+        "support/forms/index.js",
+        include_str!("../../../courses/dxjs/support/forms/index.js"),
+    ),
+    (
+        "support/happy-dom/package.json",
+        include_str!("../../../courses/dxjs/support/happy-dom/package.json"),
+    ),
+    (
+        "support/happy-dom-15.11.7.js",
+        include_str!("../../../courses/dxjs/support/happy-dom-15.11.7.js"),
+    ),
+    (
+        "support/dxtutor-dom/package.json",
+        include_str!("../../../courses/dxjs/support/dxtutor-dom/package.json"),
+    ),
+    (
+        "support/dxtutor-dom/index.js",
+        include_str!("../../../courses/dxjs/support/dxtutor-dom/index.js"),
+    ),
+];
+/// Seiva (framework, avaliado em Rust): também só no backend; compila contra o Seiva 0.2.0 do
+/// repositório (`[build]` do curso), preparado uma vez e avaliado offline.
+const SEIVA_BASICS: &str = include_str!("../../../courses/seiva/courses/seiva.toml");
+/// Django (framework, avaliado em Python): também só no backend; corre contra o Django 5.2 LTS
+/// fixado (versão e sha256) no `[build]` do curso, instalado uma vez num venv do curso e avaliado
+/// offline com o `manage.py test` do próprio Django.
+const DJANGO_BASICS: &str = include_str!("../../../courses/django/courses/django.toml");
+/// Kubernetes (ferramenta, avaliada por verificações — `crate::toolcheck`): só no backend. A parte
+/// offline: os manifestos lêem-se e o `kubectl kustomize` constrói-os sem cluster.
+const KUBERNETES_BASICS: &str = include_str!("../../../courses/kubernetes/courses/kubernetes.toml");
+/// Delonix Engine 0.2.0 (ferramenta, avaliada por verificações): só no backend, com os comandos
+/// do delonix que não tocam no motor (`manifest render`, `compose config`).
+const DELONIX_BASICS: &str = include_str!("../../../courses/delonix/courses/delonix.toml");
 
 /// Todos os cursos guiados embebidos no binário.
 pub fn builtin_courses() -> Vec<Course> {
@@ -290,7 +504,29 @@ pub fn builtin_courses() -> Vec<Course> {
         parse("kotlin-basics", KOTLIN_BASICS),
         parse("csharp-basics", CSHARP_BASICS),
         parse("swift-basics", SWIFT_BASICS),
+        with_support(parse("dxjs-basics", DXJS_BASICS), DXJS_SUPPORT),
+        parse("seiva-basics", SEIVA_BASICS),
+        parse("django-basics", DJANGO_BASICS),
+        parse("kubernetes-basics", KUBERNETES_BASICS),
+        parse("delonix-basics", DELONIX_BASICS),
     ]
+}
+
+/// Liga a um curso embutido os seus ficheiros de apoio embutidos. Uma fonte declarada que não
+/// está embutida é um erro de construção (como um TOML inválido): o teste
+/// `embedded_support_matches_the_declaration` apanha-o no CI.
+fn with_support(mut course: Course, embedded: &[(&str, &str)]) -> Course {
+    let id = course.id.clone();
+    course
+        .load_support(|src| {
+            embedded
+                .iter()
+                .find(|(path, _)| *path == src)
+                .map(|(_, content)| content.to_string())
+                .ok_or_else(|| "not embedded in the binary".to_string())
+        })
+        .unwrap_or_else(|e| panic!("ficheiros de apoio inválidos em {id}: {}", e.join("; ")));
+    course
 }
 
 /// Carrega um curso guiado pelo seu `id`.
@@ -923,6 +1159,72 @@ mod parse_tests {
     }
 
     #[test]
+    fn categoria_por_omissao_e_curso_de_framework() {
+        let lang = load_course("python-basics").unwrap();
+        assert_eq!(lang.category, CourseCategory::Language);
+        assert_eq!(lang.track(), "python");
+        let raw = r#"
+id = "fw"
+language = "python"
+category = "framework"
+subject = "django"
+title = "T"
+level = "beginner"
+summary = "s"
+
+[[unit]]
+id = "u1"
+title = "U1"
+
+[[unit.step]]
+kind = "challenge"
+id = "fw-p1"
+title = "P"
+instructions = "Do it."
+
+[unit.step.project]
+main = "app/views.py"
+readonly = ["app/__init__.py"]
+explanation = "Why."
+
+[unit.step.project.starter]
+"app/__init__.py" = ""
+"app/views.py" = "def index():\n    raise NotImplementedError\n"
+
+[unit.step.project.tests]
+"test_app.py" = "import unittest\n"
+
+[unit.step.project.solution]
+"app/views.py" = "def index():\n    return 'ok'\n"
+"#;
+        let c = Course::parse(raw, CourseFormat::Toml).expect("toml válido");
+        assert_eq!(c.category, CourseCategory::Framework);
+        assert_eq!(c.track(), "django");
+        let s = c.step("fw-p1").unwrap();
+        let p = s.project.as_ref().expect("project");
+        assert!(p.check().is_empty(), "{:?}", p.check());
+        assert_eq!(p.main, "app/views.py");
+        let phase = s
+            .as_phase(&c.language, Level::Basico)
+            .expect("projecto vira Phase");
+        assert_eq!(phase.gabarito.solution, "");
+        assert_eq!(phase.gabarito.justification, "Why.");
+        assert_eq!(phase.project.as_ref(), Some(p));
+        // Um desafio de um só ficheiro sem gabarito continua a não virar Phase.
+        let mut single = s.clone();
+        single.project = None;
+        assert!(single.as_phase("python", Level::Basico).is_none());
+
+        let json = r#"{"id":"t","language":"python","category":"tool","subject":"docker","title":"T",
+          "level":"b","summary":"s","units":[]}"#;
+        let t = Course::parse(json, CourseFormat::Json).unwrap();
+        assert_eq!((t.category, t.track()), (CourseCategory::Tool, "docker"));
+        assert!(
+            Course::parse(&json.replace("\"tool\"", "\"library\""), CourseFormat::Json).is_err()
+        );
+    }
+
+    #[test]
     fn parse_devolve_erro_em_vez_de_panic() {
         assert!(Course::parse("id = 1", CourseFormat::Toml).is_err());
         assert!(Course::parse("{", CourseFormat::Json).is_err());
@@ -931,5 +1233,389 @@ mod parse_tests {
             Some(CourseFormat::Toml)
         );
         assert_eq!(CourseFormat::from_path("x.yaml"), None);
+    }
+}
+
+#[cfg(test)]
+mod django_tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    /// O curso Django: framework avaliado em Python, 9 unidades, um projecto Django por unidade
+    /// (sempre com `manage.py` na raiz, o que faz o descritor Python correr `manage.py test`), e
+    /// as dependências fixadas com hash numa cache pip preparada.
+    #[test]
+    fn django_is_a_framework_course_graded_by_python_with_a_pip_cache() {
+        let c = load_course("django-basics").expect("curso django-basics");
+        assert_eq!(
+            (
+                c.language.as_str(),
+                c.category,
+                c.subject.as_str(),
+                c.track()
+            ),
+            ("python", CourseCategory::Framework, "django", "django")
+        );
+        assert!(c
+            .overview
+            .contains("https://docs.djangoproject.com/en/5.2/"));
+        assert!(c.support.is_empty());
+        let levels: BTreeSet<&str> = c.units.iter().map(|u| u.level.as_str()).collect();
+        assert_eq!(
+            levels,
+            BTreeSet::from(["basic", "intermediate", "advanced"])
+        );
+        // As dependências: o Django 5.2 LTS e as suas, cada uma exacta e com o sha256 da roda.
+        assert!(c.build.prepare);
+        let pins: Vec<(String, String)> = c
+            .build
+            .dependencies
+            .iter()
+            .map(|d| {
+                let r = crate::pip_requirement(d).expect("pinned and hashed");
+                assert_eq!(r.hashes.len(), 1, "{d}");
+                (r.name, r.version)
+            })
+            .collect();
+        assert_eq!(
+            pins,
+            [
+                ("Django".to_string(), "5.2.19".to_string()),
+                ("asgiref".to_string(), "3.12.1".to_string()),
+                ("sqlparse".to_string(), "0.6.1".to_string()),
+            ]
+        );
+        for (n, u) in c.units.iter().enumerate() {
+            assert_eq!(u.difficulty as usize, n + 1, "{}", u.id);
+            assert!(u.concepts.len() > 1000, "{}: concepts", u.id);
+            assert_eq!(u.steps.first().map(|s| s.kind), Some(StepKind::Concept));
+            let kinds: Vec<StepKind> = u.steps.iter().map(|s| s.kind).collect();
+            assert_eq!(
+                kinds,
+                [
+                    StepKind::Concept,
+                    StepKind::Drill,
+                    StepKind::Drill,
+                    StepKind::Challenge
+                ],
+                "{}",
+                u.id
+            );
+            for s in &u.steps {
+                assert!(s.id.starts_with("dj-"), "{}", s.id);
+                let cache = s
+                    .build
+                    .cache
+                    .as_ref()
+                    .expect("every step uses the course cache");
+                assert_eq!(cache.kind(), Some(crate::CacheKind::Pip));
+                assert_eq!(cache.key, "django-basics");
+            }
+            let last = u.steps.last().unwrap();
+            let p = last
+                .project
+                .as_ref()
+                .expect("each unit ends with a project");
+            assert!(p.check().is_empty(), "{}: {:?}", last.id, p.check());
+            assert!(p.starter.contains_key("manage.py"), "{}", last.id);
+            assert!(p.readonly.iter().any(|f| f == "config/settings.py"));
+            assert!(
+                p.starter["config/settings.py"].contains("django.db.backends.sqlite3"),
+                "SQLite only"
+            );
+            let phase = c.phase(last, Level::Basico).expect("avaliável");
+            assert_eq!(phase.build.timeout_secs, 120);
+        }
+    }
+}
+
+#[cfg(test)]
+mod dxjs_tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    #[test]
+    fn embedded_support_matches_the_declaration() {
+        let c = load_course("dxjs-basics").expect("curso dxjs-basics");
+        let declared: BTreeSet<&str> = c.support.values().map(String::as_str).collect();
+        let embedded: BTreeSet<&str> = DXJS_SUPPORT.iter().map(|(p, _)| *p).collect();
+        assert_eq!(
+            declared, embedded,
+            "cada fonte do [support] tem de estar embutida, e só essas"
+        );
+        assert_eq!(c.support_files.len(), c.support.len());
+        // O bundle é o cdn/dxjs.js do dxjs 1.2.0 (67 125 bytes; o sha256 está em
+        // courses/dxjs/support/README.md e é verificado por scripts/vendor-dxjs.mjs --check).
+        let bundle = &c.support_files["node_modules/.dxjs/dxjs.js"];
+        assert_eq!(bundle.len(), 67_125);
+        assert!(bundle.contains("export{"));
+        // Cada shim reexporta do bundle pelo caminho relativo que o [support] cria.
+        for pkg in ["core", "dom", "component", "query", "forms"] {
+            let shim = &c.support_files[&format!("node_modules/@dxjs/{pkg}/index.js")];
+            assert!(shim.contains("from \"../../.dxjs/dxjs.js\""), "{pkg}");
+        }
+    }
+
+    #[test]
+    fn dxjs_is_a_framework_course_graded_by_typescript() {
+        let c = load_course("dxjs-basics").unwrap();
+        assert_eq!(
+            (
+                c.language.as_str(),
+                c.category,
+                c.subject.as_str(),
+                c.track()
+            ),
+            ("typescript", CourseCategory::Framework, "dxjs", "dxjs")
+        );
+        assert!(c.overview.contains("https://ngolacloud.github.io/dxjs/"));
+        let levels: BTreeSet<&str> = c.units.iter().map(|u| u.level.as_str()).collect();
+        assert_eq!(
+            levels,
+            BTreeSet::from(["basic", "intermediate", "advanced"])
+        );
+        let mut projects = 0;
+        for (n, u) in c.units.iter().enumerate() {
+            assert_eq!(u.difficulty as usize, n + 1, "{}", u.id);
+            assert!(u.concepts.len() > 1000, "{}: concepts", u.id);
+            assert_eq!(u.steps.first().map(|s| s.kind), Some(StepKind::Concept));
+            let last = u.steps.last().unwrap();
+            assert_eq!(last.kind, StepKind::Challenge, "{}", u.id);
+            for s in &u.steps {
+                assert!(s.id.starts_with("dxjs-"), "{}", s.id);
+            }
+            // O Phase do curso leva os ficheiros de apoio; o do passo sozinho não.
+            let phase = c.phase(last, Level::Basico).expect("desafio avaliável");
+            assert_eq!(phase.support.len(), c.support.len(), "{}", last.id);
+            assert!(last
+                .as_phase(&c.language, Level::Basico)
+                .unwrap()
+                .support
+                .is_empty());
+            if let Some(p) = &last.project {
+                projects += 1;
+                assert!(p.check().is_empty(), "{}: {:?}", last.id, p.check());
+                assert!(
+                    crate::support::project_clashes(&c.support, p).is_empty(),
+                    "{}",
+                    last.id
+                );
+            }
+        }
+        assert!(
+            projects >= 4,
+            "pelo menos 4 passos de projecto, há {projects}"
+        );
+    }
+
+    #[test]
+    fn course_phase_attaches_support_and_load_support_reports_errors() {
+        let raw = r#"
+id = "s"
+language = "typescript"
+title = "T"
+level = "x"
+summary = "s"
+
+[support]
+"node_modules/lib/index.js" = "support/lib.js"
+
+[[unit]]
+id = "u"
+title = "U"
+
+[[unit.step]]
+kind = "challenge"
+id = "s-x1"
+title = "X"
+instructions = "Do it."
+entry = "f"
+starter = "export function f() {}"
+tests = "dxt.test('t', () => {});"
+
+[unit.step.gabarito]
+solution = "export function f() {}"
+time = "O(1)"
+space = "O(1)"
+justification = "j"
+"#;
+        let mut c = Course::parse(raw, CourseFormat::Toml).unwrap();
+        assert!(
+            c.support_files.is_empty(),
+            "o parse só lê a declaração; o conteúdo carrega-se depois"
+        );
+        let errs = c
+            .load_support(|_| Err("file not found".into()))
+            .unwrap_err();
+        assert!(
+            errs[0].contains("`support/lib.js`: file not found"),
+            "{errs:?}"
+        );
+        c.load_support(|src| Ok(format!("// {src}"))).unwrap();
+        let phase = c.phase(&c.units[0].steps[0], Level::Basico).unwrap();
+        assert_eq!(
+            phase
+                .support
+                .get("node_modules/lib/index.js")
+                .map(String::as_str),
+            Some("// support/lib.js")
+        );
+        // Clonar o curso partilha os ficheiros (Arc), não os copia.
+        let clone = c.clone();
+        assert!(Arc::ptr_eq(&clone.support_files, &c.support_files));
+    }
+}
+
+#[cfg(test)]
+mod tool_course_tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    /// A forma dos cursos de ferramentas (Learn P2b): categoria `tool`, avaliados por verificações
+    /// (`yaml`), ids com o prefixo do curso, níveis por blocos, e cada unidade conceito + drills +
+    /// um desafio de projecto cujo `checks.toml` é válido.
+    fn tool_course(
+        id: &str,
+        subject: &str,
+        prefix: &str,
+        units: usize,
+        tools: &[crate::toolcheck::Tool],
+    ) {
+        let c = load_course(id).unwrap_or_else(|| panic!("curso {id}"));
+        assert_eq!(
+            (
+                c.language.as_str(),
+                c.category,
+                c.subject.as_str(),
+                c.track()
+            ),
+            ("yaml", CourseCategory::Tool, subject, subject)
+        );
+        assert!(crate::toolcheck::graded_by_checks(&c.language));
+        assert!(c.overview.len() > 1500, "overview");
+        assert!(c.support.is_empty(), "sem ficheiros de apoio");
+        assert_eq!(c.units.len(), units);
+        let levels: Vec<&str> = c.units.iter().map(|u| u.level.as_str()).collect();
+        let rank = |l: &str| {
+            ["basic", "intermediate", "advanced"]
+                .iter()
+                .position(|x| *x == l)
+                .unwrap()
+        };
+        assert!(
+            levels.windows(2).all(|w| rank(w[0]) <= rank(w[1])),
+            "{levels:?}"
+        );
+        assert_eq!(
+            levels.iter().copied().collect::<BTreeSet<_>>(),
+            BTreeSet::from(["basic", "intermediate", "advanced"])
+        );
+        for (n, u) in c.units.iter().enumerate() {
+            assert_eq!(u.difficulty as usize, n + 1, "{}", u.id);
+            assert!(u.concepts.len() > 1000, "{}: concepts", u.id);
+            assert!(
+                u.concepts.contains("https://"),
+                "{}: a link to the official docs",
+                u.id
+            );
+            let kinds: Vec<StepKind> = u.steps.iter().map(|s| s.kind).collect();
+            assert_eq!(
+                kinds,
+                [
+                    StepKind::Concept,
+                    StepKind::Drill,
+                    StepKind::Drill,
+                    StepKind::Challenge
+                ],
+                "{}",
+                u.id
+            );
+            for s in &u.steps {
+                assert!(s.id.starts_with(prefix), "{}", s.id);
+                assert!(s.points > 0, "{}", s.id);
+            }
+            for d in u.steps.iter().filter(|s| s.kind == StepKind::Drill) {
+                let lines: Vec<&str> = d.target.trim_end_matches('\n').split('\n').collect();
+                assert_eq!(
+                    d.line_comments.len(),
+                    lines.len(),
+                    "{}: um comentário por linha",
+                    d.id
+                );
+                for (line, comment) in lines.iter().zip(&d.line_comments) {
+                    assert_eq!(
+                        line.trim().is_empty(),
+                        comment.trim().is_empty(),
+                        "{}: {line:?}",
+                        d.id
+                    );
+                }
+            }
+            let ch = u.steps.last().unwrap();
+            let p = ch.project.as_ref().expect("desafio de projecto");
+            assert!(p.check().is_empty(), "{}: {:?}", ch.id, p.check());
+            let errs = crate::toolcheck::check_step(p);
+            assert!(errs.is_empty(), "{}: {errs:?}", ch.id);
+            assert!(c.phase(ch, Level::Basico).is_some());
+        }
+        let used: Vec<crate::toolcheck::Tool> =
+            crate::toolcheck::course_tools(&c).into_iter().collect();
+        assert_eq!(used, tools);
+    }
+
+    #[test]
+    fn kubernetes_is_a_tool_course_graded_by_checks() {
+        tool_course(
+            "kubernetes-basics",
+            "kubernetes",
+            "k8s-",
+            18,
+            &[crate::toolcheck::Tool::Kubectl],
+        );
+        let c = load_course("kubernetes-basics").unwrap();
+        assert!(c.overview.contains("kubectl v1.36"));
+        // Learn P3b: units 12–18 run live in the practice cluster, from a prepared cache of
+        // images pinned by digest; units 1–11 stay offline and need no preparation.
+        let live: Vec<&str> = c
+            .units
+            .iter()
+            .filter(|u| {
+                u.steps
+                    .iter()
+                    .filter_map(|s| s.project.as_ref())
+                    .any(crate::livecheck::step_is_live)
+            })
+            .map(|u| u.id.as_str())
+            .collect();
+        assert_eq!(live.len(), 7, "{live:?}");
+        assert!(c.units[..11].iter().all(|u| !live.contains(&u.id.as_str())));
+        assert!(c.build.prepare);
+        assert_eq!(c.build.dependencies.len(), 3);
+        for d in &c.build.dependencies {
+            crate::image_reference(d).expect("pinned by digest");
+        }
+        for (n, u) in c.units.iter().enumerate() {
+            let ch = u.steps.last().unwrap();
+            let phase = c.phase(ch, Level::Basico).unwrap();
+            assert_eq!(
+                crate::livecheck::phase_needs_cache(&phase),
+                n >= 11,
+                "{}: only live steps need the prepared cluster",
+                ch.id
+            );
+        }
+    }
+
+    #[test]
+    fn delonix_is_a_tool_course_graded_by_checks() {
+        tool_course(
+            "delonix-basics",
+            "delonix",
+            "dlx-",
+            9,
+            &[crate::toolcheck::Tool::Delonix],
+        );
+        let c = load_course("delonix-basics").unwrap();
+        assert!(c.overview.contains("Delonix 0.2.0") && c.overview.contains("0.1.x"));
     }
 }

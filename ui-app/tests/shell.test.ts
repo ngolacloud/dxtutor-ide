@@ -25,20 +25,20 @@ it("setPane mostra o painel, marca o botão, chama o renderer de RP e actualiza 
   expect(w.PANE).toBe("__teste");
   // clicar no activo com tgl recolhe a barra lateral
   SHM.setPane("__teste", true);
-  expect(w.getVar("--side-w")).toBe("0px");
+  expect(SHM.getVar("--side-w")).toBe("0px");
   // e abrir outro painel volta a abri-la
   w.goPane("scm");
-  expect(w.getVar("--side-w")).toBe("250px");
+  expect(SHM.getVar("--side-w")).toBe("250px");
   expect(document.querySelector('.act.on[data-pane="scm"]')).not.toBeNull();
 });
 
 it("togglePanel/setPanelTab: abre o painel inferior e mostra o separador pedido", () => {
   SHM.setVar("--panel-h", "0px");
   w.setPanelTab("problems", true);
-  expect(w.getVar("--panel-h")).toBe("230px");
+  expect(SHM.getVar("--panel-h")).toBe("230px");
   expect($("#pc-problems").classList.contains("show")).toBe(true);
   w.togglePanel();
-  expect(w.getVar("--panel-h")).toBe("0px");
+  expect(SHM.getVar("--panel-h")).toBe("0px");
 });
 
 it("badges conta as alterações por commitar e marca a execução do Co-Dev", async () => {

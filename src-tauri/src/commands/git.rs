@@ -129,6 +129,16 @@ pub async fn git_diff(
     .map_err(|e| format!("git task failed: {e}"))
 }
 
+/// What `git_clone` will run (r23 F6): the exact command, the folder it creates and whether that
+/// folder exists — for the approval dialog. The same validation guards `git_clone`.
+#[tauri::command]
+pub async fn git_clone_plan(
+    url: String,
+    parent_dir: String,
+) -> Result<tutor_eval::git::ClonePlan, String> {
+    gitops::clone_plan(&url, Path::new(&parent_dir)).map_err(|e| e.to_string())
+}
+
 /// Clone a git repository `url` into `parent_dir`, returning the new repo's path so the
 /// workspace can mount it. Runs off the UI thread; errors carry git's stderr.
 #[tauri::command]
@@ -149,6 +159,163 @@ async fn blocking<T: Send + 'static>(
     tauri::async_runtime::spawn_blocking(f)
         .await
         .map_err(|e| format!("git task failed: {e}"))?
+}
+
+/// The Commit Graph's sidebar in one read (r23 F3): branches with upstream and ahead/behind,
+/// remotes and their branches, tags (peeled), stashes, worktrees and contributors.
+#[tauri::command]
+pub async fn git_refs(root: String) -> Result<tutor_eval::gitwork::Refs, String> {
+    blocking(move || tutor_eval::gitwork::refs(Path::new(&root))).await
+}
+
+/// The hunks of one file (r23 F3, UI-SCM-10): the working tree's, or the index's with `staged`.
+#[tauri::command]
+pub async fn git_hunks(
+    root: String,
+    path: String,
+    staged: bool,
+) -> Result<tutor_eval::gitwork::FileHunks, String> {
+    blocking(move || tutor_eval::gitwork::hunks(Path::new(&root), &path, staged)).await
+}
+
+/// Stages the hunks `ids` of `path` (`git apply --cached` of a patch of just those), or takes
+/// them back out of the index with `unstage`. Returns that side's hunks afterwards.
+#[tauri::command]
+pub async fn git_stage_hunks(
+    root: String,
+    path: String,
+    ids: Vec<String>,
+    unstage: bool,
+) -> Result<tutor_eval::gitwork::FileHunks, String> {
+    blocking(move || tutor_eval::gitwork::stage_hunks(Path::new(&root), &path, &ids, unstage)).await
+}
+
+/// Records the repository's state before an operation (r23 F3, UI-SCM-12): HEAD, branches and
+/// tags, the index tree and a stash of the working tree, under `refs/dxtutor/undo/<n>`.
+#[tauri::command]
+pub async fn git_undo_snapshot(
+    root: String,
+    label: String,
+) -> Result<tutor_eval::gitwork::UndoEntry, String> {
+    blocking(move || tutor_eval::gitwork::undo_snapshot(Path::new(&root), &label)).await
+}
+
+/// The undo snapshots, newest first.
+#[tauri::command]
+pub async fn git_undo_list(root: String) -> Result<Vec<tutor_eval::gitwork::UndoEntry>, String> {
+    blocking(move || tutor_eval::gitwork::undo_list(Path::new(&root))).await
+}
+
+/// The exact git commands restoring snapshot `id` runs (for the approval dialog).
+#[tauri::command]
+pub async fn git_undo_plan(root: String, id: u32) -> Result<tutor_eval::gitwork::UndoPlan, String> {
+    blocking(move || tutor_eval::gitwork::undo_plan(Path::new(&root), id)).await
+}
+
+/// Restores snapshot `id` after snapshotting the present; returns that new snapshot.
+#[tauri::command]
+pub async fn git_undo_restore(
+    root: String,
+    id: u32,
+) -> Result<tutor_eval::gitwork::UndoEntry, String> {
+    blocking(move || tutor_eval::gitwork::undo_restore(Path::new(&root), id)).await
+}
+
+/// For each branch, whether merging it into HEAD would conflict, and in which files (r23 F3,
+/// UI-SCM-13; `git merge-tree --write-tree`, nothing touched).
+#[tauri::command]
+pub async fn git_predict_conflicts(
+    root: String,
+    branches: Vec<String>,
+) -> Result<Vec<tutor_eval::gitwork::Prediction>, String> {
+    blocking(move || tutor_eval::gitwork::predict_conflicts(Path::new(&root), &branches)).await
+}
+
+/// The merge in progress (r23 F3, UI-SCM-13): status, resolve a file (write + stage), commit
+/// (refused while a file is unmerged) or abort.
+#[tauri::command]
+pub async fn git_merge(
+    root: String,
+    op: tutor_eval::gitwork::MergeOp,
+) -> Result<tutor_eval::gitwork::MergeState, String> {
+    blocking(move || tutor_eval::gitwork::merge(Path::new(&root), &op)).await
+}
+
+/// The three versions of a conflicted file (base, ours, theirs) and the working copy.
+#[tauri::command]
+pub async fn git_conflict_stages(
+    root: String,
+    path: String,
+) -> Result<tutor_eval::gitwork::ConflictStages, String> {
+    blocking(move || tutor_eval::gitwork::conflict_stages(Path::new(&root), &path)).await
+}
+
+/// What a sync (fetch, pull --rebase, push) will run — the exact command, upstream, ahead/behind (r23 F3).
+#[tauri::command]
+pub async fn git_sync_plan(
+    root: String,
+    op: tutor_eval::gitwork::SyncOp,
+) -> Result<tutor_eval::gitwork::SyncPlan, String> {
+    blocking(move || tutor_eval::gitwork::sync_plan(Path::new(&root), op)).await
+}
+
+/// Runs the sync, only if its command is still `expected` (the one the human approved).
+#[tauri::command]
+pub async fn git_sync(
+    root: String,
+    op: tutor_eval::gitwork::SyncOp,
+    expected: String,
+) -> Result<String, String> {
+    blocking(move || tutor_eval::gitwork::sync(Path::new(&root), op, &expected)).await
+}
+
+/// Whether the GitHub CLI is installed and signed in (r23 F3).
+#[tauri::command]
+pub async fn gh_status() -> Result<tutor_eval::gh::GhStatus, String> {
+    blocking(|| Ok(tutor_eval::gh::status())).await
+}
+
+/// Open pull requests: asking me for a review, mine, or all (read-only, `gh pr list --json`).
+#[tauri::command]
+pub async fn gh_prs(
+    root: String,
+    filter: tutor_eval::gh::PrFilter,
+) -> Result<Vec<tutor_eval::gh::Pr>, String> {
+    blocking(move || tutor_eval::gh::prs(Path::new(&root), filter)).await
+}
+
+/// The CI runs of one commit (`gh run list --commit`).
+#[tauri::command]
+pub async fn gh_runs_for(root: String, sha: String) -> Result<Vec<tutor_eval::gh::Run>, String> {
+    blocking(move || tutor_eval::gh::runs_for(Path::new(&root), &sha)).await
+}
+
+/// The pull requests (any state) that contain one commit.
+#[tauri::command]
+pub async fn gh_prs_for(root: String, sha: String) -> Result<Vec<tutor_eval::gh::Pr>, String> {
+    blocking(move || tutor_eval::gh::prs_for(Path::new(&root), &sha)).await
+}
+
+/// Commits only `paths` (Commit Composer, r23 F3); what else is staged stays staged.
+#[tauri::command]
+pub async fn git_commit_paths(
+    root: String,
+    paths: Vec<String>,
+    message: String,
+) -> Result<String, String> {
+    blocking(move || tutor_eval::gitwork::commit_paths(Path::new(&root), &paths, &message)).await
+}
+
+/// Lanes (experimental, r23 F3 UI-SCM-11): commits the changes of `paths` to `branch` without a checkout.
+#[tauri::command]
+pub async fn git_lane_commit(
+    root: String,
+    branch: String,
+    paths: Vec<String>,
+    message: String,
+) -> Result<String, String> {
+    blocking(move || tutor_eval::gitwork::lane_commit(Path::new(&root), &branch, &paths, &message))
+        .await
 }
 
 /// Blame of `path` (por linha: commit, autor, data, assunto) + quem conhece o código (SCM-01/06).

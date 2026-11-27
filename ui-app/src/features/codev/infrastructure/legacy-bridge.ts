@@ -19,7 +19,7 @@
 
 import { S, prov, provState, show, toast, log, writeFile, rerender, hhmm } from "../../../core";
 import type { Prov } from "../../../core";
-import { agentStore, layoutStore } from "../../../app/store";
+import { agentStore, editorStore, layoutStore } from "../../../app/store";
 
 export type { Prov };
 export { prov, provState, show, toast, log, writeFile, rerender, hhmm };
@@ -30,6 +30,7 @@ import type { VerifyCommand, VerifyKind } from "../domain/project-commands";
 import { services } from "../../../app/services";
 import { diffStat } from "../../diff/domain/diff";
 import { THEMES, setTheme as setThemeImpl } from "../../theme";
+import { note as noteImpl } from "../../notifications";
 
 const G = window as unknown as Record<string, any>;
 
@@ -182,6 +183,9 @@ export interface RunState {
 export const run = (): RunState => agentStore.run as unknown as RunState;
 
 /* ───── tabs ───── */
+/** O Studio de arquitectura está aberto (um separador `arch`)? Uma conversa nova começa então
+ *  como sessão de arquitectura (conjunto 9: só essas levam `arch_propose`). */
+export const studioOpen = (): boolean => editorStore.tabs.some((t) => t.kind === "arch" || t.id === "arch");
 export interface CodevTab { id: string; title?: string; kind?: string; path?: string }
 export const tabOf = (id: string | null): CodevTab | undefined => G.tabOf(id);
 /* Rest-tuple forwarding below (openTab/openDiff/openPath/...): calling `fn(a)` must reach
@@ -193,6 +197,7 @@ export const openDiff = (...args: [p: string, a?: string, b?: string, label?: st
 export const openPath = (...args: [p: string, line?: number]): void => G.openPath(...args);
 /** A yes/no question to the human (the harness: rewind, trust). */
 export const confirm = (message: string): boolean => window.confirm(message);
+export const prompt = (message: string, initial = ""): string | null => window.prompt(message, initial);
 
 /* ───── workspace / diagnostics / tests ───── */
 export const shortPath = (p: string): string => window.short(p);
@@ -231,9 +236,9 @@ export const provFor = (role: string): string => services.codev!.provFor(role);
 export const setPanelTab = (...args: [pt: string, nofocus?: boolean]): void => G.setPanelTab(...args);
 export const goToPane = (p: string): void => G.goPane(p);
 export const palette = (...args: [pre?: string, cfg?: unknown]): void => G.palette(...args);
-export const getVar = (k: string): string => G.getVar(k);
+export const getVar = (k: string): string => services.shell!.getVar(k);
 export const setVar = (k: string, v: string): void => services.shell!.setVar(k, v);
-export const note = (m: string): void => window.note(m);
+export const note = (m: string): void => noteImpl(m);
 export const badges = (): void => services.shell!.badges();
 export const refresh = (...args: [fromEd?: boolean, force?: boolean]): unknown => window.refresh(...args);
 export const isDesktop = (): boolean => !!window.__TAURI__;

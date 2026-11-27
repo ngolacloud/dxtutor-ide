@@ -7,18 +7,22 @@ import { getVar, sideOpen } from "../features/shell";
 import { short } from "../features/workspace";
 import type { AppCmd, AppMenu } from "./ide-globals";
 import { codevAsk } from "./codev-ask";
+import { openWelcome, pickWalkthrough } from "../features/welcome/index";
 import { openCodevRun } from "../features/codev/index";
 import { GIT_COMMANDS } from "../features/scm/extras";
 import { openHoodReal, openTrace } from "../features/hood/index";
-import { openOps } from "../features/ops/index";
+import { openOps, openPlatform } from "../features/ops/index";
+import { openVault } from "../features/vault/index";
+import { openDeploy } from "../features/deploy/index";
 import { openDeps, openOnboarding } from "../features/codebase/index";
-import { dbgAttach } from "../features/debug";
-import { openAnalysis, openSettings, MODES, CKPT, pickModel, assistantCenter, openManager, newChat, agCtl } from "../features/codev";
+import { dbgAttach, dbgTest, dbgRecordTest, dbgRestart, dbgRunToCursor, dbgStepOut } from "../features/debug";
+import { openAnalysis, openSettings, MODES, CKPT, pickModel, assistantCenter, openManager, newChat, agCtl, toggleAgent } from "../features/codev";
 import { edCmd } from "../features/editor";
 import { stepTab, closeTab } from "../features/tabs";
 import { restoreCkpt } from "../features/checkpoint";
 import { openStudio } from "../features/studio";
 import { translator } from "./i18n";
+import { services } from "./services";
 import { COMMANDS_MESSAGES, THEME_LABEL } from "./commands-messages";
 import { agentStore, layoutStore } from "./store";
 import { openTeam, pickAgent } from "../features/team";
@@ -26,6 +30,7 @@ import { nextProblem } from "../features/diagnostics";
 import { THEMES, setTheme } from "../features/theme";
 import { newFile, newFolder } from "../features/explorer";
 import { termClear } from "../features/terminal";
+import { gfPrompt, pickBranch } from "../features/scm";
 
 const tcm = translator(COMMANDS_MESSAGES);
 
@@ -34,6 +39,8 @@ const tcm = translator(COMMANDS_MESSAGES);
 declare const MENUS: AppMenu[];
 
 export const CMD: AppCmd[]=[
+  /* r23 F6: a página de boas-vindas e os walkthroughs (features/welcome) */
+  ['Help: Welcome','',()=>openWelcome()],['Help: Walkthroughs','',()=>pickWalkthrough()],
   ['Ir para ficheiro…','Ctrl+P',()=>palette('')],['Mostrar todos os comandos','Ctrl+Shift+P',()=>palette('>')],['Ir para a linha…','Ctrl+G',()=>palette(':')],['Ir para o próximo problema','F8',()=>nextProblem()],
   ['Ficheiro: Novo ficheiro…','',newFile],['Ficheiro: Nova pasta…','',newFolder],
   ['Ver: Explorer','Ctrl+Shift+E',()=>goPane('explorer')],['Ver: Pesquisa','Ctrl+Shift+F',()=>{goPane('search');$('#s-q')!.focus();}],['Ver: Source Control','Ctrl+Shift+G',()=>goPane('scm')],['Ver: Run and Debug','',()=>goPane('run')],['Ver: Testing','',()=>goPane('test')],['Ver: Extensions','',()=>goPane('ext')],
@@ -62,6 +69,6 @@ export let LCUR: [string, string]=['rust','own'];/* fallback constante dos call-
 
 /* comandos da camada v3 (Projecto, Git, Gitflow, Tutor) */
 CMD.push(['Projecto: Studio de arquitectura','',openStudio],['Projecto: Quadro (kanban)','',openBoard],['Projecto: Gerar backlog a partir do Studio','',genBacklog],['Projecto: Executar Sprint 1','',()=>runSprint(0)],['Projecto: Executar Sprint 2','',()=>runSprint(1)],['Projecto: Nova issue…','',newIssue],['Equipa: Assistentes e harness','',()=>openTeam()],['Equipa: Escolher assistente da conversa…','',pickAgent],
-  ['Git: Grafo de commits','',()=>openGraph()],...GIT_COMMANDS.map(([l,f])=>[l,'',f] as [string,string,()=>void]),['Hood: Machine Code per Line (real)','',openHoodReal],['Visualize: Trace the Real Execution','',openTrace],['Ops: IaC Plan, Kubernetes and Cloud','',openOps],['Project: Dependencies (outdated and vulnerable)','',openDeps],['Project: Onboarding Map','',openOnboarding],['Debug: Attach to a Process…','',()=>{void dbgAttach();}],['Gitflow: Iniciar feature…','',()=>gfPrompt('feature')],['Gitflow: Iniciar fix…','',()=>gfPrompt('fix')],['Gitflow: Iniciar release…','',()=>gfPrompt('release')],['Gitflow: Finalizar ramo actual','',()=>gfFinish()?toast('Ramo finalizado'):toast('Não estás num ramo de gitflow')],['Tutor: Continuar a aprender','',()=>{goPane('tutor');openLesson(...(nextLesson()||LCUR));}]);
+  ['Git: Grafo de commits','',()=>openGraph()],...GIT_COMMANDS.map(([l,f])=>[l,'',f] as [string,string,()=>void]),['Hood: Machine Code per Line (real)','',openHoodReal],['Visualize: Trace the Real Execution','',openTrace],['Ops: IaC Plan, Kubernetes and Cloud','',openOps],['Platform: My Queue','',()=>openPlatform('home')],['Platform: Review an Infrastructure PR…','',()=>openPlatform('review')],['Platform: Incidents','',()=>openPlatform('incidents')],['Vault: Secrets, Sign-in and Dynamic Credentials','',openVault],['Protect: Install the Pre-commit Hook…','',()=>{if(services.protect)void services.protect.installHook();else toast(tcm('hookDesktopOnly'));}],['Deploy: Guided Deploy to Staging or Production','',()=>openDeploy()],['Project: Dependencies (outdated and vulnerable)','',openDeps],['Project: Onboarding Map','',openOnboarding],['Debug: Attach to a Process…','',()=>{void dbgAttach();}],['Debug: Debug Test…','',()=>{void dbgTest();}],['Debug: Record and Replay Test…','',()=>{void dbgRecordTest();}],['Debug: Run to Cursor','',()=>{void dbgRunToCursor();}],['Debug: Step Out','',()=>{void dbgStepOut();}],['Debug: Restart','',()=>{void dbgRestart();}],['Gitflow: Iniciar feature…','',()=>gfPrompt('feature')],['Gitflow: Iniciar fix…','',()=>gfPrompt('fix')],['Gitflow: Iniciar release…','',()=>gfPrompt('release')],['Gitflow: Finalizar ramo actual','',()=>gfFinish()?toast('Ramo finalizado'):toast('Não estás num ramo de gitflow')],['Tutor: Continuar a aprender','',()=>{goPane('tutor');openLesson(...(nextLesson()||LCUR));}]);
 
 Object.assign(window, { CMD });

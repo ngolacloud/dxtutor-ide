@@ -13,7 +13,7 @@ import { blameAt, initialSteps, moveStep, planIsNoop, planProblem, rebaseCommand
 import { changeSetsOfWorkingTree, commitMessageFor, type ScmChangeSet } from "../domain/changesets";
 import { diffStat, groupFiles, type ReviewFile, type ReviewGroup } from "../domain/review";
 import type { Blame, BlameLine, Compare, HistCommit, RebaseAction, RebasePlan, RebaseStep, Stash, Worktree } from "../domain/git-extras";
-import type { CodevPort, GitExtrasPort, GitWorkspacePort, HumanPort, TabsPort } from "./extras-ports";
+import type { CodevPort, GitExtrasPort, GitWorkspacePort, HumanPort, ScmAuditPort, TabsPort } from "./extras-ports";
 
 export type Say = (key: string, params?: Record<string, string | number>) => string;
 
@@ -79,11 +79,24 @@ export interface ExtrasState {
 
 const msg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
-export function makeGitExtras(deps: { git: GitExtrasPort; ws: GitWorkspacePort; human: HumanPort; codev: CodevPort; tabs: TabsPort; say: Say }) {
-  const { git, ws, human, codev, tabs, say } = deps;
+export function makeGitExtras(deps: { git: GitExtrasPort; ws: GitWorkspacePort; human: HumanPort; audit: ScmAuditPort; codev: CodevPort; tabs: TabsPort; say: Say }) {
+  const { git, ws, human, audit, codev, tabs, say } = deps;
   const st: ExtrasState = { stashes: [], worktrees: [], sideLoaded: false, sideError: "", history: null, compare: null, rebase: null, text: null, review: null, changeSets: [], busy: null };
   const subs = new Set<() => void>();
   const emit = (): void => { subs.forEach((f) => f()); };
+
+  /** r23 F3: the shared approval dialog (the exact command, the branch) and the audit log. Resolves with a
+   *  `done(ok)` to record the result, or null when refused or not auditable (nothing runs then). */
+  async function approved(action: string, title: string, command: string, o: { destructive?: boolean; reasonRequired?: boolean } = {}): Promise<((ok: boolean) => void) | null> {
+    const root = ws.root();
+    if (!root) return null;
+    const scope = say("scopeBranch", { b: ws.current() });
+    const d = await human.approve({ title, command, scope, destructive: o.destructive, reasonRequired: o.reasonRequired });
+    const row = { action, command, scope, approved: d.approved, reason: d.reason, decidedAt: d.decidedAt };
+    if (!d.approved) { void audit.record(root, row).catch(() => undefined); return null; }
+    try { await audit.record(root, { ...row, outcome: "sent" }); } catch (e) { human.toast(say("notAudited", { e: msg(e) })); return null; }
+    return (ok) => { void audit.record(root, { ...row, outcome: ok ? "ok" : "failed" }).catch(() => undefined); };
+  }
 
   /* ── blame cache (the editor's line annotation and the status bar) ── */
   const blames = new Map<string, Blame | "loading" | "none">();
@@ -178,9 +191,11 @@ export function makeGitExtras(deps: { git: GitExtrasPort; ws: GitWorkspacePort; 
   async function discardSet(key: string): Promise<void> {
     const s = setOf(key);
     if (!s) return;
-    const files = s.files.map((f) => `• ${f.path}${f.shared ? ` (${say("csShared")})` : ""}`).join("\n");
-    if (!human.confirm(say("csConfirmDiscard", { set: setName(s), files }))) return;
+    const files = s.files.map((f) => `${f.path}${f.shared ? ` (${say("csShared")})` : ""}`).join("\n");
+    const done = await approved("changeset.discard", say("csDiscardTitle", { set: setName(s) }), files, { destructive: true });
+    if (!done) return;
     ws.discard(s.files.map((f) => f.path));
+    done(true);
     await refreshChangeSets();
   }
 
@@ -197,8 +212,10 @@ export function makeGitExtras(deps: { git: GitExtrasPort; ws: GitWorkspacePort; 
   }
   async function stashDrop(index: number): Promise<void> {
     const s = st.stashes.find((x) => x.index === index);
-    if (!s || !human.confirm(say("confirmCmd", { what: say("stashDropWhat", { m: s.message }), cmd: `git stash drop stash@{${index}}` }))) return;
-    await change("stash", (root) => git.stash(root, { op: "drop", index }));
+    if (!s) return;
+    const done = await approved("git.stash.drop", say("stashDropWhat", { m: s.message }), `git stash drop stash@{${index}}`, { destructive: true });
+    if (!done) return;
+    done(!!(await change("stash", (root) => git.stash(root, { op: "drop", index }))));
   }
   async function stashShow(index: number): Promise<void> {
     const root = ws.root();
@@ -227,13 +244,16 @@ export function makeGitExtras(deps: { git: GitExtrasPort; ws: GitWorkspacePort; 
     const path = await human.text(say("worktreePathPh"), say("create"), worktreePath(ws.project(), branch));
     if (!path || !path.trim()) return;
     const cmd = create ? `git worktree add -b ${branch} ${path.trim()}` : `git worktree add ${path.trim()} ${branch}`;
-    if (!human.confirm(say("confirmCmd", { what: say("worktreeAddWhat"), cmd }))) return;
+    const done = await approved("git.worktree.add", say("worktreeAddWhat"), cmd);
+    if (!done) return;
     const r = await change("worktree", (root) => git.worktree(root, { op: "add", path: path.trim(), branch, create }));
+    done(!!r);
     if (r) human.toast(say("worktreeReady", { path: path.trim() }));
   }
   async function worktreeRemove(path: string): Promise<void> {
-    if (!human.confirm(say("confirmCmd", { what: say("worktreeRemoveWhat"), cmd: `git worktree remove ${path}` }))) return;
-    await change("worktree", (root) => git.worktree(root, { op: "remove", path }));
+    const done = await approved("git.worktree.remove", say("worktreeRemoveWhat"), `git worktree remove ${path}`, { destructive: true });
+    if (!done) return;
+    done(!!(await change("worktree", (root) => git.worktree(root, { op: "remove", path }))));
   }
 
   /* ── amend ── */
@@ -242,7 +262,8 @@ export function makeGitExtras(deps: { git: GitExtrasPort; ws: GitWorkspacePort; 
     const m = await human.text(say("amendPh"), say("amendVerb"), typed);
     if (m === null) return;
     const cmd = m.trim() ? `git commit --amend -m "${m.trim().split("\n")[0]}"` : "git commit --amend --no-edit";
-    if (!human.confirm(say("confirmCmd", { what: say("amendWhat"), cmd }))) return;
+    const done = await approved("git.amend", say("amendWhat"), cmd);
+    if (!done) return;
     const root = ws.root();
     if (!root || st.busy) return;
     st.busy = "amend"; emit();
@@ -254,7 +275,8 @@ export function makeGitExtras(deps: { git: GitExtrasPort; ws: GitWorkspacePort; 
       } catch (e) {
         const text = msg(e);
         if (!text.startsWith("published:")) throw e;
-        if (human.confirm(say("amendPublished", { why: text.slice("published:".length).trim() }))) r = await git.amend(root, m.trim() || null, true);
+        const again = await approved("git.amend.published", say("amendPublishedTitle", { why: text.slice("published:".length).trim() }), cmd, { destructive: true, reasonRequired: true });
+        if (again) { r = await git.amend(root, m.trim() || null, true); again(true); }
       }
     } catch (e) {
       human.toast(msg(e));
@@ -265,6 +287,7 @@ export function makeGitExtras(deps: { git: GitExtrasPort; ws: GitWorkspacePort; 
       emit();
     }
     if (r) human.toast(say("amended", { h: r }));
+    done(!!r);
   }
 
   /* ── history ── */
@@ -360,10 +383,12 @@ export function makeGitExtras(deps: { git: GitExtrasPort; ws: GitWorkspacePort; 
     if (prob) { human.toast(say("plan-" + prob)); return; }
     if (planIsNoop(r.plan, r.steps)) { human.toast(say("planNoop")); return; }
     if (r.plan.dirty) { human.toast(say("rebaseDirty")); return; }
-    const warn = r.plan.published ? "\n\n" + say("rebasePublished") : "";
-    if (!human.confirm(say("confirmCmd", { what: say("rebaseWhat", { b: r.plan.branch }), cmd: rebaseCommand(r.onto, r.steps) }) + warn)) return;
+    const title = say("rebaseWhat", { b: r.plan.branch }) + (r.plan.published ? " — " + say("rebasePublished") : "");
+    const done = await approved("git.rebase", title, rebaseCommand(r.onto, r.steps), { destructive: r.plan.published, reasonRequired: r.plan.published });
+    if (!done) return;
     r.running = true; r.error = ""; emit();
     const after = await change("rebase", (root) => git.rebase(root, { op: "run", onto: r.onto, steps: r.steps }));
+    done(!!after);
     r.running = false;
     if (after && st.rebase === r) { r.plan = after; r.steps = initialSteps(after); human.toast(say("rebaseDone", { n: after.commits.length })); }
     emit();

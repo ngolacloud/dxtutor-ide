@@ -10,10 +10,16 @@ import type { DesktopContext } from "./context";
 import { desktopPorts } from "../../app/desktop";
 import { RP } from "../../app/store/registry";
 import { projectClient } from "../tauri/project";
+import { auditClient } from "../tauri/audit";
+import { services } from "../../app/services";
+import { gitClient } from "../tauri/git";
 import { gitExtras } from "../../features/scm/extras";
 import { tauriGitExtras } from "../../features/scm/infrastructure/tauri";
 import { tauriHood } from "../../features/hood/infrastructure/tauri";
 import { tauriOps } from "../../features/ops/infrastructure/tauri";
+import { listen, invoke } from "../tauri/core";
+import { tauriLspConfig } from "../../features/lsp/infrastructure/tauri";
+import { tauriVault } from "../../features/vault/infrastructure/tauri";
 import { tauriRulesGateway } from "../../features/arch/infrastructure/tauri";
 import { gfAsk } from "../../features/checkpoint";
 import { sdAdd } from "../../features/studio";
@@ -25,7 +31,76 @@ import { renderRemotePane } from "../../features/remote";
 import { renderRunPane } from "../../features/run";
 import { renderSearchPane } from "../../features/search";
 import { renderAccountPane } from "../../features/account";
-import { renderGraphView } from "../../features/graph";
+import { renderGraphView, graphScreen } from "../../features/scm/graph-screen";
+import { rtConnect, k8sConnect, dxDeploy, drawRemote, dcAttach, dcDetach, OBS, openObserve, ENVX, envState, devc, pDc, KCTX } from "../../features/infra";
+import { stage, gitMerge } from "../../features/scm";
+import { hunks, undo, merge3, sync, launchpad, composer } from "../../features/scm/extras";
+import { setLanes } from "../../features/scm/infrastructure/legacy-bridge";
+import { clLog, clShow } from "../../features/changelog";
+import { gitCmd } from "../../features/termgit";
+import { startDebug, dbgStep, dbgCurrent, toggleBp, dbgBreaks, dbgTest, dbgRunToCursor, dbgStop, dbgRecordTest, dbgStepBack, dbgOrigin, dbgChanges, dbgTravel, dbgReplayState } from "../../features/debug";
+import { reviewFindings, explainCmd, renderCreviewView, renderHoodView } from "../../features/codereview";
+import { dxRun, dxStop, stackState } from "../../features/stack";
+import { diagnostics } from "../../features/diagnostics";
+import { renderTestPane } from "../../features/testing/index";
+
+/* r23 F2: the cache of the brief's acceptance test, with its bug (eviction takes the newest end) */
+const LRU_SRC = `use std::collections::{HashMap, VecDeque};
+
+pub struct Lru<V> {
+    cap: usize,
+    map: HashMap<String, V>,
+    order: VecDeque<String>,
+}
+
+impl<V: Clone> Lru<V> {
+    pub fn new(cap: usize) -> Self {
+        Self { cap, map: HashMap::new(), order: VecDeque::new() }
+    }
+
+    pub fn get(&mut self, key: &str) -> Option<V> {
+        let v = self.map.get(key)?.clone();
+        self.touch(key);
+        Some(v)
+    }
+
+    pub fn put(&mut self, key: &str, value: V) {
+        if self.map.len() == self.cap {
+            let old = self.order.pop_back().unwrap();
+            self.map.remove(&old);
+        }
+        self.map.insert(key.to_string(), value);
+        self.touch(key);
+    }
+
+    fn touch(&mut self, key: &str) {
+        self.order.retain(|k| k != key);
+        self.order.push_back(key.to_string());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn evicts_least_recently_used() {
+        let mut c = Lru::new(2);
+        c.put("a", 1);
+        c.put("b", 2);
+        c.get("a");
+        c.put("c", 3);
+        assert_eq!(c.get("a"), Some(1));
+        assert_eq!(c.get("b"), None);
+    }
+
+    #[test]
+    fn get_missing_returns_none() {
+        let mut c: Lru<i32> = Lru::new(1);
+        assert_eq!(c.get("x"), None);
+    }
+}
+`;
 
 export async function selftest(ctx: DesktopContext): Promise<void> {
 const { R, sh, git, stream, gitc, providers, tasks, app, idle } = ctx;
@@ -38,7 +113,13 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
      auto-teste (um handler inline que tenha escapado à migração seria bloqueado aqui). */
   const cspViolations: string[] = [];
   document.addEventListener("securitypolicyviolation", (e) => cspViolations.push(`${e.violatedDirective} ${e.blockedURI || ""} ${(e.sample || "").slice(0, 80)}`.trim()));
+  /* DXTUTOR_SELFTEST_ONLY=lsp-java,lspOverrides corre só esses passos (os outros ficam `skipped`) */
+  const only = (R.info.selftestOnly ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   const step = async (n: string, f: () => unknown) => {
+    if (only.length && !only.includes(n)) { rep.steps[n] = "skipped"; return; }
+    /* the step about to run, into DXTUTOR_SELFTEST_PROGRESS when it is set (outside the project: a new file in the
+       tree would make the deploy's version check refuse a dirty tree): when the self-test hangs, its last line says where */
+    await sh("sh", ["-c", '[ -n "$DXTUTOR_SELFTEST_PROGRESS" ] && printf "%s %s\\n" "$(date +%T)" "$1" >> "$DXTUTOR_SELFTEST_PROGRESS"; true', "_", n]).catch(() => undefined);
     const e0 = R.errors.length;
     try { rep.steps[n] = await f(); } catch (e) { rep.steps[n] = "FAIL: " + ((e as Error) && (e as Error).message || e); }
     if (R.errors.length > e0) rep.stepErrors[n] = R.errors.slice(e0);
@@ -151,18 +232,162 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     });
     // feature `graph` (migrada de app.ts para features/graph.ts nesta sessão): o renderer
     // puro da tab `graph` (VIEW.graph) desenha um nó por commit do grafo real.
-    await step("graph", () => {
+    // r23 F3 (UI-SCM-10): staging de parte de um ficheiro contra o git real — dois hunks, só um entra no stage pelo
+    // pane, e o commit do IDE leva só esse (o índice manda); o outro fica por commitar.
+    await step("hunks", async () => {
+      const rel = "notes/hunks.txt", key = ROOT + rel, body = Array.from({ length: 30 }, (_, i) => `line ${i + 1}`).join("\n") + "\n";
+      writeFile(key, body); flushSave(); await idle();
+      commit("test: hunks base"); await idle(); await idle();
+      writeFile(key, body.replace("line 2\n", "line two\n").replace("line 28\n", "line twenty-eight\n")); flushSave(); await idle();
+      await hunks.toggle(rel);
+      const e = hunks.entry(rel);
+      const before = e?.unstaged?.hunks.length ?? -1;
+      const first = e?.unstaged?.hunks[0]?.id;
+      if (first) await hunks.stage(rel, first);
+      const staged = hunks.entry(rel)?.staged?.hunks.length ?? -1, left = hunks.entry(rel)?.unstaged?.hunks.length ?? -1;
+      commit("fix: only line two"); await idle(); await idle();
+      const head = (await git("show", "HEAD:" + (R.prefix || "") + rel)).stdout;
+      const still = (await git("diff", "--name-only")).stdout.includes(rel);
+      await hunks.toggle(rel);
+      return { before, staged, left, committedOnlyThatHunk: head.includes("line two\n") && head.includes("line 28\n"), otherHunkStillUncommitted: still };
+    });
+    // r23 F3 (UI-SCM-12): o undo contra o git real — um commit pelo IDE tira a fotografia antes; desfazê-lo passa pelo
+    // diálogo de aprovação (com os comandos exactos), repõe o HEAD e fica no registo de auditoria.
+    await step("undo", async () => {
+      const key = ROOT + "notes/undo.txt";
+      const headBefore = (await git("rev-parse", "HEAD")).stdout.trim();
+      writeFile(key, "undo me\n"); flushSave(); await idle();
+      commit("test: to be undone"); await idle(); await idle();
+      await undo.refresh();
+      const snap = undo.entries()[0];
+      const headAfterCommit = (await git("rev-parse", "HEAD")).stdout.trim();
+      const p = undo.undo(snap?.id ?? -1);
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 50)); return f(); };
+      const dialog = await wait(() => !!document.querySelector("#approval .appr-cmd"), 5000);
+      const shown = document.querySelector("#approval .appr-cmd")?.textContent ?? "";
+      (document.querySelector("#approval #appr-ok") as HTMLElement | null)?.click();
+      const ok = await p; await idle();
+      const headNow = (await git("rev-parse", "HEAD")).stdout.trim();
+      const rows = await projectClient().audit(R.root as string, null) as Array<{ origin: string; tool: string | null; call: string | null; outcome: string | null }>;
+      const audited = rows.filter((r) => r.origin === "ide" && r.tool === "scm" && r.call === "git.undo").map((r) => r.outcome);
+      delete FS[key]; flushSave(); await idle();
+      return { snapLabel: snap?.label ?? null, committed: headAfterCommit !== headBefore, dialog, showsCommands: /git (symbolic-ref|update-ref|read-tree)/.test(shown), ok, headRestored: headNow === headBefore, audited };
+    });
+    // r23 F3 (UI-SCM-13): um merge com conflito pelo IDE já não é abortado — abre o separador do merge a três com a
+    // base, a nossa e a deles; resolver escreve e faz stage; concluir corre a verificação do projecto e, aprovado no
+    // diálogo, faz o commit do merge (auditado).
+    await step("merge3", async () => {
+      const start = BRANCH, rel = "notes/merge3.txt", key = ROOT + rel;
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 50)); return f(); };
+      writeFile(key, "one\ntwo\nthree\n"); flushSave(); await idle(); commit("test: merge3 base"); await idle(); await idle();
+      checkout("selftest/merge3", true); await idle();
+      writeFile(key, "one\nTWO from the branch\nthree\n"); flushSave(); await idle(); commit("test: merge3 branch"); await idle(); await idle();
+      checkout(start); await idle();
+      writeFile(key, "one\ntwo on " + start + "\nthree\n"); flushSave(); await idle(); commit("test: merge3 here"); await idle(); await idle();
+      gitMerge("selftest/merge3"); await idle();
+      const opened = await wait(() => !!merge3.state().merge?.merging && !!merge3.state().stages[rel], 8000);
+      const s3 = merge3.state().stages[rel];
+      merge3.take(rel, "both");
+      await merge3.resolve(rel);
+      const resolved = merge3.state().merge?.conflicts.length === 0;
+      const p = merge3.complete();
+      const dialog = await wait(() => !!document.querySelector("#approval .appr-cmd"), 120000);
+      const cmd = document.querySelector("#approval .appr-cmd")?.textContent ?? "";
+      (document.querySelector("#approval #appr-ok") as HTMLElement | null)?.click();
+      const done = await p; await idle();
+      const parents = (await git("log", "-1", "--format=%P")).stdout.trim().split(" ").length;
+      const content = (await git("show", "HEAD:" + (R.prefix || "") + rel)).stdout;
+      await git("branch", "-D", "selftest/merge3"); delete FS[key]; flushSave(); await idle();
+      return { opened, threeSides: !!(s3?.base && s3?.ours && s3?.theirs), resolved, dialog, cmd, done, mergeCommit: parents === 2, bothKept: /TWO from the branch/.test(content) && content.includes("two on " + start), check: merge3.state().check };
+    });
+    // r23 F3: push para um remoto local (bare) pelo diálogo de aprovação — o comando exacto, o ramo chega lá, auditado.
+    await step("sync", async () => {
+      const remoteDir = (await sh("mktemp", ["-d"], { cwd: R.info.home })).stdout.trim() + "/remote.git";
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 50)); return f(); };
+      await sh("git", ["init", "-q", "--bare", remoteDir], { cwd: R.info.home });
+      await git("remote", "add", "selftest-origin", remoteDir);
+      try {
+        const p = sync.run("push");
+        const dialog = await wait(() => !!document.querySelector("#approval .appr-cmd"), 10000);
+        const cmd = document.querySelector("#approval .appr-cmd")?.textContent ?? "";
+        (document.querySelector("#approval #appr-ok") as HTMLElement | null)?.click();
+        const ok = await p;
+        const there = (await sh("git", ["--git-dir", remoteDir, "rev-parse", "--verify", "refs/heads/" + BRANCH], { cwd: R.info.home })).stdout.trim();
+        const here = (await git("rev-parse", "HEAD")).stdout.trim();
+        const rows = await projectClient().audit(R.root as string, null) as Array<{ origin: string; tool: string | null; call: string | null; outcome: string | null }>;
+        return { dialog, cmd, ok, arrived: there === here, audited: rows.filter((r) => r.tool === "scm" && r.call === "git.push").map((r) => r.outcome) };
+      } finally {
+        await git("branch", "--unset-upstream").catch(() => undefined);
+        await git("remote", "remove", "selftest-origin");
+        await sh("rm", ["-rf", remoteDir.replace(/\/remote\.git$/, "")], { cwd: R.info.home });
+      }
+    });
+    // r23 F3 (UI-SCM-14): o Launchpad sobre o gh real (com o HOME do auto-teste não há sessão): diz-o e não lista PRs.
+    await step("launchpad", async () => {
+      await launchpad.load();
+      const st = launchpad.state();
+      return { installed: st.status?.installed ?? null, signedIn: st.status?.signedIn ?? null, listed: st.review === null ? "nothing" : st.review.length, error: st.error };
+    });
+    // r23 F3 (UI-SCM-09): o ciclo de vida do commit — um resultado de testes gravado no HEAD real (o backend decide o
+    // commit), lido de volta no grafo; o gh sem sessão diz-o; os ambientes «não ligados». Nada inventado.
+    await step("lifecycle", async () => {
+      const inv = window.__TAURI__!.core.invoke as (c: string, a?: Record<string, unknown>) => Promise<unknown>;
+      const recorded = await inv("test_results_record", { root: R.root, run: { runner: "selftest", command: "true", passed: 3, failed: 0, ignored: 1 } });
+      const head = (await git("rev-parse", "--short=7", "HEAD")).stdout.trim();
+      await graphScreen.lifecycleOf(head);
+      const e = graphScreen.state().lifecycle[head];
+      const back = await inv("test_results_for", { root: R.root, shas: [head] }) as Array<{ runner: string; passed: number }>;
+      return { recorded, readBack: back.some((r) => r.runner === "selftest" && r.passed === 3), testsInGraph: !!e?.tests?.some((t) => t.runner === "selftest"), gh: e?.ghMissing ?? "ok" };
+    });
+    // r23 F3 (UI-SCM-14/11): o Commit Composer contra o git real — dois temas viram dois commits só com os seus
+    // ficheiros; com as lanes ligadas (experimental), um rascunho vai para o develop sem checkout e o HEAD fica.
+    await step("composer", async () => {
+      const head0 = (await git("rev-parse", "HEAD")).stdout.trim(), br = BRANCH;
+      writeFile(ROOT + "src/cp_mod.rs", "pub fn cp() {}\n"); writeFile(ROOT + "docs/cp.md", "# cp\n"); flushSave(); await idle();
+      await composer.load();
+      const drafts = composer.state().drafts;
+      drafts.forEach((d) => composer.setMessage(d.id, d.files.some((f) => f.endsWith(".md")) ? "docs: composer selftest" : "feat(src): composer selftest"));
+      const made = await composer.commitAll(); await idle();
+      const subjects = (await git("log", "-2", "--format=%s")).stdout.trim().split("\n");
+      const files = (await git("show", "--name-only", "--format=", "HEAD")).stdout.trim();
+      setLanes(true);
+      let lane = "skipped", headStayed = false;
+      try {
+        const target = Object.keys(GIT.refs).find((b) => b !== br);
+        if (target) {
+          writeFile(ROOT + "src/cp_lane.rs", "pub fn lane() {}\n"); flushSave(); await idle();
+          await composer.load();
+          const d = composer.state().drafts.find((x) => x.files.some((f) => f.endsWith("cp_lane.rs")));
+          if (d) { composer.setMessage(d.id, "feat(src): on the lane"); composer.setLane(d.id, target); }
+          const headBefore = (await git("rev-parse", "HEAD")).stdout.trim();
+          await composer.commitAll(); await idle();
+          lane = (await git("log", "-1", "--format=%s", target)).stdout.trim();
+          headStayed = (await git("rev-parse", "HEAD")).stdout.trim() === headBefore;
+          delete FS[ROOT + "src/cp_lane.rs"]; flushSave(); await idle();
+        }
+      } finally { setLanes(false); }
+      return { drafts: drafts.length, made, subjects, lastHasOnlyItsFile: files.split("\n").length === 1, moved: head0 !== (await git("rev-parse", "HEAD")).stdout.trim(), lane, headStayed };
+    });
+    // r23 F3: o Commit Graph com a barra lateral lida do `git_refs` real (ramos, tags, worktrees, contribuidores).
+    await step("graph", async () => {
       const host = document.createElement("div");
+      document.body.appendChild(host);
       renderGraphView(null, host);
-      const rows = host.querySelectorAll(".gl-row").length;
-      return { rows, matchesCommits: rows === GIT.order.length, dots: host.querySelectorAll(".gl-svg circle").length, hasBranchBar: /gl-bar/.test(host.innerHTML) };
+      await graphScreen.load();
+      const rows = host.querySelectorAll(".gl-row:not(.gl-wip)").length, refs = graphScreen.state().refs;
+      const out = { rows, matchesCommits: rows === GIT.order.length, dots: host.querySelectorAll(".gl-svg circle").length, hasBranchBar: /gl-bar/.test(host.innerHTML),
+        sidebar: host.querySelectorAll(".gl-side .gl-sec").length, head: refs?.head ?? null, headMatches: refs?.head === BRANCH, branches: refs?.branches.length ?? 0,
+        contributors: refs?.contributors.length ?? 0, refsError: graphScreen.state().error,
+        predicted: Object.keys(graphScreen.state().predictions).length, predictErrors: Object.values(graphScreen.state().predictions).filter((p) => p.error).map((p) => p.error) };
+      host.remove();
+      return out;
     });
     // feature `changelog` (harvest ui-next): observa o caminho desktop-REAL — clLog→git_log
     // e clShow→git_show sobre o repo git do próprio selftest (acabou de ganhar commits acima).
     await step("changelog", async () => {
-      const log = await window.clLog();
+      const log = await clLog();
       const first = log[0];
-      const diff = first ? await window.clShow(first.hash) : "";
+      const diff = first ? await clShow(first.hash) : "";
       return { commits: log.length, realGitLog: log.length > 0 && typeof first?.subject === "string",
         firstSubject: first ? first.subject : "", diffLen: diff.length, diffIsGitShow: /^commit\s+[0-9a-f]/i.test(diff) };
     });
@@ -244,7 +469,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
       const key = ROOT + "probe_tests.rs";
       writeFile(key, "#[cfg(test)]\nmod tests {\n    #[test]\n    fn probe_passes() {}\n}\n"); flushSave(); await idle();
-      PANE = "test"; window.renderTestPane();
+      PANE = "test"; renderTestPane();
       document.querySelector<HTMLElement>('#pane-test [data-action="refresh"]')?.click();
       const inPane = await wait(() => (document.getElementById("pane-test")?.textContent || "").includes("probe_passes"), 20000);
       delete FS[key]; flushSave(); await idle();
@@ -263,7 +488,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const el = () => document.getElementById("pane-test");
       const q = <T extends Element>(sel: string) => el()?.querySelector<T>(sel) ?? null;
       try {
-        PANE = "test"; window.renderTestPane();
+        PANE = "test"; renderTestPane();
         q<HTMLElement>('[data-action="refresh"]')?.click();
         const detected = await wait(() => !!q('[data-action="runner-all"][data-on="cargo:probe_crate"]'), 20000);
         q<HTMLElement>('[data-action="runner-all"][data-on="cargo:probe_crate"]')?.click();
@@ -406,7 +631,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       writeFile(ROOT + "test_dx_selftest.py", "import unittest\n\n\nclass T(unittest.TestCase):\n    def test_soma(self):\n        self.assertEqual(1 + 1, 2)\n\n    def test_falha(self):\n        self.assertEqual(1 + 1, 3)\n");
       flushSave(); await idle();
       PANE = "test";
-      window.renderTestPane();
+      renderTestPane();
       document.querySelector<HTMLElement>('#pane-test [data-action="refresh"]')?.click(); // um ficheiro de testes novo: voltar a descobrir
       const el = () => document.getElementById("pane-test");
       const listed = await wait(() => /test_falha/.test(el()?.textContent || ""), 20000);
@@ -552,9 +777,8 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
       const inv = window.__TAURI__!.core.invoke as (c: string, a?: Record<string, unknown>) => Promise<unknown>;
       const available = !!(await inv("debug_available"));
-      const G = window as unknown as { startDebug: () => Promise<void>; dbgStep: () => Promise<void>; dbgCurrent: () => { path: string; line: number } | null; toggleBp: (p: string, l: number) => void };
       const pane = () => document.getElementById("pane-debug")?.textContent || "";
-      if (!available) { await G.startDebug(); return { available, saysNoGdb: /O gdb não está instalado/.test(pane()) }; }
+      if (!available) { await startDebug(); return { available, saysNoGdb: /O gdb não está instalado/.test(pane()) }; }
       // a member of the root workspace below: its own [workspace] table made cargo refuse («multiple workspace roots»)
       writeFile(ROOT + "dbgself/Cargo.toml", '[package]\nname = "dbgself"\nversion = "0.1.0"\nedition = "2021"\n');
       writeFile(ROOT + "dbgself/src/main.rs", "fn main() {\n    let answer = 40 + 2;\n    println!(\"{answer}\");\n}\n");
@@ -563,22 +787,466 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       // the breakpoints persist (LS) across runs: toggling blindly could remove one left by an earlier run
       // line 2, not 3: a line breakpoint on `println!` resolves to several locations (the macro), so each
       // continue stops on line 3 again — real lldb behaviour; `let answer = 40 + 2;` has one location
-      for (const old of [ROOT + "dbgself/src/main.rs:3"]) if ((window as unknown as { dbgBreaks: Set<string> }).dbgBreaks.has(old)) G.toggleBp(ROOT + "dbgself/src/main.rs", 3);
-      const bpKeyNow = ROOT + "dbgself/src/main.rs:2", breaks = (window as unknown as { dbgBreaks: Set<string> }).dbgBreaks;
-      if (!breaks.has(bpKeyNow)) G.toggleBp(ROOT + "dbgself/src/main.rs", 2);
-      await G.startDebug();
-      const stoppedAt = G.dbgCurrent();
+      for (const old of [ROOT + "dbgself/src/main.rs:3"]) if (dbgBreaks.has(old)) toggleBp(ROOT + "dbgself/src/main.rs", 3);
+      const bpKeyNow = ROOT + "dbgself/src/main.rs:2", breaks = dbgBreaks;
+      if (!breaks.has(bpKeyNow)) toggleBp(ROOT + "dbgself/src/main.rs", 2);
+      await startDebug();
+      const stoppedAt = dbgCurrent();
       // A7: over DAP (lldb-dap) when it is installed — the engine, then (after the step, once `answer`
       // exists) the variables tree and the values inline
       const engine = document.querySelector("#pane-debug .dbg-engine")?.textContent || "gdb";
-      await G.dbgStep();
-      await wait(() => !G.dbgCurrent() || G.dbgCurrent()!.line !== 2, 20000);
-      const after = G.dbgCurrent();
+      await dbgStep();
+      await wait(() => !dbgCurrent() || dbgCurrent()!.line !== 2, 20000);
+      const after = dbgCurrent();
       const vars = /answer/.test(pane());
       const inline = [...document.querySelectorAll("#ed-hl .dv-inline")].map(e => e.textContent).join(" | ");
-      if (after) await G.startDebug(); // continuar até ao fim
-      if (breaks.has(bpKeyNow)) G.toggleBp(ROOT + "dbgself/src/main.rs", 2); // a próxima execução começa limpa
+      if (after) await startDebug(); // continuar até ao fim
+      if (breaks.has(bpKeyNow)) toggleBp(ROOT + "dbgself/src/main.rs", 2); // a próxima execução começa limpa
       return { available, engine, stoppedAt, vars, inline, after, ended: /O programa terminou/.test(pane()), pane: pane().slice(0, 400) };
+    });
+    // r23 F2 (aceitação do brief): o teste `evicts_least_recently_used` falha no depurador real — «Debug
+    // Test…» constrói os testes, depura esse com --exact, pára no panic (Just My Code leva ao frame do
+    // teste, o cartão mostra left/right), a consola avalia nesse frame e a memória de `c` lê-se; depois da
+    // correcção (`pop_front`), uma segunda sessão pára num breakpoint, corre até ao cursor e o teste passa.
+    // A barra flutuante mostra só o que funciona e diz porquê falta o resto (sem rr: andar para trás).
+    await step("debugR23", async () => {
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
+      const inv = window.__TAURI__!.core.invoke as (c: string, a?: Record<string, unknown>) => Promise<unknown>;
+      const host = await inv("debug_capabilities") as { available: boolean; adapter: string | null; timeTravel: { available: boolean; reason: string } };
+      if (!host.available) return { host, skipped: "no DAP adapter (lldb-dap)" };
+      const pane = () => document.getElementById("pane-debug")?.textContent || "";
+      const lib = ROOT + "dbglru/src/lib.rs";
+      writeFile(ROOT + "dbglru/Cargo.toml", '[package]\nname = "dbglru"\nversion = "0.1.0"\nedition = "2021"\n');
+      writeFile(lib, LRU_SRC);
+      writeFile(ROOT + "Cargo.toml", '[workspace]\nmembers = ["dbgself", "dbglru"]\nresolver = "2"\n');
+      flushSave(); await idle();
+      const pickTest = async (): Promise<boolean> => {
+        if (!(await wait(() => [...document.querySelectorAll("#pal.show #pal-list .pi")].some(e => /evicts_least_recently_used/.test(e.textContent || "")), 240000))) return false;
+        (([...document.querySelectorAll("#pal-list .pi")].find(e => /evicts_least_recently_used/.test(e.textContent || ""))) as HTMLElement).click();
+        return true;
+      };
+      const run1 = dbgTest();
+      const picked = await pickTest();
+      await run1;
+      const at = dbgCurrent();
+      // the panic's message can reach the debugger after the stop: the card comes with it
+      await wait(() => /right/.test(document.getElementById("dbg-exc")?.textContent || ""), 10000);
+      const card = document.getElementById("dbg-exc")?.textContent || "";
+      const toolbar = [...document.querySelectorAll("#dbg-tb button")].map(b => b.getAttribute("data-on"));
+      const missing = document.querySelector("#dbg-tb .dbg-tb-miss")?.getAttribute("title") || "";
+      const libRow = !!document.querySelector("#pane-debug .dbg-lib");
+      // the console evaluates in the test's frame
+      const con = document.getElementById("dbg-con-in") as HTMLInputElement | null;
+      if (con) { con.value = "c.cap"; con.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); }
+      await wait(() => !!document.querySelector("#pane-debug .dbg-cl.out, #pane-debug .dbg-cl.err"), 15000);
+      const conOut = document.querySelector("#pane-debug .dbg-cl.out, #pane-debug .dbg-cl.err")?.textContent || "";
+      // a variable's bytes (the cache `c`)
+      const mem = document.querySelector('#pane-debug [data-action="dbg-mem"]') as HTMLElement | null;
+      mem?.click();
+      await wait(() => !!document.querySelector("#pane-debug .dbg-hex"), 10000);
+      const hexRows = document.querySelectorAll("#pane-debug .dbg-hex").length;
+      await dbgStop();
+      const first = { picked, at: at && `${at.path.split("/").pop()}:${at.line}`, card: card.slice(0, 200), leftRight: /left\s*None/.test(card) && /right\s*Some\(1\)/.test(card), toolbar, missing: missing.slice(0, 200), libRow, conOut, hexRows };
+      // the fix (one line), then: a breakpoint on `c.get("a");`, run to the assertion, continue to the end
+      writeFile(lib, LRU_SRC.replace("self.order.pop_back()", "self.order.pop_front()"));
+      flushSave(); await idle();
+      const lines = LRU_SRC.split("\n"), lineOf = (re: RegExp) => lines.findIndex(l => re.test(l)) + 1;
+      const bpLine = lineOf(/^\s*c\.get\("a"\);/), assertLine = lineOf(/assert_eq!\(c\.get\("a"\), Some\(1\)\)/);
+      const bpKeyNow = lib + ":" + bpLine;
+      if (!dbgBreaks.has(bpKeyNow)) toggleBp(lib, bpLine);
+      const run2 = dbgTest();
+      const picked2 = await pickTest();
+      await run2;
+      const atBp = dbgCurrent();
+      const ta = document.getElementById("ed-ta") as HTMLTextAreaElement | null;
+      if (ta) { const off = ta.value.split("\n").slice(0, assertLine - 1).join("\n").length + 1; ta.selectionStart = ta.selectionEnd = off; }
+      await dbgRunToCursor();
+      const atCursor = dbgCurrent();
+      if (dbgBreaks.has(bpKeyNow)) toggleBp(lib, bpLine);
+      await startDebug(); // continue: the fixed test passes and the program ends
+      await wait(() => /terminou|ended/i.test(pane()), 20000);
+      const passed = /c[oó]digo 0|code 0/.test(pane());
+      const out = { ...first, picked2, atBp: atBp?.line, bpLine, atCursor: atCursor?.line, assertLine, passed, timeTravel: host.timeTravel.reason };
+      if (!picked || !first.leftRight || !first.at?.startsWith("lib.rs:") || toolbar.includes("back") || !missing || !/= 2|2$/.test(conOut) || !atBp || atBp.line !== bpLine || atCursor?.line !== assertLine || !passed)
+        throw new Error("debugR23: " + JSON.stringify(out));
+      return out;
+    });
+    // r23 F2b: gravar e reproduzir (rr). O mesmo teste da LRU, com o bug, gravado e reproduzido até ao
+    // panic: a barra anda para trás (REPLAY, evento n/N), um passo atrás, a última escrita de
+    // `c.order.len`, todas as suas mudanças como marcas, e viajar para uma marca e para o início. Sem rr
+    // (ou num CPU que o rr não sabe contar) o passo diz porquê, como a app.
+    await step("debugRR", async () => {
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
+      const inv = window.__TAURI__!.core.invoke as (c: string, a?: Record<string, unknown>) => Promise<unknown>;
+      const host = await inv("debug_capabilities") as { timeTravel: { available: boolean; reason: string; error?: string | null } };
+      if (!host.timeTravel.available) return { timeTravel: host.timeTravel, skipped: "no time travel here" };
+      const lib = ROOT + "dbglru/src/lib.rs";
+      if (!FS[lib]) return { skipped: "debugR23 did not write the LRU crate" };
+      writeFile(lib, LRU_SRC);
+      flushSave(); await idle();
+      const run = dbgRecordTest();
+      if (!(await wait(() => [...document.querySelectorAll("#pal.show #pal-list .pi")].some(e => /evicts_least_recently_used/.test(e.textContent || "")), 240000))) throw new Error("debugRR: no test to pick");
+      (([...document.querySelectorAll("#pal-list .pi")].find(e => /evicts_least_recently_used/.test(e.textContent || ""))) as HTMLElement).click();
+      await run;
+      const atPanic = dbgCurrent();
+      const st0 = dbgReplayState();
+      const toolbar = [...document.querySelectorAll("#dbg-tb button")].map(b => b.getAttribute("data-on"));
+      const badge = document.querySelector("#dbg-tb .badge")?.textContent || "";
+      const pos = document.querySelector("#dbg-tb .pos")?.textContent || "";
+      await wait(() => !!document.querySelector('#dbg-exc [data-action="dbg-origin-ask"]'), 10000);
+      const cardOrigin = !!document.querySelector('#dbg-exc [data-action="dbg-origin-ask"]');
+      const timeline = document.querySelectorAll("#pane-debug .dbg-tl .mk").length;
+      const p0 = st0?.replay.position, t0 = p0 ? p0.event * 1e9 + p0.ticks : 0;
+      // (in the test's frame, where `c` exists) every change to the cache's order, then travel to one
+      await dbgChanges("c.order.len");
+      const q = dbgReplayState()?.replay.query;
+      const marks = dbgReplayState()?.replay.marks ?? [];
+      const wi = marks.findIndex(m => m.kind === "write");
+      if (wi >= 0) await dbgTravel(wi);
+      const tp = dbgReplayState()?.replay.position, travelled = tp ? `${tp.event}:${tp.ticks}` : null;
+      // back to the panic, then where did the order's length come from
+      const pi = (dbgReplayState()?.replay.marks ?? []).findIndex(m => m.kind === "panic");
+      if (pi >= 0) await dbgTravel(pi);
+      const atPanic2 = dbgCurrent();
+      await dbgOrigin("c.order.len");
+      const origin = dbgReplayState();
+      const originAt = dbgCurrent();
+      // one step back (ticks count branches: a short step can keep them; where it stops moves)
+      const before = JSON.stringify(dbgReplayState()?.stop);
+      await dbgStepBack();
+      const backMoved = JSON.stringify(dbgReplayState()?.stop) !== before;
+      const pb = dbgReplayState()?.replay.position, back = pb ? pb.event * 1e9 + pb.ticks : -1;
+      await dbgStop();
+      const out = {
+        badge, pos, toolbar, cardOrigin, timeline, atPanic: atPanic && `${atPanic.path.split("/").pop()}:${atPanic.line}`,
+        panicTicks: t0, backTicks: back, backMoved, atPanic2: atPanic2 && `${atPanic2.path.split("/").pop()}:${atPanic2.line}`, origin: origin?.stop?.description, originAt: originAt && `${originAt.path.split("/").pop()}:${originAt.line}`,
+        changes: q?.hits.map(h => `${h.line}:${h.values}`), travelledTo: travelled, writeAt: wi >= 0 ? `${marks[wi].event}:${marks[wi].ticks}` : null,
+      };
+      if (!/REPLAY|REPRODU/.test(badge) || !toolbar.includes("back") || !toolbar.includes("rcont") || !cardOrigin || !backMoved || !(back <= t0) || !/^c\.order\.len = \d/.test(origin?.stop?.description ?? "") || !(q && q.hits.length >= 3) || travelled !== out.writeAt)
+        throw new Error("debugRR: " + JSON.stringify(out));
+      return out;
+    });
+    // r23 F4a (aceitação do brief): um `.tf` com `password = var.x` é um erro no Problems; um commit com
+    // `postgres://u:p@h` é bloqueado pelo secret scan do backend (e passa uma vez com um motivo); o terminal
+    // mascara um URL com palavra-passe. (O pedido ao modelo redigido é o teste unitário de tutor_protect.)
+    await step("protect", async () => {
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 200)); return f(); };
+      const inv = window.__TAURI__!.core.invoke as (c: string, a?: Record<string, unknown>) => Promise<unknown>;
+      const root = R.root as string;
+      const tf = ROOT + "infra/db.tf";
+      writeFile(tf, 'variable "db_password" {\n  type = string\n}\n\nresource "aws_db_instance" "main" {\n  username = "app"\n  password = var.db_password\n}\n');
+      flushSave(); await idle();
+      const tfError = await wait(() => diagnostics().some(d => d.p === tf && d.sev === "e" && d.line === 7), 120000);
+      const tfDiag = diagnostics().filter(d => d.p === tf).map(d => `${d.sev}:${d.line}`);
+      // the secret scan before a commit (the same `exec git commit` the pane uses)
+      writeFile(ROOT + "db.rs", 'const URL: &str = "postgres://u:p@h/app";\n');
+      flushSave(); await idle();
+      await git("add", "db.rs", "infra/db.tf");
+      const blocked = await sh("git", ["commit", "-m", "feat: db"]) as { code: number; stderr: string };
+      const report = blocked.stderr.startsWith("SECRET_SCAN_BLOCKED:") ? JSON.parse(blocked.stderr.slice("SECRET_SCAN_BLOCKED:".length)) as { findings: Array<{ file: string; line: number; rule: string }> } : null;
+      const leaks = blocked.stderr.includes("u:p@");
+      await inv("secret_scan_allow", { root, reason: "self-test fixture" });
+      const allowed = await sh("git", ["commit", "-m", "feat: db (self-test)"]) as { code: number };
+      await git("reset", "--hard", "HEAD~1");
+      // the terminal masks a URL's password
+      let masked = false, shown = "";
+      if (R.term) {
+        await R.term.runTask("printf 'DATABASE_URL=postgres://app:s3cr3tpass@db/app\\n'", { label: "selftest-protect" });
+        const I = () => R.term!.inspect();
+        const task = I().terminals.find(t => t.label === "selftest-protect");
+        /* the task's header (the command, written by the UI) comes first; the program's output line is what the PTY masks */
+        if (task) { await wait(() => I().text(task.id).split("\n").some(l => l.includes("DATABASE_URL") && !l.includes("Executing task")), 5000); shown = I().text(task.id).split("\n").find(l => l.includes("DATABASE_URL") && !l.includes("Executing task")) || ""; }
+        masked = shown.includes("••••") && !shown.includes("s3cr3tpass");
+      }
+      // the pre-commit hook (r23 hardening), by the palette's path: the dialog shows the exact file, the backend audits
+      // the install before writing; then it is removed again (dxt is not on the self-test's PATH: it would block every
+      // commit of the steps that follow, which is what it is for)
+      type Plan = { path: string; state: string; content: string };
+      const before = await inv("protect_hook_plan", { root }) as Plan;
+      const installing = services.protect!.installHook();
+      const hookDialog = await wait(() => !!document.querySelector("#approval .appr-cmd"), 10000);
+      const hookCmd = document.querySelector("#approval .appr-cmd")?.textContent ?? "";
+      (document.querySelector("#approval #appr-ok") as HTMLElement | null)?.click();
+      await installing;
+      const after = await inv("protect_hook_plan", { root }) as Plan;
+      const hookRows = (await projectClient().audit(root, null) as Array<{ origin: string; tool: string | null; call: string | null; outcome: string | null }>)
+        .filter((r) => r.origin === "ide" && r.tool === "protect" && r.call === "hook.install").map((r) => r.outcome);
+      /* the hook runs on a commit: without dxt on the PATH it blocks and says why; with it, the scan passes an empty commit */
+      const viaHook = await sh("git", ["commit", "--allow-empty", "-m", "selftest: hook"]) as { code: number; stdout: string; stderr: string };
+      const hookText = (viaHook.stdout || "") + (viaHook.stderr || "");
+      const hookRan = viaHook.code !== 0 ? hookText.includes("dxt is not on the PATH") : hookText.includes("dxtutor secret scan");
+      if (viaHook.code === 0) await git("reset", "--hard", "HEAD~1");
+      await sh("rm", ["-f", after.path]);
+      const hook = { before: before.state, dialog: hookDialog && hookCmd.includes(before.path) && hookCmd.includes("dxt secret-scan --staged"), after: after.state, audited: hookRows, ran: hookRan, text: hookText.slice(0, 120) };
+      const out = { tfError, tfDiag, blockedCode: blocked.code, findings: report?.findings.map(f => `${f.file}:${f.line} ${f.rule}`), leaks, allowedCode: allowed.code, masked, shown: shown.slice(0, 80), hook };
+      if (!tfError || blocked.code === 0 || !report || !report.findings.some(f => f.file === "db.rs" && f.rule === "url-credentials") || leaks || allowed.code !== 0 || !masked) throw new Error("protect: " + JSON.stringify(out));
+      if (hook.before !== "missing" || !hook.dialog || hook.after !== "installed" || hook.audited.length < 2 || !hook.ran) throw new Error("protect hook: " + JSON.stringify(out));
+      return out;
+    });
+    // r23 F4b: o pipeline de IaC na app real — as etapas (os scanners que faltam dizem «not installed» com a dica), o
+    // evento iac://stage, o plano guardado e o apply DESSE ficheiro num terminal real, o estado (endereços e ids), um
+    // segredo no código que bloqueia o apply no Rust até o risco ser aceite (auditado), e o .tfstate fora do editor.
+    await step("iac", async () => {
+      const op = tauriOps(), root = R.root as string, dir = "iac-selftest";
+      const inv = window.__TAURI__!.core.invoke as (c: string, a?: Record<string, unknown>) => Promise<unknown>;
+      const seen: string[] = [];
+      const off = await listen("iac://stage", (payload) => { const p = payload as { dir: string; stage: { id: string; status: string } }; if (p.dir === dir) seen.push(`${p.stage.id}:${p.stage.status}`); });
+      const main = ROOT + dir + "/main.tf", extra = ROOT + dir + "/extra.tf";
+      writeFile(main, 'resource "terraform_data" "a" {\n  input = "v1"\n}\n\nresource "terraform_data" "b" {\n  input = terraform_data.a.output\n}\n');
+      flushSave(); await idle();
+      try {
+        const r1 = await op.pipeline(root, dir, null);
+        const statuses = Object.fromEntries(r1.stages.map((s) => [s.id, s.status]));
+        const hints = r1.stages.filter((s) => s.status === "not_installed").every((s) => !!s.hint);
+        const a1 = await op.applyCommand(root, dir, r1.id);
+        const code = R.term ? await R.term.runTask(a1.command, { label: "selftest-iac" }) : -1;
+        const st = await op.iacState(root, dir);
+        writeFile(extra, 'locals {\n  password = "not-a-real-one"\n}\n');
+        flushSave(); await idle();
+        const r2 = await op.pipeline(root, dir, null);
+        const refused = await op.applyCommand(root, dir, r2.id).then(() => "applied", (e) => String(e));
+        const f = r2.stages.find((s) => s.id === "rules")?.findings[0];
+        const acc = f ? await op.acceptRisk(root, { key: f.key, kind: "finding", label: `built-in ${f.rule} · ${f.file}:${f.line}`, reason: "self-test fixture" }) : null;
+        const r3 = await op.pipeline(root, dir, null);
+        if (acc) await op.revokeRisk(root, acc.id);
+        const rows = await projectClient().audit(root, null) as Array<{ origin: string; tool: string | null; call: string | null; reason: string | null }>;
+        const audited = rows.some((r) => r.origin === "ide" && r.tool === "iac" && r.call === "risk.accept" && r.reason === "self-test fixture");
+        const stateRead = await inv("read_text_file", { path: root.replace(/\/$/, "") + `/${dir}/terraform.tfstate` }).then(() => "read", (e) => String(e));
+        const out = {
+          statuses, hints, events: seen.length, blocked1: r1.blocked, add: r1.plan?.add, dependents: r1.plan?.changes.find((c) => c.address === "terraform_data.a")?.dependents,
+          applyCmd: a1.command.replace(a1.planFile, "<plan>"), code, resources: st.resources.map((r) => r.address), ids: st.resources.every((r) => !!r.id), backend: st.backend,
+          blocked2: r2.blockers, refused: refused.slice(0, 90), finding: f && `${f.file}:${f.line} ${f.rule}`, blocked3: r3.blocked, audited,
+          stateFile: stateRead.includes("state file") ? "refused" : stateRead.slice(0, 60), inFS: Object.keys(FS).some((k) => k.endsWith(".tfstate")),
+        };
+        const ok = statuses.init === "ok" && statuses.plan === "ok" && statuses.rules === "ok" && !r1.blocked && hints && seen.length >= 2 * r1.stages.length && r1.plan?.add === 2
+          && code === 0 && st.resources.length === 2 && out.ids && r2.blocked && r2.blockers.includes("rules") && refused.includes("pipeline failed") && !r3.blocked && audited && out.stateFile === "refused" && !out.inFS;
+        if (!ok) throw new Error("iac: " + JSON.stringify(out));
+        return out;
+      } finally {
+        off();
+        delete FS[main]; delete FS[extra]; flushSave(); await idle();
+        await sh("rm", ["-rf", dir]);
+      }
+    });
+    // r23 F4c: o Vault na app real, contra um Vault dev que o runner arranca (DXTUTOR_SELFTEST_VAULT) e com um serviço de
+    // keychain só do auto-teste (DXTUTOR_KEYCHAIN_SERVICE): entrar com um token (vai para o keychain e nunca volta), os
+    // metadados de produção sem chaves nem valores, a recusa de revelar staging/produção (no Rust), revelar local (auditado,
+    // 20 s), um terminal que recebe o token do backend (a CLI vault funciona e o token aparece mascarado), e sair.
+    await step("vault", async () => {
+      const env = async (k: string) => ((await sh("printenv", [k])) as { stdout: string }).stdout.trim();
+      const addr = await env("DXTUTOR_SELFTEST_VAULT"), token = await env("DXTUTOR_SELFTEST_VAULT_TOKEN");
+      if (!addr || !token) return { skipped: "no dev Vault (DXTUTOR_SELFTEST_VAULT)" };
+      const v = tauriVault(), root = R.root as string, w = { addr, namespace: "" };
+      const before = await v.status(w);
+      const st = await v.loginToken(w, token);
+      const prod = await v.kvMeta(w, "secret", "apps/shop/production/db");
+      const local = await v.kvMeta(w, "secret", "apps/shop/local/db");
+      const refused = await v.reveal(root, w, "secret", "apps/shop/production/db", "DB_PASSWORD", "self-test").then(() => "revealed", (e) => String(e));
+      const r = await v.reveal(root, w, "secret", "apps/shop/local/db", "DB_PASSWORD", "self-test");
+      const value = await v.revealRead(r.id);
+      let cli = -1, masked = false, shown = "";
+      if (R.term) {
+        /* `-field` prints no newline: the echo starts its own line */
+        cli = await R.term.runTask("vault kv get -mount=secret -field=DB_USER apps/shop/local/db && echo && echo \"tok=$VAULT_TOKEN\"", { label: "selftest-vault", vault: { addr, namespace: null } });
+        const I = () => R.term!.inspect(), task = I().terminals.find((t) => t.label === "selftest-vault");
+        /* the program's own line (`tok=…`); the task header — the command, with `$VAULT_TOKEN` literal — can wrap */
+        const out = (id: string) => I().text(id).split("\n").find((l) => l.trim().startsWith("tok=") && !l.includes("$VAULT_TOKEN"));
+        if (task) { const t0 = Date.now(); while (!out(task.id) && Date.now() - t0 < 5000) await new Promise((res) => setTimeout(res, 200)); shown = out(task.id) ?? I().text(task.id).slice(-200); }
+        masked = shown.trim().startsWith("tok=") && shown.trim().length > 4 && !shown.includes(token);
+      }
+      const rows = await projectClient().audit(root, null) as Array<{ origin: string; tool: string | null; call: string | null; reason: string | null }>;
+      const audited = rows.some((x) => x.origin === "ide" && x.tool === "vault" && x.call === "reveal-local" && x.reason === "self-test");
+      const out = await v.revoke(w);
+      const json = JSON.stringify([before, st, prod, local, out]);
+      const res = {
+        before: before.signedIn, signedIn: st.signedIn, who: st.displayName, keychain: st.keychain, tokenInAnswers: json.includes(token),
+        prodKeys: prod.keys, prodVersions: prod.versions.length, prodValue: json.includes("st-production-pw-4821"), localKeys: local.keys,
+        refused: refused.slice(0, 80), value, ttlMs: r.ttlMs, cli, masked, shown: shown.slice(0, 40), audited, after: out.signedIn,
+      };
+      if (before.signedIn || !st.signedIn || !st.keychain || res.tokenInAnswers || prod.keys !== null || res.prodValue || !local.keys?.includes("DB_PASSWORD")
+        || !refused.includes("never leave Vault") || value !== "st-local-pw-4821" || cli !== 0 || !masked || !audited || out.signedIn) throw new Error("vault: " + JSON.stringify(res));
+      return res;
+    });
+    // r23 F4c2: o deploy guiado na app real, contra um kubeconfig TEMPORÁRIO e vazio (nunca os clusters do utilizador):
+    // o plano (versão = HEAD, o Secret deixado ao Vault, as ferramentas em falta com a dica, o cluster «not connected»),
+    // a produção bloqueada sem excepções e sem «production» escrito (no Rust), o rollout de staging que falha no cluster
+    // inexistente e fica registado (deploy_records) e no registo de auditoria.
+    await step("deploy", async () => {
+      const inv = window.__TAURI__!.core.invoke as (c: string, a?: Record<string, unknown>) => Promise<unknown>;
+      const root = R.root as string, man = ROOT + "deploy/k8s/app.yaml", kc = ROOT + "kubeconfig-deploy.yaml";
+      /* no image here: syft/grype on this machine would (rightly) fail an image that does not exist — the image checks are
+         covered by `cargo test -p tutor-platform deploy`; this step proves the rollout, the record and the audit */
+      writeFile(man, 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: web-config\ndata:\n  MODE: selftest\n---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: web-env\nstringData:\n  DB_PASSWORD: \"\"\n');
+      writeFile(kc, "apiVersion: v1\nkind: Config\nclusters: []\ncontexts: []\nusers: []\n");
+      flushSave(); await idle();
+      const before = ((await sh("git", ["rev-parse", "HEAD"])) as { stdout: string }).stdout.trim();
+      await git("add", "deploy/k8s/app.yaml");
+      const committed = ((await sh("git", ["commit", "-m", "feat: SELF-9 deploy manifests"])) as { code: number; stderr: string });
+      if (committed.code !== 0) throw new Error("deploy: could not commit the manifests: " + committed.stderr.slice(0, 200));
+      const kube = root.replace(/\/$/, "") + "/kubeconfig-deploy.yaml";
+      try {
+        const target = (env: string) => ({ env, context: "selftest-nowhere", namespace: "shop", kubeconfig: kube, stagingContext: "selftest-nowhere", stagingNamespace: "shop" });
+        const plan = await inv("deploy_plan", { root, target: target("staging") }) as { id: string; version: string; issue: string | null; secretsFromVault: string[]; gates: Array<{ id: string; status: string; hint: string | null }>; blockers: string[] };
+        const st = Object.fromEntries(plan.gates.map((g) => [g.id, g.status]));
+        const prod = await inv("deploy_plan", { root, target: target("production") }) as { id: string; blockers: string[]; waivable: string[] };
+        /* production: every unverified check blocks; even with each waivable one waived, the second approver (no gh signed
+           in here) and staging (no staging cluster) keep it closed — no waiver lifts them (owner decision) */
+        const noConfirm = await inv("deploy_rollout", { root, planId: prod.id, confirm: null, reason: "x", waivers: [] }).then(() => "rolled out", (e) => String(e));
+        const waivers = prod.waivable.map((gate) => ({ gate, reason: "self-test: no source here" }));
+        const unconfirmed = await inv("deploy_rollout", { root, planId: prod.id, confirm: "production", reason: "self-test", waivers }).then(() => "rolled out", (e) => String(e));
+        const forced = await inv("deploy_rollout", { root, planId: prod.id, confirm: "production", reason: "self-test", waivers: [...waivers, { gate: "approver", reason: "self-test" }] }).then(() => "rolled out", (e) => String(e));
+        const lines: string[] = [];
+        const off = await listen("deploy://output", (p) => { const e = p as { planId: string; line: string }; if (e.planId === plan.id) lines.push(e.line); });
+        const rec = await inv("deploy_rollout", { root, planId: plan.id, confirm: null, reason: "self-test", waivers: [] }) as { ok: boolean; failedStep: string | null; version: string; issue: string | null; env: string };
+        off();
+        const recs = await inv("deploy_records", { root, shas: [plan.version.slice(0, 12)] }) as Array<{ env: string; ok: boolean }>;
+        const rows = await projectClient().audit(root, null) as Array<{ origin: string; tool: string | null; call: string | null }>;
+        const audited = ["rollout", "rollout-failed"].every((c) => rows.some((r) => r.origin === "ide" && r.tool === "deploy" && r.call === c));
+        const out = {
+          version: plan.version.slice(0, 10), issue: plan.issue, secretsFromVault: plan.secretsFromVault, gates: st, hints: plan.gates.filter((g) => g.status === "not_installed").every((g) => !!g.hint),
+          stagingBlockers: plan.blockers, prodBlockers: prod.blockers, prodWaivable: prod.waivable, noConfirm: noConfirm.slice(0, 90), unconfirmed: unconfirmed.slice(0, 90), forced: forced.slice(0, 90),
+          rec: { ok: rec.ok, failedStep: rec.failedStep, env: rec.env, issue: rec.issue }, records: recs.map((r) => `${r.env}:${r.ok}`), lines: lines.length, audited,
+          leaked: lines.some((l) => /DB_PASSWORD/.test(l)),
+        };
+        if (st.version !== "ok" || plan.issue !== "SELF-9" || plan.secretsFromVault.join() !== "web-env" || st.admission !== "not_connected" || st["secret-check"] !== "not_connected" || !out.hints
+          || plan.blockers.length || !prod.blockers.includes("approver") || prod.waivable.includes("approver") || prod.waivable.includes("staging") || !/blocked by/.test(noConfirm)
+          || !/^.*blocked by: [a-z, -]*approver/.test(unconfirmed) || !/approver cannot be waived/.test(forced) || rec.ok || rec.failedStep !== "namespace"
+          || !recs.some((r) => r.env === "staging" && !r.ok) || !audited || out.leaked) throw new Error("deploy: " + JSON.stringify(out));
+        return out;
+      } finally {
+        delete FS[kc]; delete FS[man]; flushSave(); await idle();
+        if (before) await git("reset", "--hard", before);
+      }
+    });
+    // r23 F5a: runbooks como código na app real — a verificação só de leitura corre sem pedir, a que não é só de
+    // leitura é recusada no Rust (`not_read_only`, aceitação do brief), a acção sem aprovação também, com aprovação corre
+    // e fica no registo; a decisão regista palavras; as fontes «not connected»; e as evidências ISO 27001 escritas em
+    // docs/audit a partir das linhas REAIS do registo (aceitação do brief).
+    await step("runbook", async () => {
+      const inv = window.__TAURI__!.core.invoke as (c: string, a?: Record<string, unknown>) => Promise<unknown>;
+      const root = R.root as string, rb = ROOT + "runbooks/selftest-restore.md";
+      writeFile(rb, "# selftest: restore test\n\nOwner: self-test\n\n## 1. List the project [check]\n```sh\nls -1 && echo ready\n```\nexpect: `ready`\n\n## 2. Write a marker [action]\n```sh\necho restored > selftest-marker.txt && cat selftest-marker.txt\n```\nexpect: `restored`\n\n## 3. Call it done? [decision]\nexpect: decided\n\n## 4. Sneak a write into a check [check]\n```sh\nls > listing.txt\n```\nexpect: nothing\n");
+      flushSave(); await idle();
+      const run = `run-selftest-${Date.now()}`;
+      try {
+        const list = await inv("runbook_list", { root }) as Array<{ path: string; steps: Array<{ n: number; refused: string | null }> }>;
+        const mine = list.find((r) => r.path === "runbooks/selftest-restore.md");
+        const s1 = await inv("runbook_step", { root, path: "runbooks/selftest-restore.md", n: 1, runId: run, approval: null, vault: null }) as { exitCode: number; matched: boolean | null; output: string };
+        const refused = await inv("runbook_step", { root, path: "runbooks/selftest-restore.md", n: 4, runId: run, approval: null, vault: null }).then(() => "ran", (e) => String(e));
+        const unapproved = await inv("runbook_step", { root, path: "runbooks/selftest-restore.md", n: 2, runId: run, approval: null, vault: null }).then(() => "ran", (e) => String(e));
+        const s2 = await inv("runbook_step", { root, path: "runbooks/selftest-restore.md", n: 2, runId: run, approval: { reason: "self-test restore" }, vault: null }) as { exitCode: number; matched: boolean | null; actor: string };
+        const s3 = await inv("runbook_decide", { root, path: "runbooks/selftest-restore.md", n: 3, runId: run, note: "done: the marker is there" }) as { note: string };
+        const sources = await inv("sources_status", { root }) as Array<{ kind: string; connected: boolean }>;
+        const ev = await inv("audit_export_evidence", { root, from: null, to: null }) as { path: string; content: string };
+        const rows = await projectClient().audit(root, null) as Array<{ origin: string; tool: string | null; call: string | null }>;
+        const actionAudited = rows.some((r) => r.origin === "ide" && r.tool === "runbook" && r.call === "action");
+        const onDisk = ((await sh("cat", [ev.path])) as { code: number; stdout: string });
+        const out = {
+          steps: mine?.steps.length, refusedAtParse: mine?.steps.find((x) => x.n === 4)?.refused?.slice(0, 60), s1: { code: s1.exitCode, matched: s1.matched }, refused: refused.slice(0, 80), unapproved: unapproved.slice(0, 60),
+          s2: { code: s2.exitCode, matched: s2.matched, actor: !!s2.actor }, s3: s3.note, sources: sources.map((x) => `${x.kind}:${x.connected}`).join(" "), actionAudited,
+          evidence: ev.path, sections: (ev.content.match(/^## .*/gm) || []).length, hasRunbook: /runbook «selftest: restore test»/.test(ev.content), hasAction: /runbook\.action/.test(ev.content),
+          backup: /## A\.8\.13[^#]*restore test/.test(ev.content), vaultRow: /vault\.reveal-local/.test(ev.content), onDisk: onDisk.code === 0 && onDisk.stdout.startsWith("# Evidence export"), noListing: !Object.keys(FS).some((k) => k.endsWith("listing.txt")),
+        };
+        if (!mine || s1.exitCode !== 0 || s1.matched !== true || !/not_read_only/.test(refused) || !/approval/.test(unapproved) || s2.exitCode !== 0 || s2.matched !== true || !actionAudited
+          || !out.refusedAtParse || sources.find((x) => x.kind === "cost")?.connected !== false || !/^docs\/audit\/evidence-\d{4}-\d{2}\.md$/.test(ev.path) || out.sections < 5 || !out.hasRunbook || !out.hasAction || !out.backup || !out.onDisk) throw new Error("runbook: " + JSON.stringify(out));
+        return out;
+      } finally {
+        delete FS[rb]; flushSave(); await idle();
+        await sh("rm", ["-rf", "runbooks", "selftest-marker.txt", "listing.txt", "docs/audit"]);
+      }
+    });
+    // r23 F5b: a actividade Platform na app real — a fila calculada do estado (um achado de IaC num .tf que eu commitei, um
+    // runbook com `schedule:` nunca completo, um incidente que comando, e o deploy falhado do passo `deploy`), «verificar» só
+    // marca feito quando o estado o prova, passar exige destinatário e motivo; os incidentes locais com as suas regras e a
+    // confiança «low» sem fonte de métricas; a revisão de PR sem `gh` com sessão diz porquê.
+    await step("platform", async () => {
+      const inv = window.__TAURI__!.core.invoke as (c: string, a?: Record<string, unknown>) => Promise<unknown>;
+      const root = R.root as string, tf = ROOT + "infra-q/main.tf", rb = ROOT + "runbooks/selftest-weekly.md";
+      writeFile(tf, 'resource "aws_db_instance" "main" {\n  password = var.db_password\n}\n');
+      writeFile(rb, "# selftest weekly check\n\nschedule: weekly\n\n## 1. list [check]\n```sh\nls\n```\nexpect: `x`\n");
+      flushSave(); await idle();
+      const before = ((await sh("git", ["rev-parse", "HEAD"])) as { stdout: string }).stdout.trim();
+      await git("add", "infra-q/main.tf", "runbooks/selftest-weekly.md");
+      await sh("git", ["commit", "-m", "chore: platform self-test"]);
+      type Q = { me: { name: string }; items: Array<{ id: string; why: string }>; team: Array<{ item: string; recipient: string }>; missing: string[]; measured: Array<[string, string]> };
+      try {
+        const inc = await inv("incident_open", { root, title: "selftest checkout latency", severity: "SEV-3" }) as { id: number; key: string };
+        const q1 = await inv("queue_items", { root }) as Q;
+        const ids = q1.items.map((i) => i.id);
+        const notYet = await inv("queue_verify", { root, id: "iac:infra-q/main.tf", title: "finding" }) as { done: boolean };
+        writeFile(tf, 'resource "aws_db_instance" "main" {\n  password_wo = var.db_password\n}\n');
+        flushSave(); await idle();
+        const done = await inv("queue_verify", { root, id: "iac:infra-q/main.tf", title: "finding" }) as { done: boolean; proof: string | null };
+        const noReason = await inv("queue_handover", { root, id: "recurring:runbooks/selftest-weekly.md", title: "weekly", recipient: "bruno", reason: " " }).then(() => "kept", (e) => String(e));
+        await inv("queue_handover", { root, id: "recurring:runbooks/selftest-weekly.md", title: "weekly", recipient: "bruno", reason: "self-test: his runbook" });
+        const unchecked = await inv("incident_add", { root, id: inc.id, kind: "not-checked", text: "db metrics", reason: null }).then(() => "kept", (e) => String(e));
+        await inv("incident_add", { root, id: inc.id, kind: "not-checked", text: "db metrics", reason: "no metrics source here" });
+        await inv("incident_add", { root, id: inc.id, kind: "evidence", text: "the self-test says so", reason: null });
+        await inv("incident_status", { root, id: inc.id, status: "mitigated", note: "self-test" });
+        await inv("incident_feedback", { root, id: inc.id, right: true });
+        const view = await inv("incident_get", { root, id: inc.id }) as { confidence: { level: string }; events: unknown[]; precision: [number, number] };
+        await inv("incident_status", { root, id: inc.id, status: "resolved", note: "self-test: nothing broke" });
+        const q2 = await inv("queue_items", { root }) as Q;
+        const review = await inv("pr_infra_review", { root, pr: 1 }).then(() => "reviewed", (e) => String(e));
+        const submit = await inv("pr_review_submit", { root, pr: 1, decision: "approve", body: "", reason: null }).then(() => "posted", (e) => String(e));
+        const out = {
+          me: q1.me.name, items: ids, missing: q1.missing, notYet: notYet.done, done: done.done, proof: done.proof, noReason: noReason.slice(0, 60), unchecked: unchecked.slice(0, 70),
+          confidence: view.confidence.level, events: view.events.length, precision: view.precision, after: q2.items.map((i) => i.id), team: q2.team.map((t) => `${t.item}→${t.recipient}`),
+          review: review.slice(0, 80), submit: submit.slice(0, 80),
+        };
+        if (!ids.includes("iac:infra-q/main.tf") || !ids.includes("recurring:runbooks/selftest-weekly.md") || !ids.includes(`incident:${inc.id}`) || notYet.done || !done.done
+          || !/recipient|reason/.test(noReason) || !/reason/.test(unchecked) || view.confidence.level !== "low" || q2.items.some((i) => i.id.startsWith("iac:infra-q") || i.id.startsWith("recurring:") || i.id === `incident:${inc.id}`)
+          || !q2.team.some((t) => t.recipient === "bruno") || review === "reviewed" || submit === "posted") throw new Error("platform: " + JSON.stringify(out));
+        return out;
+      } finally {
+        delete FS[tf]; delete FS[rb]; flushSave(); await idle();
+        if (before) await git("reset", "--hard", before);
+        await sh("rm", ["-rf", "infra-q", "runbooks"]);
+      }
+    });
+    // NOTAS-r23 ponto 3: a fonte de métricas na app real, contra um Prometheus que o runner arranca (DXTUTOR_SELFTEST_PROM)
+    // e cujo token de leitura vem do Vault dev (lido no backend, nunca devolvido): a fonte «obs» ligada, o orçamento de erro
+    // medido (as consultas inválidas à própria API do Prometheus são os erros), a capacidade que diz não ter o
+    // kube-state-metrics, e um incidente cuja confiança sobe de «low» com a verificação das métricas.
+    await step("metrics", async () => {
+      const inv = window.__TAURI__!.core.invoke as (c: string, a?: Record<string, unknown>) => Promise<unknown>;
+      const env = async (k: string) => ((await sh("printenv", [k])) as { stdout: string }).stdout.trim();
+      const prom = await env("DXTUTOR_SELFTEST_PROM"), vaddr = await env("DXTUTOR_SELFTEST_VAULT"), vtok = await env("DXTUTOR_SELFTEST_VAULT_TOKEN2");
+      if (!prom || !vaddr || !vtok) return { skipped: "no Prometheus or Vault for the self-test (DXTUTOR_SELFTEST_PROM, DXTUTOR_SELFTEST_VAULT_TOKEN2)" };
+      const root = R.root as string, v = tauriVault(), w = { addr: vaddr, namespace: "" };
+      await v.loginToken(w, vtok);
+      writeFile(ROOT + ".dxtutor/metrics.json", JSON.stringify({ prometheus: { url: prom, auth: { kind: "vault", addr: vaddr, mount: "secret", path: "apps/obs/prometheus", field: "token" } } }, null, 2));
+      writeFile(ROOT + ".dxtutor/slo.json", JSON.stringify({ services: [{ name: "prometheus-api", objective: 99, window: "5m", errors: 'sum(increase(prometheus_http_requests_total{handler="/api/v1/query",code=~"4..|5.."}[$window]))', total: 'sum(increase(prometheus_http_requests_total{handler="/api/v1/query"}[$window]))' }] }, null, 2));
+      flushSave(); await idle();
+      const wait = (ms: number) => new Promise((res) => setTimeout(res, ms));
+      const hit = (q: string) => sh("curl", ["-s", "-o", "/dev/null", "-G", `${prom}/api/v1/query`, "--data-urlencode", `query=${q}`]);
+      /* two waves: the 400 series must exist before its increase counts */
+      await hit("bad("); await hit("up"); await wait(3000);
+      for (let i = 0; i < 10; i++) { await hit("bad("); await hit("up"); await hit("up"); }
+      await wait(4000);
+      try {
+        const sources = await inv("sources_status", { root }) as Array<{ kind: string; connected: boolean; via: string | null; notes: string }>;
+        const obs = sources.find((s) => s.kind === "obs");
+        type B = { service: string; errorRatio: number | null; remaining: number | null; exhausted: boolean };
+        const o = await inv("metrics_status", { root }) as { connected: boolean; auth: string; version: string | null; budgets: B[]; budgetErrors: string[]; capacity: unknown; capacityNotes: string };
+        const inc = await inv("incident_open", { root, title: "selftest error spike", severity: "SEV-3" }) as { id: number };
+        const lines = await inv("incident_metrics_check", { root, id: inc.id }) as string[];
+        await inv("incident_add", { root, id: inc.id, kind: "evidence", text: "the self-test sent bad queries", reason: null });
+        const view = await inv("incident_get", { root, id: inc.id }) as { confidence: { level: string; reasons: string[] } };
+        const json = JSON.stringify([sources, o, lines, view]);
+        const b = o.budgets[0];
+        const res = {
+          obs: obs?.connected, via: obs?.via, auth: o.auth, version: o.version, budget: b ? { ratio: b.errorRatio, remaining: b.remaining, exhausted: b.exhausted } : null,
+          budgetErrors: o.budgetErrors, capacity: o.capacity, capacityNotes: o.capacityNotes, lines, confidence: view.confidence.level, tokenShown: json.includes("st-prom-read-"),
+        };
+        if (!obs?.connected || !/token from Vault/.test(obs.via ?? "") || o.auth !== "vault" || !b || !b.exhausted || !(b.errorRatio! > 0.05) || o.capacity !== null
+          || !/kube-state-metrics/.test(o.capacityNotes) || lines.length !== 1 || !/prometheus-api: errors/.test(lines[0]) || view.confidence.level === "low" || res.tokenShown)
+          throw new Error("metrics: " + JSON.stringify(res));
+        return res;
+      } finally {
+        delete FS[ROOT + ".dxtutor/metrics.json"]; delete FS[ROOT + ".dxtutor/slo.json"]; flushSave(); await idle();
+        await v.revoke(w).catch(() => undefined);
+      }
     });
     // A8: «Under the hood» real com a toolchain desta máquina — as instruções de uma linha em debug e
     // em release, o bytecode Python, os estágios do compilador, uma execução medida, o crescimento com N
@@ -625,6 +1293,202 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
         delete FS[tf]; delete FS[kc]; flushSave(); await idle();
       }
     });
+    // r23 F1: uma operação do IDE no registo de auditoria (audit_record → project_audit), com origem `ide`, quem
+    // decidido pelo backend e o segredo do `.env` mascarado no comando e no motivo (a regra vive no Rust).
+    await step("audit", async () => {
+      const root = R.root as string, env = ROOT + ".env", secret = "selftest-secret-98765";
+      writeFile(env, `API_TOKEN=${secret}\n`);
+      flushSave(); await idle();
+      try {
+        await auditClient().record(root, { feature: "ops", action: "kube.undo", command: `kubectl rollout undo deploy/web # ${secret}`, scope: "context selftest · namespace default", approved: true, reason: `rotate ${secret}`, outcome: "sent", decidedAt: 1 });
+        const bad = await auditClient().record(root, { feature: "Ops!", action: "x", command: "c", approved: true }).then(() => "accepted", (e) => (e as { code?: string }).code ?? String(e));
+        const rows = await projectClient().audit(root, null) as Array<{ origin: string; tool: string | null; call: string | null; actor: string; command: string | null; reason: string | null; outcome: string | null; decidedBy: string | null; path: string | null }>;
+        const row = rows.filter((r) => r.origin === "ide").slice(-1)[0];
+        return {
+          recorded: !!row, tool: row?.tool, call: row?.call, outcome: row?.outcome, scope: row?.path, actorFromBackend: !!row?.actor && row?.decidedBy === `human:${row?.actor}`,
+          secretMasked: !!row && !`${row.command}${row.reason}`.includes(secret), badInput: bad,
+        };
+      } finally {
+        delete FS[env]; flushSave(); await idle();
+      }
+    });
+    // r23 F6: «Clone Git Repository…» contra o git real — o plano (o comando exacto e a pasta), a recusa de um URL
+    // com ar de opção, o clone para a pasta planeada (a partir do repositório temporário, por file://) e a recusa
+    // de clonar por cima dela. Tudo numa pasta temporária fora do projecto.
+    await step("clone", async () => {
+      const g = gitClient(), root = (R.root as string).replace(/\/$/, "");
+      const parent = (await sh("mktemp", ["-d"], { cwd: R.info.home })).stdout.trim();
+      try {
+        const plan = await g.clonePlan(`file://${root}`, parent);
+        const optionUrl = await g.clonePlan("--upload-pack=touch /tmp/x", parent).then(() => "accepted", () => "refused");
+        const path = await g.clone(`file://${root}`, parent);
+        const again = await g.clone(`file://${root}`, parent).then(() => "cloned twice", (e) => /already exists/.test(String(e)) ? "refused" : String(e));
+        const head = (await sh("git", ["-C", path, "rev-parse", "--is-inside-work-tree"], { cwd: parent })).stdout.trim();
+        return { command: plan.command.startsWith(`git -C ${parent} clone -- file://`), target: path === plan.target, optionUrl, again, isRepo: head === "true" };
+      } finally {
+        await sh("rm", ["-rf", parent], { cwd: R.info.home });
+      }
+    });
+    // Multi Co-Dev, fase 3: a worktree de uma issue contra o git real — o plano (o comando exacto), criar só com
+    // esse comando (auditado no Rust), a árvore principal intacta, ler um ficheiro só de leitura, commitar no ramo
+    // dela, limpar com o comando listado (o ramo fica) e as reservas de ficheiros (nenhuma sem sessões).
+    await step("worktrees", async () => {
+      const inv = window.__TAURI__!.core.invoke as (c: string, a?: Record<string, unknown>) => Promise<unknown>;
+      const root = R.root as string, dir = root.replace(/\/$/, "");
+      const p = (await projectClient().apply(root, { op: "create_issue", title: "Selftest worktree" })) as { issues: Array<{ key: string; title: string }> };
+      const key = p.issues.filter((i) => i.title === "Selftest worktree").slice(-1)[0].key;
+      const plan = await inv("codev_worktree_plan", { root, key }) as { available: boolean; branch: string; path: string; command: string; exists: boolean };
+      const wrong = await inv("codev_worktree_create", { root, key, command: "git worktree add /tmp/x", decidedAt: 1 }).then(() => "accepted", () => "refused");
+      const before = (await sh("git", ["-C", dir, "status", "--porcelain"], { cwd: dir })).stdout;
+      const w = await inv("codev_worktree_create", { root, key, command: plan.command, decidedAt: 1 }) as { dir: string; branch: string };
+      const after = (await sh("git", ["-C", dir, "status", "--porcelain"], { cwd: dir })).stdout;
+      try {
+        await sh("sh", ["-c", `printf 'selftest\n' > "${w.dir}/SELFTEST-WT.txt"`], { cwd: dir });
+        const f = await inv("codev_worktree_file", { root, key, path: "SELFTEST-WT.txt" }) as { now: string | null; before: string | null };
+        const sha = await inv("codev_worktree_commit", { root, key, message: `${key}: selftest` }) as string;
+        const onBranch = (await sh("git", ["-C", dir, "rev-parse", "--short", w.branch], { cwd: dir })).stdout.trim();
+        const listed = await inv("codev_worktrees", { root }) as Array<{ key: string; session: string | null; remove: string; dirty: string[] }>;
+        const mine = listed.find((x) => x.key === key)!;
+        const rm = await inv("codev_worktree_remove", { root, key, command: mine.remove, decidedAt: 1 }) as { removed: boolean };
+        const branchKept = (await sh("git", ["-C", dir, "rev-parse", "--verify", "--quiet", w.branch], { cwd: dir })).stdout.trim() !== "";
+        const claims = await inv("codev_claims", { root }) as unknown[];
+        const outside = !w.dir.startsWith(dir + "/");
+        return {
+          available: plan.available, command: plan.command.startsWith(`git -C ${dir} worktree add -b ${plan.branch} -- `), wrong, outside,
+          mainTreeUntouched: before === after, readBack: f.now === "selftest\n" && f.before === null, committedOnBranch: sha === onBranch,
+          listedWithoutSession: mine.session === null && mine.dirty.length === 0, removed: rm.removed, branchKept, claims: claims.length,
+        };
+      } finally {
+        await sh("git", ["-C", dir, "worktree", "remove", "--force", "--", w.dir], { cwd: dir }).catch(() => undefined);
+      }
+    });
+    // Multi Co-Dev, fase 4: a porta de integração contra o git real, sem modelo — uma verificação que falha (o revisor
+    // não corre), depois verde (o revisor sem provedor não dá veredicto: nenhum pedido sai), a aprovação funcional, e o
+    // «Integrate» recusado no Rust porque a condição do revisor não vale; o ramo por omissão fica onde estava.
+    await step("integration", async () => {
+      const raw = window.__TAURI__!.core.invoke as (c: string, a?: Record<string, unknown>) => Promise<unknown>;
+      // a failure names the command that failed (and its op)
+      const inv = (c: string, a?: Record<string, unknown>) => raw(c, a).catch((e) => { throw new Error(`${c}${a && "op" in a ? ` ${(a.op as { op?: string }).op}` : ""}: ${String((e as { message?: string })?.message ?? e)}`); });
+      const root = R.root as string, dir = root.replace(/\/$/, "");
+      type Cond = { ok: boolean; code: string; items: string[] };
+      type St = { running: boolean; request: string | null; integrate: string | null; gate: { checks: Cond; reviewer: Cond; functional: Cond; ok: boolean }; review: { candidate: string; state: string; error: string | null } | null };
+      const pc = projectClient(inv as <T>(c: string, a?: Record<string, unknown>) => Promise<T>);
+      const p = (await pc.apply(root, { op: "create_issue", title: "Selftest integration" })) as { issues: Array<{ key: string; title: string }>; checks?: unknown };
+      const key = p.issues.filter((i) => i.title === "Selftest integration").slice(-1)[0].key;
+      await pc.apply(root, { op: "set_acceptance", key, items: [{ text: "Given the selftest When it runs Then SELFTEST-IG.txt exists", done: false }] });
+      const savedChecks = await inv("project_checks", { root });
+      const plan = await inv("codev_worktree_plan", { root, key }) as { command: string };
+      const w = await inv("codev_worktree_create", { root, key, command: plan.command, decidedAt: 1 }) as { dir: string; branch: string };
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+      const state = () => inv("codev_review_state", { root, key }) as Promise<St>;
+      const review = async (): Promise<St> => {
+        const s = await state();
+        await inv("codev_review_request", { root, key, command: s.request, decidedAt: 1, provider: "selftest-none", model: null, language: "en" });
+        for (let i = 0; i < 240; i++) { const x = await state(); if (!x.running) return x; await wait(250); }
+        throw new Error("the review did not finish");
+      };
+      try {
+        await sh("sh", ["-c", `printf 'selftest\n' > "${w.dir}/SELFTEST-IG.txt"`], { cwd: dir });
+        await inv("codev_worktree_commit", { root, key, message: `${key}: selftest integration` });
+        const mainBefore = (await sh("git", ["-C", dir, "rev-parse", "HEAD"], { cwd: dir })).stdout.trim();
+        await pc.apply(root, { op: "settings", checks: [{ name: "selftest", command: "echo red >&2; exit 7" }] });
+        const red = await review();
+        await pc.apply(root, { op: "settings", checks: [{ name: "selftest", command: "test -f SELFTEST-IG.txt" }] });
+        const green = await review();
+        await pc.apply(root, { op: "approve_functional", key, note: "selftest" });
+        const after = await state();
+        const refused = await inv("codev_review_integrate", { root, key, command: `git -C ${dir} merge --ff-only ${green.review?.candidate}`, decidedAt: 1 })
+          .then(() => "integrated", (e) => String(e));
+        const mainAfter = (await sh("git", ["-C", dir, "rev-parse", "HEAD"], { cwd: dir })).stdout.trim();
+        return {
+          redChecks: red.gate.checks.code, redReviewer: red.gate.reviewer.code,
+          greenChecks: green.gate.checks.code, noVerdict: green.gate.reviewer.code, reviewError: green.review?.error ?? null,
+          functional: after.gate.functional.code, gateOpen: after.gate.ok, integrateOffered: after.integrate !== null,
+          refusedInRust: refused.includes("the gate does not hold") && refused.includes("reviewer: no_verdict"), mainUntouched: mainBefore === mainAfter,
+        };
+      } finally {
+        await pc.apply(root, { op: "settings", checks: Array.isArray(savedChecks) ? savedChecks : [] }).catch(() => undefined);
+        await sh("git", ["-C", dir, "worktree", "remove", "--force", "--", w.dir], { cwd: dir }).catch(() => undefined);
+      }
+    });
+    // Multi Co-Dev, fase 5: a autonomia delegada contra o git real e um remoto local (bare), sem modelo e sem o GitHub
+    // — delegar (o papel e os limites no Rust, auditado), pausar, o gatilho da aprovação funcional que o backend segue
+    // sozinho (parado pela pausa; depois pela porta, que sem veredicto do revisor não abre), o pull request recusado no
+    // Rust antes de enviar seja o que for (o remoto fica sem o ramo, e o `gh` falso do runner — `DXTUTOR_GH` — nunca é
+    // chamado), revogar e retomar.
+    await step("autonomy", async () => {
+      const raw = window.__TAURI__!.core.invoke as (c: string, a?: Record<string, unknown>) => Promise<unknown>;
+      const inv = (c: string, a?: Record<string, unknown>) => raw(c, a).catch((e) => { throw new Error(`${c}: ${String((e as { message?: string })?.message ?? e)}`); });
+      const root = R.root as string, dir = root.replace(/\/$/, "");
+      type Ev = { action: string; trigger: string; outcome: string; code: string; audit: number[] };
+      type Ov = { switch: { paused: boolean }; delegations: Array<{ id: number; actions: string[]; revokedAt: number | null }>; events: Ev[]; mode: string | null };
+      const pc = projectClient(inv as <T>(c: string, a?: Record<string, unknown>) => Promise<T>);
+      const p = (await pc.apply(root, { op: "create_issue", title: "Selftest autonomy" })) as { issues: Array<{ key: string; title: string }> };
+      const key = p.issues.filter((i) => i.title === "Selftest autonomy").slice(-1)[0].key;
+      await pc.apply(root, { op: "set_acceptance", key, items: [{ text: "Given the selftest When it runs Then SELFTEST-AU.txt exists", done: false }] });
+      const savedChecks = await inv("project_checks", { root });
+      const plan = await inv("codev_worktree_plan", { root, key }) as { command: string };
+      const w = await inv("codev_worktree_create", { root, key, command: plan.command, decidedAt: 1 }) as { dir: string; branch: string };
+      const remoteDir = (await sh("mktemp", ["-d"], { cwd: R.info.home })).stdout.trim() + "/remote.git";
+      const ghBin = (await sh("printenv", ["DXTUTOR_GH"]).catch(() => ({ stdout: "" })) as { stdout: string }).stdout.trim();
+      const ghCalls = ghBin ? ghBin.replace(/\/[^/]+$/, "/calls") : "";
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+      const overview = () => inv("codev_autonomy_state", { root, key }) as Promise<Ov>;
+      const nextEvent = async (n: number): Promise<Ev | null> => {
+        for (let i = 0; i < 80; i++) { const o = await overview(); if (o.events.length > n) return o.events[0]; await wait(250); }
+        return null;
+      };
+      const state = () => inv("codev_review_state", { root, key }) as Promise<{ running: boolean; request: string | null }>;
+      try {
+        await sh("git", ["init", "-q", "--bare", remoteDir], { cwd: R.info.home });
+        await sh("git", ["-C", dir, "remote", "add", "selftest-pr", remoteDir], { cwd: dir });
+        await sh("sh", ["-c", `printf 'selftest\n' > "${w.dir}/SELFTEST-AU.txt"`], { cwd: dir });
+        await inv("codev_worktree_commit", { root, key, message: `${key}: selftest autonomy` });
+        await pc.apply(root, { op: "settings", checks: [{ name: "selftest", command: "test -f SELFTEST-AU.txt" }] });
+        // the rules of a grant are Rust's: never integrate and pr together, never longer than 7 days
+        const both = await inv("codev_autonomy_grant", { root, grant: { scope: "issue", target: key, actions: ["integrate", "pr"], hours: 1 } }).then(() => "accepted", () => "refused");
+        const long = await inv("codev_autonomy_grant", { root, grant: { scope: "issue", target: key, actions: ["pr"], hours: 500 } }).then(() => "accepted", () => "refused");
+        const d = await inv("codev_autonomy_grant", { root, grant: { scope: "issue", target: key, actions: ["review", "pr"], hours: 1, provider: "selftest-none", language: "en" } }) as { id: number; actions: string[] };
+        const granted = await overview();
+        // a review by hand, without a model: no verdict (as the «integration» step)
+        const s = await state();
+        await inv("codev_review_request", { root, key, command: s.request, decidedAt: 1, provider: "selftest-none", model: null, language: "en" });
+        for (let i = 0; i < 240 && (await state()).running; i++) await wait(250);
+        // paused: the functional approval's trigger is followed by the backend, and stops at the switch
+        await inv("codev_autonomy_pause", { root, paused: true, reason: "selftest" });
+        const n0 = (await overview()).events.length;
+        await pc.apply(root, { op: "approve_functional", key, note: "selftest" });
+        const paused = await nextEvent(n0);
+        // resumed: the same trigger stops at the gate (the reviewer gave no verdict)
+        await inv("codev_autonomy_pause", { root, paused: false, reason: null });
+        const n1 = (await overview()).events.length;
+        await pc.apply(root, { op: "revoke_functional", key, reason: "selftest again" });
+        await pc.apply(root, { op: "approve_functional", key, note: "selftest" });
+        const gated = await nextEvent(n1);
+        const pr = await inv("codev_pr_state", { root, key }) as { plan: string | null; blocked: string | null; gh: unknown };
+        const forced = await inv("codev_pr_open", { root, key, command: `git -C ${dir} push --force selftest-pr ${w.branch}`, decidedAt: 1 }).then(() => "opened", (e) => String(e));
+        const onRemote = (await sh("git", ["--git-dir", remoteDir, "for-each-ref", "--format=%(refname)"], { cwd: R.info.home })).stdout.trim();
+        const ghCalled = ghCalls ? (await sh("sh", ["-c", `[ -e "${ghCalls}" ] && echo yes || echo no`], { cwd: R.info.home })).stdout.trim() : "no DXTUTOR_GH";
+        await inv("codev_autonomy_revoke", { root, id: d.id, reason: "selftest done" });
+        const after = await overview();
+        const calls = ((await projectClient().audit(root, null)) as Array<{ tool: string | null; call: string | null }>).filter((r) => r.tool === "codev").map((r) => r.call ?? "");
+        return {
+          both, long, actions: d.actions.join(","), listed: granted.delegations.some((x) => x.id === d.id), mode: granted.mode,
+          paused: paused ? `${paused.trigger}:${paused.outcome}:${paused.code}` : "no event",
+          gated: gated ? `${gated.trigger}:${gated.outcome}:${gated.code}` : "no event",
+          prBlocked: pr.plan === null && (pr.blocked ?? "").includes("the gate does not hold"), ghAskedForPr: pr.gh !== null,
+          prRefusedInRust: forced.includes("the gate does not hold"), remoteEmpty: onRemote === "", ghCalled,
+          revoked: after.delegations.every((x) => x.id !== d.id || x.revokedAt !== null), resumed: after.switch.paused === false,
+          audited: ["autonomy.grant", "autonomy.pause", "autonomy.resume", "autonomy.revoke"].every((c) => calls.includes(c)),
+        };
+      } finally {
+        await inv("codev_autonomy_pause", { root, paused: false, reason: null }).catch(() => undefined);
+        await pc.apply(root, { op: "settings", checks: Array.isArray(savedChecks) ? savedChecks : [] }).catch(() => undefined);
+        await sh("git", ["-C", dir, "remote", "remove", "selftest-pr"], { cwd: dir }).catch(() => undefined);
+        await sh("rm", ["-rf", remoteDir.replace(/\/remote\.git$/, "")], { cwd: R.info.home }).catch(() => undefined);
+        await sh("git", ["-C", dir, "worktree", "remove", "--force", "--", w.dir], { cwd: dir }).catch(() => undefined);
+      }
+    });
     // A10: as lacunas aprovadas, contra o repositório temporário e esta máquina — o mapa de onboarding,
     // o diff de um ramo contra outro (git_diff_range), o relatório de dependências (sem rede), e onde
     // anexar o depurador (os processos locais e o adaptador; a lista de contentores, só de leitura).
@@ -650,7 +1514,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
       const W = window as unknown as { ENVS: { rt: string; rtOn: boolean }; rtConnect: () => Promise<void> };
       W.ENVS.rt = "docker";
-      if (!W.ENVS.rtOn) await W.rtConnect();
+      if (!W.ENVS.rtOn) await rtConnect();
       await wait(() => W.ENVS.rtOn, 15000);
       const host = () => document.getElementById("dk-containers"), imgs = () => document.getElementById("dk-images");
       await R.drawContainers?.();
@@ -661,17 +1525,16 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     // um devcontainer.json com uma imagem que já existe nesta máquina (sem descarregar nada).
     await step("devcontainer", async () => {
       const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 200)); return f(); };
-      const W = window as unknown as { P_DC: string; DEVC: { name: string; image: string } | null; dcAttach: () => void; dcDetach: () => void; ENVS: { rtOn: boolean } };
       const img = ((await sh("docker", ["images", "--format", "{{.Repository}}:{{.Tag}}"])).stdout.trim().split("\n").filter(x => x && !x.includes("<none>"))[0]) || "";
       if (!img) return { skipped: "sem imagens locais" };
-      writeFile(W.P_DC, JSON.stringify({ name: "selftest", image: img }) + "\n"); flushSave(); await idle();
-      W.dcAttach();
-      const up = await wait(() => !!W.DEVC, 60000);
-      const name = W.DEVC ? W.DEVC.name : "", engine = (W.DEVC as unknown as { engine?: string } | null)?.engine || "docker";
+      writeFile(pDc(), JSON.stringify({ name: "selftest", image: img }) + "\n"); flushSave(); await idle();
+      dcAttach();
+      const up = await wait(() => !!devc(), 60000);
+      const name = (devc() as { name: string } | null)?.name ?? "", engine = (devc() as unknown as { engine?: string } | null)?.engine || "docker";
       const bin = engine === "host" ? "docker" : engine;
       const inPs = name ? (await sh(bin, ["ps"])).stdout.includes(name) : false; /* o delonix ignora o --format: procura-se o nome na tabela */
-      W.dcDetach();
-      const down = await wait(() => W.DEVC === null, 30000);
+      dcDetach();
+      const down = await wait(() => devc() === null, 30000);
       const gone = name ? !(await sh(bin, ["ps", "-a"])).stdout.includes(name) : false;
       return { image: img, engine, up, name, inPs, down, gone };
     });
@@ -686,15 +1549,15 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const proj = "dxtutor-selftest-" + Date.now().toString(36);
       writeFile(W.ROOT + "docker-compose.yml", `name: ${proj}\nservices:\n  obs:\n    image: ${img}\n    entrypoint: ["sh", "-c", "echo dxtutor-selftest up; while true; do echo tick; sleep 1; done"]\n`);
       flushSave(); await idle();
-      W.dxRun();
-      const up = await wait(() => !!W.STACK && W.STACK.some(x => x.name === "obs"), 120000);
-      W.openObserve("local", "obs");
-      const polled = await wait(() => { const o = W.OBS["local:obs"]; return !!o && o.polled && o.logs.some(l => /dxtutor-selftest up/.test(l.m)); }, 30000);
-      await wait(() => (W.OBS["local:obs"]?.mem.length || 0) >= 1, 15000);
-      const o = W.OBS["local:obs"];
+      dxRun();
+      const up = await wait(() => !!stackState() && stackState()!.some(x => x.name === "obs"), 120000);
+      openObserve("local", "obs");
+      const polled = await wait(() => { const o = OBS["local:obs"]; return !!o && o.polled && o.logs.some(l => /dxtutor-selftest up/.test(l.m)); }, 30000);
+      await wait(() => (OBS["local:obs"]?.mem.length || 0) >= 1, 15000);
+      const o = OBS["local:obs"];
       const res = { image: img, up, polled, logLines: o ? o.logs.length : 0, firstLog: o?.logs[0]?.m || "", mem: o?.mem.slice(-1)[0], cpu: o?.cpu.slice(-1)[0], sampleErr: o?.sampleErr, logErr: o?.logErr };
-      W.dxStop();
-      const down = await wait(() => W.STACK === null, 60000);
+      dxStop();
+      const down = await wait(() => stackState() === null, 60000);
       const left = (await sh("docker", ["ps", "-a", "-q", "--filter", `label=com.docker.compose.project=${proj}`])).stdout.trim();
       return { ...res, down, gone: !left };
     });
@@ -708,15 +1571,15 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       await sh("sh", ["-c", 'cat > "$1"', "sh", kc], { stdin: cfg });
       const prev = { kube: W.ENVS.kube, ctx: W.ENVS.ctx, on: W.ENVS.k8sOn };
       W.ENVS.kube = kc; W.ENVS.k8sOn = false;
-      await W.k8sConnect();
-      const contexts = [...W.KCTX];
+      await k8sConnect();
+      const contexts = [...KCTX];
       const cluster = desktopPorts.infra?.cluster;
       let readErr = "";
       try { await cluster!.read({ env: "staging", ctx: "dx-selftest", ns: "dx" }); } catch (e) { readErr = String((e as Error).message || e).slice(0, 120); }
       const applied = await cluster!.apply({ env: "staging", ctx: "dx-selftest", ns: "dx" }, "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: dx-selftest\n", "abc1234");
-      W.ENVX.ctx.staging = "dx-selftest";
-      const res = { contexts, connected: W.ENVS.k8sOn, readErr, applied, staging: W.envState("staging"), hist: W.ENVX.hist.length };
-      W.ENVS.kube = prev.kube; W.ENVS.ctx = prev.ctx; W.ENVS.k8sOn = prev.on; W.ENVX.ctx.staging = "";
+      ENVX.ctx.staging = "dx-selftest";
+      const res = { contexts, connected: W.ENVS.k8sOn, readErr, applied, staging: envState("staging"), hist: ENVX.hist.length };
+      W.ENVS.kube = prev.kube; W.ENVS.ctx = prev.ctx; W.ENVS.k8sOn = prev.on; ENVX.ctx.staging = "";
       await sh("rm", ["-f", kc]);
       return res;
     });
@@ -784,7 +1647,17 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     // todos os ficheiros, gravado no disco); pelo meio completion, assinatura, code actions,
     // formatação, Go to Symbol (Ctrl+Shift+O + o Outline), Go to Symbol in Workspace (Ctrl+T) e a hierarquia de tipos (Shift+Alt+T). Só corre para as linguagens com servidor instalado.
     for (const lang of ["java", "kotlin"] as const) await step("lsp-" + lang, () => lspProbe(lang));
+    // LSP P2: os overrides no backend real — o vigia vê o .dxtutor/lsp.json mudar (sem reiniciar), um ficheiro
+    // inválido aparece no aviso, um comando do projecto espera pela aprovação (recusa e aprovação auditadas), as
+    // definições do projecto também, e o lsp.json do utilizador grava-se e aplica-se. O comando do projecto é um `sh` que sai logo (nada corre).
+    await step("lspOverrides", () => lspOverridesProbe());
+    // LSP P6: um servidor REAL (o typescript-language-server, se estiver instalado) no editor — fechar o
+    // separador dá didClose, «Stop» pára-o (shutdown/exit, processo recolhido), o pedido seguinte arranca-o de
+    // novo, «Restart» troca o processo, e com `idleMinutes: 1` no lsp.json do utilizador o reaper pára-o sozinho.
+    await step("lspResources", () => lspResourcesProbe());
   }
+  /* P3 (NOTAS-desempenho): o IDE não trava a máquina — limites medidos no fim do auto-teste (binário debug, Xvfb) */
+  await step("perf", () => perfProbe());
   /* sem handlers inline em lado nenhum do DOM vivo (depois de o auto-teste ter aberto as vistas) e sem violações do CSP */
   await step("csp", async () => {
     const inlineHandlers = [...document.querySelectorAll("*")].filter((el) => [...el.attributes].some((a) => /^on/i.test(a.name))).map((el) => el.tagName.toLowerCase() + (el.id ? "#" + el.id : "")).slice(0, 20);
@@ -799,6 +1672,179 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
   });
   rep.errors = R.errors;
   await app.selftestReport(rep);
+
+  /* A app e a página medidas pelo /proc (o `$PPID` do `sh` é a app; a página é o filho WebKitWebProcess): a janela
+     responde enquanto a pasta é relida, uma pasta pesada que o git ignora não entra na página, e em repouso o CPU fica
+     parado. Os limites são para o binário debug numa máquina com outras sessões a compilar; um passo vermelho diz qual
+     passou e por quanto. */
+  async function perfProbe(): Promise<unknown> {
+    if (R.info.os !== "linux" || !R.root) return { skipped: "Linux with a folder open only (/proc)" };
+    const LIMIT = { appPingMs: 1000, pageLagMs: 4000, heavyDeltaMB: 30, idleCpuPct: 5, appMB: 800, webMB: 1200 };
+    const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+    const PROCS = 'p=$PPID; for pid in $p $(pgrep -P $p); do n=$(cat /proc/$pid/comm); case "$pid:$n" in "$p":*|*:WebKitWebProces*) ;; *) continue;; esac; ' +
+      'm=$(awk \'/^Private_(Clean|Dirty):/{s+=$2}END{print s+0}\' /proc/$pid/smaps_rollup); c=$(awk \'{print $14+$15}\' /proc/$pid/stat); echo "$pid $n $m $c"; done; getconf CLK_TCK';
+    const procs = async () => {
+      const lines = (await sh("sh", ["-c", PROCS])).stdout.trim().split("\n");
+      const hz = Number(lines.pop()) || 100;
+      const row = (web: boolean) => lines.map(l => l.split(" ")).find(f => web ? f[1].startsWith("WebKitWebProces") : !f[1].startsWith("WebKit"));
+      const of = (f?: string[]) => f ? { mb: Math.round(Number(f[2]) / 1024), cpuS: Number(f[3]) / hz } : null;
+      return { app: of(row(false)), web: of(row(true)) };
+    };
+    const pct = (xs: number[], q: number) => { const a = [...xs].sort((x, y) => x - y); return a.length ? Math.round(a[Math.min(a.length - 1, Math.floor(q * a.length))]) : 0; };
+    // 1) uma pasta pesada que o git ignora (80 MB em `perf-out/`, pelo .git/info/exclude: nenhum ficheiro versionado muda)
+    const exclude = (await git("rev-parse", "--git-path", "info/exclude")).stdout.trim();
+    await sh("sh", ["-c", 'set -e; mkdir -p perf-out; head -c 204800 /dev/zero | tr "\\0" x > perf-out/f0.txt; i=1; while [ $i -lt 400 ]; do cp perf-out/f0.txt perf-out/f$i.txt; i=$((i+1)); done; printf "perf-out/\\n" >> "$1"', "_", exclude]);
+    const before = await procs();
+    // 2) durante ≥ 3 s — a pasta relida e os comandos que tocam no disco, no keychain e na base (eram síncronos antes
+    //    da P1) — a thread da UI da app (o `app_info` é síncrono: espera por ela) e a da página respondem
+    const ping: number[] = [], lag: number[] = [];
+    let on = true, last = performance.now();
+    const iv = setInterval(() => { const n = performance.now(); lag.push(n - last - 50); last = n; }, 50);
+    const pinger = (async () => { while (on) { const t = performance.now(); await invoke("app_info"); ping.push(performance.now() - t); await sleep(50); } })();
+    const t0 = Date.now();
+    await ctx.reloadDisk(); await idle();
+    const reloadMs = Date.now() - t0;
+    const root = R.root;
+    await Promise.all([
+      invoke("keys_status"),
+      invoke("workspace_tree", { root, maxDepth: 6, maxEntries: 2000 }),
+      invoke("list_dir", { path: root + "/perf-out" }),
+      invoke("board_load", { root }),
+    ].map(p => p.catch(() => null)));
+    while (Date.now() - t0 < 3000) await sleep(100);
+    on = false; await pinger; clearInterval(iv);
+    const loaded = Object.keys(FS).filter(k => k.startsWith(ROOT + "perf-out/")).length;
+    await sleep(2000);
+    const after = await procs();
+    await sh("sh", ["-c", 'rm -rf perf-out; grep -vx "perf-out/" "$1" > "$1.tmp" || true; mv "$1.tmp" "$1"', "_", exclude]);
+    // 3) em repouso: 10 s sem fazer nada
+    const c0 = await procs(); await sleep(10_000); const c1 = await procs();
+    const cpu = (k: "app" | "web") => c0[k] && c1[k] ? Math.round((c1[k]!.cpuS - c0[k]!.cpuS) / 10 * 1000) / 10 : null;
+    const r = {
+      appPingMs: { p50: pct(ping, 0.5), p95: pct(ping, 0.95), max: pct(ping, 1), n: ping.length },
+      pageLagMs: { p95: pct(lag, 0.95), max: pct(lag, 1) },
+      reloadMs,
+      heavyIgnored: { files: 400, mb: 80, loaded, webDeltaMB: before.web && after.web ? after.web.mb - before.web.mb : null },
+      idleCpuPct: { app: cpu("app"), web: cpu("web") },
+      privateMB: { app: c1.app?.mb ?? null, web: c1.web?.mb ?? null },
+      limits: LIMIT,
+    };
+    const over: string[] = [];
+    if (r.appPingMs.max > LIMIT.appPingMs) over.push(`app UI thread answered in ${r.appPingMs.max} ms (> ${LIMIT.appPingMs})`);
+    if (r.pageLagMs.max > LIMIT.pageLagMs) over.push(`page blocked ${r.pageLagMs.max} ms (> ${LIMIT.pageLagMs})`);
+    if (loaded) over.push(`${loaded} files of an ignored folder were loaded`);
+    if ((r.heavyIgnored.webDeltaMB ?? 0) > LIMIT.heavyDeltaMB) over.push(`the page grew ${r.heavyIgnored.webDeltaMB} MB (> ${LIMIT.heavyDeltaMB})`);
+    for (const k of ["app", "web"] as const) if ((r.idleCpuPct[k] ?? 0) > LIMIT.idleCpuPct) over.push(`${k} idle CPU ${r.idleCpuPct[k]}% (> ${LIMIT.idleCpuPct})`);
+    if ((r.privateMB.app ?? 0) > LIMIT.appMB) over.push(`app private ${r.privateMB.app} MB (> ${LIMIT.appMB})`);
+    if ((r.privateMB.web ?? 0) > LIMIT.webMB) over.push(`page private ${r.privateMB.web} MB (> ${LIMIT.webMB})`);
+    if (!r.privateMB.app || !r.privateMB.web) over.push("could not read the app or the page in /proc");
+    if (over.length) throw new Error(over.join("; ") + " — " + JSON.stringify(r));
+    return r;
+  }
+
+  async function lspResourcesProbe(): Promise<unknown> {
+    type Info = { key: string; label: string; pid: number | null; documents: string[]; state: string };
+    const root = R.root as string;
+    const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+    const until = async <T>(f: () => Promise<T | null | undefined | false>, ms: number): Promise<T | null> => {
+      const t0 = Date.now();
+      for (;;) { const v = await f(); if (v) return v; if (Date.now() - t0 > ms) return null; await sleep(300); }
+    };
+    const key = ROOT + "lsp-res/main.ts", path = root + "/lsp-res/main.ts";
+    const st = await invoke<{ installed: boolean; server: string } | null>("lsp_server_status", { path });
+    if (!st?.installed) return { skipped: `${st?.server ?? "typescript-language-server"} not installed (put the nvm node bin folder on PATH)` };
+    const list = async () => (await invoke<{ servers: Info[] }>("lsp_servers")).servers.filter((s) => s.label === st.server);
+    const alive = async (pid: number) => (await sh("sh", ["-c", `test -e /proc/${pid} && echo yes || echo no`])).stdout.trim() === "yes";
+    writeFile(key, "export const answer: number = 42;\nexport function twice(n: number): number { return n * 2; }\n");
+    flushSave(); await idle();
+    const out: Record<string, unknown> = {};
+    const W = window as unknown as { openPath: (k: string) => void };
+    W.openPath(key);
+    const first = await until(async () => (await list()).find((s) => s.documents.includes(path) && s.pid), 90_000);
+    if (!first) return { ...out, opened: "FAIL: the server never listed the file" };
+    out.opened = { pid: !!first.pid, state: first.state };
+    // «Stop»: shutdown + exit, o processo recolhido
+    await invoke("lsp_server_stop", { key: first.key });
+    out.stopped = !(await list()).some((s) => s.key === first.key) && !(await alive(first.pid!));
+    // o pedido seguinte arranca-o de novo (outro processo), com o ficheiro aberto
+    await invoke("lsp_hover", { path, line: 1, character: 17 }).catch(() => null);
+    const back = await until(async () => (await list()).find((s) => s.key === first.key && s.pid), 60_000);
+    out.cameBack = back ? { newPid: back.pid !== first.pid, hasFile: back.documents.includes(path) } : "FAIL: did not come back";
+    // «Restart»: outro processo, o ficheiro aberto outra vez
+    if (back) {
+      await invoke("lsp_server_restart", { key: back.key });
+      const again = (await list()).find((s) => s.key === back.key);
+      out.restarted = again ? { newPid: again.pid !== back.pid, oldGone: !(await alive(back.pid!)), hasFile: again.documents.includes(path) } : "FAIL: not running after restart";
+    }
+    // fechar o separador → didClose: o servidor deixa de ter o ficheiro
+    services.tabs!.closeTab(key);
+    out.didClose = !!(await until(async () => (await list()).find((s) => s.key === first.key && !s.documents.length), 10_000));
+    // inactivo: com idleMinutes 1, o reaper (de 30 em 30 s) pára-o sozinho
+    const before = await tauriLspConfig.configFile("user", null);
+    await tauriLspConfig.saveUserConfig('{ "resources": { "idleMinutes": 1 } }');
+    const pidNow = (await list()).find((s) => s.key === first.key)?.pid ?? null;
+    out.idleStopped = !!(await until(async () => !(await list()).some((s) => s.key === first.key), 120_000)) && (pidNow == null || !(await alive(pidNow)));
+    await tauriLspConfig.saveUserConfig(before.exists ? before.text : "{}");
+    // o registo diz porquê (e passou pela máscara)
+    const log = await invoke<{ code: string | null; detail: { reason?: string } | null }[]>("lsp_server_log", { key: first.key });
+    out.logReasons = log.filter((l) => l.code === "stopped" || l.code === "killed").map((l) => l.detail?.reason);
+    out.started = log.filter((l) => l.code === "started").length;
+    delete FS[key];
+    flushSave(); await idle();
+    return out;
+  }
+
+  async function lspOverridesProbe(): Promise<unknown> {
+    const root = R.root as string;
+    const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+    const until = async <T>(f: () => T | null | undefined | false, ms: number): Promise<T | null> => {
+      const t0 = Date.now();
+      for (;;) { const v = f(); if (v) return v; if (Date.now() - t0 > ms) return null; await sleep(200); }
+    };
+    const put = async (text: string) => { await sh("sh", ["-c", 'mkdir -p .dxtutor && printf "%s" "$1" > .dxtutor/lsp.json', "sh", text], { cwd: root }); };
+    const out: Record<string, unknown> = {};
+    await tauriLspConfig.config(root); // a pasta fica vigiada
+    // 1. inválido → ignorado e avisado (o vigia de 2 s + lsp://config + o aviso da UI)
+    await put('{ "servers": [ { "id": "sql", "comand": "sh" } ] }');
+    out.invalidNotice = (await until(() => document.getElementById("lsp-config-errors")?.textContent?.includes("comand") && document.getElementById("lsp-config-errors")!.textContent!.slice(0, 160), 10_000)) ?? "FAIL: no notice";
+    // 2. um comando do projecto → pedido de aprovação, nada arranca
+    // um argumento diferente em cada corrida: uma aprovação de uma corrida anterior não conta
+    const run = String(Date.now());
+    await put(`{ "servers": [ { "id": "sql", "command": "sh", "args": ["-c", "exit 0", "${run}"] } ] }`);
+    let cfg = await tauriLspConfig.config(root);
+    out.invalidCleared = await until(() => !document.getElementById("lsp-config-errors"), 10_000) ?? "FAIL: notice stayed";
+    const a = cfg.servers.find((s) => s.id === "sql")?.approval;
+    out.approval = a ? { command: a.command, changed: a.changed, file: a.file.endsWith(".dxtutor/lsp.json") } : "FAIL: no approval asked";
+    const st = await invoke<{ approval?: { hash: string } | null }>("lsp_server_status", { path: root + "/selftest.sql" });
+    out.statusAsks = !!st?.approval && st.approval.hash === a?.hash;
+    if (a) {
+      // recusado: auditado, continua pendente; um hash antigo é recusado; aprovado: deixa de pedir
+      await tauriLspConfig.approveServer(root, "sql", a.hash, false, "selftest: deny", Date.now());
+      out.deniedStillPending = !!(await tauriLspConfig.config(root)).servers.find((s) => s.id === "sql")?.approval;
+      try { await tauriLspConfig.approveServer(root, "sql", "0".repeat(64), true, "", Date.now()); out.staleHash = "FAIL: accepted"; } catch (e) { out.staleHash = String(e).slice(0, 80); }
+      await tauriLspConfig.approveServer(root, "sql", a.hash, true, "selftest: approve", Date.now());
+      cfg = await tauriLspConfig.config(root);
+      out.approved = !cfg.servers.find((s) => s.id === "sql")?.approval;
+      // o comando muda → volta a pedir
+      await put(`{ "servers": [ { "id": "sql", "command": "sh", "args": ["-c", "exit 1", "${run}"] } ] }`);
+      out.changedAsksAgain = !!(await tauriLspConfig.config(root)).servers.find((s) => s.id === "sql")?.approval;
+      // só definições do projecto: também pedem aprovação, mas o servidor arranca com as de confiança
+      await put(`{ "servers": [ { "id": "sql", "settings": { "sqls": { "selftest": "${run}" } } } ] }`);
+      const sa = (await tauriLspConfig.config(root)).servers.find((s) => s.id === "sql")?.approval;
+      out.settingsAsk = sa ? { blocksStart: sa.blocksStart, changed: sa.changed, shown: !!sa.config?.includes(run) } : "FAIL: settings not gated";
+    }
+    // 3. o lsp.json do utilizador: grava, aplica; inválido → relatório com o erro
+    const before = await tauriLspConfig.configFile("user", null);
+    const good = await tauriLspConfig.saveUserConfig('{ "servers": [ { "id": "go", "settings": { "gopls": { "staticcheck": true } } } ] }');
+    out.goSettings = (await tauriLspConfig.config(root)).servers.find((s) => s.id === "go")?.settings ?? null;
+    const bad = await tauriLspConfig.saveUserConfig('{ "servers": [ { "id": "go", "nope": 1 } ] }');
+    out.user = { path: before.path.endsWith("lsp.json"), applied: good.applied, badIgnored: !bad.applied && bad.errors.some((e) => e.includes("nope")) };
+    // ignorado: volta ao registo de baixo (sem as definições)
+    out.goSettingsAfterBad = (await tauriLspConfig.config(root)).servers.find((s) => s.id === "go")?.settings ?? null;
+    await tauriLspConfig.saveUserConfig(before.exists ? before.text : "{}");
+    await sh("rm", ["-rf", ".dxtutor/lsp.json"], { cwd: root });
+    return out;
+  }
 
   /* Uma linguagem no editor real: ficheiros com um erro de tipo, um símbolo para o hover e
      uma chamada cuja definição está noutro ficheiro (Java) ou mais acima (Kotlin). */
@@ -852,9 +1898,12 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     W.openPath(main);
     const ta = () => document.getElementById("ed-ta") as HTMLTextAreaElement | null;
     // 1) diagnósticos: o servidor publica o erro de tipo, o painel junta-o, o editor pinta o gutter
-    const diag = await until(() => W.diagnostics().find(d => d.p === main && d.sev === "e"), 180_000, 500);
+    const diag = await until(() => diagnostics().find(d => d.p === main && d.sev === "e"), 180_000, 500);
     const gutterErr = !!document.querySelector("#ed-gut .g-e");
     const diagMs = Date.now() - t0;
+    /* P3: sem diagnósticos o servidor não está a servir o ficheiro aberto — o resto do passo só esgotaria os tempos
+       (17 min numa corrida de 2026-11-26, o jdtls parado sem CPU e as respostas a chegar no passo seguinte) */
+    if (!diag) throw new Error(`${server}: no diagnostics for ${main.slice(ROOT.length)} in ${Math.round(diagMs / 1000)} s — the server is not serving the open file`);
     // 2) hover: rato parado sobre a chamada (coordenadas reais da textarea)
     const offsetOf = (line: number, word: string) => { const ls = ta()!.value.split("\n"); let o = 0; for (let i = 0; i < line; i++) o += ls[i].length + 1; return o + ls[line].indexOf(word) + 1; };
     const pointOf = (line: number, word: string) => {

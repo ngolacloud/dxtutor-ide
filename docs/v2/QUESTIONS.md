@@ -10,10 +10,30 @@ diff, retirar o caminho `liveChat`).
 **Q2 · ~~Ordem das fases~~ — respondida (2026-11-24).**
 Segue a ordem da auditoria: A0.5 (base honesta) → A2 → A5 → A1 → A3 → A6/A4 → A7/A8/A9/A10.
 
-**Q3 · Remover as simulações existentes?**
+**Q3 · Remover as simulações existentes? — o backlog respondido (2026-11-26).**
 Missões guionadas, "conselho de modelos", Debug assistant guionado, métricas PRNG do Infra/Observe e o
 painel Testing por regex contrariam "nada de demo data". Recomendação: removê-los fase a fase, à medida
 que a versão real de cada um entra, e nunca deixar um ecrã vazio sem explicar porquê.
+
+Decisão do dono para os dois backlogs (o quadro Tasks antigo, `tasks.sqlite3`, e o Project,
+`board.sqlite3`): **juntam-se no Project.** Cada item do backlog pertence a um projecto (nunca solto),
+cada issue fica ligada aos ficheiros e commits em que mexe, e o Co-Dev, ao trabalhar uma issue, sabe os
+seus componentes, ficheiros e commits. Por fases, um PR cada:
+1. **Feita (este PR).** Nada de issues soltas: «Nova issue» e «Gerar backlog» recusam sem pasta de projecto
+   aberta (e dizem-no), e o `board_load`/`board_save` já não têm um backlog `"default"` sem pasta. O prompt
+   da issue (`project_issue_prompt`) ganha o bloco «Ligações da issue»: ramo, épico, componente (lugar
+   reservado), dependências com título e estado, os commits ligados (sha + assunto, os 8 mais recentes) e
+   os ficheiros já alterados nos change sets da issue — listas com tecto, sem diffs. O `persist.ts` do
+   quadro deixa de perder `role`/`soThat`/`acceptance`/`prompt`.
+2. Ligação automática dos commits: a chave tirada do nome do ramo (`feature/DXT-12-…`) e depois de cada
+   commit da app (hoje só pelo «Sync commits», que lê o assunto).
+3. Os ficheiros de cada issue a partir dos diffs reais dos commits ligados, e os resultados dos testes por
+   issue.
+4. A coluna «componente» na issue, vinda do nó do Studio.
+5. Um só backlog: o quadro Tasks passa a ser uma vista sobre o Project; sai o `tasks.sqlite3` e os comandos
+   `board_load`/`board_save` (actualizar a `IPC-MATRIX.md` e os A1–A3 do `arch-check`).
+
+As outras simulações continuam como recomendado acima.
 
 **Q4 · ~~Goldens~~ — respondida (2026-11-24).**
 Em cada fase listo os goldens afectados com o diff, e só regenero com o "sim" do dono. Primeira aplicação:
@@ -41,3 +61,23 @@ passo futuro. Confirmar.
 **Q8 · ~~Nome do produto nos textos~~ — respondida (2026-11-24): `dxtutor-ide`.**
 O prompt e o protótipo dizem "delonix-ide"; a app e o código dizem "dxtutor IDE". O dono decidiu
 `dxtutor-ide`: onde um prompt ou RF disser `delonix` (pasta `.delonix/`, trailers), usa-se `dxtutor`.
+
+**Q9 · ~~Multi Co-Dev: quando é que uma mudança é integrada?~~ — respondida (2026-11-26).**
+Depois de a sprint ser planeada, o humano diz quantos Co-Devs a trabalham; cada Co-Dev é dono de UMA issue; correm
+em paralelo sem se sobreporem nos ficheiros; um «Co-Dev reviewer» (fase 4) integra no ramo por omissão, assistido pelo
+humano (autónomo só quando o humano delega). A regra da porta de integração, nas palavras do dono:
+
+> a change is integrated only if (1) every MANDATORY test passes on the CURRENT commit (re-run if the branch moved),
+> (2) the Co-Dev reviewer confirms the change meets the issue's acceptance criteria, and (3) the responsible person
+> has RECORDED the functional approval.
+
+Fases: 1 o plano paralelo (só leitura, PR #53) e o mapa de agentes (PR #52); 2 várias sessões Co-Dev na UI e os
+dados de que a porta precisa — as verificações obrigatórias do projecto (`projects.checks`, `project_checks`) e a
+aprovação funcional na issue (`Op::ApproveFunctional`/`RevokeFunctional`, migração 15); 3 uma worktree e ficheiros
+reservados por Co-Dev e uma onda a correr em paralelo; 4 o revisor e a porta; 5 a autonomia delegada e os PRs.
+
+Quem regista a aprovação funcional (decidido na fase 2, com base no modelo do Project): o **responsável** da issue é
+o campo `assignee` (o «responsável» do modelo do Project, `docs/v2/UI-AUDIT.md` item 5), comparado com o `user.name`
+/`user.email` do git; com pessoas no `.dxtutor/team.json`, também um Product Owner ou um Tech Lead (os papéis que já
+aprovam o Ready e o Done, RF-A06). Sem equipa definida e sem responsável, quem está ao teclado; sem equipa e com
+responsável, só ele. A aprovação exige critérios de aceitação e cai se os critérios mudarem.

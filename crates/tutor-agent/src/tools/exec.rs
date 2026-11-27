@@ -13,13 +13,33 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
-use super::head_tail;
 use crate::tool::{Tool, ToolCtx, ToolOutput};
 
 /// Tecto do timeout que o modelo pode pedir.
 pub const MAX_TIMEOUT: Duration = Duration::from_secs(600);
-/// Caracteres de stdout e de stderr devolvidos ao modelo (cada um, início + fim).
-const OUT_MAX_CHARS: usize = 30_000;
+/// Caracteres de saída (stdout + stderr) devolvidos ao modelo. Cada resultado fica no
+/// histórico e é reenviado em todos os pedidos seguintes; o que importa num comando que falha
+/// está quase sempre no fim, por isso o corte guarda sobretudo o fim ([`tail_heavy`]).
+pub const OUT_MAX_CHARS: usize = 20_000;
+/// A parte do orçamento que o stderr pode usar quando também há stdout.
+const ERR_SHARE_CHARS: usize = 10_000;
+
+/// Corta texto longo guardando um quarto do orçamento para o início e três quartos para o fim
+/// (onde estão os erros e o resumo), com uma nota que diz como ver o resto.
+pub(crate) fn tail_heavy(s: &str, max_chars: usize) -> String {
+    let n = s.chars().count();
+    if n <= max_chars {
+        return s.to_string();
+    }
+    let head: String = s.chars().take(max_chars / 4).collect();
+    let tail: String = s.chars().skip(n - max_chars * 3 / 4).collect();
+    format!(
+        "{head}\n…[{} de {n} caracteres omitidos do meio; para ver outra parte, corre o comando \
+         outra vez filtrando a saída (`| grep -n padrão`, `| tail -n 100`) ou guarda-a num \
+         ficheiro e lê-o com `read`/`grep`]…\n{tail}",
+        n - max_chars
+    )
+}
 /// Bytes guardados em memória por stream (o resto é descartado ao ler).
 const CAPTURE_MAX_BYTES: usize = 4 * 1024 * 1024;
 
@@ -51,13 +71,20 @@ impl ExecOutcome {
             }
         };
         let mut s = status;
-        if !self.stdout.trim().is_empty() {
+        let (out, err) = (self.stdout.trim_end(), self.stderr.trim_end());
+        // o stderr (erros) tem a sua parte garantida; o stdout fica com o resto do orçamento
+        let (out_len, err_len) = (out.chars().count(), err.chars().count());
+        let err_max = ERR_SHARE_CHARS
+            .max(OUT_MAX_CHARS.saturating_sub(out_len))
+            .min(err_len);
+        let out_max = OUT_MAX_CHARS - err_max;
+        if !out.trim().is_empty() {
             s.push_str("\n--- stdout\n");
-            s.push_str(&head_tail(self.stdout.trim_end(), OUT_MAX_CHARS));
+            s.push_str(&tail_heavy(out, out_max));
         }
-        if !self.stderr.trim().is_empty() {
+        if !err.trim().is_empty() {
             s.push_str("\n--- stderr\n");
-            s.push_str(&head_tail(self.stderr.trim_end(), OUT_MAX_CHARS));
+            s.push_str(&tail_heavy(err, err_max));
         }
         s
     }
@@ -193,6 +220,21 @@ pub fn shell(command: &str) -> Command {
 
 pub struct Bash {
     pub default_timeout: Duration,
+    /// H1: where commands run (`None`: no sandbox on this machine).
+    pub sandbox: Option<std::sync::Arc<crate::os_sandbox::OsSandbox>>,
+    /// Toolset 12: the `unsandboxed` parameter is offered.
+    pub escape: bool,
+}
+
+/// What the model sees appended when a command failed because of the sandbox.
+fn with_hint(mut out: ToolOutput) -> ToolOutput {
+    if out.is_error {
+        if let Some(h) = crate::os_sandbox::hint(&out.content) {
+            out.content.push('\n');
+            out.content.push_str(h);
+        }
+    }
+    out
 }
 
 impl Tool for Bash {
@@ -205,7 +247,7 @@ impl Tool for Bash {
          600 (por omissão 120). Prefere read/grep/glob/edit para ler e alterar ficheiros."
     }
     fn input_schema(&self) -> Value {
-        json!({
+        let mut s = json!({
             "type": "object",
             "properties": {
                 "command": {"type": "string"},
@@ -213,7 +255,14 @@ impl Tool for Bash {
             },
             "required": ["command"],
             "additionalProperties": false
-        })
+        });
+        if self.escape {
+            s["properties"]["unsandboxed"] = json!({
+                "type": "boolean",
+                "description": "Run this one command outside the sandbox (network on, the whole disk writable). The human always approves it: use it only when the sandbox blocked something the task needs."
+            });
+        }
+        s
     }
     fn read_only(&self) -> bool {
         false
@@ -231,11 +280,40 @@ impl Tool for Bash {
             .map(Duration::from_secs)
             .unwrap_or(self.default_timeout)
             .min(MAX_TIMEOUT);
-        let r = run_process(shell(command), &ctx.root, timeout, ctx);
-        ToolOutput {
+        // r23 F4a (X03): a commit the agent makes passes the secret scan first (all the changes:
+        // `git add … && git commit` adds them in the same command); blocked, the human decides
+        if tutor_protect::scan::shell_commits(command) {
+            if let Err(e) = tutor_protect::scan::guard_commit(
+                &ctx.root,
+                &tutor_protect::scan::Scope::WorkingTree,
+            ) {
+                return ToolOutput::err(format!(
+                    "{} — remove the secret from the change (use an environment variable or the vault), or leave the commit to the human",
+                    tutor_protect::scan::summary(&e)
+                ));
+            }
+        }
+        let cmd = match &self.sandbox {
+            Some(sb) if !(self.escape && input["unsandboxed"].as_bool() == Some(true)) => {
+                sb.wrap(&shell(command))
+            }
+            _ => shell(command),
+        };
+        let r = run_process(cmd, &ctx.root, timeout, ctx);
+        let mut out = with_hint(ToolOutput {
             is_error: !r.ok(),
             content: r.render(),
+        });
+        if let Some(sb) = &self.sandbox {
+            let refused = sb.take_denied();
+            if !refused.is_empty() {
+                out.content.push_str(&format!(
+                    "\n[sandbox] the project's allowlist refused: {} — ask the human to add them to allowDomains in .dxtutor/sandbox.json, or run this one command with `unsandboxed: true`",
+                    refused.join(", ")
+                ));
+            }
         }
+        out
     }
 }
 
@@ -244,6 +322,7 @@ pub struct Verify {
     name: &'static str,
     description: String,
     command: String,
+    sandbox: Option<std::sync::Arc<crate::os_sandbox::OsSandbox>>,
 }
 
 impl Verify {
@@ -252,6 +331,7 @@ impl Verify {
             name: "run_tests",
             description: format!("Corre os testes do projecto (`{cmd}`) e devolve o exit code e a saída. Corre-os depois de alterar código e antes de dar a tarefa por feita."),
             command: cmd.to_string(),
+            sandbox: None,
         }
     }
     pub fn lint(cmd: &str) -> Self {
@@ -261,7 +341,16 @@ impl Verify {
                 "Corre o lint/typecheck do projecto (`{cmd}`) e devolve o exit code e a saída."
             ),
             command: cmd.to_string(),
+            sandbox: None,
         }
+    }
+    /// H1: run it inside the OS sandbox.
+    pub fn sandboxed(
+        mut self,
+        sandbox: Option<std::sync::Arc<crate::os_sandbox::OsSandbox>>,
+    ) -> Self {
+        self.sandbox = sandbox;
+        self
     }
 }
 
@@ -282,10 +371,59 @@ impl Tool for Verify {
         Some(self.command.clone())
     }
     fn run(&self, _input: &Value, ctx: &ToolCtx) -> ToolOutput {
-        let r = run_process(shell(&self.command), &ctx.root, MAX_TIMEOUT, ctx);
-        ToolOutput {
+        let cmd = match &self.sandbox {
+            Some(sb) => sb.wrap(&shell(&self.command)),
+            None => shell(&self.command),
+        };
+        let r = run_process(cmd, &ctx.root, MAX_TIMEOUT, ctx);
+        with_hint(ToolOutput {
             is_error: !r.ok(),
             content: format!("$ {}\n{}", self.command, r.render()),
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn outcome(stdout: String, stderr: String) -> ExecOutcome {
+        ExecOutcome {
+            code: Some(1),
+            stdout,
+            stderr,
+            timed_out: false,
+            cancelled: false,
         }
+    }
+
+    #[test]
+    fn long_output_keeps_mostly_the_end_where_the_errors_are() {
+        let s = format!("INICIO{}error[E0308]: mismatched types", "x".repeat(50_000));
+        let c = tail_heavy(&s, 1000);
+        assert!(c.starts_with("INICIO"));
+        assert!(c.ends_with("error[E0308]: mismatched types"));
+        assert!(c.contains("omitidos do meio") && c.contains("tail -n"));
+        assert_eq!(tail_heavy("curto", 100), "curto");
+    }
+
+    #[test]
+    fn the_whole_render_fits_the_budget_and_stderr_keeps_its_share() {
+        let r = outcome("o".repeat(60_000), format!("{}FALHOU", "e".repeat(60_000)));
+        let s = r.render();
+        assert!(s.starts_with("exit 1"));
+        // o orçamento total mais as notas e os cabeçalhos
+        assert!(
+            s.chars().count() < OUT_MAX_CHARS + 800,
+            "{}",
+            s.chars().count()
+        );
+        assert!(s.ends_with("FALHOU"));
+        // só stderr: fica com o orçamento todo
+        let r = outcome(String::new(), "e".repeat(15_000));
+        assert!(!r.render().contains("omitidos"));
+        // stdout curto: o stderr usa o resto
+        let r = outcome("ok".into(), "e".repeat(12_000));
+        assert!(!r.render().contains("omitidos"));
     }
 }

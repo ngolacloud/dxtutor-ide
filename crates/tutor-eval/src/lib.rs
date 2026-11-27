@@ -22,28 +22,41 @@ pub mod attach;
 pub mod codemap;
 pub mod complexity;
 pub mod container;
+pub mod course_cache;
 pub mod dap;
 pub mod dapc;
 pub mod deps;
 pub mod entrypoint;
+pub mod gh;
 pub mod git;
+pub mod gitwork;
 pub mod gitx;
 pub mod go_runner;
 pub mod hood;
+pub mod iac;
+pub mod iacfind;
 pub mod js_runner;
+pub mod kindbox;
 pub mod lang;
+pub mod langcontrib;
+pub mod langreg;
 pub mod lsp;
+pub mod lspconf;
+pub mod lspinstall;
 pub mod measured;
 pub mod onboard;
 pub mod ops;
 pub mod plugin;
 pub mod review;
+pub mod rr;
 pub mod runner;
 pub mod rust_tracer;
 pub mod search;
+pub mod testbins;
 pub mod testnav;
 pub mod testrun;
 pub mod textdiff;
+pub mod tool_runner;
 pub mod tracer;
 
 pub use advisor::advise;
@@ -57,14 +70,16 @@ pub use container::{
 };
 pub use go_runner::{run_go_program, run_go_program_with_deps};
 pub use lang::{
-    assess, diagnostics, diagnostics_for, language_supported, Diagnostic, LanguageRunner, Severity,
+    assess, assess_project, diagnostics, diagnostics_for, language_supported, Diagnostic,
+    LanguageRunner, Severity,
 };
 pub use measured::{compile_pipeline, run_rust_snippet_measured, MemSample, Pipeline, Telemetry};
 pub use plugin::{
-    available_languages, builtin_plugins, find_plugin, registry, run_program, LanguageInfo,
-    LanguagePlugin, PluginRunner,
+    available_languages, builtin_plugins, find_plugin, registry, run_course_program, run_program,
+    run_program_with_support, toolchain_version, LanguageInfo, LanguagePlugin, PluginRunner,
 };
 pub use runner::{
-    run_rust_snippet, run_rust_snippet_with_deps, Assessment, Correctness, RunOutput,
+    run_rust_snippet, run_rust_snippet_in, run_rust_snippet_with_deps, Assessment, Correctness,
+    RunOutput,
 };
 pub use tracer::{trace_execution, trace_python, ExecutionTrace, TraceStep, Var};

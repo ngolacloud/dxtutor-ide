@@ -19,6 +19,7 @@
 import { toast, log, rerender } from "../../../core";
 import { editorStore } from "../../../app/store/editor";
 import type { Commit, GitState, FileEntry, Author } from "../domain/types";
+import { services } from "../../../app/services";
 export { toast, log, rerender };
 
 const G = window as unknown as Record<string, any>;
@@ -35,17 +36,20 @@ export interface PalCfg { ph?: string; verb?: string; items?: PalItem[]; text?: 
    os acessores abaixo lêem o `window` que os transporta, para que o motor e o
    resíduo partilhem a MESMA referência. ───── */
 export const git = (): GitState => G.GIT;
-export const lanes = (): string[] => G.LANE;
+export const lanes = (): string[] => services.scm!.LANE;
 export const staged = (): Set<string> => G.STAGED;
 export const commitsList = (): Array<{ h: string; m: string; n?: number }> => G.COMMITS;
 
 /* primitivos window-puros (escritos também pelo resíduo: AUTHOR='lead' em runIssue, …) */
 export const branch = (): string => G.BRANCH;
 export const setBranch = (b: string): void => { G.BRANCH = b; };
-export const commitMsg = (): string => G.COMMIT_MSG;
-export const setCommitMsg = (m: string): void => { G.COMMIT_MSG = m; };
-export const graphSel = (): string | null => G.GSEL;
-export const setGraphSel = (h: string): void => { G.GSEL = h; };
+/* a mensagem do commit e o commit seleccionado no grafo: deste módulo desde a U7p3 do ADR-0004 (eram window.*) */
+let COMMIT_MSG = "";
+let GSEL: string | null = null;
+export const commitMsg = (): string => COMMIT_MSG;
+export const setCommitMsg = (m: string): void => { COMMIT_MSG = m; };
+export const graphSel = (): string | null => GSEL;
+export const setGraphSel = (h: string | null): void => { GSEL = h; };
 export const author = (): string => G.AUTHOR;
 
 /* ───── há um repositório git real aberto? (ADR-0006, R1d) ─────
@@ -62,7 +66,7 @@ export const gitInitFolder = (): void => { if (G.DXR && G.DXR.gitInit) G.DXR.git
 /* ───── as versões PUBLICADAS de checkout/gitMerge (no desktop, decoradas pelo bridge.ts
    com git real), resolvidas no acto — o gitflow encadeia-as por aqui ───── */
 export const decoratedCheckout = (b: string, create?: boolean): boolean => G.checkout(b, create);
-export const decoratedMerge = (src: string, author?: string): Commit | null => G.gitMerge(src, author);
+export const decoratedMerge = (src: string, author?: string): Commit | null => services.scm!.gitMerge(src, author) as Commit | null;
 
 /* ───── sistema de ficheiros virtual + agentes (catálogo de autores) ───── */
 export const files = (): Record<string, FileEntry> => G.FS;
@@ -112,7 +116,6 @@ export const projectName = (): string => { const r = dxr()?.root || ""; return r
 export const saveToDisk = async (): Promise<void> => { const d = dxr(); d?.flush?.(); await d?.idle?.(); };
 /** O git mudou a árvore ou as refs: recarrega os ficheiros e o grafo. */
 export const reloadFromGit = async (): Promise<void> => { const d = dxr(); await d?.reloadDisk?.(); await d?.syncGit?.(); };
-export const confirmBox = (m: string): boolean => (G.confirm as (m: string) => boolean)(m);
 /** O ficheiro e a linha do editor (caminho relativo à pasta) e as linhas seleccionadas. */
 export const editorCursor = (): { path: string; line: number; start: number; end: number } | null => {
   const t = editorStore.tabs.find((x) => x.id === editorStore.currentTabId);
@@ -128,8 +131,25 @@ export const editorCursor = (): { path: string; line: number; start: number; end
 /** O prefixo dos caminhos do editor (as chaves do FS são `ROOT` + caminho relativo). */
 export const rootKey = (): string => (typeof G.ROOT === "string" ? G.ROOT : "");
 /** O `discard` publicado (o do motor: repõe o ficheiro do último commit) de uma chave do FS. */
-export const decoratedDiscard = (p: string): void => (G.discard as (p: string) => void)(p);
+export const decoratedDiscard = (p: string): void => services.scm!.discard(p);
 /** Abre o diff de um ficheiro (caminho relativo à pasta). */
 export const openDiffRel = (rel: string): void => G.openDiff(rootKey() + rel);
 /** Abre um ficheiro (caminho relativo à pasta) numa linha. */
 export const openRel = (rel: string, line?: number): void => (G.openPath as (p: string, l?: number) => void)((G.ROOT as string) + rel, line);
+
+/** r23 F3 (UI-SCM-13): a verificação do projecto antes de concluir um merge — o comando de lint (ou, sem ele, o de
+ *  testes) detectado na pasta, corrido pelo desktop (`DXR.exec`). `null` sem pasta ou sem comando. */
+export const projectCheck = async (): Promise<{ cmd: string; ok: boolean; summary: string } | null> => {
+  const d = dxr() as unknown as { projectCmd?: (k: "lint" | "test") => { cmd: string } | null; exec?: (c: string) => Promise<{ ok: boolean; sum: string }> } | null;
+  const c = d?.projectCmd?.("lint") ?? d?.projectCmd?.("test");
+  if (!c || !d?.exec) return null;
+  const r = await d.exec(c.cmd);
+  return { cmd: c.cmd, ok: r.ok, summary: r.sum };
+};
+
+/** O sistema operativo da app desktop (para abrir URLs no browser do sistema). */
+export const desktopOs = (): string => (dxr() as unknown as { info?: { os?: string } } | null)?.info?.os ?? "linux";
+
+/** r23 F3: as lanes do Commit Composer (experimental, desligadas por omissão) — uma conveniência por pessoa no LS. */
+export const lanesOn = (): boolean => { try { return (G.LS as { get: (k: string, d: boolean) => boolean }).get("scm.lanes", false) === true; } catch { return false; } };
+export const setLanes = (on: boolean): void => { try { (G.LS as { set: (k: string, v: boolean) => void }).set("scm.lanes", on); } catch { /* sem armazenamento */ } };

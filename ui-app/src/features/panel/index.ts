@@ -4,21 +4,31 @@
        com integração de shell; as tarefas da IDE (compose, deploy, logs) correm num
        terminal de tarefa com o código de saída real;
      • Problems — os checkers do projecto (cargo/tsc/go vet/ruff/eslint) + LSP;
-     • Output — canais reais (dxtutor, Tasks, Problems, Co-Dev, Language Server, …);
+     • Output — canais reais (dxtutor, Tasks, Problems, Co-Dev, Language servers, …); o dos servidores de
+       linguagem junta o progresso de indexação ao registo de cada servidor (stderr, logMessage e o que lhe
+       aconteceu: arrancou, parou e porquê, morreu — LSP P6);
      • Services — portas TCP em escuta e o compose do workspace, lidos a sério;
      • Debug assistant — comandos que falharam e erros reais, enviados ao Co-Dev num clique.
    No browser (sem Tauri) e no harness de testes este módulo não faz nada: o caminho de
    demonstração e os goldens ficam intactos. Liga as portas (Tauri + legado) aos casos de
    uso e às vistas; o `window` só é tocado através do `legacy-bridge`. */
 
+import { copyText } from "../../app/clipboard";
 import { isDesktop } from "../../platform/tauri/core";
 import type { Problem, ShellProfile } from "./domain/types";
 import { ALL, type ProblemFilter } from "./domain/problems";
+import { translator } from "../../app/i18n";
+import { PANEL_SCOPE_MESSAGES } from "./ui/scope-messages";
+import { problemsScope } from "../../app/problems-scope";
+const scopeText = translator(PANEL_SCOPE_MESSAGES);
+const lspLogCopy = translator(PANEL_LSP_LOG_MESSAGES);
 import { makeOutput } from "./application/output";
 import { makeTerminals, TASKS_CHANNEL } from "./application/terminals";
 import { makeProblems } from "./application/problems-service";
 import type { Clock, WorkspacePort } from "./application/ports";
-import { tauriPorts, tauriProblems, tauriPty, openExternal, onLspStatus } from "./infrastructure/tauri";
+import { tauriPorts, tauriProblems, tauriPty, openExternal, onLspStatus, onLspLog, lspLogBacklog } from "./infrastructure/tauri";
+import { LSP_CHANNEL, lspLogLevel, lspLogText, newLines, type LspLogLine } from "./domain/lsp-log";
+import { PANEL_LSP_LOG_MESSAGES } from "./ui/lsp-log-messages";
 import * as L from "./infrastructure/legacy-bridge";
 import { mountTerminalView, isAppKey, type TerminalView } from "./ui/terminal-view";
 import { renderProblems, problemCounts } from "./ui/problems-view";
@@ -52,7 +62,7 @@ function boot(): void {
     openFile: L.openFile,
     openUrl: (url) => openExternal(url, L.os()),
   };
-  const output = makeOutput(clock.now, ["dxtutor", TASKS_CHANNEL, "Problems", "Co-Dev", "Language Server"]);
+  const output = makeOutput(clock.now, ["dxtutor", TASKS_CHANNEL, "Problems", "Co-Dev", LSP_CHANNEL]);
   const terminals = makeTerminals({ pty: tauriPty, workspace, output, clock });
   const problems = makeProblems({ port: tauriProblems, workspace, output, clock });
 
@@ -76,7 +86,24 @@ function boot(): void {
     [...outEl.childNodes].forEach(adoptLegacy);
     new MutationObserver((ms) => ms.forEach((m) => m.addedNodes.forEach(adoptLegacy))).observe(outEl, { childList: true });
   }
-  void onLspStatus((s) => output.append("Language Server", `${s.server}${s.kind ? ` · ${s.kind}` : ""}${s.title ? ` · ${s.title}` : ""}${s.message ? ` — ${s.message}` : ""}${s.percentage != null ? ` (${s.percentage}%)` : ""}`));
+  void onLspStatus((s) => output.append(LSP_CHANNEL, `${s.server}${s.kind ? ` · ${s.kind}` : ""}${s.title ? ` · ${s.title}` : ""}${s.message ? ` — ${s.message}` : ""}${s.percentage != null ? ` (${s.percentage}%)` : ""}`));
+  /* o registo de cada servidor de linguagem (LSP P6): o guardado no backend (a interface recarrega ao mudar de
+     língua) e cada linha nova, sem repetir nenhuma (`seq`) */
+  let lspSeen = 0;
+  const appendLsp = (lines: readonly LspLogLine[]): void => {
+    const { fresh, seen } = newLines(lines, lspSeen);
+    lspSeen = seen;
+    for (const l of fresh) output.append(LSP_CHANNEL, lspLogText(l, lspLogCopy), lspLogLevel(l));
+  };
+  const early: LspLogLine[] = [];
+  let backlogRead = false;
+  void onLspLog((lines) => (backlogRead ? appendLsp(lines) : early.push(...lines)));
+  void lspLogBacklog()
+    .catch(() => [] as LspLogLine[])
+    .then((lines) => {
+      backlogRead = true;
+      appendLsp([...lines, ...early]);
+    });
 
   /* ───── Terminal ───── */
   const view: TerminalView = mountTerminalView({
@@ -96,6 +123,13 @@ function boot(): void {
 
   /* ───── estado das outras vistas ───── */
   let filter: ProblemFilter = { ...ALL };
+  /* RF-A05: the Project asks to show only an issue's files */
+  problemsScope.subscribe((sc) => {
+    filter = { ...filter, files: sc.files, scope: sc.label };
+    L.setPanelTab("problems");
+    drawToolbar();
+    drawProblemsAll();
+  });
   const collapsed = new Set<string>();
   const svc: ServicesModel = { ports: null, portsError: null, showAll: false, root: null, rootName: null, home: null, compose: null, stack: null, stackLoading: false };
 
@@ -187,7 +221,8 @@ function boot(): void {
       left = b("xt-new", L.svg("plus"), "New Terminal (Ctrl+Shift+`)") + b("xt-profiles", L.svg("chev"), "Launch Profile…") + b("xt-split", L.svg("split"), "Split Terminal (Ctrl+Shift+5)") + b("xt-kill", L.svg("trash"), "Kill Terminal") + b("xt-clear", L.svg("collapse"), "Clear Terminal");
     } else if (pt === "problems") {
       const tg = (k: keyof ProblemFilter, ic: string, t: string) => `<button class="pt-tg${filter[k] ? " on" : ""}" data-action="pb-sev" data-on="${k}" title="${t}">${ic}</button>`;
-      left = `<input class="pt-filter" id="pb-filter" placeholder="Filter (e.g. text, !exclude)" data-action="pb-filter" value="${L.esc(filter.text)}">` + tg("errors", "✖", "Show Errors") + tg("warnings", "⚠", "Show Warnings") + tg("infos", "ℹ", "Show Infos") + b("pb-collapse", L.svg("collapse"), "Collapse All") + b("pb-rescan", L.svg("refresh"), "Check the workspace again");
+      const scope = filter.scope ? `<button class="pt-scope" data-action="pb-clear-scope" title="${L.esc(scopeText("pbScopeTitle", { n: filter.files?.length ?? 0 }))}">${L.esc(scopeText("pbScope", { scope: filter.scope }))} ✕</button>` : "";
+      left = scope + `<input class="pt-filter" id="pb-filter" placeholder="Filter (e.g. text, !exclude)" data-action="pb-filter" value="${L.esc(filter.text)}">` + tg("errors", "✖", "Show Errors") + tg("warnings", "⚠", "Show Warnings") + tg("infos", "ℹ", "Show Infos") + b("pb-collapse", L.svg("collapse"), "Collapse All") + b("pb-rescan", L.svg("refresh"), "Check the workspace again");
     } else if (pt === "output") {
       const chs = output.channels();
       left = `<select class="pt-sel" id="op-channel" data-action="op-channel">${chs.map((c) => `<option${c === channel ? " selected" : ""}>${L.esc(c)}</option>`).join("")}</select>` + b("op-clear", L.svg("trash"), "Clear Output");
@@ -245,6 +280,8 @@ function boot(): void {
     "pb-collapse": { on: "click", run: () => { const all = new Set(problems.all().map((p) => p.file)); const allCollapsed = [...all].every((f) => collapsed.has(f)); collapsed.clear(); if (!allCollapsed) all.forEach((f) => collapsed.add(f)); drawProblemsAll(); } },
     "pb-filter": { on: "input", run: (e) => { filter = { ...filter, text: e.value }; drawProblemsAll(); } },
     "pb-clear-filter": { on: "click", run: () => { filter = { ...ALL }; drawToolbar(); drawProblemsAll(); } },
+    /* RF-A05: drop the issue's file filter the Project set */
+    "pb-clear-scope": { on: "click", run: () => { filter = { ...filter, files: undefined, scope: undefined }; drawToolbar(); drawProblemsAll(); } },
     "pb-sev": { on: "click", run: (e) => { const k = e.on as "errors" | "warnings" | "infos"; filter = { ...filter, [k]: !filter[k] }; e.el.classList.toggle("on", filter[k]); drawProblemsAll(); } },
     "pb-rescan": { on: "click", run: () => problems.request("manual refresh", true) },
     "op-channel": { on: "change", run: (e) => { channel = e.value; channelPicked = true; drawOutput(); } },
@@ -253,7 +290,7 @@ function boot(): void {
     "sv-toggle-all": { on: "change", run: (e) => { svc.showAll = (e.el as HTMLInputElement).checked; drawServices(); } },
     "sv-all": { on: "click", run: () => { svc.showAll = true; drawServices(); } },
     "sv-open": { on: "click", run: (e) => workspace.openUrl(e.on) },
-    "sv-copy": { on: "click", run: (e) => { void navigator.clipboard?.writeText(e.on).then(() => L.toast(`Copied ${e.on}`)).catch(() => L.toast(e.on)); } },
+    "sv-copy": { on: "click", run: (e) => { void copyText(e.on).then((ok) => L.toast(ok ? `Copied ${e.on}` : e.on)); } },
     "sv-up": { on: "click", run: () => { L.composeUp(); } },
     "sv-down": { on: "click", run: () => { L.composeDown(); } },
     "dx-ask-cmd": { on: "click", run: (e) => {
@@ -359,7 +396,7 @@ function boot(): void {
       runTask: (line, o) => {
         L.setPanelTab("terminal");
         view.showShared(false);
-        return terminals.runTask(line, { label: o?.label, cwd: o?.cwd ?? null, env: o?.env ?? null });
+        return terminals.runTask(line, { label: o?.label, cwd: o?.cwd ?? null, env: o?.env ?? null, vault: o?.vault ?? null });
       },
       log: (ch, text, err) => output.append(ch, text, err ? "error" : "info"),
       inspect: () => ({
@@ -377,6 +414,13 @@ function boot(): void {
     ownsKey: (e) => inTerminal(e) && !isAppKey(e),
     problems: (): Problem[] => problems.all(),
     drawProblems: drawProblemsAll,
+    showLspLog: () => {
+      L.setPanelTab("output");
+      channel = LSP_CHANNEL;
+      channelPicked = true;
+      drawToolbar();
+      drawOutput();
+    },
     drawServices: () => {
       svc.stack = L.stack();
       svc.compose = L.root() ? L.composeFile() : null;

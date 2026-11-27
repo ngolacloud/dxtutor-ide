@@ -5,6 +5,7 @@
    o Ctrl+O e os botões da página de boas-vindas. Eram as secções «folders and autosave» e
    «menus, palette, welcome» do bridge.ts, verbatim. */
 
+import { openNewProject } from "../../features/newproject/index";
 import { bus } from "../../app/bus";
 import { editorStore } from "../../app/store/editor";
 import { loadWorkspace } from "../tauri/workspace";
@@ -14,13 +15,15 @@ import { registerActions } from "../../app/actions";
 import type { Desktop } from "./types";
 import type { DesktopContext } from "./context";
 import { changedFromDisk, withDiskEol } from "./eol";
+import { catFileRequests, parseCatFileBatch } from "./git-batch";
 import { closeTab } from "../../features/tabs";
 import { workspaceStore } from "../../app/store";
 import { TREE } from "../../boot";
-import { cwd } from "../../features/terminal";
+import { cwd, echo, newInput } from "../../features/terminal";
+import { buildMenubar } from "../../features/menus";
 
 export function installWorkspace(ctx: DesktopContext): void {
-const { R, fsx, git, enqueue, escH, isReal, relOf, say } = ctx;
+const { R, fsx, git, sh, enqueue, escH, isReal, relOf, say } = ctx;
 const syncGit = () => ctx.syncGit();
 /* ───── folders and autosave ───── */
 async function openFolder(path?: string): Promise<boolean> {
@@ -45,7 +48,7 @@ async function openFolder(path?: string): Promise<boolean> {
   document.title = `${R.name} — dxtutor IDE`;
   refresh(false, true);
   try { termBanner(); } catch { /* sem terminal */ }
-  say(`opened ${R.root} · ${L.files.length} files${L.skipped ? ` · ${L.skipped} skipped (binary, large or ignored)` : ""}${L.truncated ? " · file limit reached" : ""}`);
+  say(`opened ${R.root} · ${L.files.length} files${L.skipped ? ` · ${L.skipped} skipped (binary, large or ignored)` : ""}${L.ignoredDirs ? ` · ${L.ignoredDirs} git-ignored folder(s) not loaded` : ""}${L.truncated ? " · load limit reached (4000 files or 48 MB)" : ""}`);
   toast(`${R.name}: ${L.files.length} files${R.git ? " · git " + BRANCH : " · not a git repository"}`);
   document.dispatchEvent(new CustomEvent("dx:workspace", { detail: { root: R.root } }));
   if (!R.git) { try { card("desktop", `<b>${escH(R.name)}</b> is not a git repository. The graph, gitflow and commits need one.<div style="margin-top:8px"><button class="mini pri" data-action="desktop:gitInit">git init</button></div>`); } catch { /* sem chat */ } }
@@ -70,6 +73,8 @@ async function markChanged(): Promise<void> {
   const r = await git("status", "--porcelain=v1", "-z", "--untracked-files=all");
   if (r.code !== 0) return;
   const parts = r.stdout.split("\0");
+  /* os ficheiros cujo HEAD é preciso: os alterados (o `orig`) e os apagados (voltam ao FS para o diff) */
+  const need: { k: string; p: string; deleted: boolean }[] = [];
   for (let i = 0; i < parts.length; i++) {
     const e = parts[i];
     if (!e) continue;
@@ -79,12 +84,20 @@ async function markChanged(): Promise<void> {
     if (R.prefix) { if (!p.startsWith(R.prefix)) continue; p = p.slice(R.prefix.length); }
     const k = ROOT + p;
     if (xy === "??") { if (FS[k]) FS[k].orig = null; continue; }
-    if (!FS[k]) {
-      if (xy.includes("D")) { const h = await git("show", "HEAD:./" + p); if (h.code === 0) FS[k] = { content: h.stdout, orig: h.stdout, _deleted: 1 } as unknown as typeof FS[string]; }
-      continue;
-    }
-    const h = await git("show", "HEAD:./" + p);
-    FS[k].orig = h.code === 0 ? h.stdout : null;
+    if (!FS[k]) { if (xy.includes("D")) need.push({ k, p, deleted: true }); continue; }
+    need.push({ k, p, deleted: false });
+  }
+  /* P2: todos num só processo (`git cat-file --batch`); se a resposta não servir, um `git show` por ficheiro */
+  const stdin = need.length ? catFileRequests(need.map(n => n.p)) : null;
+  const batch = stdin ? await sh("git", ["cat-file", "--batch"], { stdin }) : null;
+  const heads = batch && batch.code === 0 ? parseCatFileBatch(batch.stdout, need.length) : null;
+  for (let j = 0; j < need.length; j++) {
+    const { k, p, deleted } = need[j];
+    let head: string | null;
+    if (heads) head = heads[j];
+    else { const h = await git("show", "HEAD:./" + p); head = h.code === 0 ? h.stdout : null; }
+    if (deleted) { if (head !== null) FS[k] = { content: head, orig: head, _deleted: 1 } as unknown as typeof FS[string]; }
+    else FS[k].orig = head;
   }
   Object.keys(FS).forEach(k => { if ((FS[k] as { _deleted?: number })._deleted) { delete FS[k]; } });
 }
@@ -142,16 +155,17 @@ ctx.openFolder = openFolder; ctx.reloadDisk = reloadDisk; ctx.markChanged = mark
 }
 
 export function installFolderUi(ctx: DesktopContext): void {
-const { R, escH, base, idle } = ctx;
+const { R, idle } = ctx;
 const openFolder = (p?: string) => ctx.openFolder(p);
 const flushSave = () => ctx.flushSave();
-/* ───── menus, palette, welcome ───── */
+/* ───── menus e paleta (as boas-vindas são da feature `welcome` desde a r23 F6) ───── */
 R.open = p => openFolder(p);
 const closeFolder = () => { flushSave(); void idle().then(() => { LS.set("dx-last-folder", ""); location.reload(); }); };
 R.close = closeFolder;
 function fileItems(): any[] {
   const rec = LS.get("dx-recent", []) as string[];
   return [
+    { l: "New Project…", act: () => openNewProject() },
     { l: "Open Folder…", k: "Ctrl+O", act: () => openFolder() },
     { l: "Open Recent Folder", sub: rec.length ? rec.map(p => ({ l: p, act: () => openFolder(p) })) : [{ l: "(none yet)" }] },
     { l: "Close Folder", act: closeFolder },
@@ -164,24 +178,15 @@ if (fm) {
   Object.defineProperty(fm, "items", { configurable: true, get: () => fileItems().concat(g()) });
   try { $("#menubar")!.innerHTML = ""; buildMenubar(); } catch { /* menubar ainda não montada */ }
 }
-CMD.unshift(["File: Open Folder…", "Ctrl+O", () => openFolder()], ["File: Close Folder", "", closeFolder]);
+CMD.unshift(["File: New Project…", "", () => openNewProject()], ["File: Open Folder…", "Ctrl+O", () => openFolder()], ["File: Close Folder", "", closeFolder]);
 document.addEventListener("keydown", e => {
   if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === "o" || e.key === "O")) { e.preventDefault(); void openFolder(); }
 }, true);
-/* os botões de pasta nas boas-vindas: porta `desktopPorts.welcome` (U4h5b; antes embrulhava o VIEW.welcome) */
-desktopPorts.welcome = { welcome(t, host, _welcome) {
-  _welcome(t, host);
-  const sub = host.querySelector(".sub");
-  if (!sub) return;
-  const rec = LS.get("dx-recent", []) as string[];
-  sub.insertAdjacentHTML("afterend", `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 4px"><button class="mini pri" data-action="desktop:open">Open Folder…</button>${rec.slice(0, 4).map(p => `<button class="mini" title="${escH(p)}" data-action="desktop:openRecent" data-on="${escH(p)}">${escH(base(p))}</button>`).join("")}${R.root ? `<span class="dim" style="align-self:center">open: <b>${escH(R.root)}</b></span>` : ""}</div>`);
-} };
+/* as boas-vindas (Open Folder…, Recent, Clone) são da feature `welcome` desde a r23 F6: lê o `DXR` e o `dx-recent` pela ponte */
 }
 
 const DX = (): Desktop => window.DXR as unknown as Desktop;
 /* os botões que o desktop acrescenta chamam o `DXR` no acto (eram `onclick="DXR.…"` inline — ADR-0004, U5c) */
 registerActions({
   "desktop:gitInit": { click: () => void DX().gitInit!() },
-  "desktop:open": { click: () => void DX().open!() },
-  "desktop:openRecent": { click: (c) => void DX().open!(c.on) },
 });

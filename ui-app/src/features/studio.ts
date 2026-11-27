@@ -37,12 +37,15 @@ import { translator } from "../app/i18n";
 import { STUDIO_MESSAGES } from "./studio.messages";
 import { services } from "../app/services";
 import { STUDIO_DESKTOP_MESSAGES } from "./studio.desktop-messages";
+import { dxRun } from "./stack";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(STUDIO_MESSAGES);
 const txd = translator(STUDIO_DESKTOP_MESSAGES);
 
-/* fachada do único global da infra que o drift lê (escrito pela acção studio:drift) */
-const G = window as unknown as { DRIFT: string | null };
+/* o ambiente com que o Studio compara o desenho (o drift): deste módulo desde a U7p2 do ADR-0004 (era window.DRIFT,
+   que a infra criava); o arranque escolhe-o pelo setDrift */
+let DRIFT: string | null = null;
+export const setDrift = (v: string | null): void => { DRIFT = v; };
 
 /* helpers locais (gémeos puros dos homónimos do monólito; isolados na feature) */
 const slug = (s: any) => String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -81,7 +84,7 @@ let SSEL:string|null=null;
 let SCLICK:{id:string|null,t:number}={id:null,t:0};const NW=152,NH=58;
 const saveSD=()=>{ if (hasFolder()) writeFile(P_STUDIO(), JSON.stringify(SD, null, 2) + '\n'); else LS.set('studio4', SD); };
 /* outra pasta aberta: o desenho é o dela */
-document.addEventListener('dx:workspace', () => { SD = loadSD(); SSEL = null; SLINK = null; rerender('studio'); });
+document.addEventListener('dx:workspace', () => { SD = loadSD(); SSEL = null; SLINK = null; services.tabs!.rerender('studio'); });
 export function openStudio(){openTab({id:'studio',title:'Studio',kind:'studio'});}
 
 /* ───── catálogo de tecnologias cloud ───── */
@@ -94,7 +97,8 @@ const TECH:Record<string,any>={
   'aws-alb':mkT('Application Load Balancer','aws','gateway',TF,80,'Traefik'),'aws-s3':mkT('Amazon S3','aws','s3','minio/minio',9000,'MinIO'),'aws-rds':mkT('Amazon RDS · PostgreSQL','aws','sql',PG,5432,'PostgreSQL'),'aws-dynamodb':mkT('Amazon DynamoDB','aws','dynamo','amazon/dynamodb-local',8000,'DynamoDB Local'),'aws-sqs':mkT('Amazon SQS','aws','sqs','softwaremill/elasticmq-native',9324,'ElasticMQ'),'aws-elasticache':mkT('Amazon ElastiCache · Redis','aws','cache',RD,6379,'Redis'),'aws-cognito':mkT('Amazon Cognito','aws','oidc',KC,8080,'Keycloak (stand-in)'),
   'az-frontdoor':mkT('Azure Front Door','azure','gateway',TF,80,'Traefik'),'az-blob':mkT('Azure Blob Storage','azure','blob','mcr.microsoft.com/azure-storage/azurite',10000,'Azurite'),'az-sql':mkT('Azure SQL Database','azure','mssql','mcr.microsoft.com/mssql/server:2022-latest',1433,'SQL Server 2022'),'az-servicebus':mkT('Azure Service Bus','azure','amqp',RMQ,5672,'RabbitMQ (stand-in)'),'az-redis':mkT('Azure Cache for Redis','azure','cache',RD,6379,'Redis'),'az-entra':mkT('Microsoft Entra ID','azure','oidc',KC,8080,'Keycloak (stand-in)'),
   'gcp-lb':mkT('Cloud Load Balancing','gcp','gateway',TF,80,'Traefik'),'gcp-gcs':mkT('Cloud Storage','gcp','gcs','fsouza/fake-gcs-server',4443,'fake-gcs-server'),'gcp-sql':mkT('Cloud SQL · PostgreSQL','gcp','sql',PG,5432,'PostgreSQL'),'gcp-pubsub':mkT('Pub/Sub','gcp','pubsub',GCE,8085,'Pub/Sub emulator'),'gcp-memorystore':mkT('Memorystore · Redis','gcp','cache',RD,6379,'Redis'),'gcp-firestore':mkT('Firestore','gcp','firestore',GCE,8080,'Firestore emulator')};
-const KIND={
+/* tipado como o global que era (Record<string, any>): os geradores indexam-no pelo kind do catálogo (U7p1) */
+const KIND: Record<string, any>={
   sql:{env:['POSTGRES_USER: app','POSTGRES_PASSWORD: app','POSTGRES_DB: app'],hc:'pg_isready -U app',vol:'/var/lib/postgresql/data',wire:(s:string)=>[`DATABASE_URL: postgres://app:app@${s}:5432/app`]},
   mssql:{env:['ACCEPT_EULA: "Y"','MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:-Change_me_123}'],wire:(s:string)=>[`DATABASE_URL: sqlserver://sa:\${MSSQL_SA_PASSWORD:-Change_me_123}@${s}:1433`]},
   cache:{hc:'redis-cli ping',wire:(s:string)=>[`REDIS_URL: redis://${s}:6379`]},amqp:{hc:'rabbitmq-diagnostics -q ping',wire:(s:string)=>[`AMQP_URL: amqp://guest:guest@${s}:5672`]},
@@ -141,7 +145,7 @@ function sdDel(id:string){SD.nodes=SD.nodes.filter(n=>n.id!==id);SD.edges=SD.edg
    (in sync / drift / behind / missing / failing) e o inspector, sem selecção, abre com o
    resumo «Design vs <ambiente>». */
 function paintDrift(): void {
-  const env = G.DRIFT;
+  const env = DRIFT;
   if (!env) return;
   const s = $('#st-svg');
   if (!s) return;
@@ -157,7 +161,8 @@ function drawStudio(): void { drawStudioBase(); paintDrift(); }
 const node = (id: string) => SD.nodes.find((x) => x.id === id)!;
 const save = (): void => { saveSD(); drawStudio(); };
 registerActions({
-  ...globalCalls('studio', ['genBacklog', 'dxRun']),
+  ...globalCalls('studio', ['genBacklog']),
+  'studio:dxRun': { click: () => void dxRun() },
   'studio:link': { click: () => { SLINK = SLINK === null ? '' : null; drawStudio(); } },
   'studio:clear': { click: () => { SD = emptyDesign(); SSEL = null; SLINK = null; save(); } },
   'studio:cat': { click: (c) => { SCAT = c.on; drawStudio(); } },
@@ -167,16 +172,15 @@ registerActions({
   'studio:status': { change: (c) => { node(c.on).st = c.value; save(); } },
   'studio:unlink': { click: (c) => { SD.edges.splice(Number(c.on), 1); save(); } },
   'studio:del': { click: (c) => void sdDel(c.on) },
-  'studio:drift': { change: (c) => { G.DRIFT = c.value || null; drawStudio(); } },
+  'studio:drift': { change: (c) => { DRIFT = c.value || null; drawStudio(); } },
 });
-VIEW.studio=(t,host)=>{renderStudioView(t,host);const b=host.querySelector('.st-bar .sp');if(b)b.insertAdjacentHTML('beforebegin',`<select class="mini" title="Compare the design with what is running" data-action="studio:drift"><option value="">Compare with…</option>${Object.entries(ENVL).map(([k,l])=>`<option value="${k}"${G.DRIFT===k?' selected':''}>${l}</option>`).join('')}</select>`);};
+VIEW.studio=(t,host)=>{renderStudioView(t,host);const b=host.querySelector('.st-bar .sp');if(b)b.insertAdjacentHTML('beforebegin',`<select class="mini" title="Compare the design with what is running" data-action="studio:drift"><option value="">Compare with…</option>${Object.entries(ENVL).map(([k,l])=>`<option value="${k}"${DRIFT===k?' selected':''}>${l}</option>`).join('')}</select>`);};
 
 /* ── publicar no window: o resíduo do monólito, as camadas v5/v6 e os onclick inline
    resolvem estes nomes livres como globais; drawStudio/SD/SSEL/SLINK/SCAT já estão
    window-backed acima (fonte única). ── */
-Object.assign(window, { TECH, KIND, isApp, sl });
 /* a ponte do Co-Dev e as tarefas (avaliam antes) abrem o Studio pelo registo (ADR-0004, U7h) */
-services.studio = { openStudio };
+services.studio = { openStudio, TECH, KIND, isApp, sl };
 
 /* lidos por import (ADR-0004, U7e): o arranque, os geradores, a ponte do board e o auto-teste desktop */
-export { loadSD, saveSD, appDir, sdAdd };
+export { loadSD, saveSD, appDir, sdAdd, TECH, KIND, isApp, sl };

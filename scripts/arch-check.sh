@@ -41,7 +41,7 @@ strip_comments() {
 }
 
 # Baseline esperada (Etapa 0 — MIGRATION §2/§3). Actualizar DELIBERADAMENTE.
-EXPECT_TOTAL=223
+EXPECT_TOTAL=351
 # @ts-nocheck: contamos a DIRECTIVA real (linha-comentário `// @ts-nocheck`), não
 # a palavra por substring (A6 antigo contava 24 com `grep -rl`, inflado por 13
 # ficheiros que só a mencionam em prosa/JSDoc). Baseline = 0 desde a U4j5b do ADR-0004
@@ -99,7 +99,74 @@ EXPECT_TSNOCHECK=0
 # Bloco 1 dos RF restantes (F2.7, RF-E08): board.rs ganha project_change_sets (8→9): 216.
 # Hierarquia de tipos (lsp_prepare_type_hierarchy + lsp_type_hierarchy): lsp.rs 16→18: 216 + 2 = 218.
 # Bloco 3 (F5.2/F5.5): agent.rs ganha arch_rules_load/save, adr_list/accept e arch_rules_commit (11→16): 218 + 5 = 223.
-declare -A EXPECT_PER_FILE=( [lib.rs]=0 [commands/review.rs]=3 [commands/codeintel.rs]=10 [commands/tests.rs]=8 [commands/git.rs]=22 [commands/codev.rs]=5 [commands/codev_agent.rs]=16 [commands/dictation.rs]=4 [commands/search.rs]=4 [commands/agent.rs]=16 [commands/assistant.rs]=8 [commands/debug_cmds.rs]=21 [commands/hood.rs]=3 [commands/ops.rs]=6 [commands/codebase.rs]=2 [commands/devcontainer.rs]=8 [commands/sandbox.rs]=3 [commands/pair.rs]=4 [commands/plugins.rs]=3 [commands/study.rs]=11 [commands/missions.rs]=4 [bridge.rs]=16 [fsops.rs]=10 [lsp.rs]=18 [pty.rs]=7 [commands/panel.rs]=2 [board.rs]=9 )
+# r23 F1 (docs/v2/AUDIT-r23.md): board.rs ganha audit_record — o registo de auditoria das operações do IDE (9→10): 224.
+# r23 F6: git.rs ganha git_clone_plan — o comando exacto do clone antes da aprovação (22→23): 225.
+# Sessão de fecho dos RF, bloco 3 (RF-A03/A04): codev_agent.rs ganha codev_agent_override (16→17): 225 + 1 = 226 (junto com o git_clone_plan da r23 F6).
+# r23 F3: git.rs ganha git_refs — a barra lateral do Commit Graph (commands/git.rs 23→24): 227.
+# r23 F3: git.rs ganha git_hunks — os hunks de um ficheiro (commands/git.rs 24→25): 228.
+# r23 F3: git.rs ganha git_stage_hunks — staging de parte de um ficheiro (commands/git.rs 25→26): 229.
+# r23 F3: git.rs ganha git_undo_snapshot (commands/git.rs 26→27): 230.
+# r23 F3: git.rs ganha git_undo_list (commands/git.rs 27→28): 231.
+# r23 F3: git.rs ganha git_undo_plan (commands/git.rs 28→29): 232.
+# r23 F3: git.rs ganha git_undo_restore (commands/git.rs 29→30): 233.
+# r23 F3: git.rs ganha git_predict_conflicts (commands/git.rs 30→31): 234.
+# r23 F3: git.rs ganha git_merge — o merge em curso (commands/git.rs 31→32): 235.
+# r23 F3: git.rs ganha git_conflict_stages (commands/git.rs 32→33): 236.
+# r23 F3: git.rs ganha git_sync_plan (commands/git.rs 33→34): 237.
+# r23 F3: git.rs ganha git_sync (commands/git.rs 34→35): 238.
+# r23 F3: git.rs ganha gh_status (o gh, só leitura) (commands/git.rs 35→36): 239.
+# r23 F3: git.rs ganha gh_prs (commands/git.rs 36→37): 240.
+# r23 F3: git.rs ganha gh_runs_for (commands/git.rs 37→38): 241.
+# r23 F3: git.rs ganha gh_prs_for (commands/git.rs 38→39): 242.
+# r23 F3: board.rs ganha test_results_record (board.rs 10→11): 243.
+# r23 F3: board.rs ganha test_results_for (board.rs 11→12): 244.
+# r23 F3: git.rs ganha git_commit_paths (Commit Composer) (commands/git.rs 39→40): 245.
+# r23 F3: git.rs ganha git_lane_commit (lanes, experimental) (commands/git.rs 40→41): 246.
+# r23 F2 (depurador real): commands/debug_cmds.rs ganha debug_run_to, debug_restart_frame, debug_data_breakpoints,
+# debug_read_memory, debug_exception_filters e debug_test_targets (21→27): 246 + 6 = 252.
+# r23 F2b (rr): commands/debug_cmds.rs ganha debug_record, debug_replay, debug_reverse, debug_position, debug_travel,
+# debug_last_write e debug_writes (27→34): 252 + 7 = 259.
+# r23 F4a (protecção de dados): commands/protect.rs (novo) com protect_learn, secret_scan e secret_scan_allow: 259 + 3 = 262.
+# r23 F4b (pipeline de IaC): commands/iac.rs (novo) com iac_pipeline_run, iac_apply_command e iac_state; board.rs ganha
+# iac_risk_accept, iac_risks e iac_risk_revoke (12→15): 262 + 6 = 268.
+# r23 F4c (Vault): commands/vault.rs (novo) com vault_status, vault_login_token, vault_login_oidc, vault_renew,
+# vault_revoke, vault_kv_meta, vault_reveal_local, vault_reveal_read, vault_dynamic e vault_lease_revoke: 268 + 10 = 278.
+# r23 F4c2 (deploy guiado): commands/deploy.rs (novo) com deploy_plan e deploy_rollout; board.rs ganha deploy_records
+# (15→16): 278 + 3 = 281.
+# r23 F5a (runbooks, fontes, evidências): commands/runbook.rs (novo) com runbook_list, runbook_parse, runbook_step,
+# runbook_decide e sources_status; board.rs ganha runbook_judge, runbook_runs e audit_export_evidence (16→19): 281 + 8 = 289.
+# r23 F5b (fila, revisão de PR, incidentes): commands/platform.rs (novo) com queue_items, queue_verify, queue_handover,
+# pr_infra_review, pr_review_submit e os 6 incident_*: 289 + 11 = 300.
+# Multi Co-Dev fase 1 (plano paralelo da sprint): board.rs ganha project_sprint_plan (19→20): 301.
+# Mapa de agentes do Co-Dev: commands/codev_agent.rs ganha codev_agent_live (17→18): 302.
+# r23 endurecimento (hook de pre-commit): commands/protect.rs ganha protect_hook_plan e protect_hook_install (3→5): 304.
+# Multi Co-Dev fase 2 (várias sessões e os dados da porta de integração): board.rs ganha project_scope_overlap e
+# project_checks (20→22): 306.
+# Board B (cada método muda as regras): board.rs ganha project_method_preview (22→23): 307.
+# NOTAS-r23 ponto 3 (fonte de métricas): commands/metrics.rs (novo) com metrics_status, metrics_token_set,
+# metrics_token_clear e incident_metrics_check: 307 + 4 = 311.
+# LSP P2 (overrides do registo): lsp.rs ganha lsp_config, lsp_config_file, lsp_user_config_save e
+# lsp_approve_server (18→22): 311 + 4 = 315.
+# LSP P3 (receitas de instalação): commands/lsp_install.rs (novo) com lsp_install_plan e lsp_install_download: 315 + 2 = 317.
+# Multi Co-Dev fase 3 (worktree e ficheiros reservados por Co-Dev): commands/codev_worktree.rs (novo) com
+# codev_worktree_plan, codev_worktree_create, codev_worktrees, codev_worktree_remove, codev_worktree_file,
+# codev_worktree_commit e codev_claims: 317 + 7 = 324.
+# LSP P6 (recursos dos servidores): lsp.rs ganha lsp_did_close, lsp_folder_closed, lsp_servers, lsp_server_log,
+# lsp_server_stop e lsp_server_restart (22→28): 324 + 6 = 330.
+# Learn P1 (curso Seiva): commands/study.rs ganha course_prepare_status e course_prepare
+# (11→13): 330 + 2 = 332.
+# /backlog e /project (o Studio ligado ao Project): board.rs ganha project_create_from_backlog (23→24): 333.
+# New Project (templates do Delonix): commands/scaffold.rs (novo) com project_templates, project_new_plan e
+# project_new: 333 + 3 = 336.
+# LSP P4 (as linguagens dos VSIX instalados): lsp.rs ganha lsp_contributions (28→29): 336 + 1 = 337.
+# Multi Co-Dev fase 4 (o revisor Co-Dev assistido e a porta de integração): commands/codev_review.rs (novo) com
+# codev_review_state, codev_review_request, codev_review_cancel e codev_review_integrate: 337 + 4 = 341.
+# H2 (workspace com projectos): commands/search.rs ganha workspace_projects (4→5): 341 + 1 = 342.
+# Multi Co-Dev fase 5 (autonomia delegada e pull requests): commands/codev_autonomy.rs (novo) com
+# codev_autonomy_state/grant/revoke/pause e codev_pr_state/open: 342 + 6 = 348.
+# Learn P3b (o cluster de prática kind dos cursos de Kubernetes): commands/study.rs ganha learn_cluster_status,
+# learn_cluster_start e learn_cluster_delete (13→16): 348 + 3 = 351.
+declare -A EXPECT_PER_FILE=( [lib.rs]=0 [commands/review.rs]=3 [commands/codeintel.rs]=10 [commands/tests.rs]=8 [commands/git.rs]=41 [commands/codev.rs]=5 [commands/codev_agent.rs]=18 [commands/codev_worktree.rs]=7 [commands/codev_review.rs]=4 [commands/codev_autonomy.rs]=6 [commands/dictation.rs]=4 [commands/search.rs]=5 [commands/agent.rs]=16 [commands/assistant.rs]=8 [commands/debug_cmds.rs]=34 [commands/hood.rs]=3 [commands/ops.rs]=6 [commands/codebase.rs]=2 [commands/devcontainer.rs]=8 [commands/sandbox.rs]=3 [commands/scaffold.rs]=3 [commands/pair.rs]=4 [commands/plugins.rs]=3 [commands/study.rs]=16 [commands/missions.rs]=4 [bridge.rs]=16 [fsops.rs]=10 [lsp.rs]=29 [pty.rs]=7 [commands/panel.rs]=2 [commands/protect.rs]=5 [commands/iac.rs]=3 [commands/vault.rs]=10 [commands/deploy.rs]=2 [commands/runbook.rs]=5 [commands/platform.rs]=11 [commands/metrics.rs]=4 [commands/lsp_install.rs]=2 [board.rs]=24 )
 
 echo "== A1 · comandos registados em generate_handler! =="
 # Extrai o bloco generate_handler!, remove comentários //, apanha os identificadores
@@ -118,7 +185,7 @@ fi
 
 echo "== A2 · #[tauri::command] por ficheiro =="
 sum=0
-for f in lib.rs commands/review.rs commands/codeintel.rs commands/tests.rs commands/git.rs commands/codev.rs commands/codev_agent.rs commands/dictation.rs commands/search.rs commands/agent.rs commands/assistant.rs commands/debug_cmds.rs commands/hood.rs commands/ops.rs commands/codebase.rs commands/devcontainer.rs commands/sandbox.rs commands/pair.rs commands/plugins.rs commands/study.rs commands/missions.rs bridge.rs fsops.rs lsp.rs pty.rs commands/panel.rs board.rs; do
+for f in lib.rs commands/review.rs commands/codeintel.rs commands/tests.rs commands/git.rs commands/codev.rs commands/codev_agent.rs commands/codev_worktree.rs commands/codev_review.rs commands/codev_autonomy.rs commands/dictation.rs commands/search.rs commands/agent.rs commands/assistant.rs commands/debug_cmds.rs commands/hood.rs commands/ops.rs commands/codebase.rs commands/devcontainer.rs commands/sandbox.rs commands/scaffold.rs commands/pair.rs commands/plugins.rs commands/study.rs commands/missions.rs bridge.rs fsops.rs lsp.rs pty.rs commands/panel.rs commands/protect.rs commands/iac.rs commands/vault.rs commands/deploy.rs commands/runbook.rs commands/platform.rs commands/metrics.rs commands/lsp_install.rs board.rs; do
   # `grep -c` imprime 0 E sai com status 1 quando não há matches (ex. lib.rs após o 13º
   # grupo sair), por isso NÃO encadeamos `|| echo 0` (duplicaria para "0\n0" e partia a
   # aritmética); normalizamos o vazio para 0 à parte.
@@ -214,7 +281,7 @@ fi
 # O resíduo strangler `features/<f>.ts` (publica os shims window.*) está FORA
 # desta subárvore e não é governado por A7/A8 — é transitório (ADR, passo 6).
 # A7/A8 cobrem CADA feature nesta lista (codev + ext; a próxima acrescenta-se aqui).
-FEATURES="codev ext codereview scm debug board visualizer infra learn panel arch testing lsp project hood ops codebase comments"
+FEATURES="codev ext codereview scm debug board visualizer infra learn panel arch testing lsp project hood ops codebase comments welcome protect vault deploy newproject integration"
 FEAT_ROOT=ui-app/src/features
 
 echo "== A7 · domínio não importa application/ui/infrastructure =="
@@ -276,35 +343,80 @@ echo "== A9 · só os ficheiros da lista publicam no window (fecho da U7) =="
 # sai daqui (o A9 avisa).
 A9_ALLOW="
   app/boot-steps.ts app/commands.ts app/globals.ts app/store/agent.ts app/store/config.ts
-  app/store/registry.ts app/store/storage.ts boot.ts features/board/infrastructure/legacy-bridge.ts
-  features/changelog.ts features/checkpoint.ts features/codereview/infrastructure/legacy-bridge.ts
-  features/codev/infrastructure/legacy-bridge.ts features/codev.ts
-  features/debug/infrastructure/legacy-bridge.ts features/diagnostics.ts features/diff.ts features/editor.ts
-  features/explorer.ts features/ext/infrastructure/legacy-bridge.ts features/i18n.ts
-  features/infra/infrastructure/legacy-bridge.ts features/infra.ts features/learn.ts features/menus.ts
-  features/notifications.ts features/palette.ts features/router.ts
-  features/scm/infrastructure/legacy-bridge.ts features/shell.ts features/stack.ts features/studio.ts
-  features/syntax.ts features/tabs.ts features/tasks.ts features/team.ts features/termgit.ts
-  features/terminal.ts features/testing/infrastructure/legacy-bridge.ts
-  features/visualizer/infrastructure/legacy-bridge.ts features/visualizer.ts features/workspace.ts pair.ts
-  platform/desktop/context.ts
+  app/store/registry.ts app/store/storage.ts boot.ts features/board.ts
+  features/board/infrastructure/legacy-bridge.ts features/checkpoint.ts features/codereview.ts
+  features/codereview/infrastructure/legacy-bridge.ts features/codev.ts
+  features/codev/infrastructure/legacy-bridge.ts features/debug/infrastructure/legacy-bridge.ts
+  features/diff.ts features/editor.ts features/explorer.ts features/ext.ts
+  features/ext/infrastructure/legacy-bridge.ts features/i18n.ts features/infra.ts features/learn.ts
+  features/palette.ts features/panel/index.ts features/router.ts features/scm.ts
+  features/scm/infrastructure/legacy-bridge.ts features/shell.ts features/studio.ts features/syntax.ts
+  features/tabs.ts features/tasks.ts features/team.ts features/terminal.ts
+  features/testing/infrastructure/legacy-bridge.ts features/visualizer.ts
+  features/visualizer/infrastructure/legacy-bridge.ts features/workspace.ts pair.ts
+  platform/desktop/context.ts platform/desktop/selftest.ts
 "
+# publica = `Object.assign(window, …)`, `window.X = …`, uma superfície `publish({ … })` (as pontes das features fazem
+# `Object.assign(window, surface)`) ou uma escrita por uma fachada do window (`const G = window as …; G.X = …`) —
+# as duas últimas desde a correcção da medida no início da U7p
+a9_publishes() {
+  local src facs x
+  src=$(strip_comments "$1" | tr -d '\000')
+  printf '%s\n' "$src" | grep -qE 'Object\.assign\(window|window\.[A-Za-z_$][A-Za-z0-9_$]*[[:space:]]*=[^=]|\bpublish\(\{' && return 0
+  facs=$(printf '%s\n' "$src" | grep -oE '(const|let|var) +[A-Za-z_$][A-Za-z0-9_$]* *= *\(?(window|globalThis) +as\b' \
+    | sed -E 's/(const|let|var) +([A-Za-z_$][A-Za-z0-9_$]*).*/\2/' | sort -u)
+  for x in $facs; do
+    printf '%s\n' "$src" | grep -qE "(^|[^A-Za-z0-9_\$.])$x\.[A-Za-z_\$][A-Za-z0-9_\$]*[[:space:]]*=[^=>]" && return 0
+  done
+  return 1
+}
 a9bad=""; a9stale=""
 while IFS= read -r f; do
   rel=${f#ui-app/src/}
-  if strip_comments "$f" | grep -qE 'Object\.assign\(window|window\.[A-Za-z_$][A-Za-z0-9_$]*[[:space:]]*=[^=]'; then
+  if a9_publishes "$f"; then
     printf '%s\n' $A9_ALLOW | grep -qxF "$rel" || a9bad="$a9bad       $rel"$'\n'
   fi
 done < <(find ui-app/src -name '*.ts' -not -name '*.d.ts' | sort)
 for rel in $A9_ALLOW; do
   f="ui-app/src/$rel"
-  if [ ! -f "$f" ] || ! strip_comments "$f" | grep -qE 'Object\.assign\(window|window\.[A-Za-z_$][A-Za-z0-9_$]*[[:space:]]*=[^=]'; then a9stale="$a9stale       $rel"$'\n'; fi
+  if [ ! -f "$f" ] || ! a9_publishes "$f"; then a9stale="$a9stale       $rel"$'\n'; fi
 done
 if [ -z "$a9bad" ] && [ -z "$a9stale" ]; then
   pass "só os $(printf '%s\n' $A9_ALLOW | grep -c .) ficheiros da lista publicam no window"
 else
   [ -n "$a9bad" ] && { bad "ficheiro novo a publicar no window (lê por import, store ou app/services.ts):"; printf '%s' "$a9bad"; }
   [ -n "$a9stale" ] && { bad "já não publica no window — tira-o da lista A9_ALLOW em scripts/arch-check.sh:"; printf '%s' "$a9stale"; }
+fi
+
+echo "== A10 · comandos síncronos (correm na thread da UI) só os da lista =="
+# No Tauri, um #[tauri::command] sem `async` corre na thread principal: enquanto dura, a janela não responde
+# (medido: fsync do SQLite e leituras do keychain no arranque deram «not responding» com a máquina carregada).
+# Ficam síncronos só os que dependem da ORDEM de chegada (teclas e tamanho do terminal, mensagens a um agente,
+# a um par ou ao assistente em curso, o ditado, as gravações com debounce do quadro e dos breakpoints, parar o
+# depurador ou um processo) e os puros e baratos. Um comando novo nasce `async`; esta lista só encolhe.
+SYNC_ALLOW="
+pty_write pty_resize pty_kill pty_info
+pair_send pair_stop
+codev_agent_send codev_agent_approve codev_agent_review codev_agent_override codev_agent_set_mode
+codev_agent_cancel codev_agent_set_plan codev_agent_live
+assistant_chat_stream assistant_cancel
+dictation_status dictation_start dictation_cancel
+board_save breakpoints_save debug_stop kill_shell agent_task_cancel agent_task_status
+app_info expand_path codev_policy study_policy llm_plan selftest_report
+"
+a10bad=""; a10stale=""
+sync_now=$(grep -rhzoP '#\[tauri::command\]\s*(#\[[^\]]*\]\s*)*pub\s+fn\s+\w+' src-tauri/src --include='*.rs' 2>/dev/null | tr '\0' '\n' | grep -oP 'pub\s+fn\s+\K\w+' | sort -u)
+for n in $sync_now; do
+  case " $(echo $SYNC_ALLOW) " in *" $n "*) ;; *) a10bad="$a10bad       $n\n";; esac
+done
+for n in $SYNC_ALLOW; do
+  printf '%s\n' $sync_now | grep -qx "$n" || a10stale="$a10stale       $n\n"
+done
+if [ -z "$a10bad" ] && [ -z "$a10stale" ]; then
+  pass "só os $(printf '%s\n' $SYNC_ALLOW | grep -c .) comandos da lista são síncronos"
+else
+  [ -n "$a10bad" ] && { bad "comando síncrono novo (corre na thread da UI) — torna-o async:"; printf "$a10bad"; }
+  [ -n "$a10stale" ] && { bad "já é async — tira-o da lista SYNC_ALLOW em scripts/arch-check.sh:"; printf "$a10stale"; }
 fi
 
 echo

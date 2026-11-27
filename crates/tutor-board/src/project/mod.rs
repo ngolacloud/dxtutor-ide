@@ -12,9 +12,29 @@
 //!   is invented — with little history, reports come back empty.
 //! - Co-Dev change sets (accepted hunks, docs/v2/RF-CODEV-STREAM.md §9) and commits that
 //!   cite an issue key are linked to the issue.
+//! - The integration gate's data (Multi Co-Dev, phase 2): the project's mandatory checks and the
+//!   functional approval a person records on an issue ([`Op::ApproveFunctional`]).
+//! - The files each Co-Dev session claims (Multi Co-Dev, phase 3, [`claims`]) and the issue branch
+//!   a session's worktree checks out ([`branches::branch_name`]).
+//! - The reviews of an issue branch and the integration gate (Multi Co-Dev, phase 4,
+//!   [`integration`]); an integration is recorded by [`ProjectStore::record_integration`], never
+//!   by an [`Op`] (the interface cannot claim one).
 
+pub mod autonomy;
+pub mod backlog;
+pub mod branches;
 pub mod breakpoints;
+pub mod claims;
+pub mod deploys;
+pub mod evidence;
+pub mod incidents;
+pub mod insights;
+pub mod integration;
+pub mod methods;
+pub mod plan;
 pub mod reports;
+pub mod risks;
+pub mod runbooks;
 pub mod schema;
 pub mod testhist;
 
@@ -36,6 +56,28 @@ const COS: [&str; 4] = ["expedite", "fixed", "standard", "intangible"];
 pub struct Criterion {
     pub text: String,
     pub done: bool,
+}
+
+/// A check every change must pass before it is integrated (Multi Co-Dev, the integration gate):
+/// a name and the exact command, run in the project folder on the current commit (phase 4).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Check {
+    pub name: String,
+    pub command: String,
+}
+
+/// The most mandatory checks a project may list.
+pub const MAX_CHECKS: usize = 12;
+
+/// The functional approval recorded on an issue: the responsible person confirmed that what was
+/// built does what the acceptance criteria ask (who and when are the backend's, like every op).
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct FunctionalApproval {
+    pub by: String,
+    pub at: i64,
+    pub note: String,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -70,6 +112,8 @@ pub struct Issue {
     pub acceptance: Vec<Criterion>,
     /// One flag per item of the project's Definition of Done.
     pub dod_done: Vec<bool>,
+    /// One flag per item of the project's own Definition of Ready (Board B), ticked like the DoD.
+    pub dor_done: Vec<bool>,
     pub links: Vec<Link>,
     pub change_sets: u32,
     pub created: i64,
@@ -98,6 +142,8 @@ pub struct Issue {
     pub budget_usd: Option<f64>,
     /// What Co-Dev spent on it (real cost of the turns in the audit log, RF-T04).
     pub spent_usd: f64,
+    /// The functional approval (the integration gate's third condition); `None`: not recorded.
+    pub functional: Option<FunctionalApproval>,
 }
 
 /// Does a criterion read as Given/When/Then (or Dado/Quando/Então)?
@@ -107,10 +153,24 @@ pub fn is_gwt(text: &str) -> bool {
     has(&["given", "dado"]) && has(&["when", "quando"]) && has(&["then", "então", "entao"])
 }
 
+/// The prefix of a missing item of the project's own DoR (`DoR: «text»`).
+pub const DOR_ITEM: &str = "DoR: ";
+
+/// The items of the project's own Definition of Ready not yet ticked on the issue (`dor_done`,
+/// one flag per item, like the DoD).
+pub fn dor_open(dor: &[String], done: &[bool]) -> Vec<String> {
+    dor.iter()
+        .enumerate()
+        .filter(|(k, _)| !done.get(*k).copied().unwrap_or(false))
+        .map(|(_, t)| format!("{DOR_ITEM}«{t}»"))
+        .collect()
+}
+
 /// What an issue still lacks to be Ready (RF-B02, docs/v2/RF-DELONIX-PLANO.md F4.2): criteria
 /// in Given/When/Then, the user story (for stories), a file scope, its dependencies Done, no
-/// open question — and, last, a human's approval (`ready`). `states`: every issue's state.
-pub fn readiness(i: &Issue, states: &HashMap<String, String>) -> Vec<String> {
+/// open question, the project's own DoR items ticked (`dor`) — and, last, a human's approval
+/// (`ready`). `states`: every issue's state.
+pub fn readiness(i: &Issue, states: &HashMap<String, String>, dor: &[String]) -> Vec<String> {
     let mut m = vec![];
     if i.acceptance.is_empty() {
         m.push("critérios de aceitação".to_string());
@@ -137,6 +197,7 @@ pub fn readiness(i: &Issue, states: &HashMap<String, String>) -> Vec<String> {
     if let Some(b) = &i.blocked {
         m.push(format!("bloqueio em aberto: {b}"));
     }
+    m.extend(dor_open(dor, &i.dor_done));
     if !i.ready {
         m.push("aprovação humana (Ready)".to_string());
     }
@@ -158,6 +219,8 @@ pub struct Sprint {
     pub budget_usd: Option<f64>,
     /// What Co-Dev spent on the sprint's issues (real cost of the turns, audit log).
     pub spent_usd: f64,
+    /// How many Co-Devs work the sprint at the same time (Multi Co-Dev); `None`: not set.
+    pub codevs: Option<u32>,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -203,6 +266,8 @@ pub struct Project {
     pub wip: BTreeMap<String, u32>,
     pub dor: Vec<String>,
     pub dod: Vec<String>,
+    /// The mandatory checks (the integration gate); empty: not set — the detected test command.
+    pub checks: Vec<Check>,
     pub issues: Vec<Issue>,
     pub sprints: Vec<Sprint>,
     pub releases: Vec<Release>,
@@ -329,6 +394,22 @@ pub struct AuditEntry {
     pub cost_usd: Option<f64>,
 }
 
+/// One test run on a commit (r23 F3, UI-SCM-09).
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TestResult {
+    pub sha: String,
+    /// the working tree had uncommitted changes when it ran
+    pub dirty: bool,
+    pub at: i64,
+    pub runner: String,
+    pub command: String,
+    pub passed: i64,
+    pub failed: i64,
+    pub ignored: i64,
+    pub ok: bool,
+}
+
 #[derive(Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct NewChangeSet {
@@ -365,6 +446,8 @@ where
 /// One change to a project. Applied atomically, with the rules checked in Rust.
 #[derive(Deserialize, Clone, Debug)]
 #[serde(tag = "op", rename_all = "snake_case")]
+// one `Op` is deserialized per command and applied at once: its size does not matter
+#[allow(clippy::large_enum_variant)]
 pub enum Op {
     Settings {
         #[serde(default)]
@@ -379,6 +462,12 @@ pub enum Op {
         dod: Option<Vec<String>>,
         #[serde(default)]
         key_prefix: Option<String>,
+        /// The language of the method's DoR/DoD suggestions (`pt`, else English).
+        #[serde(default)]
+        lang: Option<String>,
+        /// The mandatory checks (empty: back to the detected test command).
+        #[serde(default)]
+        checks: Option<Vec<Check>>,
     },
     CreateIssue {
         title: String,
@@ -396,6 +485,9 @@ pub enum Op {
         acceptance: Vec<String>,
         #[serde(default)]
         sprint: Option<String>,
+        /// Overrides the sprint capacity (Scrum/XP); recorded.
+        #[serde(default)]
+        reason: Option<String>,
     },
     UpdateIssue {
         key: String,
@@ -425,6 +517,9 @@ pub enum Op {
         branch: Option<Option<String>>,
         #[serde(default)]
         dod_done: Option<Vec<bool>>,
+        /// One flag per item of the project's own DoR.
+        #[serde(default)]
+        dor_done: Option<Vec<bool>>,
         #[serde(default)]
         story_as: Option<String>,
         #[serde(default)]
@@ -438,6 +533,9 @@ pub enum Op {
         /// RF-T03: the issue's budget in dollars (`null` removes it).
         #[serde(default, deserialize_with = "double")]
         budget_usd: Option<Option<f64>>,
+        /// Overrides the sprint capacity when the estimate changes (Scrum/XP); recorded.
+        #[serde(default)]
+        reason: Option<String>,
     },
     /// RF-T03: the sprint's Co-Dev budget in dollars (`null` removes it).
     SetSprintBudget {
@@ -445,8 +543,16 @@ pub enum Op {
         #[serde(default)]
         budget_usd: Option<f64>,
     },
-    /// Co-Dev answered every acceptance criterion (`finish_issue`, RF-B06): the table and the
-    /// template version are kept on the issue, which goes to Review. Done stays human.
+    /// Multi Co-Dev: how many Co-Devs work the sprint at the same time (1…8; `null` unsets it).
+    SetSprintCodevs {
+        id: String,
+        #[serde(default)]
+        codevs: Option<u32>,
+    },
+    /// Co-Dev answered every acceptance criterion (`finish_issue`, RF-B06) — and, from toolset 10,
+    /// every DoD item: the table and the template version are kept on the issue, which goes to
+    /// Review by the normal move (WIP, one step, the test-first proof); when a rule refuses it, it
+    /// stays where it is and the activity says why. Done stays human.
     CodevFinished {
         key: String,
         report: serde_json::Value,
@@ -508,6 +614,9 @@ pub enum Op {
         key: String,
         #[serde(default)]
         sprint: Option<String>,
+        /// Overrides the sprint capacity (Scrum/XP); recorded.
+        #[serde(default)]
+        reason: Option<String>,
     },
     CreateRelease {
         version: String,
@@ -551,6 +660,19 @@ pub enum Op {
     LinkCommits {
         commits: Vec<Commit>,
     },
+    /// The responsible person records that the issue does what its acceptance criteria ask (the
+    /// integration gate's third condition). Only with criteria; who and when are the actor's and
+    /// the store's clock; audited. Who may do it is checked by the command (`roles`).
+    ApproveFunctional {
+        key: String,
+        #[serde(default)]
+        note: Option<String>,
+    },
+    /// Withdraws the functional approval, with a reason (audited).
+    RevokeFunctional {
+        key: String,
+        reason: String,
+    },
 }
 
 fn story() -> String {
@@ -564,10 +686,11 @@ fn medium() -> String {
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectError {
-    /// `not_found | invalid | step | wip | dor | dod | blocked | db`.
+    /// `not_found | invalid | step | wip | dor | dod | blocked | capacity | tdd | role | db`.
     pub code: String,
     pub message: String,
-    /// The rule may be overridden with a reason (`Op::Move { reason }`).
+    /// The rule may be overridden with a reason (`reason` of `move`, `plan_issue`, `update_issue`,
+    /// `create_issue`).
     pub overridable: bool,
 }
 
@@ -620,14 +743,69 @@ pub fn default_prefix(root: &str) -> String {
 
 const DAY_MS: i64 = 86_400_000;
 
+/// What the integration gate reads from the project about one issue ([`ProjectStore::gate_facts`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct GateData {
+    pub checks: Vec<Check>,
+    pub criteria: Vec<String>,
+    pub functional: Option<FunctionalApproval>,
+    pub functional_criteria: Option<Vec<String>>,
+    /// the branch recorded on the issue
+    pub branch: Option<String>,
+    pub title: String,
+    /// the project's Definition of Done
+    pub dod: Vec<String>,
+}
+
 pub struct ProjectStore {
     conn: Connection,
 }
 
+/// The files already migrated by this process.
+static MIGRATED: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashSet<std::path::PathBuf>>,
+> = std::sync::OnceLock::new();
+
+/// How the IDE's SQLite files are opened (measured: in the default rollback journal every commit made two
+/// `fsync`s, on the UI thread when the command was synchronous — under disk load the window stopped responding):
+/// WAL with `synchronous=NORMAL` (a commit writes the log without `fsync`; durable at the checkpoint — a crash
+/// can lose the last commits, never corrupt the base), and a 5 s `busy_timeout` (two writers wait their turn
+/// instead of failing with `SQLITE_BUSY`). `journal_mode=WAL` is kept in the file.
+pub fn tune(conn: &Connection) -> Result<(), String> {
+    conn.busy_timeout(std::time::Duration::from_secs(5))
+        .map_err(|e| e.to_string())?;
+    let mode: String = conn
+        .query_row("PRAGMA journal_mode=WAL", [], |r| r.get(0))
+        .map_err(|e| e.to_string())?;
+    if !mode.eq_ignore_ascii_case("wal") && !mode.eq_ignore_ascii_case("memory") {
+        return Err(format!(
+            "SQLite would not switch to WAL (journal_mode={mode})"
+        ));
+    }
+    conn.pragma_update(None, "synchronous", "NORMAL")
+        .map_err(|e| e.to_string())
+}
+
 impl ProjectStore {
+    /// Opens the base in a file: tuned for an editor (see [`tune`]) and migrated once per process and path
+    /// (every command opens its own short connection; checking the schema each time was I/O on every call).
     pub fn open(path: &Path) -> Result<Self, String> {
-        let conn = Connection::open(path).map_err(|e| e.to_string())?;
-        Self::from_conn(conn)
+        let mut conn = Connection::open(path).map_err(|e| e.to_string())?;
+        tune(&conn)?;
+        conn.pragma_update(None, "foreign_keys", "ON")
+            .map_err(|e| e.to_string())?;
+        let key = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let done = MIGRATED.get_or_init(Default::default);
+        if !done.lock().map(|d| d.contains(&key)).unwrap_or(false) {
+            schema::migrate(&mut conn)?;
+            if let Ok(mut d) = done.lock() {
+                d.insert(key);
+            }
+        } else {
+            // migrated by this process already: only refuse a base another (newer) app migrated since
+            schema::refuse_newer(&conn)?;
+        }
+        Ok(Self { conn })
     }
 
     pub fn in_memory() -> Result<Self, String> {
@@ -649,11 +827,29 @@ impl ProjectStore {
     /// Creates the project of `root` on first use: empty, with the method's defaults.
     fn ensure(conn: &Connection, root: &str, now: i64) -> Result<(), ProjectError> {
         conn.execute(
-            "INSERT OR IGNORE INTO projects (root, key_prefix, seq, method, iter_days, wip, dor, dod, created, updated)
-             VALUES (?1, ?2, 0, 'kanban', 14, ?3, '[]', '[]', ?4, ?4)",
+            "INSERT OR IGNORE INTO projects (root, key_prefix, seq, method, iter_days, wip, dor, dod, created, updated, history_since)
+             VALUES (?1, ?2, 0, 'kanban', 14, ?3, '[]', '[]', ?4, ?4, ?4)",
             params![root, default_prefix(root), r#"{"progress":3,"review":2,"accept":2}"#, now],
         )?;
         Ok(())
+    }
+
+    /// What choosing `method` would change in the settings of `root`, and what stays because the
+    /// user set it (Board B). Nothing is written: the Settings op applies the same change.
+    pub fn method_preview(
+        &self,
+        root: &str,
+        method: &str,
+        lang: &str,
+        now: i64,
+    ) -> Result<methods::MethodChange, ProjectError> {
+        one_of(method, &METHODS, "método")?;
+        Self::ensure(&self.conn, root, now)?;
+        Ok(methods::change(
+            &current_settings(&self.conn, root)?,
+            method,
+            lang,
+        ))
     }
 
     /// The whole project of `root` (created empty on first use).
@@ -679,6 +875,218 @@ impl ProjectStore {
         )?;
         tx.commit()?;
         read_project(&self.conn, root)
+    }
+
+    /// Multi Co-Dev (phase 3): claims `path` for a Co-Dev session, in one immediate transaction (two
+    /// sessions asking at once never both get it). See [`claims::claim`].
+    pub fn claim(
+        &mut self,
+        root: &str,
+        path: &str,
+        who: &claims::Claimant,
+        now: i64,
+        abandoned: &dyn Fn(&claims::Claim) -> bool,
+    ) -> Result<claims::Outcome, ProjectError> {
+        let tx = self
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let o = claims::claim(&tx, root, path, who, now, abandoned)?;
+        tx.commit()?;
+        Ok(o)
+    }
+
+    /// Gives back one path a session claimed (its write did not happen).
+    pub fn release_claim(
+        &mut self,
+        root: &str,
+        session: &str,
+        path: &str,
+    ) -> Result<bool, ProjectError> {
+        claims::release(&self.conn, root, session, path)
+    }
+
+    /// Gives back every path of a session (it closed).
+    pub fn release_session_claims(
+        &mut self,
+        root: &str,
+        session: &str,
+    ) -> Result<usize, ProjectError> {
+        claims::release_session(&self.conn, root, session)
+    }
+
+    /// Drops the claims whose holder is gone.
+    pub fn release_abandoned_claims(
+        &mut self,
+        root: &str,
+        abandoned: &dyn Fn(&claims::Claim) -> bool,
+    ) -> Result<usize, ProjectError> {
+        let tx = self
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let n = claims::release_abandoned(&tx, root, abandoned)?;
+        tx.commit()?;
+        Ok(n)
+    }
+
+    /// Every file claim of the project, by path.
+    pub fn claims(&self, root: &str) -> Result<Vec<claims::Claim>, ProjectError> {
+        claims::list(&self.conn, root)
+    }
+
+    /// Multi Co-Dev (phase 4): records a new review of an issue branch; returns its id.
+    pub fn review_insert(
+        &mut self,
+        root: &str,
+        r: &integration::Review,
+    ) -> Result<i64, ProjectError> {
+        integration::insert(&self.conn, root, r)
+    }
+
+    /// Writes back what a review learned (checks, findings, verdict, state).
+    pub fn review_update(
+        &mut self,
+        root: &str,
+        r: &integration::Review,
+        now: i64,
+    ) -> Result<(), ProjectError> {
+        integration::update(&self.conn, root, r, now)
+    }
+
+    /// The newest review of issue `key`.
+    pub fn review_latest(
+        &self,
+        root: &str,
+        key: &str,
+    ) -> Result<Option<integration::Review>, ProjectError> {
+        integration::latest(&self.conn, root, key)
+    }
+
+    /// One review by id.
+    pub fn review(&self, root: &str, id: i64) -> Result<Option<integration::Review>, ProjectError> {
+        integration::get(&self.conn, root, id)
+    }
+
+    /// What the gate reads from the project about issue `key`, in one read: the mandatory checks,
+    /// the acceptance criteria, the functional approval and the criteria it was given for, the
+    /// issue's branch, title and the project's DoD.
+    pub fn gate_facts(&self, root: &str, key: &str) -> Result<GateData, ProjectError> {
+        let (title, branch): (String, Option<String>) = self
+            .conn
+            .query_row(
+                "SELECT title, branch FROM issues WHERE root = ?1 AND key = ?2",
+                params![root, key],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?
+            .ok_or_else(|| err("not_found", format!("a issue {key} não existe")))?;
+        let (.., dod) = settings(&self.conn, root)?;
+        Ok(GateData {
+            checks: self.checks(root)?,
+            criteria: criteria_texts(&self.conn, root, key)?,
+            functional: functional_of(&self.conn, root, key)?,
+            functional_criteria: functional_criteria(&self.conn, root, key)?,
+            branch: branch
+                .map(|b| b.trim().to_string())
+                .filter(|b| !b.is_empty()),
+            title,
+            dod,
+        })
+    }
+
+    /// Multi Co-Dev (phase 4): issue `key` was integrated — review `review` landed as `commit` on
+    /// `target`. In one transaction: the review is marked, the commit is linked to the issue, the
+    /// activity says it, and the issue walks towards Done one step at a time by the normal move rules
+    /// (WIP, test-first, the DoD — never overridden); where a rule refuses, it stays and a `held`
+    /// entry says why. Returns where the issue ended. Called by the backend after the merge, never
+    /// from an [`Op`].
+    pub fn record_integration(
+        &mut self,
+        root: &str,
+        actor: &str,
+        now: i64,
+        key: &str,
+        review: i64,
+        commit: &str,
+        target: &str,
+    ) -> Result<String, ProjectError> {
+        let tx = self.conn.transaction()?;
+        let n = tx.execute(
+            "UPDATE integration_reviews SET state = 'integrated', updated = ?4 WHERE root = ?1 AND id = ?2 AND key = ?3 AND state = 'reviewed'",
+            params![root, review, key, now],
+        )?;
+        if n == 0 {
+            return Err(err(
+                "invalid",
+                format!("a revisão {review} de {key} não está revista"),
+            ));
+        }
+        tx.execute(
+            "INSERT OR IGNORE INTO issue_links (root, key, kind, ref, title, at) VALUES (?1, ?2, 'commit', ?3, ?4, ?5)",
+            params![root, key, commit, format!("integrada em {target}"), now],
+        )?;
+        log(
+            &tx,
+            root,
+            key,
+            now,
+            actor,
+            "integrated",
+            None,
+            None,
+            &format!("integrada em {target} ({commit})"),
+        )?;
+        let mut state = issue_row(&tx, root, key)?.state;
+        while let Some(next) = STATES
+            .iter()
+            .position(|s| *s == state)
+            .and_then(|i| STATES.get(i + 1))
+        {
+            let m = move_check(&tx, root, key, next)?;
+            if !m.broken.is_empty() {
+                let why: Vec<String> = m.broken.iter().map(|b| b.message.clone()).collect();
+                log(
+                    &tx,
+                    root,
+                    key,
+                    now,
+                    actor,
+                    "held",
+                    None,
+                    None,
+                    &format!("fica em «{state}»: {}", why.join("; ")),
+                )?;
+                break;
+            }
+            let mut note = format!("integrada em {target}");
+            for x in &m.notes {
+                note.push_str("; ");
+                note.push_str(x);
+            }
+            do_move(&tx, root, actor, now, key, &state, next, "moved", &note)?;
+            state = next.to_string();
+        }
+        tx.execute(
+            "UPDATE projects SET updated = ?2 WHERE root = ?1",
+            params![root, now],
+        )?;
+        tx.commit()?;
+        Ok(state)
+    }
+
+    /// The project's mandatory checks (the integration gate, Multi Co-Dev phases 2 and 4); empty
+    /// when none was set — then the detected test command is the one.
+    pub fn checks(&self, root: &str) -> Result<Vec<Check>, ProjectError> {
+        let v: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT checks FROM projects WHERE root = ?1",
+                params![root],
+                |r| r.get(0),
+            )
+            .optional()?
+            .flatten();
+        Ok(v.and_then(|c| serde_json::from_str(&c).ok())
+            .unwrap_or_default())
     }
 
     pub fn detail(&self, root: &str, key: &str) -> Result<IssueDetail, ProjectError> {
@@ -864,17 +1272,58 @@ impl ProjectStore {
 
     /// Appends one row to the audit log (the caller masks secrets first).
     pub fn record_audit(&mut self, root: &str, e: &AuditEntry) -> Result<(), ProjectError> {
+        audit_insert(&self.conn, root, e).map(|_| ())
+    }
+
+    /// [`Self::record_audit`], returning the row's id (Multi Co-Dev phase 5: the autonomy's log
+    /// links each of its steps to the audit rows it wrote).
+    pub fn record_audit_id(&mut self, root: &str, e: &AuditEntry) -> Result<i64, ProjectError> {
+        audit_insert(&self.conn, root, e)
+    }
+
+    /// Records one test run on a commit (r23 F3, UI-SCM-09).
+    pub fn record_test_result(&mut self, root: &str, r: &TestResult) -> Result<(), ProjectError> {
         self.conn.execute(
-            "INSERT INTO audit (root, at, session, event, origin, issue_key, actor, mode, tool, call, path, lines, command,
-                                verdict, outcome, decided_by, decided_at, reason, model, tokens_in, tokens_out, driver, cost_usd)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
-            params![
-                root, e.at, e.session, e.event, e.origin, e.issue_key, e.actor, e.mode, e.tool, e.call, e.path,
-                e.lines, e.command, e.verdict, e.outcome, e.decided_by, e.decided_at, e.reason, e.model,
-                e.tokens_in, e.tokens_out, e.driver, e.cost_usd
-            ],
+            "INSERT INTO test_results (root, sha, dirty, at, runner, command, passed, failed, ignored, ok)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![root, r.sha, r.dirty, r.at, r.runner, r.command, r.passed, r.failed, r.ignored, r.ok],
         )?;
         Ok(())
+    }
+
+    /// The test runs on these commits (full hashes or prefixes of 7+), newest first.
+    pub fn test_results_for(
+        &self,
+        root: &str,
+        shas: &[String],
+    ) -> Result<Vec<TestResult>, ProjectError> {
+        let mut out = Vec::new();
+        let mut st = self.conn.prepare(
+            "SELECT sha, dirty, at, runner, command, passed, failed, ignored, ok FROM test_results
+             WHERE root = ?1 AND sha LIKE ?2 || '%' ORDER BY at DESC, id DESC LIMIT 20",
+        )?;
+        for sha in shas
+            .iter()
+            .filter(|s| s.len() >= 7 && s.chars().all(|c| c.is_ascii_hexdigit()))
+        {
+            let rows = st.query_map(params![root, sha], |r| {
+                Ok(TestResult {
+                    sha: r.get(0)?,
+                    dirty: r.get(1)?,
+                    at: r.get(2)?,
+                    runner: r.get(3)?,
+                    command: r.get(4)?,
+                    passed: r.get(5)?,
+                    failed: r.get(6)?,
+                    ignored: r.get(7)?,
+                    ok: r.get(8)?,
+                })
+            })?;
+            for row in rows {
+                out.push(row?);
+            }
+        }
+        Ok(out)
     }
 
     /// The audit log of a folder, oldest first: of one issue (`Some`) or all of it.
@@ -920,6 +1369,90 @@ impl ProjectStore {
         Ok(rows)
     }
 
+    /// Records a runbook step that ran or was decided (r23 F5a).
+    pub fn record_runbook_step(
+        &mut self,
+        root: &str,
+        r: &runbooks::RunbookStepRun,
+    ) -> Result<i64, ProjectError> {
+        runbooks::record(&self.conn, root, r)
+    }
+
+    /// The person's judgement of a step's result.
+    pub fn judge_runbook_step(
+        &mut self,
+        root: &str,
+        id: i64,
+        matched: bool,
+        note: &str,
+    ) -> Result<bool, ProjectError> {
+        runbooks::judge(&self.conn, root, id, matched, note)
+    }
+
+    /// The runbook steps run between `from` and `to` (ms), of one runbook or all.
+    pub fn runbook_runs(
+        &self,
+        root: &str,
+        path: Option<&str>,
+        from: i64,
+        to: i64,
+    ) -> Result<Vec<runbooks::RunbookStepRun>, ProjectError> {
+        runbooks::list(&self.conn, root, path, from, to)
+    }
+
+    /// Records a rollout of the guided deploy (r23 F4c2).
+    pub fn record_deploy(
+        &mut self,
+        root: &str,
+        r: &deploys::DeployRecord,
+    ) -> Result<i64, ProjectError> {
+        deploys::record(&self.conn, root, r)
+    }
+
+    /// The deploys of these commits (or all of them), newest first.
+    pub fn deploys(
+        &self,
+        root: &str,
+        shas: Option<&[String]>,
+    ) -> Result<Vec<deploys::DeployRecord>, ProjectError> {
+        deploys::list(&self.conn, root, shas)
+    }
+
+    /// Accepts an IaC finding or a drift with a reason, for at most 30 days (r23 F4b).
+    #[allow(clippy::too_many_arguments)]
+    pub fn accept_risk(
+        &mut self,
+        root: &str,
+        key: &str,
+        kind: &str,
+        label: &str,
+        reason: &str,
+        actor: &str,
+        now: i64,
+        days: i64,
+    ) -> Result<risks::AcceptedRisk, ProjectError> {
+        risks::accept(&self.conn, root, key, kind, label, reason, actor, now, days)
+    }
+
+    /// The accepted IaC risks still in force.
+    pub fn accepted_risks(
+        &self,
+        root: &str,
+        now: i64,
+    ) -> Result<Vec<risks::AcceptedRisk>, ProjectError> {
+        risks::active(&self.conn, root, now)
+    }
+
+    /// Ends an accepted risk now.
+    pub fn revoke_risk(
+        &mut self,
+        root: &str,
+        id: i64,
+        now: i64,
+    ) -> Result<Option<risks::AcceptedRisk>, ProjectError> {
+        risks::revoke(&self.conn, root, id, now)
+    }
+
     /// The gutter's breakpoints of the project (DBG-03).
     pub fn breakpoints(&self, root: &str) -> Result<Vec<breakpoints::Breakpoint>, ProjectError> {
         breakpoints::load(&self.conn, root)
@@ -963,6 +1496,25 @@ impl ProjectStore {
     }
 }
 
+/// One row of the audit log; returns its id.
+pub(crate) fn audit_insert(
+    c: &Connection,
+    root: &str,
+    e: &AuditEntry,
+) -> Result<i64, ProjectError> {
+    c.execute(
+        "INSERT INTO audit (root, at, session, event, origin, issue_key, actor, mode, tool, call, path, lines, command,
+                            verdict, outcome, decided_by, decided_at, reason, model, tokens_in, tokens_out, driver, cost_usd)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
+        params![
+            root, e.at, e.session, e.event, e.origin, e.issue_key, e.actor, e.mode, e.tool, e.call, e.path,
+            e.lines, e.command, e.verdict, e.outcome, e.decided_by, e.decided_at, e.reason, e.model,
+            e.tokens_in, e.tokens_out, e.driver, e.cost_usd
+        ],
+    )?;
+    Ok(c.last_insert_rowid())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn log(
     c: &Connection,
@@ -1002,19 +1554,28 @@ struct IssueRow {
     ready: bool,
     blocked: Option<String>,
     dod_done: Vec<bool>,
+    dor_done: Vec<bool>,
+    cos: String,
+    sprint: Option<String>,
+    points: Option<u32>,
 }
 
 fn issue_row(c: &Connection, root: &str, key: &str) -> Result<IssueRow, ProjectError> {
     c.query_row(
-        "SELECT state, ready, blocked, dod_done FROM issues WHERE root = ?1 AND key = ?2",
+        "SELECT state, ready, blocked, dod_done, dor_done, cos, sprint, points FROM issues WHERE root = ?1 AND key = ?2",
         params![root, key],
         |r| {
             let dod: String = r.get(3)?;
+            let dor: String = r.get(4)?;
             Ok(IssueRow {
                 state: r.get(0)?,
                 ready: r.get(1)?,
                 blocked: r.get(2)?,
                 dod_done: serde_json::from_str(&dod).unwrap_or_default(),
+                dor_done: serde_json::from_str(&dor).unwrap_or_default(),
+                cos: r.get(5)?,
+                sprint: r.get(6)?,
+                points: r.get(7)?,
             })
         },
     )
@@ -1024,6 +1585,148 @@ fn issue_row(c: &Connection, root: &str, key: &str) -> Result<IssueRow, ProjectE
 
 /// method, WIP limits, DoR, DoD.
 type Settings = (String, BTreeMap<String, u32>, Vec<String>, Vec<String>);
+
+/// The mandatory checks as they are kept: trimmed, each with a name and a command, no name twice,
+/// at most [`MAX_CHECKS`].
+fn valid_checks(v: Vec<Check>) -> Result<Vec<Check>, ProjectError> {
+    let mut out: Vec<Check> = Vec::new();
+    for ch in v {
+        let name = ch.name.trim().to_string();
+        let command = ch.command.trim().to_string();
+        if name.is_empty() && command.is_empty() {
+            continue;
+        }
+        if name.is_empty() || command.is_empty() {
+            return Err(err(
+                "invalid",
+                "cada verificação obrigatória tem um nome e um comando",
+            ));
+        }
+        if name.chars().count() > 60 || command.chars().count() > 500 || command.contains('\n') {
+            return Err(err(
+                "invalid",
+                "o nome de uma verificação tem até 60 caracteres e o comando é uma linha até 500",
+            ));
+        }
+        if out.iter().any(|c| c.name.eq_ignore_ascii_case(&name)) {
+            return Err(err(
+                "invalid",
+                format!("há duas verificações com o nome «{name}»"),
+            ));
+        }
+        out.push(Check { name, command });
+    }
+    if out.len() > MAX_CHECKS {
+        return Err(err(
+            "invalid",
+            format!("no máximo {MAX_CHECKS} verificações obrigatórias"),
+        ));
+    }
+    Ok(out)
+}
+
+/// The issue's acceptance criteria, in order (their text only).
+fn criteria_texts(c: &Connection, root: &str, key: &str) -> rusqlite::Result<Vec<String>> {
+    let mut st =
+        c.prepare("SELECT text FROM acceptance WHERE root = ?1 AND key = ?2 ORDER BY ord")?;
+    let v = st
+        .query_map(params![root, key], |r| r.get(0))?
+        .collect::<Result<Vec<String>, _>>()?;
+    Ok(v)
+}
+
+fn functional_of(
+    c: &Connection,
+    root: &str,
+    key: &str,
+) -> rusqlite::Result<Option<FunctionalApproval>> {
+    c.query_row(
+        "SELECT functional_by, functional_at, functional_note FROM issues WHERE root = ?1 AND key = ?2",
+        params![root, key],
+        |r| {
+            Ok(match (r.get::<_, Option<String>>(0)?, r.get::<_, Option<i64>>(1)?) {
+                (Some(by), Some(at)) => Some(FunctionalApproval {
+                    by,
+                    at,
+                    note: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                }),
+                _ => None,
+            })
+        },
+    )
+}
+
+/// Records (or drops) the functional approval, with the criteria it was given for (Multi Co-Dev,
+/// phase 4: the gate checks that they are still the issue's).
+fn set_functional(
+    c: &Connection,
+    root: &str,
+    key: &str,
+    a: Option<&FunctionalApproval>,
+    now: i64,
+) -> rusqlite::Result<()> {
+    let criteria = match a {
+        Some(_) => Some(serde_json::to_string(&criteria_texts(c, root, key)?).unwrap_or_default()),
+        None => None,
+    };
+    c.execute(
+        "UPDATE issues SET functional_by = ?3, functional_at = ?4, functional_note = ?5, functional_criteria = ?6, updated = ?7 WHERE root = ?1 AND key = ?2",
+        params![root, key, a.map(|a| &a.by), a.map(|a| a.at), a.map(|a| &a.note), criteria, now],
+    )?;
+    Ok(())
+}
+
+/// The criteria the functional approval of `key` was given for (`None`: no approval, or one whose
+/// criteria were not recorded).
+fn functional_criteria(
+    c: &Connection,
+    root: &str,
+    key: &str,
+) -> rusqlite::Result<Option<Vec<String>>> {
+    let v: Option<String> = c
+        .query_row(
+            "SELECT functional_criteria FROM issues WHERE root = ?1 AND key = ?2 AND functional_by IS NOT NULL",
+            params![root, key],
+            |r| r.get(0),
+        )
+        .optional()?
+        .flatten();
+    Ok(v.and_then(|s| serde_json::from_str(&s).ok()))
+}
+
+/// The functional approval (or its withdrawal) in the audit log, in the same transaction: origin
+/// `ide`, tool `project`, the actor as the one who decided.
+fn audit_functional(
+    c: &Connection,
+    root: &str,
+    key: &str,
+    actor: &str,
+    now: i64,
+    call: &str,
+    note: &str,
+) -> rusqlite::Result<()> {
+    let verb = if call.ends_with("revoke") {
+        "revoke"
+    } else {
+        "approve"
+    };
+    c.execute(
+        "INSERT INTO audit (root, at, session, event, origin, issue_key, actor, mode, tool, call, path, command,
+                            verdict, outcome, decided_by, decided_at, reason)
+         VALUES (?1, ?2, 'ide', 'approval', 'ide', ?3, ?4, 'manual', 'project', ?5, ?3, ?6, 'ask', 'ok', ?7, ?2, ?8)",
+        params![
+            root,
+            now,
+            key,
+            actor,
+            call,
+            format!("functional {verb} {key}"),
+            format!("human:{actor}"),
+            (!note.is_empty()).then_some(note)
+        ],
+    )?;
+    Ok(())
+}
 
 fn settings(c: &Connection, root: &str) -> Result<Settings, ProjectError> {
     Ok(c.query_row(
@@ -1041,6 +1744,76 @@ fn settings(c: &Connection, root: &str) -> Result<Settings, ProjectError> {
             ))
         },
     )?)
+}
+
+/// The settings a method change reads and writes.
+fn current_settings(c: &Connection, root: &str) -> Result<methods::Current, ProjectError> {
+    let iter_days: u32 = c.query_row(
+        "SELECT iter_days FROM projects WHERE root = ?1",
+        params![root],
+        |r| r.get(0),
+    )?;
+    let (method, wip, dor, dod) = settings(c, root)?;
+    Ok(methods::Current {
+        method,
+        iter_days,
+        wip,
+        dor,
+        dod,
+    })
+}
+
+/// Board B: the sprint capacity (Scrum, XP, Scrum + XP) when `key` puts `points` in `sprint`
+/// (`before`: what it counted there before the change). Refused only when the change adds points
+/// and the sprint would pass its capacity; a closed sprint, a sprint without a capacity and Kanban
+/// have no rule.
+fn capacity_rule(
+    c: &Connection,
+    root: &str,
+    sprint: &str,
+    key: &str,
+    before: u32,
+    points: Option<u32>,
+) -> Result<Option<ProjectError>, ProjectError> {
+    let (method, ..) = settings(c, root)?;
+    if !methods::uses_capacity(&method) {
+        return Ok(None);
+    }
+    let Some((name, state, cap)): Option<(String, String, Option<u32>)> = c
+        .query_row(
+            "SELECT name, state, capacity FROM sprints WHERE root = ?1 AND id = ?2",
+            params![root, sprint],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()?
+    else {
+        return Ok(None);
+    };
+    let Some(cap) = cap.filter(|_| state != "closed") else {
+        return Ok(None);
+    };
+    let others: u32 = c.query_row(
+        "SELECT COALESCE(SUM(points), 0) FROM issues WHERE root = ?1 AND sprint = ?2 AND key <> ?3",
+        params![root, sprint, key],
+        |r| r.get(0),
+    )?;
+    let total = others + points.unwrap_or(0);
+    if total > cap && total > others + before {
+        return Ok(Some(rule(
+            "capacity",
+            format!("a capacidade de «{name}» é {cap} pontos e ficaria com {total}"),
+        )));
+    }
+    Ok(None)
+}
+
+/// A rule broken by a change that is not a move: with a reason it goes on (the note for the
+/// `override` activity), without one it is refused.
+fn need_reason(e: ProjectError, reason: Option<&str>) -> Result<String, ProjectError> {
+    match reason.map(str::trim).filter(|r| !r.is_empty()) {
+        Some(r) => Ok(format!("excepção ({}): {r}", e.code)),
+        None => Err(e),
+    }
 }
 
 fn next_rank(c: &Connection, root: &str) -> rusqlite::Result<f64> {
@@ -1126,12 +1899,28 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
             dor,
             dod,
             key_prefix,
+            lang,
+            checks,
         } => {
+            if let Some(v) = checks {
+                let v = valid_checks(v)?;
+                c.execute(
+                    "UPDATE projects SET checks = ?2 WHERE root = ?1",
+                    params![root, (!v.is_empty()).then(|| json(&v))],
+                )?;
+            }
             if let Some(m) = &method {
                 one_of(m, &METHODS, "método")?;
+                // Board B: the method's defaults where the user has not set their own (the same
+                // change `method_preview` shows); the fields of this op, if any, win after it
+                let cur = current_settings(c, root)?;
+                let next = methods::apply(
+                    &cur,
+                    &methods::change(&cur, m, lang.as_deref().unwrap_or("pt")),
+                );
                 c.execute(
-                    "UPDATE projects SET method = ?2 WHERE root = ?1",
-                    params![root, m],
+                    "UPDATE projects SET method = ?2, iter_days = ?3, wip = ?4, dor = ?5, dod = ?6 WHERE root = ?1",
+                    params![root, m, next.iter_days, json(&next.wip), json(&next.dor), json(&next.dod)],
                 )?;
             }
             if let Some(d) = iter_days {
@@ -1187,11 +1976,16 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
             description,
             acceptance,
             sprint,
+            reason,
         } => {
+            let mut overridden = None;
             if let Some(s) = &sprint {
                 sprint_exists(c, root, s)?;
+                if let Some(e) = capacity_rule(c, root, s, "", 0, points)? {
+                    overridden = Some(need_reason(e, reason.as_deref())?);
+                }
             }
-            insert_issue(
+            let key = insert_issue(
                 c,
                 root,
                 actor,
@@ -1206,6 +2000,12 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
                 sprint.as_deref(),
                 "",
             )?;
+            if let Some(note) = overridden {
+                log(c, root, &key, now, actor, "override", None, None, &note)?;
+            }
+            if let Some(s) = &sprint {
+                record_scope(c, root, s, &key, now, "added", points, "created", actor)?;
+            }
         }
         Op::UpdateIssue {
             key,
@@ -1228,8 +2028,20 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
             scope,
             deps,
             budget_usd,
+            dor_done,
+            reason,
         } => {
-            issue_row(c, root, &key)?;
+            let row = issue_row(c, root, &key)?;
+            // Board B: a bigger estimate may not pass the sprint's capacity (Scrum/XP)
+            let mut overridden = None;
+            if let (Some(p), Some(s)) = (&points, &row.sprint) {
+                if let Some(e) = capacity_rule(c, root, s, &key, row.points.unwrap_or(0), *p)? {
+                    overridden = Some(need_reason(e, reason.as_deref())?);
+                }
+            }
+            if let Some(note) = &overridden {
+                log(c, root, &key, now, actor, "override", None, None, note)?;
+            }
             if let Some(b) = &budget_usd {
                 if b.is_some_and(|v| v.is_nan() || v < 0.0) {
                     return Err(err(
@@ -1265,9 +2077,24 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
                 set("priority", p)?;
                 changed.push("prioridade");
             }
+            let estimate;
             if let Some(p) = &points {
+                let (old, sprint): (Option<u32>, Option<String>) = c.query_row(
+                    "SELECT points, sprint FROM issues WHERE root = ?1 AND key = ?2",
+                    params![root, key],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )?;
                 set("points", p)?;
-                changed.push("estimativa");
+                if old != *p {
+                    // the metrics read the estimate as it was on each day (Board A)
+                    c.execute(
+                        "INSERT INTO estimate_changes (root, key, at, old_points, new_points, sprint, actor) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                        params![root, key, now, old, p, sprint, actor],
+                    )?;
+                }
+                let pts = |v: Option<u32>| v.map_or("–".to_string(), |n| n.to_string());
+                estimate = format!("estimativa {} → {}", pts(old), pts(*p));
+                changed.push(&estimate);
             }
             if let Some(a) = &assignee {
                 set("assignee", a)?;
@@ -1332,6 +2159,11 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
                 set("deps", &json(&v))?;
                 changed.push("dependências");
             }
+            // before `ready`: ticking the DoR items and approving it may come in one change
+            if let Some(d) = &dor_done {
+                set("dor_done", &json(d))?;
+                changed.push("DoR");
+            }
             if let Some(r) = ready {
                 // RF-B02: Ready only with the rest of the Definition of Ready complete
                 if r {
@@ -1342,7 +2174,7 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
                         .map(|i| (i.key.clone(), i.state.clone()))
                         .collect();
                     if let Some(i) = p.issues.iter().find(|i| i.key == key) {
-                        let missing: Vec<String> = readiness(i, &states)
+                        let missing: Vec<String> = readiness(i, &states, &p.dor)
                             .into_iter()
                             .filter(|m| m != "aprovação humana (Ready)")
                             .collect();
@@ -1407,12 +2239,27 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
                 params![root, id, budget_usd],
             )?;
         }
+        Op::SetSprintCodevs { id, codevs } => {
+            sprint_exists(c, root, &id)?;
+            if codevs.is_some_and(|n| n == 0 || n > plan::MAX_CODEVS) {
+                return Err(err(
+                    "invalid",
+                    format!("uma sprint tem de 1 a {} Co-Devs", plan::MAX_CODEVS),
+                ));
+            }
+            c.execute(
+                "UPDATE sprints SET codevs = ?3 WHERE root = ?1 AND id = ?2",
+                params![root, id, codevs],
+            )?;
+        }
         Op::CodevFinished {
             key,
             report,
             template_version,
         } => {
             let row = issue_row(c, root, &key)?;
+            let (.., dod) = settings(c, root)?;
+            let dod_gap = unanswered_dod(&report, &dod);
             c.execute(
                 "UPDATE issues SET criteria_report = ?3, template_version = COALESCE(?4, template_version), updated = ?5 WHERE root = ?1 AND key = ?2",
                 params![root, key, json(&report), template_version, now],
@@ -1428,22 +2275,36 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
                 None,
                 "o Co-Dev respondeu aos critérios",
             )?;
+            // Board B: to Review by the normal move — WIP, one step, the test-first proof; a rule
+            // that refuses keeps the issue where it is (the human moves it, with a reason if needed)
             if row.state != "review" && row.state != "accept" && row.state != "done" {
-                c.execute(
-                    "UPDATE issues SET state = 'review', updated = ?3 WHERE root = ?1 AND key = ?2",
-                    params![root, key, now],
-                )?;
-                log(
-                    c,
-                    root,
-                    &key,
-                    now,
-                    actor,
-                    "moved",
-                    Some(&row.state),
-                    Some("review"),
-                    "critérios respondidos (RF-B06)",
-                )?;
+                let m = move_check(c, root, &key, "review")?;
+                let mut why: Vec<String> = m.broken.iter().map(|b| b.message.clone()).collect();
+                if let Some(g) = dod_gap {
+                    why.insert(0, g);
+                }
+                if why.is_empty() {
+                    let mut note = "critérios respondidos (RF-B06)".to_string();
+                    for n in &m.notes {
+                        note.push_str("; ");
+                        note.push_str(n);
+                    }
+                    do_move(
+                        c, root, actor, now, &key, &row.state, "review", "moved", &note,
+                    )?;
+                } else {
+                    log(
+                        c,
+                        root,
+                        &key,
+                        now,
+                        actor,
+                        "held",
+                        None,
+                        None,
+                        &format!("fica em «{}»: {}", row.state, why.join("; ")),
+                    )?;
+                }
             }
         }
         Op::TestsRun {
@@ -1506,10 +2367,15 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
                         "testes falharam (RF-B07)",
                     )?;
                 }
+                if let (None, Some(b)) = (&row.blocked, &blocked) {
+                    // when it became blocked: the reports measure blocked time from this entry
+                    log(c, root, &key, now, actor, "blocked", None, None, b)?;
+                }
             }
         }
         Op::SetAcceptance { key, items } => {
             issue_row(c, root, &key)?;
+            let before: Vec<String> = criteria_texts(c, root, &key)?;
             c.execute(
                 "DELETE FROM acceptance WHERE root = ?1 AND key = ?2",
                 params![root, key],
@@ -1539,6 +2405,78 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
                 None,
                 "critérios de aceitação",
             )?;
+            // the approval was given against the criteria: other criteria, another approval
+            if criteria_texts(c, root, &key)? != before && functional_of(c, root, &key)?.is_some() {
+                set_functional(c, root, &key, None, now)?;
+                log(
+                    c,
+                    root,
+                    &key,
+                    now,
+                    actor,
+                    "functional_reset",
+                    None,
+                    None,
+                    "os critérios de aceitação mudaram: a aprovação funcional caiu",
+                )?;
+            }
+        }
+        Op::ApproveFunctional { key, note } => {
+            issue_row(c, root, &key)?;
+            if criteria_texts(c, root, &key)?.is_empty() {
+                return Err(err(
+                    "invalid",
+                    format!(
+                        "{key} não tem critérios de aceitação: a aprovação funcional confirma-os"
+                    ),
+                ));
+            }
+            if let Some(a) = functional_of(c, root, &key)? {
+                return Err(err(
+                    "invalid",
+                    format!("{key} já tem a aprovação funcional de {}", a.by),
+                ));
+            }
+            let note: String = note.unwrap_or_default().trim().chars().take(2000).collect();
+            set_functional(
+                c,
+                root,
+                &key,
+                Some(&FunctionalApproval {
+                    by: actor.to_string(),
+                    at: now,
+                    note: note.clone(),
+                }),
+                now,
+            )?;
+            log(c, root, &key, now, actor, "functional", None, None, &note)?;
+            audit_functional(c, root, &key, actor, now, "functional.approve", &note)?;
+        }
+        Op::RevokeFunctional { key, reason } => {
+            issue_row(c, root, &key)?;
+            let reason: String = reason.trim().chars().take(2000).collect();
+            if reason.is_empty() {
+                return Err(err(
+                    "invalid",
+                    "retirar a aprovação funcional pede um motivo",
+                ));
+            }
+            if functional_of(c, root, &key)?.is_none() {
+                return Err(err("invalid", format!("{key} não tem aprovação funcional")));
+            }
+            set_functional(c, root, &key, None, now)?;
+            log(
+                c,
+                root,
+                &key,
+                now,
+                actor,
+                "functional_revoked",
+                None,
+                None,
+                &reason,
+            )?;
+            audit_functional(c, root, &key, actor, now, "functional.revoke", &reason)?;
         }
         Op::Move { key, to, reason } => {
             move_issue(c, root, actor, now, &key, &to, reason.as_deref())?
@@ -1574,6 +2512,14 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
         }
         Op::DeleteIssue { key } => {
             issue_row(c, root, &key)?;
+            let (sprint, points): (Option<String>, Option<u32>) = c.query_row(
+                "SELECT sprint, points FROM issues WHERE root = ?1 AND key = ?2",
+                params![root, key],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )?;
+            if let Some(s) = &sprint {
+                record_scope(c, root, s, &key, now, "removed", points, "deleted", actor)?;
+            }
             for t in ["issues", "acceptance", "issue_links"] {
                 c.execute(
                     &format!("DELETE FROM {t} WHERE root = ?1 AND key = ?2"),
@@ -1639,29 +2585,37 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
                 ));
             }
             c.execute(
-                "UPDATE sprints SET state = 'active' WHERE root = ?1 AND id = ?2",
-                params![root, id],
+                "UPDATE sprints SET state = 'active', started_at = ?3, closed_at = NULL WHERE root = ?1 AND id = ?2",
+                params![root, id, now],
             )?;
+            // what the sprint commits to: kept after it closes, so «committed vs done» survives the carry-over
+            snapshot_sprint(c, root, &id, "start", now)?;
         }
         Op::CloseSprint { id, carry_to } => {
             sprint_exists(c, root, &id)?;
             if let Some(t) = &carry_to {
                 sprint_exists(c, root, t)?;
             }
-            let open: Vec<String> = {
+            // what the sprint held when it closed, before the carry-over empties it
+            snapshot_sprint(c, root, &id, "close", now)?;
+            let open: Vec<(String, Option<u32>)> = {
                 let mut st = c.prepare(
-                    "SELECT key FROM issues WHERE root = ?1 AND sprint = ?2 AND state <> 'done'",
+                    "SELECT key, points FROM issues WHERE root = ?1 AND sprint = ?2 AND state <> 'done'",
                 )?;
                 let v = st
-                    .query_map(params![root, id], |r| r.get(0))?
+                    .query_map(params![root, id], |r| Ok((r.get(0)?, r.get(1)?)))?
                     .collect::<Result<_, _>>()?;
                 v
             };
-            for k in &open {
+            for (k, points) in &open {
                 c.execute(
                     "UPDATE issues SET sprint = ?3 WHERE root = ?1 AND key = ?2",
                     params![root, k, carry_to],
                 )?;
+                record_scope(c, root, &id, k, now, "removed", *points, "carried", actor)?;
+                if let Some(t) = &carry_to {
+                    record_scope(c, root, t, k, now, "added", *points, "carried", actor)?;
+                }
                 log(
                     c,
                     root,
@@ -1678,15 +2632,27 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
                 )?;
             }
             c.execute(
-                "UPDATE sprints SET state = 'closed' WHERE root = ?1 AND id = ?2",
-                params![root, id],
+                "UPDATE sprints SET state = 'closed', closed_at = ?3 WHERE root = ?1 AND id = ?2",
+                params![root, id, now],
             )?;
         }
-        Op::PlanIssue { key, sprint } => {
-            issue_row(c, root, &key)?;
+        Op::PlanIssue {
+            key,
+            sprint,
+            reason,
+        } => {
+            let row = issue_row(c, root, &key)?;
+            // Board B: the sprint's capacity (Scrum/XP); an override is recorded after the plan
+            let mut overridden = None;
             if let Some(s) = &sprint {
                 sprint_exists(c, root, s)?;
+                if row.sprint.as_deref() != Some(s.as_str()) {
+                    if let Some(e) = capacity_rule(c, root, s, &key, 0, row.points)? {
+                        overridden = Some(need_reason(e, reason.as_deref())?);
+                    }
+                }
             }
+            record_replan(c, root, &key, sprint.as_deref(), now, actor)?;
             c.execute(
                 "UPDATE issues SET sprint = ?3, updated = ?4 WHERE root = ?1 AND key = ?2",
                 params![root, key, sprint, now],
@@ -1702,6 +2668,9 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
                 None,
                 sprint.as_deref().unwrap_or("backlog"),
             )?;
+            if let Some(note) = overridden {
+                log(c, root, &key, now, actor, "override", None, None, &note)?;
+            }
         }
         Op::CreateRelease {
             version,
@@ -1869,36 +2838,107 @@ fn sprint_exists(c: &Connection, root: &str, id: &str) -> Result<(), ProjectErro
     .ok_or_else(|| err("not_found", format!("a sprint {id} não existe")))
 }
 
-/// The flow rules (PROJ-02/03), checked before a move; `reason` overrides them.
-fn move_issue(
+/// One issue joined (`added`) or left (`removed`) a sprint, with its estimate at that moment
+/// (Board A: the burndown reads the scope as it was each day, not as it is today).
+#[allow(clippy::too_many_arguments)]
+fn record_scope(
     c: &Connection,
     root: &str,
-    actor: &str,
-    now: i64,
+    sprint: &str,
     key: &str,
-    to: &str,
-    reason: Option<&str>,
-) -> Result<(), ProjectError> {
-    one_of(to, &STATES, "estado")?;
-    let row = issue_row(c, root, key)?;
-    if row.state == to {
+    at: i64,
+    change: &str,
+    points: Option<u32>,
+    reason: &str,
+    actor: &str,
+) -> rusqlite::Result<()> {
+    c.execute(
+        "INSERT INTO sprint_scope (root, sprint, key, at, change, points, reason, actor) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![root, sprint, key, at, change, points, reason, actor],
+    )?;
+    Ok(())
+}
+
+/// `PlanIssue` moves an issue between sprints (or the backlog): it leaves the old sprint and
+/// joins the new one; nothing is recorded when the sprint does not change.
+fn record_replan(
+    c: &Connection,
+    root: &str,
+    key: &str,
+    to: Option<&str>,
+    at: i64,
+    actor: &str,
+) -> rusqlite::Result<()> {
+    let (from, points): (Option<String>, Option<u32>) = c.query_row(
+        "SELECT sprint, points FROM issues WHERE root = ?1 AND key = ?2",
+        params![root, key],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    if from.as_deref() == to {
         return Ok(());
     }
-    let (method, wip, _dor, dod) = settings(c, root)?;
+    if let Some(f) = &from {
+        record_scope(c, root, f, key, at, "removed", points, "planned", actor)?;
+    }
+    if let Some(t) = to {
+        record_scope(c, root, t, key, at, "added", points, "planned", actor)?;
+    }
+    Ok(())
+}
+
+/// What a sprint holds at `kind` (`start`: its commitment; `close`: what it ended with), with
+/// each issue's estimate and state at that moment.
+fn snapshot_sprint(
+    c: &Connection,
+    root: &str,
+    sprint: &str,
+    kind: &str,
+    at: i64,
+) -> rusqlite::Result<()> {
+    c.execute(
+        "DELETE FROM sprint_snapshots WHERE root = ?1 AND sprint = ?2 AND kind = ?3",
+        params![root, sprint, kind],
+    )?;
+    c.execute(
+        "INSERT INTO sprint_snapshots (root, sprint, kind, key, points, state, at)
+         SELECT root, sprint, ?3, key, points, state, ?4 FROM issues WHERE root = ?1 AND sprint = ?2",
+        params![root, sprint, kind, at],
+    )?;
+    Ok(())
+}
+
+/// The rules a move breaks (PROJ-02/03 and Board B), before it happens; `notes` say what the
+/// activity records about an exception the method allows (an expedite past the WIP limit).
+struct MoveCheck {
+    from: String,
+    broken: Vec<ProjectError>,
+    notes: Vec<String>,
+}
+
+fn move_check(c: &Connection, root: &str, key: &str, to: &str) -> Result<MoveCheck, ProjectError> {
+    let row = issue_row(c, root, key)?;
+    let mut m = MoveCheck {
+        from: row.state.clone(),
+        broken: vec![],
+        notes: vec![],
+    };
+    if row.state == to {
+        return Ok(m);
+    }
+    let (method, wip, dor, dod) = settings(c, root)?;
     let from_i = STATES.iter().position(|s| *s == row.state).unwrap_or(0);
     let to_i = STATES.iter().position(|s| *s == to).unwrap_or(0);
     let forward = to_i > from_i;
-    let reason = reason.map(str::trim).filter(|r| !r.is_empty());
-    let mut broken: Vec<ProjectError> = vec![];
     if from_i.abs_diff(to_i) > 1 {
-        broken.push(rule(
+        m.broken.push(rule(
             "step",
             format!("{key} só anda um passo de cada vez ({} → {to})", row.state),
         ));
     }
     if forward {
         if let Some(b) = &row.blocked {
-            broken.push(rule("blocked", format!("{key} está bloqueada: {b}")));
+            m.broken
+                .push(rule("blocked", format!("{key} está bloqueada: {b}")));
         }
         if let Some(limit) = wip.get(to) {
             let n: u32 = c.query_row(
@@ -1907,17 +2947,35 @@ fn move_issue(
                 |r| r.get(0),
             )?;
             if n >= *limit {
-                broken.push(rule(
-                    "wip",
-                    format!("o limite de WIP de «{to}» é {limit} e já há {n}"),
-                ));
+                // Kanban: an expedite may pass the limit — at most one over it per column
+                if methods::expedite_passes_wip(&method) && row.cos == "expedite" && n == *limit {
+                    m.notes.push(format!(
+                        "expedite acima do limite de WIP de «{to}» ({}/{limit})",
+                        n + 1
+                    ));
+                } else {
+                    m.broken.push(rule(
+                        "wip",
+                        format!("o limite de WIP de «{to}» é {limit} e já há {n}"),
+                    ));
+                }
             }
         }
-        if row.state == "todo" && method != "kanban" && !row.ready {
-            broken.push(rule(
-                "dor",
-                format!("{key} ainda não cumpre a Definition of Ready"),
-            ));
+        if row.state == "todo" && methods::checks_dor_on_move(&method) {
+            let open = dor_open(&dor, &row.dor_done);
+            if !row.ready || !open.is_empty() {
+                m.broken.push(rule(
+                    "dor",
+                    if open.is_empty() {
+                        format!("{key} ainda não cumpre a Definition of Ready")
+                    } else {
+                        format!(
+                            "{key} ainda não cumpre a Definition of Ready (falta: {})",
+                            open.join("; ")
+                        )
+                    },
+                ));
+            }
         }
         if to == "done" {
             let open: u32 = c.query_row(
@@ -1929,26 +2987,128 @@ fn move_issue(
                 .filter(|i| !row.dod_done.get(*i).copied().unwrap_or(false))
                 .count();
             if open > 0 || dod_missing > 0 {
-                broken.push(rule(
+                m.broken.push(rule(
                     "dod",
                     format!("{key} não cumpre a Definition of Done ({open} critério(s) por cumprir, {dod_missing} item(ns) da DoD por marcar)"),
                 ));
             }
         }
-    }
-    if let Some(first) = broken.first() {
-        if reason.is_none() {
-            return Err(first.clone());
+        if to == "review" && row.state == "progress" && methods::test_first(&method) {
+            if let Some(gap) = tdd_gap(c, root, key)? {
+                m.broken.push(rule("tdd", format!("{key}: {gap}")));
+            }
         }
     }
+    Ok(m)
+}
+
+/// XP / Scrum + XP (Board B): the proof that Co-Dev's work on `key` was test-first. It applies to
+/// issues with Co-Dev change sets (the data the IDE has; a human's own work is not seen). The
+/// proof is a `tdd`/`red` row of the audit log — a `run_tests` that FAILED while the issue's
+/// session had changed tests and nothing else yet (the Co-Dev host records it) — whose test files
+/// are among the issue's accepted change sets (a test the human rejected proves nothing).
+/// `None`: proven, or not applicable; `Some(why)` otherwise.
+fn tdd_gap(c: &Connection, root: &str, key: &str) -> Result<Option<String>, ProjectError> {
+    let paths: std::collections::BTreeSet<String> = {
+        let mut st =
+            c.prepare("SELECT DISTINCT path FROM change_sets WHERE root = ?1 AND issue_key = ?2")?;
+        let v = st
+            .query_map(params![root, key], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        v
+    };
+    if paths.is_empty() {
+        return Ok(None);
+    }
+    let reds: Vec<Option<String>> = {
+        let mut st = c.prepare(
+            "SELECT path FROM audit WHERE root = ?1 AND issue_key = ?2 AND event = 'tdd' AND outcome = 'red'",
+        )?;
+        let v = st
+            .query_map(params![root, key], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        v
+    };
+    let proven = reds.iter().flatten().any(|p| {
+        p.split('\n')
+            .map(str::trim)
+            .any(|f| !f.is_empty() && paths.contains(f))
+    });
+    Ok((!proven).then(|| {
+        if reds.is_empty() {
+            "sem prova de test-first: nenhum run_tests falhou antes da implementação (com só testes alterados)".to_string()
+        } else {
+            "sem prova de test-first: os testes do run_tests vermelho não estão nas alterações aceites".to_string()
+        }
+    }))
+}
+
+/// The DoD items a `finish_issue` report (toolset 10: `dod: [{index, item, met, evidence}]`)
+/// left unanswered; `None` when all are answered, or when the report has no `dod` (a session of
+/// an older toolset). An item answered for another text (the DoD changed) counts as unanswered.
+fn unanswered_dod(report: &serde_json::Value, dod: &[String]) -> Option<String> {
+    let answers = report.get("dod")?.as_array().cloned().unwrap_or_default();
+    let missing: Vec<String> = dod
+        .iter()
+        .enumerate()
+        .filter(|(k, item)| {
+            !answers.iter().any(|a| {
+                a["index"].as_u64() == Some(*k as u64 + 1)
+                    && a["item"].as_str().is_none_or(|t| t.trim() == item.trim())
+                    && a["evidence"].as_str().is_some_and(|e| !e.trim().is_empty())
+            })
+        })
+        .map(|(k, item)| format!("{} «{item}»", k + 1))
+        .collect();
+    (!missing.is_empty()).then(|| format!("a DoD ficou por responder: {}", missing.join(", ")))
+}
+
+/// Moves `key` and records it (`kind`: `moved` or `override`).
+#[allow(clippy::too_many_arguments)]
+fn do_move(
+    c: &Connection,
+    root: &str,
+    actor: &str,
+    now: i64,
+    key: &str,
+    from: &str,
+    to: &str,
+    kind: &str,
+    note: &str,
+) -> Result<(), ProjectError> {
     c.execute(
         "UPDATE issues SET state = ?3, updated = ?4 WHERE root = ?1 AND key = ?2",
         params![root, key, to, now],
     )?;
-    let note = match (broken.is_empty(), reason) {
+    log(c, root, key, now, actor, kind, Some(from), Some(to), note)?;
+    Ok(())
+}
+
+/// The flow rules (PROJ-02/03, Board B), checked before a move; `reason` overrides them.
+fn move_issue(
+    c: &Connection,
+    root: &str,
+    actor: &str,
+    now: i64,
+    key: &str,
+    to: &str,
+    reason: Option<&str>,
+) -> Result<(), ProjectError> {
+    one_of(to, &STATES, "estado")?;
+    let m = move_check(c, root, key, to)?;
+    if m.from == to {
+        return Ok(());
+    }
+    let reason = reason.map(str::trim).filter(|r| !r.is_empty());
+    if let Some(first) = m.broken.first() {
+        if reason.is_none() {
+            return Err(first.clone());
+        }
+    }
+    let mut note = match (m.broken.is_empty(), reason) {
         (false, Some(r)) => format!(
             "excepção ({}): {r}",
-            broken
+            m.broken
                 .iter()
                 .map(|b| b.code.as_str())
                 .collect::<Vec<_>>()
@@ -1956,34 +3116,32 @@ fn move_issue(
         ),
         _ => String::new(),
     };
-    log(
-        c,
-        root,
-        key,
-        now,
-        actor,
-        if broken.is_empty() {
-            "moved"
-        } else {
-            "override"
-        },
-        Some(&row.state),
-        Some(to),
-        &note,
-    )?;
-    Ok(())
+    for n in &m.notes {
+        if !note.is_empty() {
+            note.push_str("; ");
+        }
+        note.push_str(n);
+    }
+    let kind = if m.broken.is_empty() {
+        "moved"
+    } else {
+        "override"
+    };
+    do_move(c, root, actor, now, key, &m.from, to, kind, &note)
 }
 
 fn read_project(c: &Connection, root: &str) -> Result<Project, ProjectError> {
-    let (key_prefix, method, iter_days, wip, dor, dod): (
+    #[allow(clippy::type_complexity)]
+    let (key_prefix, method, iter_days, wip, dor, dod, checks): (
         String,
         String,
         u32,
         String,
         String,
         String,
+        Option<String>,
     ) = c.query_row(
-        "SELECT key_prefix, method, iter_days, wip, dor, dod FROM projects WHERE root = ?1",
+        "SELECT key_prefix, method, iter_days, wip, dor, dod, checks FROM projects WHERE root = ?1",
         params![root],
         |r| {
             Ok((
@@ -1993,6 +3151,7 @@ fn read_project(c: &Connection, root: &str) -> Result<Project, ProjectError> {
                 r.get(3)?,
                 r.get(4)?,
                 r.get(5)?,
+                r.get(6)?,
             ))
         },
     )?;
@@ -2055,7 +3214,8 @@ fn read_project(c: &Connection, root: &str) -> Result<Project, ProjectError> {
     }
     let mut st = c.prepare(
         "SELECT key, title, kind, priority, points, assignee, pair, epic, cos, blocked, rank, state, sprint, ready, description, branch, dod_done, created, updated,
-                story_as, story_want, story_so, scope, deps, ready_by, attempts, criteria_report, template_version, budget_usd
+                story_as, story_want, story_so, scope, deps, ready_by, attempts, criteria_report, template_version, budget_usd,
+                functional_by, functional_at, functional_note, dor_done
          FROM issues WHERE root = ?1 ORDER BY rank, key",
     )?;
     let issues = st
@@ -2081,6 +3241,7 @@ fn read_project(c: &Connection, root: &str) -> Result<Project, ProjectError> {
                 branch: r.get(15)?,
                 acceptance: acc.get(&key).cloned().unwrap_or_default(),
                 dod_done: serde_json::from_str(&dod_done).unwrap_or_default(),
+                dor_done: serde_json::from_str(&r.get::<_, String>(32)?).unwrap_or_default(),
                 links: links.get(&key).cloned().unwrap_or_default(),
                 change_sets: cs.get(&key).copied().unwrap_or(0),
                 created,
@@ -2100,6 +3261,17 @@ fn read_project(c: &Connection, root: &str) -> Result<Project, ProjectError> {
                 missing: vec![],
                 budget_usd: r.get(28)?,
                 spent_usd: 0.0,
+                functional: match (
+                    r.get::<_, Option<String>>(29)?,
+                    r.get::<_, Option<i64>>(30)?,
+                ) {
+                    (Some(by), Some(at)) => Some(FunctionalApproval {
+                        by,
+                        at,
+                        note: r.get::<_, Option<String>>(31)?.unwrap_or_default(),
+                    }),
+                    _ => None,
+                },
                 key,
             })
         })?
@@ -2121,16 +3293,17 @@ fn read_project(c: &Connection, root: &str) -> Result<Project, ProjectError> {
             spent.insert(k, v);
         }
     }
+    let dor_list: Vec<String> = serde_json::from_str(&dor).unwrap_or_default();
     let issues: Vec<Issue> = issues
         .into_iter()
         .map(|mut i| {
-            i.missing = readiness(&i, &states);
+            i.missing = readiness(&i, &states, &dor_list);
             i.spent_usd = spent.get(&i.key).copied().unwrap_or(0.0);
             i
         })
         .collect();
     let sprints = {
-        let mut st = c.prepare("SELECT id, name, goal, start, end, state, capacity, budget_usd FROM sprints WHERE root = ?1 ORDER BY start, id")?;
+        let mut st = c.prepare("SELECT id, name, goal, start, end, state, capacity, budget_usd, codevs FROM sprints WHERE root = ?1 ORDER BY start, id")?;
         let v = st
             .query_map(params![root], |r| {
                 Ok(Sprint {
@@ -2143,6 +3316,7 @@ fn read_project(c: &Connection, root: &str) -> Result<Project, ProjectError> {
                     capacity: r.get(6)?,
                     budget_usd: r.get(7)?,
                     spent_usd: 0.0,
+                    codevs: r.get(8)?,
                 })
             })?
             .collect::<Result<Vec<Sprint>, _>>()?;
@@ -2217,6 +3391,9 @@ fn read_project(c: &Connection, root: &str) -> Result<Project, ProjectError> {
         wip: serde_json::from_str(&wip).unwrap_or_default(),
         dor: serde_json::from_str(&dor).unwrap_or_default(),
         dod: serde_json::from_str(&dod).unwrap_or_default(),
+        checks: checks
+            .and_then(|c| serde_json::from_str(&c).ok())
+            .unwrap_or_default(),
         issues,
         sprints,
         releases,

@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 feita no que não depende de outras sessões (U7a–U7o, globais 286 → 130; o que falta e quem o desbloqueia está em «U7 — fecho»)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 feita no que não depende de outras sessões (U7a–U7o: 286 → 130 pela medida antiga); U7p em curso nas features paradas, com a medida corrigida (291 no início → 161 depois da U7p6, contando as superfícies `publish({…})` e as escritas por fachada que a antiga não via; o que falta e quem o desbloqueia está em «U7 — fecho»)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -1199,6 +1199,7 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
 
   | Razão | Nomes | Quem desbloqueia |
   |---|---|---|
+  | Superfícies `publish({…})` das pontes (a medida antiga não as via — ver «U7p — correcção da medida») | infra 40, scm 28, ext 22, visualizer 19, board 16, debug 11, codereview 7, testing 1 (144; 22 sem nenhum leitor) | a feature dona (o board e a ext são desta sessão) |
   | Publicados por pontes de outras features | `BPS` (debug); `STACK` `K8S` `DEVC` `P_DC` `RTN` `KCTX` `ENVL` `ENVS` `ENVX` `SHOWSEC` `DRIFT` `OBS` (infra); `drawStack` `termOwnsKey` (panel); `BRANCH` `COMMIT_MSG` (scm); `VZ` (visualizer) | a feature dona |
   | Shims de estado lidos por pontes de outras features | `PANE`, `LOCALE`, `cur`, `FS`, `ROOT`, `PROV` (debug, infra, testing, codereview, lsp, visualizer, hood, panel, scm, codebase, ops, comments, project); `ACTIVE` (a ponte do codereview escreve-o) | todas as pontes que os lêem (passam a ler os stores de `app/store`) |
   | Lidos só por uma feature de outra sessão | infra: `KIND` `SD` `TECH` `XC` `echo` `echoCmd` `getVar` `isApp` `newInput` `note` `rerender` `sl`; scm: `AGENTS` `AUTHOR` `blame` `clLog` `clShow` `fIcon` `gitCmd` `openDiff` `termRefreshPrompt`; codereview: `card` `diagnostics` `extOf` `liveChat` `selText` `updateAgentUI` `user`; visualizer: `EACT` `LTS` `MENUS` `buildMenubar` `esc` `hlLine`; lsp: `buildExplorer` `complete` `stPos` `writeFile`; panel: `PAIR` `agSend` `handlePrompt` `togglePanel`; project: `codevAgentAvailable` `codevAgentStory` `waiting`; hood: `hd` | essa feature (ou os seus testes) |
@@ -1227,3 +1228,89 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   deixe de publicar também (tem de sair da lista, que só encolhe) — e os «shims de estado» do `ui-metrics.sh`
   passam de informativos a métrica que só desce (7); (2) o `ARCHITECTURE.md` (a secção da UI e a inicialização do
   frontend) e o `MIGRATION.md` (a etapa 4 e a §24, com a comparação com a baseline) ficam coerentes com o código.
+- **U7p (2026-11-25) — as features que ficaram paradas (decisão do dono).** As features que outras sessões tinham
+  em mãos e já não têm trabalho aberto (sem ramos por juntar nem alterações por gravar) entram na U7; as que ainda
+  têm (lsp, project) e os nomes que elas lêem ficam de fora até pararem. Por fatias, com o mesmo método.
+  **U7p1 — o que a ponte da infra lia dos outros donos.** Saem onze: `echo`, `echoCmd`, `newInput` e o registo `XC`
+  (`features/terminal.ts`; o termgit, o board e a infra acrescentam comandos ao `XC` por import, e o stack, que avalia
+  antes, escreve pelo registo `services.terminal`), `getVar` (as pontes do Co-Dev, da infra e do board usam
+  `services.shell`), `note` (importado das notificações), `TECH`/`KIND`/`isApp`/`sl` (`features/studio.ts`; os
+  geradores e a ponte do board importam, a ponte da infra usa `services.studio`; o `KIND` fica tipado como o global
+  que era, `Record<string, any>`), e `rerender` (o `core`, o Studio, a equipa, o grafo, o termgit e o resíduo da
+  infra, que avaliam antes dos separadores, usam `services.tabs`). As leituras por nome livre trocam-se com um
+  reescritor que usa o type-checker (só os identificadores que resolvem para a declaração global — o `board.ts` tem
+  um `echo` seu, importado da ponte). O `features/notifications.ts` deixa de publicar e sai da lista do A9 (o A9
+  apanhou-o). Ordem de avaliação igual. Globais publicadas 130 → 119.
+  **U7p — correcção da medida (2026-11-25).** A contagem das «globais publicadas» do `ui-metrics.sh` só via
+  `window.X = …` e os nomes de `Object.assign(window, { … })` com o objecto escrito no sítio. Ficavam de fora duas
+  formas: (1) as superfícies `publish({ … })` das pontes de nove features, cuja implementação é
+  `Object.assign(window, surface)` com uma variável — 144 nomes (infra 40, scm 28, ext 22, visualizer 19, board 16,
+  debug 11, codereview 7, testing 1; o `publish` do painel escreve no `DXR`); e (2) as escritas por uma fachada do
+  window (`const G = window as …; G.X = …`) — 28. O scanner das fatias via as fachadas mas não as superfícies, por
+  isso o inventário do fecho também as omitia. A métrica passa a contar as quatro formas e a baseline sobe UMA vez,
+  de propósito, de 119 para 291 (o valor real); daqui para a frente só desce. O A9 passa a tratar as duas formas
+  como «publicar»: entram na lista os dez ficheiros que já publicavam assim (os resíduos board/codereview/debug/ext/
+  scm, o `graph.ts`, o índice e a ponte do painel, o índice do testing e o auto-teste desktop), 53 no total. O
+  número da U7a–U7o (286 → 130) fica como estava, mas é da medida antiga; a tabela do fecho ganha a linha das
+  superfícies.
+  **U7p2 — a infra (2026-11-25).** Saem 47 nomes. A superfície `publish({ … })` do `features/infra.ts` desaparece:
+  os 37 nomes passam a exports (as versões do runtime/K8s/deploy/dev-container que se exportam são as que consultam a
+  porta desktop, como as publicadas), e o arranque, o desktop, o auto-teste e as boas-vindas importam-nos; o stack, a
+  equipa e a ponte da ext, que avaliam antes, usam `services.infra` (`needRt`, `infraDraw`, `projectContext`). O
+  estado: `K8S`, `DEVC` e `P_DC` passam a valores da ponte da infra (`k8s()`/`setK8s`, `devc()`/`setDevc`, `pDc()`),
+  que o desktop escreve pelos setters; o `ENVX` é do resíduo e a ponte recebe a referência (`setEnvxRef`); o `OBS`
+  e o `SHOWSEC` são do resíduo; o `RTN`/`KCTX`/`ENVL` vêm do domínio (o resíduo reexporta-os); o `DRIFT` passa ao
+  Studio, que o usava (`setDrift` para o arranque). Os testes da infra lêem e escrevem pelo módulo da cadeia do
+  `bootApp`. Fica o `ENVS` (o e2e do Ops lê `window.ENVS` na app construída) e o `STACK`/`drawStack` (fatia do
+  painel). Ordem de avaliação igual. Globais publicadas (medida corrigida) 291 → 236.
+  **U7p3 — o scm (2026-11-25).** Entretanto o ramo `feat/rf-b4-template-custo` (outra sessão) passou a mexer também no
+  arch, na ext e no board, que saem da U7p até pararem; os nomes do scm que a ponte do board lê (`BRANCH`, `GIT`,
+  `STAGED`, `commitGit`, `checkout`, `gfStart`, `gfFinish`, `stOf`, `changes`, `openGraph`), os que o project/arch
+  lêem (`commit`) e os que um e2e lê (`renderScmPane`) ficam; e o `AUTHOR` (o board escreve-o) e o `COMMITS` (a
+  fixture partilhada do harness escreve-o sem acesso ao módulo fresco) também. Saem dezasseis: da superfície do
+  `features/scm.ts`, `gitMerge` (o publicado, com a porta desktop — a ponte encadeia-o no gitflow pelo registo
+  `services.scm`, e o teste da ligação do gitflow troca-o lá em vez de no window), `authorOf`, `isFlow`,
+  `gfPrompt`, `gfGuide`, `pickBranch` (o botão da moldura, o grafo e os comandos importam-no), `drawTimeline`,
+  `graphLayout`, `stage`, `discard` (a ponte, pelo registo) e o `LANE`; o `COMMIT_MSG` e o `GSEL` passam a valores da
+  ponte do scm (`commitMsg()`/`setCommitMsg`, `graphSel()`/`setGraphSel`, reexportados pelo resíduo); o `clLog`/
+  `clShow` do changelog e o `gitCmd` do termgit passam a exports. O `changelog.ts`, o `graph.ts` e o `termgit.ts`
+  deixam de publicar e saem da lista do A9 (50). Ordem de avaliação igual. Globais publicadas 236 → 217.
+  **U7p4 — o visualizer (2026-11-25).** A superfície `publish({ … })` do `features/visualizer.ts` fica só com o `boot7`
+  (o `startup.ts` chama os passos do arranque por nome); os outros dezassete (`VZS`, `vizOpen`, `vizClose`,
+  `vizFromEditor`, `vzGo`, `vzRender`, … e o motor `vzLex`/`vzParse`/`vzRun`/`vzTell`/`vzHints`) passam a exports, e
+  o `VZ` a `export let` do módulo (o `vizOpen` reatribui-o; quem o importa vê o actual). Os acessores da ponte que
+  liam esses nomes no window (`viz`, `samples`, `vizOpen`…`vzRender`) não tinham utilizador nenhum e saem. O que o
+  visualizer lia dos outros: o `md` passa a export do Co-Dev, e o `EACT` (separadores), o `buildMenubar` (menus) e
+  o `LTS` (Learning Track), que só se lêem no `boot7` e na decoração do `VIEW.lt`, vêm pelo registo; o arranque, o
+  PairCode e o desktop importam o `buildMenubar`; os atalhos importam o `vizFromEditor`. O `features/menus.ts` deixa
+  de publicar e sai da lista do A9 (49). Ordem de avaliação igual. Globais publicadas 217 → 194.
+  **U7p5 — o debug e o codereview (2026-11-25).** A superfície do `features/debug.ts` sai inteira: `renderDebugPane`,
+  `dbgBreaks` (o Set dos breakpoints, agora um valor da ponte em vez de `window.BPS`), `dbgCurrent`, `startDebug`,
+  `dbgContinue`, `dbgStep` (o «step over» que estava publicado), `dbgStepInto`, `dbgStop`, `toggleBp`, `drawDbg` e
+  `saveBps` passam a exports; a do `features/codereview.ts` fica só com o `hoodCmd` (o e2e do hood chama-o) e os
+  outros seis (`renderCreviewView`, `renderHoodView`, `curFile`, `explainCmd`, `reviewCmd`, `reviewFindings`)
+  passam a exports. A barra de acções dos separadores (`EACT`) chamava-os por `globalCalls` a partir da tabela
+  (o scanner não via esses nomes, que não estão escritos no `globalCalls`): os que saem chamam a função importada
+  e o `dxRun`/`hoodCmd` continuam pelo publicado. O editor, os atalhos, o arranque e o auto-teste importam. O
+  `features/debug.ts` deixa de publicar e sai da lista do A9 (48). Ordem de avaliação igual. Globais publicadas
+  194 → 176. **Declarações globais órfãs e um bug da U7n:** o auto-teste apanhou o `reviewFindings`/`renderCreviewView`
+  lidos por nome livre no `selftest.ts` — o tsc não os via porque a declaração global (`platform/desktop/types.ts`)
+  ficara depois de o nome sair do window. As fatias anteriores deixaram 54 declarações assim (`declare global`) e 41
+  membros de `interface Window` no `core.ts`; saem todas (ficam só os globais reais do runtime: `__TAURI__`,
+  `__PAIRSIM__`, `webkitAudioContext`, `JSZip`, …), e o tsc encontrou mais um leitor esquecido: o item «Co-Dev» do
+  menu View (`app/commands.ts`) chamava o `toggleAgent` por nome livre, que a U7n tirou do window — clicar nele
+  lançava um ReferenceError (já no `origin`). Passa a importá-lo. Regra daqui para a frente: tirar um nome do window
+  tira também a sua declaração global.
+  **U7p6 — o stack, o painel, os diagnósticos e o testing (2026-11-25).** Saem onze: o `features/stack.ts` deixa de
+  publicar (`dxRun`, `dxStop`, `drawStack` e `composeServices` passam a exports; o estado dos serviços, que era
+  `window.STACK`, passa a `stackState()`/`setStackState`, que a infra, o painel, o desktop e os testes usam); o
+  `features/diagnostics.ts` exporta o `diagnostics`/`drawProblems`/`has` e regista-os em `services.diagnostics` para
+  o editor, o workspace e os geradores, que avaliam antes. A ponte do painel deixa de reatribuir o window: os
+  problemas reais e o desenho dos serviços entram por ganchos dos donos (`setProblemsOverride`, que recebe a versão de
+  base para quando não há pasta, e `setDrawStackOverride`), e o atalho «a tecla é da shell» pelo registo
+  (`services.panel.termOwnsKey`); o `agSend` passa a export do Co-Dev. O `renderTestPane` passa a export do testing.
+  Os botões do pane do stack, do Studio, das boas-vindas e da barra de acções dos separadores chamam o `dxRun`/
+  `dxStop` importado (o `stack.ts` registava os seus com `globalCalls`, que os procurava no window — teria partido).
+  Uma verificação nova confirma que nenhum `callGlobal`/`globalCalls` nem entrada do `EACT` aponta para um nome que já
+  não esteja publicado. Fica o `PAIR` (o PairCode, fora do âmbito). Saem da lista do A9 cinco ficheiros (43). Ordem
+  de avaliação igual (só o registo, sem efeitos). Globais publicadas 176 → 161.

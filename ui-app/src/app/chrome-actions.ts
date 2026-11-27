@@ -10,12 +10,14 @@ import { newFile, newFolder, collapseAll } from "../features/explorer";
 import { termClear } from "../features/terminal";
 import { pickAgent } from "../features/team";
 import { toggleNotes } from "../features/notifications";
+import { pickBranch } from "../features/scm";
 
 /* U7n: os botões chamam as funções importadas (avaliam todas antes deste módulo); os nomes que módulos de outras
-   sessões ainda lêem no window (toggleSide, togglePanel, refresh, palette, goPane, setPanelTab, pickBranch) continuam a
+   sessões ainda lêem no window (toggleSide, togglePanel, refresh, palette, goPane, setPanelTab) continuam a
    ser chamados pelo publicado, no acto. */
 registerActions({
-  ...globalCalls("chrome", ["toggleSide", "togglePanel", "pickBranch"]),
+  ...globalCalls("chrome", ["toggleSide", "togglePanel"]),
+  "chrome:pickBranch": { click: () => pickBranch() },
   "chrome:toggleAgent": { click: () => toggleAgent() },
   "chrome:newFile": { click: () => newFile() },
   "chrome:newFolder": { click: () => newFolder() },

@@ -1,0 +1,77 @@
+{
+  "$comment": "TextMate grammars bundled with dxtutor for the editor's highlighting when no VS Code extension brings one (LSP P5). Each file is the EXACT upstream file from the VS Code repository at the pinned commit; `sha256` and `bytes` pin it. Re-fetch and verify: `npm run grammars:verify` (scripts/fetch-grammars.mjs). Licences: THIRD-PARTY-NOTICES.md. Only grammars that the editor's TextMate-lite tokenizer handles well are here (ui-app/src/features/ext/domain/textmate.ts); the ones left out, and why, are listed in CLAUDE.md («Sem servidor de linguagem»).",
+  "source": {
+    "repository": "https://github.com/microsoft/vscode",
+    "tag": "1.148.0",
+    "commit": "661626d0e72f97806550790a98fb87116c9db825",
+    "license": "MIT"
+  },
+  "grammars": [
+    {
+      "language": "python",
+      "scopeName": "source.python",
+      "file": "python.tmLanguage.json",
+      "path": "extensions/python/syntaxes/MagicPython.tmLanguage.json",
+      "bytes": 101610,
+      "sha256": "ca981430eb3df004f4955bb7cba51ad06c4d8408d168c81eec7059d7d9aec5c8",
+      "upstream": "https://github.com/MagicStack/MagicPython",
+      "upstreamCommit": "7d0f2b22a5ad8fccbd7341bc7b7a715169283044",
+      "license": "MIT"
+    },
+    {
+      "language": "dockerfile",
+      "scopeName": "source.dockerfile",
+      "file": "dockerfile.tmLanguage.json",
+      "path": "extensions/docker/syntaxes/docker.tmLanguage.json",
+      "bytes": 2576,
+      "sha256": "4702cc4b636c67fb31627a19f77d7e8b33f8655aced4aef8764eba626257421d",
+      "upstream": "https://github.com/moby/moby",
+      "upstreamCommit": "bea959c7b793b32a893820b97c4eadc7c87fabb0",
+      "license": "Apache-2.0"
+    },
+    {
+      "language": "go",
+      "scopeName": "source.go",
+      "file": "go.tmLanguage.json",
+      "path": "extensions/go/syntaxes/go.tmLanguage.json",
+      "bytes": 77114,
+      "sha256": "bd69348f63e984ea1d8e1f8641270356b08e7d027842e2fda0f3794ee0cc84cc",
+      "upstream": "https://github.com/worlpaker/go-syntax",
+      "upstreamCommit": "4a9b120a52c30e209133ab69e868e13c980be40e",
+      "license": "MIT"
+    },
+    {
+      "language": "java",
+      "scopeName": "source.java",
+      "file": "java.tmLanguage.json",
+      "path": "extensions/java/syntaxes/java.tmLanguage.json",
+      "bytes": 40357,
+      "sha256": "d9aa80381e174f56cc78760f1d8ec94473b5e3509c98715a6fc8fc3b47cbabad",
+      "upstream": "https://github.com/redhat-developer/vscode-java",
+      "upstreamCommit": "28e59628a8ea73b35cf96ad018d929f8a10eabe4",
+      "license": "MIT"
+    },
+    {
+      "language": "shellscript",
+      "scopeName": "source.shell",
+      "file": "shellscript.tmLanguage.json",
+      "path": "extensions/shellscript/syntaxes/shell-unix-bash.tmLanguage.json",
+      "bytes": 56349,
+      "sha256": "838a597b9bbc29bcfc89ca0190118550ae57517ec3e4b4baa1f8500edcf601d1",
+      "upstream": "https://github.com/jeff-hykin/better-shell-syntax",
+      "upstreamCommit": "35020b0bd79a90d3b262b4c13a8bb0b33adc1f45",
+      "license": "MIT"
+    },
+    {
+      "language": "makefile",
+      "scopeName": "source.makefile",
+      "file": "makefile.tmLanguage.json",
+      "path": "extensions/make/syntaxes/make.tmLanguage.json",
+      "bytes": 13193,
+      "sha256": "09c59caddf7731489e43c03f3aaa117785618753dd37f53c023590c531f12379",
+      "upstream": "https://github.com/fadeevab/make.tmbundle",
+      "upstreamCommit": "1d4c0b541959995db098df751ffc129da39a294b",
+      "license": "TextMate-Bundle"
+    }
+  ]
+}

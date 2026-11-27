@@ -6,7 +6,21 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
+# r23 F4a (X03): the secret scan before every commit the app makes
+tutor-protect = { path = "../tutor-protect" }
+# r23 F4a: the built-in IaC rules (iacfind)
+regex = "1"
+# r23 F4b: a reviewed plan is kept under its SHA-256
+sha2 = "0.10"
+dirs = "7"
+# LSP P3: a language server's pinned GitHub release is downloaded, checked and unpacked here
+ureq = { version = "2.12" }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+flate2 = "1"
 tutor-core = { path = "../tutor-core" }
+# Learn P2b: the tool evaluator reads the learner's YAML (maintained fork of serde_yaml 0.9, the
+# same crate the Delonix Engine uses)
+serde_norway = "0.9"
 anyhow.workspace = true
 tempfile.workspace = true
 serde.workspace = true

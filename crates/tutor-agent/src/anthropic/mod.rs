@@ -13,7 +13,9 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use crate::provider::{Provider, ProviderError, Request, Response, StreamEvent, ThinkingDisplay};
+use crate::provider::{
+    CacheTtl, Provider, ProviderError, Request, Response, StreamEvent, ThinkingDisplay,
+};
 use crate::retry;
 use crate::types::Role;
 
@@ -103,7 +105,11 @@ pub fn body(req: &Request) -> Result<Value, ProviderError> {
                 .map(|s| {
                     let mut blk = json!({ "type": "text", "text": s.text });
                     if s.cache {
-                        blk["cache_control"] = json!({ "type": "ephemeral" });
+                        blk["cache_control"] = match req.cache_ttl {
+                            CacheTtl::FiveMinutes => json!({ "type": "ephemeral" }),
+                            // GA, sem beta; vem antes da entrada de 5 min da cauda (a ordem exigida)
+                            CacheTtl::OneHour => json!({ "type": "ephemeral", "ttl": "1h" }),
+                        };
                     }
                     blk
                 })
@@ -212,6 +218,8 @@ impl Anthropic {
 
     /// Envia o POST, repetindo falhas antes do primeiro byte. Devolve a resposta HTTP 200.
     fn send(&self, req: &Request, body: &str) -> Result<ureq::Response, ProviderError> {
+        // r23 F4a (X02): no secret leaves for the model (once, before the retries)
+        let body = &tutor_protect::redact::guard_body("codev", body);
         let mut attempt = 0u32;
         loop {
             let mut r = self.agent.post(&self.cfg.endpoint);
@@ -327,6 +335,30 @@ mod tests {
         assert_eq!(b["tools"][0]["name"], "read");
         assert!(b["tools"][0].get("eager_input_streaming").is_none());
         assert_eq!(b["tools"][1]["eager_input_streaming"], true);
+        // por omissão, 5 minutos (sem `ttl`)
+        assert!(b["system"][1]["cache_control"].get("ttl").is_none());
+    }
+
+    #[test]
+    fn the_system_breakpoint_can_live_an_hour_and_the_tail_stays_at_five_minutes() {
+        let mut r = req();
+        r.cache_ttl = CacheTtl::OneHour;
+        let b = body(&r).unwrap();
+        assert_eq!(
+            b["system"][1]["cache_control"],
+            json!({"type": "ephemeral", "ttl": "1h"})
+        );
+        assert!(b["system"][0].get("cache_control").is_none());
+        // a cauda automática fica nos 5 min: a entrada de 1 h vem antes (a ordem que a API exige)
+        assert_eq!(b["cache_control"], json!({"type": "ephemeral"}));
+        // o TTL de 1 h é GA: não acrescenta beta nenhum
+        let h = headers(&Config::new("k"), &r);
+        let beta = h
+            .iter()
+            .find(|(k, _)| *k == "anthropic-beta")
+            .map(|(_, v)| v.clone())
+            .unwrap_or_default();
+        assert!(!beta.contains("cache"), "{beta}");
     }
 
     #[test]

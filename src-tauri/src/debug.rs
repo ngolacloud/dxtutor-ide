@@ -27,6 +27,9 @@ pub struct Stop {
     /// the adapter's explanation of the stop — an exception's text (DAP)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// r23 F2b: a replay's write — the watched location, to travel back to it
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub watch: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -53,12 +56,13 @@ struct Session {
 }
 
 impl Session {
-    fn launch(program: &str, cwd: Option<&str>) -> Result<Session, String> {
+    fn launch(program: &str, args: &[String], cwd: Option<&str>) -> Result<Session, String> {
         if crate::debug::gdb_path().is_none() {
             return Err("gdb not found on PATH — install gdb (or lldb) for step-debugging".into());
         }
         let mut cmd = Command::new("gdb");
-        cmd.args(["--interpreter=mi3", "-q", program])
+        cmd.args(["--interpreter=mi3", "-q", "--args", program])
+            .args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
@@ -353,6 +357,7 @@ impl From<tutor_eval::dapc::DapStop> for Stop {
             exit_code: d.exit_code,
             thread: d.thread,
             description: d.description,
+            watch: d.watch,
         }
     }
 }
@@ -379,9 +384,10 @@ pub mod driver {
         sessions: &DebugSessions,
         id: String,
         program: String,
+        args: Vec<String>,
         cwd: Option<String>,
     ) -> Result<(), String> {
-        let s = Session::launch(&program, cwd.as_deref())?;
+        let s = Session::launch(&program, &args, cwd.as_deref())?;
         sessions.0.lock().map_err(|_| "debug lock")?.insert(id, s);
         Ok(())
     }
@@ -520,7 +526,14 @@ mod tests {
         assert!(ok, "cc must compile the test program");
 
         let sessions = DebugSessions::default();
-        driver::launch(&sessions, "t".into(), bin.to_string_lossy().into(), None).unwrap();
+        driver::launch(
+            &sessions,
+            "t".into(),
+            bin.to_string_lossy().into(),
+            vec![],
+            None,
+        )
+        .unwrap();
         let bp = driver::set_break(&sessions, "t", &src.to_string_lossy(), 1).unwrap();
         assert!(bp >= 1, "breakpoint number");
         let stop = driver::run(&sessions, "t").unwrap();

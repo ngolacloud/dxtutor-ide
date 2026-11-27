@@ -33,8 +33,36 @@ pub async fn codev_agent_start(
     review_edits: Option<bool>,
     issue: Option<String>,
     language: Option<String>,
+    architecture: Option<bool>,
+    backlog: Option<bool>,
+    worktree: Option<bool>,
 ) -> Result<String, String> {
     let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    // Multi Co-Dev (fase 3): a sessão da issue trabalha na worktree dela — a que a app criou (com
+    // aprovação), nunca um caminho vindo da interface
+    let worktree = match (worktree.unwrap_or(false), issue.as_deref()) {
+        (false, _) => None,
+        (true, None) => {
+            return Err("uma worktree só serve uma sessão que trabalha numa issue".into())
+        }
+        (true, Some(key)) => {
+            let base = super::codev_worktree::base(&app)?;
+            let (r, k) = (root.clone(), key.to_string());
+            let found = tauri::async_runtime::spawn_blocking(move || {
+                tutor_eval::gitwork::codev::find(std::path::Path::new(r.trim()), &base, &k)
+            })
+            .await
+            .map_err(|e| format!("worktree task failed: {e}"))??;
+            match found {
+                Some(w) => Some(std::path::PathBuf::from(w.dir)),
+                None => {
+                    return Err(format!(
+                        "a worktree de {key} não existe: começa a issue de novo para a criar"
+                    ))
+                }
+            }
+        }
+    };
     // `arch_propose` (Studio, F6): a proposta chega à UI pelo evento `arch://proposal`
     let emitter = app.clone();
     let arch_propose = crate::agent::ArchProposeTool {
@@ -42,6 +70,17 @@ pub async fn codev_agent_start(
             let _ = emitter.emit("arch://proposal", p);
         }),
     };
+    // `/backlog` and `/project` (toolset 11): the chat shows the proposal of the session that made it
+    // (`backlog://proposal`); the session id is known once the session starts
+    let session_id: std::sync::Arc<std::sync::OnceLock<String>> = Default::default();
+    let (em, sid) = (app.clone(), session_id.clone());
+    let emit: crate::backlog::Emit = std::sync::Arc::new(move |p| {
+        let _ = em.emit(
+            "backlog://proposal",
+            serde_json::json!({ "session": sid.get(), "proposal": p }),
+        );
+    });
+    let project_root = std::path::PathBuf::from(root.trim());
     let spec = StartSpec {
         root,
         model,
@@ -53,6 +92,22 @@ pub async fn codev_agent_start(
         host_tools: vec![std::sync::Arc::new(crate::lsp::LspDiagnosticsTool)],
         host_tools_v4: vec![std::sync::Arc::new(arch_propose)],
         host_tools_v8: vec![std::sync::Arc::new(crate::codeintel::OutlineTool)],
+        host_tools_v11: vec![
+            std::sync::Arc::new(crate::backlog::BacklogProposeTool { emit: emit.clone() }),
+            std::sync::Arc::new(crate::backlog::ProjectProposeTool { emit }),
+        ],
+        // H3: `ide` — what the IDE knows, read by action (the Project's folder is `root`)
+        host_tools_v13: vec![std::sync::Arc::new(crate::ide_tool::IdeTool {
+            root: project_root.clone(),
+            db: crate::board::db_path(&app).ok(),
+            ops: false,
+        })],
+        // H4: the same, with the Platform/SRE/DevOps actions (each with its level)
+        host_tools_v14: vec![std::sync::Arc::new(crate::ide_tool::IdeTool {
+            root: project_root,
+            db: crate::board::db_path(&app).ok(),
+            ops: true,
+        })],
         trust_store: tutor_agent::trust::default_store(),
         user_mcp: tutor_agent::mcp::user_config(),
         provider,
@@ -61,14 +116,19 @@ pub async fn codev_agent_start(
         issue_key: issue,
         change_log: crate::board::db_path(&app).ok(),
         lang: language,
+        architecture: architecture.unwrap_or(false),
+        backlog: backlog.unwrap_or(false),
+        worktree,
         ..Default::default()
     };
-    tauri::async_runtime::spawn_blocking(move || {
+    let id = tauri::async_runtime::spawn_blocking(move || {
         let key_for = |p: &str| keys::resolve(&dir, p);
         codev_agent::start(spec, &key_for, keys::anthropic_workspace_id())
     })
     .await
-    .map_err(|e| format!("agent start task failed: {e}"))?
+    .map_err(|e| format!("agent start task failed: {e}"))??;
+    let _ = session_id.set(id.clone());
+    Ok(id)
 }
 
 /// Envia uma mensagem (ou, com `text: null`, repete a partir do histórico). Devolve logo;
@@ -145,6 +205,13 @@ pub fn codev_agent_review(
     codev_agent::review(&session_id, &call, &decisions)
 }
 
+/// RF-A03/A04: o override do Arquitecto a uma alteração que viola as regras, com o número de um
+/// ADR aceite (fica no registo de auditoria). Depois disso, os hunks da chamada podem ser aceites.
+#[tauri::command]
+pub fn codev_agent_override(session_id: String, call: String, adr: String) -> Result<(), String> {
+    codev_agent::override_violation(&session_id, &call, &adr)
+}
+
 /// Muda o modo da sessão (Manual/Assistido/Auto) — a modebar.
 #[tauri::command]
 pub fn codev_agent_set_mode(session_id: String, mode: String) -> bool {
@@ -157,21 +224,34 @@ pub fn codev_agent_cancel(session_id: String) -> bool {
     codev_agent::cancel(&session_id)
 }
 
-/// Fecha a sessão.
+/// Fecha a sessão. Multi Co-Dev (fase 3): as reservas de ficheiros dela voltam e a worktree sai
+/// se não tiver alterações por commitar (com `keep_worktree`, fica: a mesma issue recomeça nela) —
+/// fora da thread da interface (espera que o turno pare).
 #[tauri::command]
-pub fn codev_agent_close(session_id: String) -> bool {
-    codev_agent::close(&session_id)
+pub async fn codev_agent_close(session_id: String, keep_worktree: Option<bool>) -> bool {
+    tauri::async_runtime::spawn_blocking(move || {
+        codev_agent::close_keeping(&session_id, keep_worktree.unwrap_or(false))
+    })
+    .await
+    .unwrap_or(false)
 }
 
 /// As sessões gravadas do projecto `root` (mais recentes primeiro).
 #[tauri::command]
-pub fn codev_agent_sessions(root: String) -> Vec<tutor_agent::session::SessionSummary> {
+pub async fn codev_agent_sessions(root: String) -> Vec<tutor_agent::session::SessionSummary> {
     codev_agent::list_sessions(&root, None)
+}
+
+/// As sessões abertas nesta execução da app (o mapa de agentes do Co-Dev): id, pasta, modelo,
+/// issue e se há um turno a correr. Só leitura.
+#[tauri::command]
+pub fn codev_agent_live() -> Vec<codev_agent::LiveSession> {
+    codev_agent::live_sessions()
 }
 
 /// O histórico simplificado de uma sessão aberta (para redesenhar a conversa retomada).
 #[tauri::command]
-pub fn codev_agent_history(
+pub async fn codev_agent_history(
     session_id: String,
 ) -> Result<Vec<tutor_agent::session::HistoryItem>, String> {
     codev_agent::history(&session_id)
@@ -186,7 +266,7 @@ pub fn codev_agent_set_plan(session_id: String, on: bool) -> Result<(), String> 
 /// Os checkpoints de ficheiros da sessão (um por turno que alterou ficheiros); cada um diz se
 /// a conversa também pode voltar a esse ponto (`conversation`).
 #[tauri::command]
-pub fn codev_agent_checkpoints(
+pub async fn codev_agent_checkpoints(
     session_id: String,
 ) -> Result<Vec<codev_agent::CheckpointView>, String> {
     codev_agent::checkpoints(&session_id)
@@ -209,13 +289,13 @@ pub async fn codev_agent_rewind(
 
 /// As regras de permissões do projecto e do utilizador (painel de permissões, A3 HARNESS-05).
 #[tauri::command]
-pub fn codev_agent_permissions(root: String) -> codev_agent::PermissionsView {
+pub async fn codev_agent_permissions(root: String) -> codev_agent::PermissionsView {
     codev_agent::permissions(&root)
 }
 
 /// Grava as regras do projecto (`.dxtutor/permissions.json`) e aplica-as às sessões abertas.
 #[tauri::command]
-pub fn codev_agent_save_permissions(
+pub async fn codev_agent_save_permissions(
     root: String,
     rules: tutor_agent::permissions::Rules,
 ) -> Result<(), String> {
@@ -225,7 +305,7 @@ pub fn codev_agent_save_permissions(
 /// O que o projecto define para o agente: comandos, skills, hooks e servidores MCP (com o
 /// estado de confiança dos que fazem correr comandos).
 #[tauri::command]
-pub fn codev_agent_extensions(root: String) -> codev_agent::ExtensionsStatus {
+pub async fn codev_agent_extensions(root: String) -> codev_agent::ExtensionsStatus {
     codev_agent::extensions_status(
         &root,
         tutor_agent::trust::default_store().as_deref(),
@@ -236,6 +316,6 @@ pub fn codev_agent_extensions(root: String) -> codev_agent::ExtensionsStatus {
 /// Confia nos hooks (`kind: "hooks"`) ou nos servidores MCP (`"mcp"`) do projecto, tal como
 /// estão agora (deixa de valer se o ficheiro mudar). Vale para as sessões novas.
 #[tauri::command]
-pub fn codev_agent_trust(root: String, kind: String) -> Result<(), String> {
+pub async fn codev_agent_trust(root: String, kind: String) -> Result<(), String> {
     codev_agent::trust_project_file(&root, &kind, tutor_agent::trust::default_store().as_deref())
 }

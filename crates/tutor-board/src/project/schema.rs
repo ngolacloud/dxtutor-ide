@@ -226,6 +226,305 @@ const MIGRATIONS: &[&str] = &[
     //     what was spent is the sum of the real cost of the turns in the audit log
     "ALTER TABLE issues ADD COLUMN budget_usd REAL;
     ALTER TABLE sprints ADD COLUMN budget_usd REAL;",
+    // 8 — test results per commit (r23 F3, UI-SCM-09): what the Testing pane ran on which commit, so a
+    //     commit's lifecycle shows real results (`dirty`: the working tree had uncommitted changes)
+    "CREATE TABLE test_results (
+        id       INTEGER PRIMARY KEY AUTOINCREMENT,
+        root     TEXT NOT NULL,
+        sha      TEXT NOT NULL,
+        dirty    INTEGER NOT NULL DEFAULT 0,
+        at       INTEGER NOT NULL,
+        runner   TEXT NOT NULL,
+        command  TEXT NOT NULL,
+        passed   INTEGER NOT NULL DEFAULT 0,
+        failed   INTEGER NOT NULL DEFAULT 0,
+        ignored  INTEGER NOT NULL DEFAULT 0,
+        ok       INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX idx_test_results_sha ON test_results(root, sha, at);",
+    // 9 — triggered breakpoints and breakpoint groups (r23 F2, UI-DBG-10): `trigger_on` is the
+    //     breakpoint (`file:line`, relative) that arms this one; `grp` the scenario it belongs to
+    "ALTER TABLE breakpoints ADD COLUMN trigger_on TEXT;
+    ALTER TABLE breakpoints ADD COLUMN grp TEXT;",
+    // 10 — accepted IaC risks and ignored drift (r23 F4b, P03/P04): a finding of the IaC pipeline (or
+    //      a drifted resource) accepted with a reason until `expires` (at most 30 days); revoking
+    //      expires it now, so the history stays
+    "CREATE TABLE iac_accepted (
+        id       INTEGER PRIMARY KEY AUTOINCREMENT,
+        root     TEXT NOT NULL,
+        key      TEXT NOT NULL,
+        kind     TEXT NOT NULL,
+        label    TEXT NOT NULL DEFAULT '',
+        reason   TEXT NOT NULL,
+        actor    TEXT NOT NULL,
+        at       INTEGER NOT NULL,
+        expires  INTEGER NOT NULL
+    );
+    CREATE INDEX idx_iac_accepted ON iac_accepted(root, expires);",
+    // 11 — deploy records (r23 F4c2, D04): each rollout of the guided deploy, ok or not — commit, issue,
+    //      environment, cluster, who deployed and who approved, the checks and the waivers (JSON)
+    "CREATE TABLE deploys (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        root        TEXT NOT NULL,
+        env         TEXT NOT NULL,
+        context     TEXT NOT NULL,
+        namespace   TEXT NOT NULL,
+        version     TEXT NOT NULL,
+        issue_key   TEXT,
+        actor       TEXT NOT NULL,
+        approver    TEXT,
+        at          INTEGER NOT NULL,
+        ok          INTEGER NOT NULL,
+        failed_step TEXT,
+        waivers     TEXT NOT NULL DEFAULT '[]',
+        gates       TEXT NOT NULL DEFAULT '{}',
+        reason      TEXT
+    );
+    CREATE INDEX idx_deploys_version ON deploys(root, version, at);",
+    // 12 — runbook runs (r23 F5a, RF-BK-R02): each step run or decided — command, output (masked),
+    //      exit code, result against the expectation (or the person's judgement), who and when
+    "CREATE TABLE runbook_runs (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        root      TEXT NOT NULL,
+        run_id    TEXT NOT NULL,
+        path      TEXT NOT NULL,
+        runbook   TEXT NOT NULL,
+        n         INTEGER NOT NULL,
+        title     TEXT NOT NULL,
+        kind      TEXT NOT NULL,
+        command   TEXT NOT NULL DEFAULT '',
+        exit_code INTEGER,
+        output    TEXT NOT NULL DEFAULT '',
+        expect    TEXT NOT NULL DEFAULT '',
+        matched   INTEGER,
+        note      TEXT,
+        actor     TEXT NOT NULL,
+        at        INTEGER NOT NULL,
+        ms        INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX idx_runbook_runs ON runbook_runs(root, path, at);",
+    // 13 — incidents (local records, owner decision §5 Q9) with their timeline, and the queue's events: an item
+    //      verified done (with its proof) or handed over (recipient and reason) — r23 F5b, Q01/Q02, A01–A03
+    "CREATE TABLE incidents (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        root         TEXT NOT NULL,
+        key          TEXT NOT NULL,
+        title        TEXT NOT NULL,
+        severity     TEXT NOT NULL,
+        status       TEXT NOT NULL,
+        commander    TEXT NOT NULL,
+        opened_at    INTEGER NOT NULL,
+        mitigated_at INTEGER,
+        resolved_at  INTEGER
+    );
+    CREATE INDEX idx_incidents ON incidents(root, opened_at);
+    CREATE TABLE incident_events (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        incident_id INTEGER NOT NULL REFERENCES incidents(id),
+        kind        TEXT NOT NULL,
+        text        TEXT NOT NULL,
+        reason      TEXT,
+        actor       TEXT NOT NULL,
+        at          INTEGER NOT NULL
+    );
+    CREATE INDEX idx_incident_events ON incident_events(incident_id, at);
+    CREATE TABLE queue_events (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        root      TEXT NOT NULL,
+        item      TEXT NOT NULL,
+        kind      TEXT NOT NULL,
+        title     TEXT NOT NULL,
+        proof     TEXT,
+        recipient TEXT,
+        reason    TEXT,
+        actor     TEXT NOT NULL,
+        at        INTEGER NOT NULL
+    );
+    CREATE INDEX idx_queue_events ON queue_events(root, at);",
+    // 14 — how many Co-Devs work the sprint at the same time (Multi Co-Dev, phase 1: the parallel
+    //      plan); `NULL`: not set (one)
+    "ALTER TABLE sprints ADD COLUMN codevs INTEGER;",
+    // 15 — Multi Co-Dev, phase 2 (the integration gate's data): the project's mandatory checks
+    //      (`[{name, command}]` in JSON; `NULL`: not set — the detected test command) and the
+    //      functional approval recorded on an issue (who, when, the note)
+    "ALTER TABLE projects ADD COLUMN checks TEXT;
+    ALTER TABLE issues ADD COLUMN functional_by TEXT;
+    ALTER TABLE issues ADD COLUMN functional_at INTEGER;
+    ALTER TABLE issues ADD COLUMN functional_note TEXT;",
+    // 16 — the history the sprint metrics read (Board A: honest burndown, velocity and insights): who joined
+    //      or left a sprint and when, with the estimate at that moment; every estimate change with the old and
+    //      the new points; what a sprint committed to when it started and what it held when it closed (`kind`
+    //      `start | close`); when each sprint really started and closed. Nothing is back-filled: a sprint that
+    //      started before this migration has no `started_at` and its reports say they are partial;
+    //      `projects.history_since` is when this recording began for the project.
+    "CREATE TABLE sprint_scope (
+        id      INTEGER PRIMARY KEY AUTOINCREMENT,
+        root    TEXT NOT NULL,
+        sprint  TEXT NOT NULL,
+        key     TEXT NOT NULL,
+        at      INTEGER NOT NULL,
+        change  TEXT NOT NULL,
+        points  INTEGER,
+        reason  TEXT NOT NULL,
+        actor   TEXT NOT NULL
+    );
+    CREATE INDEX idx_sprint_scope ON sprint_scope(root, sprint, at);
+    CREATE TABLE estimate_changes (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        root        TEXT NOT NULL,
+        key         TEXT NOT NULL,
+        at          INTEGER NOT NULL,
+        old_points  INTEGER,
+        new_points  INTEGER,
+        sprint      TEXT,
+        actor       TEXT NOT NULL
+    );
+    CREATE INDEX idx_estimate_changes ON estimate_changes(root, key, at);
+    CREATE TABLE sprint_snapshots (
+        root    TEXT NOT NULL,
+        sprint  TEXT NOT NULL,
+        kind    TEXT NOT NULL,
+        key     TEXT NOT NULL,
+        points  INTEGER,
+        state   TEXT NOT NULL,
+        at      INTEGER NOT NULL,
+        PRIMARY KEY (root, sprint, kind, key)
+    );
+    ALTER TABLE sprints ADD COLUMN started_at INTEGER;
+    ALTER TABLE sprints ADD COLUMN closed_at INTEGER;
+    ALTER TABLE projects ADD COLUMN history_since INTEGER;
+    UPDATE projects SET history_since = CAST(strftime('%s', 'now') AS INTEGER) * 1000;",
+    // 17 — the project's own Definition of Ready ticked per issue (Board B): one flag per item of
+    //      `projects.dor`, like `dod_done`; readiness lists the items not ticked
+    "ALTER TABLE issues ADD COLUMN dor_done TEXT NOT NULL DEFAULT '[]';",
+    // 18 — Multi Co-Dev, phase 3: the files each Co-Dev session claims (`claims`). One owner per
+    //      path of a project: the session that wrote it first (with its issue, the app's process and
+    //      when); another session's write to it is refused until the owner closes. A claim whose
+    //      session is gone (closed elsewhere, the app crashed) is abandoned and taken over.
+    "CREATE TABLE file_claims (
+        root       TEXT NOT NULL,
+        path       TEXT NOT NULL,
+        session    TEXT NOT NULL,
+        issue_key  TEXT,
+        pid        INTEGER NOT NULL,
+        at         INTEGER NOT NULL,
+        PRIMARY KEY (root, path)
+    );
+    CREATE INDEX idx_file_claims_session ON file_claims(root, session);",
+    // 19 — Multi Co-Dev, phase 4: the reviews of an issue branch (`integration_reviews`: the tips —
+    //      the default branch and the issue branch —, the merge candidate and its tree, the criteria
+    //      and the mandatory checks it was reviewed against, what each check ran and gave, the
+    //      architect's findings, the conflicting files, the secret scan, the reviewer's verdict and
+    //      the state) and the criteria a functional approval was given for (`functional_criteria`,
+    //      JSON; filled for the approvals that exist — the criteria could not change under them, a
+    //      change of criteria drops the approval in the same transaction since migration 15)
+    "CREATE TABLE integration_reviews (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        root        TEXT NOT NULL,
+        key         TEXT NOT NULL,
+        target      TEXT NOT NULL,
+        base        TEXT NOT NULL,
+        branch      TEXT NOT NULL,
+        head        TEXT NOT NULL,
+        candidate   TEXT NOT NULL,
+        tree        TEXT NOT NULL,
+        criteria    TEXT NOT NULL,
+        required    TEXT NOT NULL,
+        checks      TEXT NOT NULL,
+        arch_rules  INTEGER NOT NULL DEFAULT 0,
+        arch        TEXT NOT NULL,
+        conflicts   TEXT NOT NULL,
+        scan        TEXT,
+        verdict     TEXT,
+        reviewer    TEXT,
+        tokens_in   INTEGER NOT NULL DEFAULT 0,
+        tokens_out  INTEGER NOT NULL DEFAULT 0,
+        state       TEXT NOT NULL,
+        error       TEXT,
+        actor       TEXT NOT NULL,
+        created     INTEGER NOT NULL,
+        updated     INTEGER NOT NULL
+    );
+    CREATE INDEX idx_integration_reviews ON integration_reviews(root, key, id);
+    ALTER TABLE issues ADD COLUMN functional_criteria TEXT;
+    UPDATE issues SET functional_criteria = (
+        SELECT json_group_array(a.text ORDER BY a.ord) FROM acceptance a
+        WHERE a.root = issues.root AND a.key = issues.key
+    ) WHERE functional_by IS NOT NULL;",
+    // 20 — Multi Co-Dev, phase 5: delegated autonomy and pull requests. What a human delegated
+    //      (`autonomy_delegations`: an issue or a sprint, the actions — `review`, `integrate`, `pr` —,
+    //      the reviewer's model, who granted it and when, the expiry, the revocation), every step the
+    //      autonomy took or refused (`autonomy_events`, with the audit rows it wrote), the app-wide
+    //      kill switch (`autonomy_switch`, one row), the remote branches dxtutor created by a push
+    //      (`remote_branches`: it never pushes to one it did not create) and the pull requests it
+    //      opened (`integration_prs`).
+    "CREATE TABLE autonomy_delegations (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        root           TEXT NOT NULL,
+        scope          TEXT NOT NULL,
+        target         TEXT NOT NULL,
+        actions        TEXT NOT NULL,
+        provider       TEXT,
+        model          TEXT,
+        language       TEXT,
+        note           TEXT NOT NULL DEFAULT '',
+        granted_by     TEXT NOT NULL,
+        granted_email  TEXT NOT NULL DEFAULT '',
+        granted_at     INTEGER NOT NULL,
+        expires_at     INTEGER NOT NULL,
+        revoked_by     TEXT,
+        revoked_at     INTEGER,
+        revoke_reason  TEXT
+    );
+    CREATE INDEX idx_autonomy_delegations ON autonomy_delegations(root, scope, target);
+    CREATE TABLE autonomy_events (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        root        TEXT NOT NULL,
+        key         TEXT NOT NULL,
+        delegation  INTEGER,
+        action      TEXT NOT NULL,
+        trigger     TEXT NOT NULL,
+        outcome     TEXT NOT NULL,
+        code        TEXT NOT NULL,
+        detail      TEXT NOT NULL DEFAULT '',
+        review      INTEGER,
+        audit       TEXT NOT NULL DEFAULT '[]',
+        at          INTEGER NOT NULL
+    );
+    CREATE INDEX idx_autonomy_events ON autonomy_events(root, key, id);
+    CREATE TABLE autonomy_switch (
+        id      INTEGER PRIMARY KEY CHECK (id = 1),
+        paused  INTEGER NOT NULL DEFAULT 0,
+        by      TEXT,
+        at      INTEGER,
+        reason  TEXT
+    );
+    CREATE TABLE remote_branches (
+        root     TEXT NOT NULL,
+        url      TEXT NOT NULL,
+        branch   TEXT NOT NULL,
+        actor    TEXT NOT NULL,
+        at       INTEGER NOT NULL,
+        PRIMARY KEY (root, url, branch)
+    );
+    CREATE TABLE integration_prs (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        root        TEXT NOT NULL,
+        key         TEXT NOT NULL,
+        review      INTEGER NOT NULL,
+        remote      TEXT NOT NULL,
+        url         TEXT NOT NULL,
+        branch      TEXT NOT NULL,
+        head        TEXT NOT NULL,
+        base        TEXT NOT NULL,
+        target      TEXT NOT NULL,
+        number      INTEGER NOT NULL,
+        pr_url      TEXT NOT NULL,
+        actor       TEXT NOT NULL,
+        delegation  INTEGER,
+        at          INTEGER NOT NULL
+    );
+    CREATE INDEX idx_integration_prs ON integration_prs(root, key, id);",
 ];
 
 /// The schema version this code expects.
@@ -239,15 +538,21 @@ fn current(conn: &Connection) -> rusqlite::Result<u32> {
     Ok(v.unwrap_or(0))
 }
 
-/// Brings the base to [`SCHEMA_VERSION`]. A base newer than this code is refused rather
-/// than written with an older model.
-pub fn migrate(conn: &mut Connection) -> Result<(), String> {
+/// A base newer than this code is refused rather than written with an older model (one read).
+pub fn refuse_newer(conn: &Connection) -> Result<u32, String> {
     let from = current(conn).map_err(|e| e.to_string())?;
     if from > SCHEMA_VERSION {
         return Err(format!(
             "the project database is newer (schema {from}) than this app (schema {SCHEMA_VERSION}): update the app"
         ));
     }
+    Ok(from)
+}
+
+/// Brings the base to [`SCHEMA_VERSION`]. A base newer than this code is refused rather
+/// than written with an older model.
+pub fn migrate(conn: &mut Connection) -> Result<(), String> {
+    let from = refuse_newer(conn)?;
     for (i, sql) in MIGRATIONS.iter().enumerate().skip(from as usize) {
         let v = i as u32 + 1;
         let tx = conn.transaction().map_err(|e| e.to_string())?;
@@ -380,4 +685,116 @@ fn import_legacy_board(tx: &rusqlite::Transaction) -> rusqlite::Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A base at schema 15 (before the sprint history) gains it without back-filling: the
+    /// project records from the migration on, its sprints have no start or close recorded.
+    #[test]
+    fn the_sprint_history_starts_at_migration_16_and_invents_nothing() {
+        let mut c = Connection::open_in_memory().unwrap();
+        c.execute_batch("CREATE TABLE schema_version (version INTEGER NOT NULL)")
+            .unwrap();
+        for (i, sql) in MIGRATIONS.iter().take(15).enumerate() {
+            c.execute_batch(sql).unwrap();
+            c.execute(
+                "INSERT INTO schema_version (version) VALUES (?1)",
+                params![i as u32 + 1],
+            )
+            .unwrap();
+        }
+        c.execute_batch(
+            "INSERT INTO projects (root, key_prefix, seq, method, iter_days, wip, dor, dod, created, updated)
+             VALUES ('/p', 'P', 0, 'scrum', 14, '{}', '[]', '[]', 1, 1);
+             INSERT INTO sprints (root, id, name, goal, start, end, state) VALUES ('/p', 'S1', 'S', '', 1, 2, 'active');",
+        )
+        .unwrap();
+        migrate(&mut c).unwrap();
+        let since: Option<i64> = c
+            .query_row("SELECT history_since FROM projects", [], |r| r.get(0))
+            .unwrap();
+        assert!(since.is_some_and(|t| t > 1_700_000_000_000), "{since:?}");
+        let (started, closed): (Option<i64>, Option<i64>) = c
+            .query_row("SELECT started_at, closed_at FROM sprints", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!((started, closed), (None, None));
+        for t in ["sprint_scope", "estimate_changes", "sprint_snapshots"] {
+            let n: i64 = c
+                .query_row(&format!("SELECT COUNT(*) FROM {t}"), [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(n, 0, "{t} is not back-filled");
+        }
+    }
+
+    /// Migration 19: the approvals that exist get the criteria they stand for (in order); an issue
+    /// without an approval gets none; the reviews table starts empty.
+    #[test]
+    fn migration_19_records_the_criteria_of_the_existing_approvals() {
+        let mut c = Connection::open_in_memory().unwrap();
+        c.execute_batch("CREATE TABLE schema_version (version INTEGER NOT NULL)")
+            .unwrap();
+        for (i, sql) in MIGRATIONS.iter().take(18).enumerate() {
+            c.execute_batch(sql).unwrap();
+            c.execute(
+                "INSERT INTO schema_version (version) VALUES (?1)",
+                params![i as u32 + 1],
+            )
+            .unwrap();
+        }
+        c.execute_batch(
+            "INSERT INTO issues (root, key, title, kind, priority, rank, state, created, updated, functional_by, functional_at)
+             VALUES ('/p', 'P-1', 't', 'story', 'medium', 1, 'review', 1, 1, 'Ana', 5);
+             INSERT INTO issues (root, key, title, kind, priority, rank, state, created, updated)
+             VALUES ('/p', 'P-2', 't', 'story', 'medium', 2, 'review', 1, 1);
+             INSERT INTO acceptance (root, key, ord, text) VALUES ('/p', 'P-1', 1, 'segundo \"b\"');
+             INSERT INTO acceptance (root, key, ord, text) VALUES ('/p', 'P-1', 0, 'primeiro');
+             INSERT INTO acceptance (root, key, ord, text) VALUES ('/p', 'P-2', 0, 'x');",
+        )
+        .unwrap();
+        migrate(&mut c).unwrap();
+        let got: Vec<Option<String>> = c
+            .prepare("SELECT functional_criteria FROM issues ORDER BY key")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        let first: Vec<String> = serde_json::from_str(got[0].as_deref().unwrap()).unwrap();
+        assert_eq!(first, ["primeiro", "segundo \"b\""]);
+        assert_eq!(got[1], None);
+        let n: i64 = c
+            .query_row("SELECT COUNT(*) FROM integration_reviews", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 0);
+    }
+    /// Migration 20: the autonomy's tables start empty and the kill switch is off (no row).
+    #[test]
+    fn migration_20_starts_with_no_delegation_and_autonomy_on() {
+        let mut c = Connection::open_in_memory().unwrap();
+        migrate(&mut c).unwrap();
+        for t in [
+            "autonomy_delegations",
+            "autonomy_events",
+            "autonomy_switch",
+            "remote_branches",
+            "integration_prs",
+        ] {
+            let n: i64 = c
+                .query_row(&format!("SELECT COUNT(*) FROM {t}"), [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(n, 0, "{t}");
+        }
+        // one switch row at most
+        c.execute("INSERT INTO autonomy_switch (id, paused) VALUES (1, 1)", [])
+            .unwrap();
+        assert!(c
+            .execute("INSERT INTO autonomy_switch (id, paused) VALUES (2, 1)", [])
+            .is_err());
+        assert_eq!(SCHEMA_VERSION, 20);
+    }
 }

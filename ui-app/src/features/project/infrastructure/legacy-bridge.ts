@@ -4,6 +4,7 @@
    `checkout`, which keeps Source Control in sync, and `git log` for the commits that cite
    issue keys) and Co-Dev (the agent works on an issue). Publishes nothing on `window`. */
 
+import { workspaceProjects } from "../../../app/workspace-projects";
 import { shellClient } from "../../../platform/tauri/shell";
 import { translator } from "../../../app/i18n";
 import { PROJECT_ENGINE_MESSAGES } from "../application/messages";
@@ -13,7 +14,14 @@ import { codevIssue } from "../../../app/codev-issue";
 import type { Issue, Project } from "../domain/types";
 
 const G = window as unknown as {
-  DXR?: { root?: string | null; git?: boolean; reloadDisk?: () => Promise<unknown>; flush?: () => void; idle?: () => Promise<unknown> };
+  DXR?: {
+    root?: string | null;
+    git?: boolean;
+    reloadDisk?: () => Promise<unknown>;
+    flush?: () => void;
+    idle?: () => Promise<unknown>;
+    projectCmd?: (kind: "test" | "lint") => { cmd: string } | null;
+  };
   openTab?: (t: { id: string; title: string; kind: string }) => void;
   ROOT?: string;
   openDiff?: (p: string) => void;
@@ -28,8 +36,11 @@ const shell = shellClient();
 let me = "";
 
 export const workspace: Workspace = {
-  root: () => G.DXR?.root ?? null,
+  /* H2: the Project is the current project's of the workspace (the root's, as before, when there is one) */
+  root: () => workspaceProjects.currentDir() ?? G.DXR?.root ?? null,
+  workspaceRoot: () => G.DXR?.root ?? null,
   me: () => me,
+  testCommand: () => G.DXR?.projectCmd?.("test")?.cmd ?? null,
 };
 
 /** Who "mine" means: the project's `git config user.name` (read once per folder). */
@@ -91,6 +102,9 @@ export async function openProjectFile(rel: string): Promise<void> {
   await G.DXR?.reloadDisk?.();
   G.openPath?.((G.ROOT ?? "") + rel);
 }
+
+/** RF-A05: opens a file of the open folder at a line. */
+export const openAt = (rel: string, line: number): void => G.openPath?.((G.ROOT ?? "") + rel, line);
 
 /** Writes what the editor has to disk and waits for the write queue (before a commit). */
 export async function saveEditor(): Promise<void> {

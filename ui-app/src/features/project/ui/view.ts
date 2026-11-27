@@ -6,6 +6,12 @@
    Everything shown comes from the store; with nothing there the view says so. Buttons carry
    `data-action` (+ `data-on`); the effects live in the composition root's table. */
 
+import type { IssueDrift } from "../domain/drift";
+import { translator } from "../../../app/i18n";
+import { PROJECT_DRIFT_MESSAGES } from "./drift-messages";
+import { PROJECT_METHOD_MESSAGES } from "./method-messages";
+const dt = translator(PROJECT_DRIFT_MESSAGES);
+const mt = translator(PROJECT_METHOD_MESSAGES);
 import { esc } from "../../../core";
 import type { ProjectService, ProjectState } from "../application/project-service";
 import {
@@ -27,6 +33,27 @@ import {
 import { COS, KINDS, PRIORITIES, STATES, type Issue, type IssueUsage, type Project, type State } from "../domain/types";
 import { renderPanel } from "./panels";
 import { NAVIGATOR_MESSAGE, pairState } from "../../../app/pair-state";
+import { approvalBlocker } from "../domain/gate";
+import { PROJECT_GATE_MESSAGES } from "./gate-messages";
+const gt = translator(PROJECT_GATE_MESSAGES);
+
+/** Multi Co-Dev (the integration gate): the functional approval recorded on the issue, and the
+ *  button to record it (only with criteria) or to withdraw it. */
+function functionalBlock(i: Issue): string {
+  const a = i.functional;
+  const block = approvalBlocker(i);
+  const body = a
+    ? `<div class="pj-check pj-functional ok"><span>✓ ${esc(gt("functionalBy", { by: a.by, when: fmtDate(a.at) }))}${a.note ? ` — ${esc(a.note)}` : ""}</span><button class="pj-btn" data-action="pj-functional-revoke" title="${esc(gt("revokeTitle"))}"><span>${esc(gt("revoke"))}</span></button></div>`
+    : `<div class="pj-dim">${esc(gt(block === "noCriteria" ? "functionalNeedsCriteria" : "functionalNone"))}</div><button class="pj-btn" data-action="pj-functional-approve"${block ? " disabled" : ""} title="${esc(gt("approveTitle", { who: i.assignee || gt("nobody") }))}"><span>${esc(gt("approve"))}</span></button>`;
+  return `<div class="pj-sec"><span>${esc(gt("functional"))}</span></div>${body}`;
+}
+
+/** Multi Co-Dev (phase 4): an issue with a branch opens its «Review & integrate» panel (the gate's three
+ *  conditions with their evidence; the integration itself is the backend's). */
+function integrationBlock(i: Issue): string {
+  if (!i.branch) return "";
+  return `<div class="pj-sec"><span>${esc(gt("integration"))}</span></div><div class="pj-dim">${esc(gt("integrationHint", { branch: i.branch }))}</div><button class="pj-btn" data-action="pj-integration"><span>${esc(gt("integrationOpen"))}</span></button>`;
+}
 
 const KIND_MARK: Record<string, string> = { story: "▣", bug: "●", task: "☑", spike: "⚑" };
 const PRI_MARK: Record<string, string> = { high: "⬆", medium: "＝", low: "⬇" };
@@ -49,6 +76,8 @@ function card(i: Issue, p: Project, now: number): string {
   const commits = i.links.filter((l) => l.kind === "commit").length;
   return `<div class="pj-card k-${i.kind}${i.blocked ? " blocked" : ""}${i.cos === "expedite" ? " expedite" : ""}" draggable="true" data-action="pj-card" data-on="${esc(i.key)}">
     <div class="pj-card-top"><span class="pj-kind k-${i.kind}" title="${esc(i.kind)}">${KIND_MARK[i.kind]}</span><span class="pj-key">${esc(i.key)}</span>${
+      i.cos === "expedite" ? `<span class="pj-flag exp" title="${esc(mt("expediteTitle"))}"><span>⚡ ${esc(mt("expedite"))}</span></span>` : ""
+    }${
       i.blocked ? `<span class="pj-flag bad" title="${esc(i.blocked)}"><span>blocked</span></span>` : !i.ready && i.state === "todo" && p.method !== "kanban" ? `<span class="pj-flag"><span>not ready</span></span>` : ""
     }</div>
     <div class="pj-title">${esc(i.title)}</div>
@@ -76,7 +105,7 @@ function header(st: ProjectState, p: Project, now: number): string {
 
 function board(st: ProjectState, p: Project, now: number): string {
   const issues = boardIssues(p, st.filters);
-  const ls = lanes(issues, st.swim);
+  const ls = lanes(issues, st.swim, p.method);
   const labels = METHOD_INFO[p.method].labels;
   const chip = (action: string, on: string, label: string, active: boolean) =>
     `<button class="pj-chip${active ? " on" : ""}" data-action="${action}" data-on="${on}"><span>${label}</span></button>`;
@@ -142,6 +171,17 @@ function backlogView(p: Project): string {
 }
 
 /** What the issue lacks to be Ready (RF-B02), as the store computed it. */
+/** RF-A05: the architect's rules broken in the files Co-Dev changed for the issue. */
+export function driftBlock(d: IssueDrift): string {
+  if (!d.files.length) return "";
+  const head = `<div class="pj-dim">${esc(dt("driftTitle"))}</div>`;
+  if (!d.violations.length) return head + `<div class="pj-li ok">✓ ${esc(dt("driftNone", { n: d.files.length }))}</div>`;
+  const rows = d.violations
+    .map((v) => `<div class="pj-li pj-link bad" title="${esc(v.rule)}" data-action="pj-drift-open" data-on="${v.line ?? 1}:${esc(v.path)}"><code>${esc(v.path)}${v.line ? `:${v.line}` : ""}</code> ${esc(v.message)}</div>`)
+    .join("");
+  return head + rows + `<button class="pj-btn" data-action="pj-drift-problems" title="${esc(dt("driftProblemsTitle", { n: d.files.length }))}"><span>${esc(dt("driftProblems"))}</span></button>`;
+}
+
 /** `12.3k` — a token count, short. */
 const kTokens = (n: number): string => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 const plural = (n: number, one: string): string => `${n} ${one}${n === 1 ? "" : "s"}`;
@@ -154,7 +194,8 @@ export function usageLine(u: IssueUsage): string {
 }
 
 function missingList(i: Issue): string {
-  const rest = i.missing.filter((m) => m !== "aprovação humana (Ready)");
+  // the project's own DoR items have their checkboxes below (Board B)
+  const rest = i.missing.filter((m) => m !== "aprovação humana (Ready)" && !m.startsWith("DoR: "));
   return rest.length ? `<div class="pj-missing"><span class="pj-dim">Missing for Ready:</span>${rest.map((m) => `<div class="pj-li bad">· ${esc(m)}</div>`).join("")}</div>` : "";
 }
 
@@ -209,12 +250,16 @@ function issuePanel(st: ProjectState, p: Project, now: number): string {
             .join("")}</table>${i.templateVersion ? `<div class="pj-dim">Prompt template ${esc(i.templateVersion)}</div>` : ""}`
         : ""
     }
+    ${functionalBlock(i)}
+    ${integrationBlock(i)}
     ${
       // RF-B02: the Definition of Ready holds in every method (Co-Dev needs a Ready issue), so the
       // section is always there — not only for Scrum or a project with its own DoR list
       true
-        ? `<div class="pj-sec"><span>Definition of Ready</span></div><div class="pj-check"><input type="checkbox"${i.ready ? " checked" : ""} data-action="pj-ready"><span>Ready to start${i.readyBy ? ` <span class="pj-dim">(${esc(i.readyBy)})</span>` : ""}</span></div>${missingList(i)}${p.dor
-            .map((t) => `<div class="pj-dim pj-li">· ${esc(t)}</div>`)
+        ? `<div class="pj-sec"><span>Definition of Ready</span></div><div class="pj-check"><input type="checkbox"${i.ready ? " checked" : ""} data-action="pj-ready"><span>Ready to start${i.readyBy ? ` <span class="pj-dim">(${esc(i.readyBy)})</span>` : ""}</span></div>${missingList(i)}${
+            p.dor.length ? `<div class="pj-dim">${esc(mt("dorItems"))}</div>` : ""
+          }${p.dor
+            .map((t, k) => `<div class="pj-check"><input type="checkbox"${i.dorDone[k] ? " checked" : ""} data-action="pj-dor" data-on="${k}"><span>${esc(t)}</span></div>`)
             .join("")}`
         : ""
     }
@@ -239,7 +284,7 @@ function issuePanel(st: ProjectState, p: Project, now: number): string {
               .map((c) => `<div class="pj-li pj-link" title="Open the diff" data-action="pj-diff" data-on="${esc(c.path)}"><code>${esc(c.path)}:${c.start}</code> <span class="ok">+${c.added}</span> <span class="bad">−${c.removed}</span> <span class="pj-dim">${esc(c.decidedBy)}</span></div>`)
               .join("")}`
           : ""
-      }${d && d.usage.turns ? usageLine(d.usage) : ""}
+      }${d && d.usage.turns ? usageLine(d.usage) : ""}${st.drift ? driftBlock(st.drift) : ""}
       <button class="pj-btn pri" data-action="pj-work"${i.missing.length ? ` disabled title="Not Ready: ${esc(i.missing.join("; "))}"` : !pairState.canDrive() ? ` disabled title="${esc(NAVIGATOR_MESSAGE)}"` : ""}><span>Work on it with Co-Dev</span></button>
       <button class="pj-btn" data-action="pj-prompt" title="The exact prompt this issue goes to Co-Dev with"><span>View prompt</span></button>${
         st.prompt && st.prompt.key === i.key

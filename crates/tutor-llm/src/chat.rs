@@ -34,18 +34,89 @@ fn config_path() -> Option<PathBuf> {
     Some(PathBuf::from(home).join(".config/dxtutor/providers.json"))
 }
 
-/// Load the saved provider settings (empty defaults when absent/unreadable).
-pub fn load_config() -> ProvidersConfig {
-    config_path()
-        .and_then(|p| std::fs::read_to_string(p).ok())
+/// The API keys of the config and the keychain account each lives under (the same accounts the IDE's
+/// `keys.rs` uses, so the assistant, the TUI and the IDE share one place).
+fn key_fields(cfg: &mut ProvidersConfig) -> [(&'static str, &mut String); 3] {
+    [
+        ("llm:claude", &mut cfg.anthropic_key),
+        ("llm:codex", &mut cfg.openai_key),
+        ("llm:gemini", &mut cfg.gemini_key),
+    ]
+}
+
+fn read_file(path: Option<&std::path::Path>) -> ProvidersConfig {
+    path.and_then(|p| std::fs::read_to_string(p).ok())
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default()
 }
 
-/// Persist provider settings with owner-only permissions (0600).
+/// Load the saved provider settings (empty defaults when absent/unreadable). r23: the API keys live in
+/// the OS keychain; a key still in `providers.json` moves there the first time it is read (and leaves
+/// the file) — never over one the keychain already has. Without a keychain (no Secret Service, e.g. over
+/// SSH) the file keeps them, as before.
+pub fn load_config() -> ProvidersConfig {
+    load_config_in(
+        &tutor_protect::keychain::OsStore::new(),
+        config_path().as_deref(),
+    )
+}
+
+pub fn load_config_in(
+    store: &dyn tutor_protect::keychain::Store,
+    path: Option<&std::path::Path>,
+) -> ProvidersConfig {
+    let mut cfg = read_file(path);
+    let mut moved = false;
+    for (account, field) in key_fields(&mut cfg) {
+        match store.get(account) {
+            // the keychain has one: it wins; a key left in the file is dropped from it
+            Ok(Some(k)) if !k.is_empty() => {
+                moved |= !field.is_empty();
+                *field = k;
+            }
+            // the keychain answers but has none: a key in the file moves there
+            Ok(_) if !field.is_empty() => moved |= store.set(account, field).is_ok(),
+            _ => {}
+        }
+    }
+    if moved {
+        if let Some(p) = path {
+            let mut file = cfg.clone();
+            for (_, f) in key_fields(&mut file) {
+                f.clear();
+            }
+            if let Ok(json) = serde_json::to_string_pretty(&file) {
+                let _ = write_private(p, json.as_bytes());
+            }
+        }
+    }
+    cfg
+}
+
+/// Persist provider settings with owner-only permissions (0600). r23: the API keys go to the OS keychain
+/// (an empty key is removed from it) and never into the file; without a keychain, into the file as before.
 pub fn save_config(cfg: &ProvidersConfig) -> Result<()> {
     let path = config_path().ok_or_else(|| anyhow::anyhow!("no HOME to store config"))?;
-    write_private(&path, serde_json::to_string_pretty(cfg)?.as_bytes()).context("writing config")
+    save_config_in(&tutor_protect::keychain::OsStore::new(), &path, cfg)
+}
+
+pub fn save_config_in(
+    store: &dyn tutor_protect::keychain::Store,
+    path: &std::path::Path,
+    cfg: &ProvidersConfig,
+) -> Result<()> {
+    let mut file = cfg.clone();
+    for (account, field) in key_fields(&mut file) {
+        let kept = if field.trim().is_empty() {
+            store.delete(account)
+        } else {
+            store.set(account, field.trim())
+        };
+        if kept.is_ok() {
+            field.clear();
+        }
+    }
+    write_private(path, serde_json::to_string_pretty(&file)?.as_bytes()).context("writing config")
 }
 
 /// Write a secrets file so it is never readable by other users, not even briefly:
@@ -416,7 +487,7 @@ pub fn ollama_chat(messages: &[ChatMsg], model: Option<&str>) -> Result<ChatRepl
 
     match ureq::post(&url)
         .timeout(Duration::from_secs(120))
-        .send_json(body)
+        .send_json(crate::guarded("assistant", body))
     {
         Ok(resp) => {
             let v: serde_json::Value = resp.into_json().context("parsing Ollama reply")?;
@@ -483,7 +554,7 @@ pub fn ollama_chat_stream(
 
     let resp = match ureq::post(&url)
         .timeout(Duration::from_secs(300))
-        .send_json(body)
+        .send_json(crate::guarded("assistant", body))
     {
         Ok(r) => r,
         Err(ureq::Error::Status(code, r)) => {
@@ -617,7 +688,7 @@ pub fn claude_chat_stream(
     if let Some(ws) = workspace_id.filter(|w| !w.is_empty()) {
         req = req.set("anthropic-workspace-id", ws); // required for org-scoped keys
     }
-    let resp = match req.send_json(body) {
+    let resp = match req.send_json(crate::guarded("assistant", body)) {
         Ok(r) => r,
         Err(ureq::Error::Status(code, r)) => {
             let detail = r.into_string().unwrap_or_default();
@@ -729,7 +800,7 @@ pub fn openai_chat_stream(
         .set("authorization", &format!("Bearer {api_key}"))
         .set("content-type", "application/json")
         .timeout(Duration::from_secs(300))
-        .send_json(body)
+        .send_json(crate::guarded("assistant", body))
     {
         Ok(r) => r,
         Err(ureq::Error::Status(code, r)) => {
@@ -847,7 +918,7 @@ pub fn gemini_chat_stream(
         .set("x-goog-api-key", api_key)
         .set("content-type", "application/json")
         .timeout(Duration::from_secs(300))
-        .send_json(body)
+        .send_json(crate::guarded("assistant", body))
     {
         Ok(r) => r,
         Err(ureq::Error::Status(code, r)) => {
@@ -1010,6 +1081,86 @@ mod usage_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// r23: the API keys move from `providers.json` to the keychain, never over one already there; saving
+    /// puts them in the keychain (an emptied one is removed); without a keychain the file keeps them.
+    #[test]
+    fn keys_move_to_the_keychain() {
+        use tutor_protect::keychain::{MemStore, Store};
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("providers.json");
+        let file = ProvidersConfig {
+            provider: "anthropic".into(),
+            anthropic_key: "sk-ant-old".into(),
+            openai_key: "sk-open".into(),
+            anthropic_workspace_id: "ws".into(),
+            ..Default::default()
+        };
+        std::fs::write(&p, serde_json::to_string(&file).unwrap()).unwrap();
+        let store = MemStore::default();
+        store.set("llm:claude", "sk-ant-newer").unwrap();
+        let cfg = load_config_in(&store, Some(&p));
+        assert_eq!(
+            (
+                cfg.anthropic_key.as_str(),
+                cfg.openai_key.as_str(),
+                cfg.anthropic_workspace_id.as_str()
+            ),
+            ("sk-ant-newer", "sk-open", "ws")
+        );
+        assert_eq!(store.get("llm:codex").unwrap().as_deref(), Some("sk-open"));
+        let on_disk = std::fs::read_to_string(&p).unwrap();
+        assert!(
+            !on_disk.contains("sk-") && on_disk.contains("\"ws\""),
+            "{on_disk}"
+        );
+        // saving: into the keychain, an emptied key removed; the file stays without keys
+        save_config_in(
+            &store,
+            &p,
+            &ProvidersConfig {
+                openai_key: String::new(),
+                gemini_key: "gm-1".into(),
+                ..cfg
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            (
+                store.get("llm:codex").unwrap(),
+                store.get("llm:gemini").unwrap().as_deref()
+            ),
+            (None, Some("gm-1"))
+        );
+        assert!(!std::fs::read_to_string(&p).unwrap().contains("gm-1"));
+        // no keychain: the file keeps them, as before
+        struct NoKeychain;
+        impl Store for NoKeychain {
+            fn get(&self, _: &str) -> Result<Option<String>, String> {
+                Err("no keychain".into())
+            }
+            fn set(&self, _: &str, _: &str) -> Result<(), String> {
+                Err("no keychain".into())
+            }
+            fn delete(&self, _: &str) -> Result<(), String> {
+                Err("no keychain".into())
+            }
+        }
+        let q = d.path().join("other.json");
+        save_config_in(
+            &NoKeychain,
+            &q,
+            &ProvidersConfig {
+                anthropic_key: "sk-ant-x".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            load_config_in(&NoKeychain, Some(&q)).anthropic_key,
+            "sk-ant-x"
+        );
+    }
 
     #[test]
     fn redacted_hides_keys_and_merge_keeps_them() {

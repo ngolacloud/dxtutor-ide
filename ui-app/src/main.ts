@@ -66,7 +66,8 @@ import "./features/board";
 import "./features/i18n";
 import "./features/syntax";
 import "./features/diff";
-import "./features/graph";
+/* r23 F3: o Commit Graph (era features/graph.ts) */
+import "./features/scm/graph-screen";
 import "./features/termgit";
 import "./features/palette";
 import "./features/editor";
@@ -77,7 +78,10 @@ import "./features/workspace";
 import "./features/explorer";
 import "./features/diagnostics";
 import "./features/shortcuts";
-import "./features/welcome";
+/* New Project: os templates do Delonix (`delonix init -t`); as boas-vindas e o menu File abrem-no */
+import "./features/newproject/index";
+/* r23 F6: Start · Recent · Walkthroughs */
+import "./features/welcome/index";
 import "./app/chrome-actions";
 import "./app/commands";
 import "./app/boot-steps";
@@ -85,5 +89,11 @@ import "./startup";
 import "./bridge";
 import "./pair";
 import "./features/panel/index";
+/* r23 F4a: a protecção de dados (redacção, secret scan antes do commit) */
+import "./features/protect/index";
+import "./features/vault/index"; /* r23 F4c: o separador Vault e o #st-vault (só desktop) */
+import "./features/deploy/index"; /* r23 F4c2: o deploy guiado (services.deploy; a infra abre-o no Promote) */
 import "./features/lsp/index";
 import "./features/comments/index";
+/* Multi Co-Dev fase 4: o painel «Rever e integrar» (services.integration; a faixa «Co-Devs» e o Project abrem-no) */
+import "./features/integration/index";

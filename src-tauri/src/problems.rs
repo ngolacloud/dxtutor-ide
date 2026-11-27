@@ -11,6 +11,7 @@
 //! | `go.mod`                | `go vet ./...`                                      |
 //! | `pyproject.toml`/…      | `ruff check --output-format=json`                   |
 //! | ESLint config           | `eslint -f json .`                                  |
+//! | `*.tf` (r23 F4a)        | the built-in IaC rules (`tutor_eval::iacfind`): secrets in arguments and variables |
 //!
 //! Detection ([`plan`]) and every output parser are pure functions; [`run`] executes the
 //! plan in parallel and reports each checker as it finishes. Tauri-free: the command in
@@ -693,6 +694,12 @@ pub fn run(root: &Path, on_start: impl Fn(&Check), on_check: impl Fn(&CheckRepor
         problems.extend(p);
         reports.push(r);
     }
+    // r23 F4a (P03/C03): the IaC files' own findings (a secret in an argument is an error)
+    if let Some((p, r)) = iac_findings(root) {
+        on_check(&r);
+        problems.extend(p);
+        reports.push(r);
+    }
     problems
         .sort_by(|a, b| (a.file.as_str(), a.line, a.col).cmp(&(b.file.as_str(), b.line, b.col)));
     ScanResult {
@@ -702,9 +709,65 @@ pub fn run(root: &Path, on_start: impl Fn(&Check), on_check: impl Fn(&CheckRepor
     }
 }
 
+/// The built-in rules over the project's `.tf` files, as Problems (none without `.tf` files).
+pub fn iac_findings(root: &Path) -> Option<(Vec<Problem>, CheckReport)> {
+    let t0 = Instant::now();
+    if tutor_eval::iacfind::tf_files(root).is_empty() {
+        return None;
+    }
+    let found = tutor_eval::iacfind::scan_root(root);
+    let problems: Vec<Problem> = found
+        .into_iter()
+        .map(|f| Problem {
+            file: f.file,
+            line: f.line,
+            col: f.col,
+            end_line: f.line,
+            end_col: f.end_col,
+            severity: f.severity,
+            message: f.message,
+            code: Some(f.rule),
+            source: "dxtutor-iac".into(),
+        })
+        .collect();
+    let report = CheckReport {
+        source: "dxtutor-iac".into(),
+        command: "built-in IaC rules (*.tf)".into(),
+        cwd: root.display().to_string(),
+        exit_code: Some(0),
+        millis: t0.elapsed().as_millis() as u64,
+        count: problems.len(),
+        error: None,
+    };
+    Some((problems, report))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tf_files_bring_their_findings() {
+        let d = tempfile::tempdir().unwrap();
+        assert!(iac_findings(d.path()).is_none());
+        std::fs::create_dir_all(d.path().join("infra")).unwrap();
+        std::fs::write(
+            d.path().join("infra/db.tf"),
+            "resource \"aws_db_instance\" \"db\" {\n  password = var.x\n}\n",
+        )
+        .unwrap();
+        let (p, r) = iac_findings(d.path()).unwrap();
+        assert_eq!(r.count, 1);
+        assert_eq!(
+            (
+                p[0].file.as_str(),
+                p[0].line,
+                p[0].severity.as_str(),
+                p[0].code.as_deref()
+            ),
+            ("infra/db.tf", 2, "error", Some("secret-argument"))
+        );
+    }
 
     fn root() -> PathBuf {
         PathBuf::from("/w")

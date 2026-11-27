@@ -49,7 +49,7 @@ import { bindActions, type ActionTable } from "./scm/ui/actions";
 import { translator } from "../app/i18n";
 import { SCM_MESSAGES } from "./scm/ui/messages";
 import { GIT_MESSAGES } from "./scm/ui/git-messages";
-import { GIT_ACTIONS, sideSections } from "./scm/extras";
+import { GIT_ACTIONS, sideSections, hunkButton, hunkBox, discardWithUndo } from "./scm/extras";
 
 /* os textos do motor do git na língua da interface (i18n dos motores) */
 const tse = translator(SCM_ENGINE_MESSAGES);
@@ -61,6 +61,7 @@ import {
   openDiff, openPath, publish,
   repo, desktopFolder, gitInitFolder, decoratedCheckout, decoratedMerge,
 } from "./scm/infrastructure/legacy-bridge";
+import { services } from "../app/services";
 
 /* ───── estado git/scm (window-backed via publish; o resíduo do monólito e as
    camadas v5/v6/bridge/pair aliasam estes nomes livres como globais) ───── */
@@ -68,7 +69,7 @@ const GIT: GitState = { c: {}, order: [], refs: {}, trees: {}, base: {}, tags: {
 const LANE = ["#e08a5b", "#6ea8ff", "#5cc9a7", "#c678dd", "#e0b64a", "#5fcad6", "#f1707a"];
 const STAGED = new Set<string>();
 const COMMITS: Array<{ h: string; m: string; n?: number }> = [];
-publish({ GIT, LANE, STAGED, COMMITS, BRANCH: "", COMMIT_MSG: "", GSEL: null, AUTHOR: "w" });
+publish({ GIT, STAGED, COMMITS, BRANCH: "", AUTHOR: "w" });
 
 /* ───── wrappers de domínio: mantêm as assinaturas window que o golden e o monólito
    chamam, injectando o `FS`/`AGENTS`/`GIT` vivos ───── */
@@ -165,7 +166,7 @@ function renderScmPane(): void {
     return;
   }
   const b = branch();
-  const row = (p: string, s: number): string => `<div class="scm-row" data-action="open-diff" data-on="${esc(p)}">${fIcon(p)}<span class="nm">${esc(p.split("/").pop())}</span><span class="pth">${esc(short(p).split("/").slice(0, -1).join("/"))}</span><span class="ra"><button title="${t("openFile")}" data-action="open-path" data-on="${esc(p)}">↗</button><button title="${t("discard")}" data-action="discard" data-on="${esc(p)}">↶</button><button title="${s ? t("unstage") : "Stage"}" data-action="stage" data-on="${esc(p)}">${s ? "−" : "+"}</button></span><span class="g ${stOf(p)}">${stOf(p)}</span></div>`;
+  const row = (p: string, s: number): string => `<div class="scm-row" data-action="open-diff" data-on="${esc(p)}">${fIcon(p)}<span class="nm">${esc(p.split("/").pop())}</span><span class="pth">${esc(short(p).split("/").slice(0, -1).join("/"))}</span><span class="ra"><button title="${t("openFile")}" data-action="open-path" data-on="${esc(p)}">↗</button><button title="${t("discard")}" data-action="discard" data-on="${esc(p)}">↶</button><button title="${s ? t("unstage") : "Stage"}" data-action="stage" data-on="${esc(p)}">${s ? "−" : "+"}</button>${hunkButton(p)}</span><span class="g ${stOf(p)}">${stOf(p)}</span></div>${hunkBox(p)}`;
   el.innerHTML = hd(t("title"), `<button title="${t("graph")}" data-action="open-graph">${svg("graph")}</button><button title="${t("refresh")}" data-action="refresh">${svg("refresh")}</button>`) + `<div class="sections"><div class="scm-grp">dxtutor · ${esc(b)}<span class="cnt">${ch.length}</span></div>
     <input class="inp" id="scm-msg" placeholder="${t("message")}" value="${esc(commitMsg())}"><button class="btn" data-action="commit">${t("commit", { staged: st.length ? " (staged)" : "", branch: esc(b) })}</button>
     ${st.length ? `<div class="scm-grp">${t("staged")}<span class="cnt">${st.length}</span></div>` + st.map((p) => row(p, 1)).join("") : ""}<div class="scm-grp">${t("changes")}<span class="cnt">${un.length}</span></div>${un.map((p) => row(p, 0)).join("") || `<div class="sec-empty">${t("clean")}</div>`}
@@ -201,7 +202,7 @@ const ACTIONS: ActionTable = {
   commit: { on: "click", run: () => commitPublished() },
   "open-diff": { on: "click", run: (e) => openDiff(e.on) },
   "open-path": { on: "click", run: (e) => openPath(e.on) },
-  discard: { on: "click", run: (e) => discard(e.on) },
+  discard: { on: "click", run: (e) => discardWithUndo(e.on, discard) },
   stage: { on: "click", run: (e) => stage(e.on) },
   checkout: { on: "click", run: (e) => checkoutPublished(e.on) },
   "gf-prompt": { on: "click", run: (e) => gfPrompt(e.on as FlowKind) },
@@ -217,10 +218,14 @@ bindActions({ ...ACTIONS, ...GIT_ACTIONS });
    (app.ts) delega em renderScmPane (lazy, no switch de pane). `commit` v2 (botão) e
    `commitGit` v4 git-aware ficam distintos (GOTCHA-commit). ── */
 publish({
-  commitGit: commitGitPublished, commit: commitPublished, checkout: checkoutPublished, gitMerge: gitMergePublished, gfFinish: gfFinishPublished,
-  gitInit, authorOf, stOf, changes, isFlow, gfStart: gfStartPublished, gfPrompt, gfGuide,
-  pickBranch, drawTimeline, graphLayout, openGraph, stage, discard,
-  renderScmPane,
+  commitGit: commitGitPublished, commit: commitPublished, checkout: checkoutPublished, gfFinish: gfFinishPublished,
+  gitInit, stOf, changes, gfStart: gfStartPublished, openGraph, renderScmPane,
 });
+/* lidos por import desde a U7p3 do ADR-0004 (a ponte do scm, que avalia antes, usa o registo): o gitMerge exportado é o
+   publicado de antes (a porta desktop), o gitflow encadeia-o pela porta flow; o COMMIT_MSG e o GSEL são da ponte */
+export { gitMergePublished as gitMerge, authorOf, isFlow, gfPrompt, gfGuide, pickBranch, drawTimeline, graphLayout, stage, discard, LANE };
+export { commitMsg, setCommitMsg, graphSel, setGraphSel } from "./scm/infrastructure/legacy-bridge";
+services.scm = { gitMerge: gitMergePublished, discard, LANE };
+
 /* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
 RP.scm = renderScmPane;

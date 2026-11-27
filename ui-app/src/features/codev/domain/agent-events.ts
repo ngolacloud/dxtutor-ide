@@ -9,6 +9,8 @@ export interface Usage {
   output_tokens: number;
   cache_read_input_tokens: number;
   cache_creation_input_tokens: number;
+  /** A parte de `cache_creation_input_tokens` escrita com TTL de 1 hora (custa 2× a entrada). */
+  cache_creation_1h_input_tokens?: number;
 }
 
 export type StreamEvent =
@@ -26,6 +28,14 @@ export type TurnOutcome =
   | { type: "refused"; details: { category?: string | null; explanation?: string } | null }
   | { type: "cancelled" }
   | { type: "iteration_limit" };
+
+/** RF-A03/A04: an architect's rule a change under review breaks (`tutor_agent::conformance::Violation`). */
+export interface RuleViolation {
+  rule: string;
+  message: string;
+  path: string;
+  line?: number | null;
+}
 
 export type AgentEvent =
   | { kind: "stream"; event: StreamEvent }
@@ -58,11 +68,15 @@ export type HunkEvent =
   | { kind: "hunk_start"; hunk: string; call: string; path: string; op: HunkOp; range: LineRange; base: string | null; old: string }
   | { kind: "hunk_chunk"; hunk: string; text: string }
   | { kind: "hunk_end"; hunk: string; text: string; lines: { added: number; removed: number } }
-  | { kind: "hunk_review"; call: string; hunks: string[]; reason: string; why?: string }
-  | { kind: "hunk_applied"; hunk: string; provisional: boolean; fingerprint: string }
+  | { kind: "hunk_review"; call: string; hunks: string[]; reason: string; why?: string; violations?: RuleViolation[] }
+  /** `before`: the file's text before the block, when the writer already has it (local proposals write
+   *  first); `null` = do not record it again for Ctrl+Z; absent = read it from the editor (the backend). */
+  | { kind: "hunk_applied"; hunk: string; provisional: boolean; fingerprint: string; before?: string | null }
   | { kind: "hunk_rejected"; hunk: string; by: "human" | "validation" | "cancel"; reason: string }
   | { kind: "hunk_stale"; hunk: string; path: string }
-  | { kind: "validation"; status: "running" | "passed" | "failed" | "skipped"; checks: ValidationCheck[]; baseline: ValidationCheck[] };
+  | { kind: "validation"; status: "running" | "passed" | "failed" | "skipped"; checks: ValidationCheck[]; baseline: ValidationCheck[] }
+  /** RF-G07: the human stopped the turn and it left these files changed (keep, or back to `checkpoint`). */
+  | { kind: "stop_review"; checkpoint: number; files: string[] };
 
 export interface PendingCall {
   id: string;
@@ -88,7 +102,7 @@ const str = (v: unknown): v is string => typeof v === "string";
 export function parseAgentEvent(payload: unknown): { session: string; event: AgentEvent } | null {
   if (!isObj(payload) || !str(payload.session) || !isObj(payload.event)) return null;
   const e = payload.event;
-  const known = ["stream", "retrying", "tool_start", "tool_result", "usage", "served_by", "checkpoint", "notice", "question", "report", "done"];
+  const known = ["stream", "retrying", "tool_start", "tool_result", "usage", "served_by", "checkpoint", "notice", "question", "report", "done", "stop_review"];
   if (str(e.kind) && HUNK_KINDS.includes(e.kind)) {
     return validHunkEvent(e) ? { session: payload.session, event: e as unknown as AgentEvent } : null;
   }
@@ -96,6 +110,7 @@ export function parseAgentEvent(payload: unknown): { session: string; event: Age
   if (e.kind === "stream" && !(isObj(e.event) && str(e.event.type))) return null;
   if ((e.kind === "tool_start" || e.kind === "tool_result") && !(str(e.id) && str(e.name))) return null;
   if (e.kind === "done" && !(isObj(e.outcome) && str(e.outcome.type))) return null;
+  if (e.kind === "stop_review" && !(num(e.checkpoint) && Array.isArray(e.files) && e.files.every(str))) return null;
   return { session: payload.session, event: e as unknown as AgentEvent };
 }
 
@@ -185,6 +200,17 @@ export function describeCall(name: string, input: Record<string, unknown>, comma
       return `/${s("pattern")}/` + (s("glob") ? ` ${s("glob")}` : "") + (s("path") ? ` em ${s("path")}` : "");
     case "git_diff":
       return (input.staged === true ? "--staged " : "") + s("path");
+    case "backlog_propose":
+      return `${s("title")} → .dxtutor/backlog.json (${Array.isArray(input.issues) ? input.issues.length : 0} issues)`;
+    case "ide": {
+      const a = input.args && typeof input.args === "object" ? (input.args as Record<string, unknown>) : {};
+      // H4: the Platform/SRE/DevOps actions name a runbook step, an incident, a folder or a namespace
+      const keys = ["key", "project", "filter", "sha", "path", "step", "id", "title", "severity", "kind", "dir", "env", "context", "namespace", "deployment"];
+      const detail = keys.map((k) => (typeof a[k] === "string" || typeof a[k] === "number" ? String(a[k]) : "")).filter(Boolean).join(" ");
+      return s("action") + (detail ? ` ${detail}` : "");
+    }
+    case "project_propose":
+      return `${s("method") || "—"} · ${Array.isArray(input.sprints) ? input.sprints.length : 0} sprints`;
     default:
       return "";
   }
@@ -345,6 +371,8 @@ export interface ExtensionsStatus {
   skills: Array<{ name: string; description: string }>;
   hooks: { present: boolean; trusted: boolean };
   mcp: { present: boolean; trusted: boolean };
+  /** H1: `.dxtutor/sandbox.json` (what loosens the OS sandbox counts only when trusted). */
+  sandbox: { present: boolean; trusted: boolean };
   mcpServers: string[];
 }
 
@@ -360,6 +388,7 @@ export function parseExtensions(v: unknown): ExtensionsStatus {
     skills: list(o.skills),
     hooks: ft(o.hooks),
     mcp: ft(o.mcp),
+    sandbox: ft(o.sandbox),
     mcpServers: Array.isArray(o.mcpServers) ? (o.mcpServers.filter(str) as string[]) : [],
   };
 }

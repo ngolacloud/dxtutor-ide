@@ -39,6 +39,10 @@ export interface Desktop {
   delegate?: (writes: [string, string][], o?: { signal?: AbortSignal | null; onStatus?: (s: string) => void }) => Promise<DelegateResult>;
   cancelTask?: (id: string) => Promise<boolean>;
   exec?: (cmd: string) => Promise<VerifyOutcome>;
+  /** Corre uma linha na pasta e entrega a saída linha a linha (`proc-line`); resolve com o código de saída. */
+  streamCmd?: (line: string, o: { line: (l: string, err?: boolean) => void; onId?: (id: string) => void }) => Promise<number>;
+  /** Pára um processo do `streamCmd` (o grupo inteiro: os filhos também). */
+  killCmd?: (id: string) => Promise<boolean>;
   projectCmd?: (kind: VerifyKind) => VerifyCommand | null;
   delegateReview?: (title: string, writes: [string, string][]) => Promise<void>;
   readStack?: () => Promise<void>;
@@ -46,7 +50,7 @@ export interface Desktop {
   drawContainers?: () => Promise<void>;
   /** Terminais reais (features/panel): tarefas num PTY + canais do Output. Só no desktop. */
   term?: {
-    runTask: (line: string, o?: { env?: Record<string, string>; cwd?: string; label?: string }) => Promise<number>;
+    runTask: (line: string, o?: { env?: Record<string, string>; cwd?: string; label?: string; vault?: { addr: string; namespace?: string | null; lease?: string | null } }) => Promise<number>;
     log: (channel: string, text: string, err?: boolean) => void;
     inspect: () => {
       terminals: { id: string; kind: string; label: string | null; shell: string; process: string | null; cwd: string | null; exited: number | null }[];
@@ -67,65 +71,25 @@ declare global {
   const LS: { get: (k: string, d?: any) => any; set: (k: string, v: unknown) => void };
   const PROV: Record<string, Prov>;
   const ENVS: Envs;
-  const RTN: Record<string, string>;
-  const KCTX: string[];
   const AGENTS: Record<string, { n: string }>;
   var ACTIVE: string;
-  const COMMIT_MSG: string;
-  const isFlow: (b: string) => boolean;
-  // Motor do grafo de commits (dono = features/scm.ts), lido por nome livre pela
-  // feature strict features/graph.ts (e pelos consumidores do monólito).
-  const graphLayout: () => { rows: { h: string; col: number; pl: number[] }[]; idx: Record<string, number>; max: number };
-  const LANE: string[];
-  const authorOf: (a: string) => { n: string; col: string };
   const rel: (t: number) => string;
-  let GSEL: string | null;
   const changes: () => string[];
   const stOf: (p: string) => unknown;
   const use: (p: string, tok: number) => void;
-  const infraDraw: () => void;
   const goPane: (p: string) => void;
-  const saveEnv: () => void;
-  // Lexicais que o bridge re-atribui (let em app.js).
-  let STACK: { name: string; src: string; url: string; state: string }[] | null;
-  let DEVC: unknown;
-  let K8S: unknown;
   let SAMPLE: ((input: string | SampleMsg[], o?: SampleOpts) => Promise<any>) | null;
   let LIVE_OK: boolean;
   // Globais function-declaradas (vivem no window): re-atribuíveis a partir do módulo.
   var termRefreshPrompt: () => void;
-  var echoCmd: (v?: string) => void;
-  var rerender: (k: string) => void;
   var card: (w: string, html: string) => { el: HTMLElement; bd: HTMLElement; tools: HTMLElement };
   var commit: (msg?: string, author?: string) => unknown;
   var checkout: (b: string, create?: boolean) => boolean;
-  var stage: (p: string) => void;
-  var gitMerge: (src: string, author?: string) => CommitNode | null;
   var gfStart: (kind: string, name: string) => string;
   var gfFinish: (b?: string, author?: string) => CommitNode | null;
   var updateAgentUI: (...a: any[]) => void;
-  var rtConnect: () => unknown;
-  var k8sConnect: () => unknown;
-  var dxRun: (term?: unknown) => { ok: boolean; sum?: string };
-  var dxStop: (term?: unknown) => void;
-  var dxDeploy: () => { ok: boolean; sum?: string };
-  var drawStack: (...a: any[]) => void;
-  var k8sDocs: () => any[];
-  var needRt: () => unknown;
-  var dcAttach: () => unknown;
-  var dcDetach: () => unknown;
-  var drawRemote: () => void;
-  var hydrateEnvs: () => void;
   var JSZip: unknown;
   // Donas de features/checkpoint.ts, lidas por nome livre pelo selftest (passo `checkpoint`).
   var checkpoint: (label: string) => number;
-  var gfAsk: (host: HTMLElement, M: { files: Set<string> }) => Promise<void>;
-  // Dona de features/graph.ts, lida pelo selftest (passo `graph`).
-  // Dona de features/termgit.ts, lida pelo selftest (passo `termgit`).
-  var gitCmd: (a: string[], raw: string) => { ok: boolean } | undefined;
   // Donas de features/codereview.ts, lidas pelo selftest (passo `codereview`).
-  var reviewFindings: (p: string) => { l: number; sev: string; t: string; why: string; fix: string }[];
-  var renderCreviewView: (tab: unknown, host: HTMLElement) => void;
-  var renderHoodView: (tab: unknown, host: HTMLElement) => void;
-  var explainCmd: () => void;
 }

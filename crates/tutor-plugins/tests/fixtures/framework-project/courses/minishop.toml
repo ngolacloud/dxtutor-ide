@@ -1,0 +1,131 @@
+# Test fixture only (never shipped as a course): proves the framework category and the
+# multi-file project step end to end (dxt plugin test, submit_step, the Learn UI).
+id = "minishop-fixture"
+language = "python"
+category = "framework"
+subject = "minishop"
+title = "MiniShop (fixture)"
+level = "beginner"
+summary = "A tiny shop package, to prove project steps across several modules."
+overview = """
+MiniShop is a pretend framework used only by dxtutor's tests. Its course shows the shape of a
+framework course: a concept, a drill and a project step that spans two modules of a package.
+"""
+
+[[unit]]
+id = "msf-u1-prices"
+title = "Prices and carts"
+level = "basic"
+difficulty = 1
+intro = "Split the shop into modules: prices in one place, the cart in another."
+concepts = """
+## One rule, one module
+A framework keeps each rule in one module. Here the VAT rate lives in `shop/config.py`
+(read-only), the price rule in `shop/prices.py`, and the cart uses the price rule.
+"""
+
+[[unit.step]]
+kind = "concept"
+id = "msf-c1-modules"
+title = "Modules"
+points = 5
+intro = "Why split code into modules."
+body = """
+`from shop.prices import with_vat` reuses the price rule instead of copying it.
+"""
+
+[[unit.step]]
+kind = "drill"
+id = "msf-d1-vat"
+title = "VAT by hand"
+points = 10
+placeholder_policy = "shown"
+prompt = "Type the program exactly as shown."
+target = """
+VAT = 0.14
+print(round(100 * (1 + VAT), 2))
+"""
+line_comments = [
+  "The rate, as a fraction.",
+  "Price plus VAT, rounded to cents.",
+]
+explanation = "It prints 114.0."
+
+[[unit.step]]
+kind = "challenge"
+id = "msf-p1-cart"
+title = "A cart that charges VAT"
+points = 30
+intro = "Two modules work together: the cart calls the price rule."
+instructions = """
+Implement `with_vat(amount)` in `shop/prices.py` (use `VAT` from `shop/config.py`, round to
+two decimals) and `total(items)` in `shop/cart.py`, where `items` is a list of
+`(quantity, unit_price)` pairs and the total includes VAT.
+"""
+entry = "total"
+run_command = "python3 -m unittest"
+
+[unit.step.project]
+main = "shop/cart.py"
+readonly = ["shop/__init__.py", "shop/config.py"]
+explanation = "The cart sums the lines first and applies VAT once, through the price rule."
+
+[unit.step.project.starter]
+"shop/__init__.py" = ""
+"shop/config.py" = '''
+VAT = 0.14
+'''
+"shop/prices.py" = '''
+from shop.config import VAT
+
+
+def with_vat(amount):
+    raise NotImplementedError
+'''
+"shop/cart.py" = '''
+from shop.prices import with_vat
+
+
+def total(items):
+    raise NotImplementedError
+'''
+
+[unit.step.project.tests]
+"test_shop.py" = '''
+import unittest
+
+from shop.cart import total
+from shop.prices import with_vat
+
+
+class Prices(unittest.TestCase):
+    def test_vat(self):
+        self.assertEqual(with_vat(100), 114.0)
+
+    def test_rounds_to_cents(self):
+        self.assertEqual(with_vat(0.1), 0.11)
+
+
+class Cart(unittest.TestCase):
+    def test_total(self):
+        self.assertEqual(total([(2, 50.0), (1, 100.0)]), 228.0)
+
+    def test_empty(self):
+        self.assertEqual(total([]), 0)
+'''
+
+[unit.step.project.solution]
+"shop/prices.py" = '''
+from shop.config import VAT
+
+
+def with_vat(amount):
+    return round(amount * (1 + VAT), 2)
+'''
+"shop/cart.py" = '''
+from shop.prices import with_vat
+
+
+def total(items):
+    return with_vat(sum(quantity * price for quantity, price in items))
+'''

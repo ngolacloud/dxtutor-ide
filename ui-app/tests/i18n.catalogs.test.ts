@@ -16,7 +16,7 @@ import { CODEREVIEW_MESSAGES } from "../src/features/codereview/ui/messages";
 import { DIAGNOSTICS_MESSAGES } from "../src/features/diagnostics.messages";
 import { EXPLORER_MESSAGES } from "../src/features/explorer.messages";
 import { EXT_MESSAGES } from "../src/features/ext/ui/messages";
-import { GRAPH_MESSAGES } from "../src/features/graph.messages";
+import { GRAPH_MESSAGES } from "../src/features/scm/ui/graph.messages";
 import { INFRA_ENGINE_MESSAGES } from "../src/features/infra/application/messages";
 import { INFRA_MESSAGES } from "../src/features/infra/ui/messages";
 import { LEARN_MESSAGES } from "../src/features/learn/ui/messages";

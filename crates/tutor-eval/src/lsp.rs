@@ -8,7 +8,7 @@
 //!
 //! A watchdog thread kills the server after a hard timeout, so a request never hangs the UI.
 
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
@@ -19,9 +19,12 @@ use serde_json::{json, Value};
 /// Overall wall-clock budget for one definition request (spawn + index + answer).
 const BUDGET: Duration = Duration::from_secs(30);
 
-/// Is rust-analyzer on PATH?
+/// Is rust-analyzer (the registry's Rust server) on PATH?
 pub fn available() -> bool {
-    Command::new("rust-analyzer")
+    let Some(rust) = crate::langreg::registry().server("rust") else {
+        return false;
+    };
+    Command::new(&rust.command)
         .arg("--version")
         .output()
         .map(|o| o.status.success())
@@ -119,15 +122,18 @@ fn request(
 ) -> Option<Value> {
     // rust-analyzer only speaks Rust: skip it (and its multi-second cold start) for other
     // files, so the caller falls back to the syntactic map immediately.
-    if file.extension().and_then(|e| e.to_str()) != Some("rs") {
-        return None;
-    }
+    let reg = crate::langreg::registry();
+    let rust = reg
+        .language_for_name(&file.to_string_lossy())
+        .and_then(|l| reg.server_of(l))
+        .filter(|s| s.id == "rust")?;
+    let program = rust.command.as_str();
     // Agent routing: when a persistent container session is running for this project, drive
     // rust-analyzer INSIDE the container (its toolchain + deps) over `exec -i`, translating
     // host paths ↔ the container's /work mount. Otherwise run it on the host.
     let use_container = crate::container::session_running(&crate::container::session_name(root));
     let spawn = if use_container {
-        let (prog, args) = crate::container::session_exec_command(root, "rust-analyzer");
+        let (prog, args) = crate::container::session_exec_command(root, program);
         Command::new(prog)
             .args(args)
             .stdin(Stdio::piped())
@@ -135,7 +141,7 @@ fn request(
             .stderr(Stdio::null())
             .spawn()
     } else {
-        Command::new("rust-analyzer")
+        Command::new(program)
             .current_dir(root)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -273,20 +279,18 @@ fn is_ready(v: &Value) -> bool {
 // gopls, typescript-language-server), run on the host or inside the container session. Falls
 // back to an empty vec when the server is absent, so the caller uses the syntactic outline.
 
-/// The LSP server for `lang`: (program, args, languageId). `None` for unsupported languages.
-fn lsp_server(lang: &str) -> Option<(&'static str, &'static [&'static str], &'static str)> {
-    match lang {
-        "rust" => Some(("rust-analyzer", &[], "rust")),
-        "python" | "py" => Some(("pyright-langserver", &["--stdio"], "python")),
-        "go" => Some(("gopls", &[], "go")),
-        "typescript" | "ts" | "tsx" => {
-            Some(("typescript-language-server", &["--stdio"], "typescript"))
-        }
-        "javascript" | "js" | "jsx" => {
-            Some(("typescript-language-server", &["--stdio"], "javascript"))
-        }
-        _ => None,
-    }
+/// The LSP server for `lang` (an outline language or a file extension): (program, args,
+/// languageId). From the language registry (`crate::langreg`): only the servers marked `oneShot`
+/// (rust-analyzer, gopls, typescript-language-server, pyright) — a JVM server is never started
+/// for one request. `None` for the rest. The program is the bare command: on the host it is
+/// looked up on PATH, in a container session on the container's PATH.
+fn lsp_server(lang: &str) -> Option<(&'static str, &'static [String], &'static str)> {
+    let (language, server) = crate::langreg::registry().one_shot(lang)?;
+    Some((
+        server.command.as_str(),
+        server.args.as_slice(),
+        language.lsp_id(),
+    ))
 }
 
 /// Precise outline of `file` (absolute, under `root`) via its language server. Empty when the

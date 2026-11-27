@@ -1,0 +1,278 @@
+/* Notas para a documentação oficial da feature lsp (o editor ligado ao servidor de linguagem). Por agora
+   o aviso de servidor em falta, os overrides do registo (LSP P2), as linguagens das extensões VS Code (LSP P4), o
+   editor sem servidor (LSP P5: gramáticas, palavras, comentários de bloco, formatar) e os recursos dos servidores
+   (LSP P6); as outras acções (hover, F12, rename,
+   completion…) entram aqui quando forem documentadas. Ver `app/notes/types.ts`. */
+
+import type { FeatureNotes } from "../../app/notes/types";
+
+export const LSP_NOTES: FeatureNotes = {
+  id: "lsp",
+  title: "Servidor de linguagem (LSP)",
+  summary:
+    "Na app desktop, o editor fala com o servidor de linguagem de cada ficheiro (rust-analyzer, typescript-language-server, pyright, gopls, jdtls…) para os diagnósticos ao vivo, o hover, o «ir para a definição», o rename e o completion. Que linguagem é cada ficheiro (pela extensão, sem distinguir maiúsculas, pelo nome inteiro como `Dockerfile` e `Makefile`, ou pelo shebang) e que servidor a serve diz um só ficheiro de dados, `languages/registry.json`, lido pelo editor e pelo backend. O teu `lsp.json` e o `.dxtutor/lsp.json` de cada projecto acrescentam linguagens e servidores e mudam o comando, os argumentos e as definições de cada servidor; o comando que um projecto pede só corre depois de o aprovares. Quando o servidor não está instalado, o editor diz qual falta e instala-o depois de aprovares o comando exacto, para a pasta do próprio dxtutor. Uma extensão VS Code instalada (VSIX) que traz uma linguagem que o registo não conhece torna-a uma linguagem do editor — realce, comentários e o nome na barra de estado — e, se o registo o disser, liga-a ao servidor de linguagem certo. Os servidores não ficam a gastar a máquina: um servidor sem ficheiros abertos pára sozinho ao fim de algum tempo, há um limite de servidores ao mesmo tempo, e a paleta mostra os que estão a correr, com o registo de cada um. Sem servidor (ou no browser), o editor continua útil: realce pelas gramáticas que vêm com o dxtutor (Python, Go, Java, Shell, Makefile, Dockerfile), completion pelas palavras dos ficheiros abertos, comentários de bloco e um «Format Document» que só arruma os espaços.",
+  code: [
+    "languages/registry.json",
+    "crates/tutor-eval/src/langreg.rs",
+    "crates/tutor-eval/src/lspconf.rs",
+    "ui-app/src/features/lsp/application/overrides.ts",
+    "ui-app/src/features/lsp/ui/config-view.ts",
+    "docs/lsp/overrides.md",
+    "ui-app/src/features/lsp/domain/registry.ts",
+    "ui-app/src/features/lsp/application/lsp-client.ts",
+    "ui-app/src/features/lsp/domain/server-status.ts",
+    "crates/tutor-eval/src/lspinstall.rs",
+    "src-tauri/src/commands/lsp_install.rs",
+    "src-tauri/src/lsp.rs",
+    "src-tauri/src/lsp/lifecycle.rs",
+    "ui-app/src/features/lsp/application/servers.ts",
+    "ui-app/src/features/lsp/ui/servers-view.ts",
+    "ui-app/src/features/panel/domain/lsp-log.ts",
+    "crates/tutor-eval/src/langcontrib.rs",
+    "ui-app/src/features/ext/domain/contributions.ts",
+    "ui-app/src/features/ext/domain/plist.ts",
+    "ui-app/src/features/lsp/application/contributions.ts",
+    "languages/grammars/manifest.json",
+    "scripts/fetch-grammars.mjs",
+    "ui-app/src/features/lsp/fallback.ts",
+    "ui-app/src/features/lsp/application/fallback-highlight.ts",
+    "ui-app/src/features/lsp/application/word-completion.ts",
+    "ui-app/src/features/lsp/domain/comments.ts",
+    "ui-app/src/features/lsp/domain/safe-format.ts",
+  ],
+  updated: "2026-11-27",
+  actions: [
+    {
+      title: "Servidor de linguagem em falta: maneiras de instalar, Copiar, Instalar e Verificar outra vez",
+      where: ["faixa amarela no topo do ficheiro «No … language server»"],
+      what: "Mostra o servidor que falta e as maneiras de o instalar nesta máquina (npm, pip, pipx, go, cargo, dotnet, gem, rustup, uma release do GitHub, ou apt/brew), cada uma com o comando EXACTO. «Install» corre a maneira escolhida depois de aprovares: num terminal, para a pasta do próprio dxtutor, ou — para uma release — o dxtutor descarrega-a e confere o SHA-256. Quando acaba bem, a faixa sai e o servidor arranca, sem reiniciar a app.",
+      howTo: [
+        "Abre um ficheiro da linguagem; se faltar o servidor, aparece a faixa com a maneira proposta e o seu comando.",
+        "Com mais de uma maneira, escolhe outra na lista (as que não servem nesta máquina aparecem desactivadas, com o motivo: o gestor que falta, ou nenhuma versão da release para ela).",
+        "«Install»: confirma o comando exacto no diálogo de aprovação; a instalação corre no painel Terminal (ou, numa release, o dxtutor descarrega e confere-a).",
+        "apt e Homebrew são gestores do sistema (o apt pede sudo): o dxtutor só mostra o comando. «Copy», corre-o no teu terminal e depois «Check again».",
+        "«Check again» volta a procurar o servidor (depois de o instalares à mão). «Dismiss» esconde a faixa nesta sessão.",
+      ],
+      flow: [
+        "O backend diz se o servidor existe (`lsp_server_status`, que agora diz também onde o encontrou: `foundAt`, `managed`): procura-o primeiro na variável de ambiente do registo, depois na pasta do dxtutor (`<dados da app>/lsp-servers/<servidor>`), depois como o registo manda (PATH da shell de login e da app, pastas conhecidas; o rust-analyzer nunca como o proxy do rustup).",
+        "As maneiras vêm de `lsp_install_plan`: o backend lê as receitas (`recipes`) do registo de confiança — o embutido mais o teu `lsp.json`, nunca o `.dxtutor/lsp.json` de um projecto —, procura cada gestor no PATH da shell de login e constrói o comando exacto (`tutor_eval::lspinstall`). A UI nunca compõe um comando.",
+        "Gestores do utilizador instalam na pasta do dxtutor: npm `--global --prefix`, pip num venv, pipx/go/gem/dotnet/cargo com as suas opções de pasta; o rustup acrescenta o componente à toolchain.",
+        "Aprovação partilhada (`app/approval.ts`) com o comando e onde fica → registo de auditoria (`audit_record`, acção `lsp.install`; sem auditoria não corre) → terminal de tarefa (`sh -c`, com o PATH da shell de login do plano) ou `lsp_install_download` (o id da maneira, nunca um URL) → auditoria do resultado.",
+        "Release: o backend descarrega o ficheiro fixado no registo (URL do GitHub e SHA-256), confere o SHA-256 ANTES de desempacotar e, se não confere, não instala nada e deixa o que lá estava.",
+        "Sucesso: esquece o estado em cache, volta a perguntar ao backend e arranca o servidor no ficheiro aberto.",
+      ],
+      tips: [
+        "Uma instalação pela faixa não mexe no teu sistema: fica toda em `<dados da app>/lsp-servers`. Para a desfazer, apaga a pasta do servidor.",
+        "Uma variável como `DXTUTOR_RUST_ANALYZER` continua a ganhar à pasta do dxtutor.",
+      ],
+      limits: [
+        "Só na app desktop com uma pasta aberta. Sem auditoria possível, não instala.",
+        "Um servidor que o projecto acrescenta, ou cujo programa muda, não se instala daqui. Se o teu `lsp.json` troca o programa, dá-lhe as suas `recipes`.",
+        "O dxtutor nunca corre `sudo`, nem o apt ou o Homebrew.",
+      ],
+      covers: ["lsp:notice-copy", "lsp:notice-install", "lsp:notice-way", "lsp:notice-recheck"],
+    },
+      {
+      title: "As tuas definições de servidores de linguagem (lsp.json)",
+      where: ["paleta: «LSP: Open User Language Server Settings (lsp.json)»", "faixa de servidor em falta: «Configure…»"],
+      what: "Abre o teu `lsp.json` (na pasta de configuração do dxtutor, vale para todas as pastas) num editor próprio. Lá acrescentas uma linguagem e o seu servidor, ou mudas o comando, os argumentos ou as definições de um servidor embutido. Gravar aplica logo: os servidores afectados reiniciam, sem reiniciar a app.",
+      howTo: [
+        "Paleta (Ctrl+Shift+P) → «LSP: Open User Language Server Settings». Se o ficheiro ainda não existe, abre com um modelo comentado.",
+        "Escreve só o que mudas: `{ \"servers\": [ { \"id\": \"rust\", \"settings\": { \"rust-analyzer\": { \"check\": { \"command\": \"clippy\" } } } } ] }`.",
+        "«Save» (ou Ctrl+S). Se o ficheiro tiver um erro, fica gravado mas ignorado, e o editor diz qual é e onde.",
+      ],
+      flow: [
+        "`lsp_config_file(\"user\")` dá o texto (ou o modelo `lspconf::USER_TEMPLATE`); `lsp_user_config_save` grava SÓ esse ficheiro (o caminho decide-o o backend: `<config da app>/lsp.json`) e relê o registo.",
+        "A junção é do Rust (`tutor_eval::langreg::apply_overlay`): uma entrada com um id conhecido muda só os campos que dá (`settings` e `initOptions` juntam-se chave a chave; `null` repõe o valor por omissão); um id novo é uma entrada inteira. O resultado passa pelas mesmas regras do registo embutido; se falhar, o ficheiro inteiro é ignorado.",
+        "Os servidores a correr cujo arranque mudou reiniciam e recebem os ficheiros abertos; os que só mudaram de definições recebem `workspace/didChangeConfiguration`. O editor ouve `lsp://config` e revê o ficheiro aberto.",
+        "O teu ficheiro é de confiança: os comandos dele correm sem pedir aprovação.",
+      ],
+      tips: ["Aceita comentários (`//`, `/* */`) e vírgulas no fim. A referência dos campos está em `docs/lsp/overrides.md`."],
+      limits: ["Só na app desktop. O cliente de um pedido só (o outline do agente) continua com o registo embutido."],
+      covers: ["lsp:cmd-user-config", "lsp:notice-configure"],
+    },
+    {
+      title: "As definições do projecto (.dxtutor/lsp.json)",
+      where: ["paleta: «LSP: Open Project Language Server Settings (.dxtutor/lsp.json)»"],
+      what: "Abre o `.dxtutor/lsp.json` da pasta aberta num separador (criado com um modelo comentado, se não existe). Vai com o repositório: serve para a equipa partilhar as definições dos servidores do projecto.",
+      howTo: [
+        "Paleta → «LSP: Open Project Language Server Settings». Escreve no mesmo formato do teu `lsp.json`.",
+        "O autosave grava-o; em 2 segundos o dxtutor relê-o e aplica-o.",
+        "Um servidor novo, ou um que o projecto põe a correr com outro comando, espera pela tua aprovação. As definições (`settings`) e as `initOptions` do projecto também: até as aprovares, o servidor corre com as tuas.",
+      ],
+      flow: [
+        "Ordem: o registo embutido → o teu `lsp.json` → o `.dxtutor/lsp.json` do projecto (`tutor_eval::lspconf::Effective::load`). Cada ficheiro junta-se e valida-se sozinho: um inválido é ignorado inteiro e os de baixo ficam como estavam.",
+        "O backend vê as mudanças pela data e o tamanho dos ficheiros (de 2 em 2 segundos) e reinicia só os servidores afectados.",
+      ],
+      limits: ["Um ficheiro com mais de 512 KiB é recusado."],
+      covers: ["lsp:cmd-project-config"],
+    },
+    {
+      title: "Aprovar o comando e as definições que um projecto pede",
+      where: ["faixa no topo do ficheiro «… is waiting for your approval» → «Review…»", "a configuração efectiva → «Review…»"],
+      what: "Um projecto clonado pode trazer um `.dxtutor/lsp.json` que acrescenta um servidor, muda o programa, os argumentos, o resolvedor, as pastas de procura ou a variável de ambiente de um servidor, ou lhe dá `settings`/`initOptions` (que podem pôr o servidor a correr comandos, como o `check.overrideCommand` do rust-analyzer). Com outro arranque, o servidor não arranca até aprovares o comando EXACTO; só com definições, arranca com as tuas e as do projecto só se aplicam depois de as aprovares.",
+      howTo: [
+        "Abre um ficheiro da linguagem: a faixa diz o servidor e o que espera (o comando, ou as definições).",
+        "«Review…» abre o diálogo de aprovação com o programa (caminho completo), os argumentos, a pasta onde corre, as definições/initOptions do projecto e o que substituem, o ficheiro que o pediu e o que mudou. Se o programa estiver dentro da pasta do projecto, o diálogo di-lo.",
+        "Aprova para o servidor arrancar (ou receber as definições do projecto); recusa e nada do que o projecto pediu corre (podes rever outra vez mais tarde).",
+      ],
+      flow: [
+        "A regra vive no Rust: `lspconf::approval_request` decide se um servidor precisa de aprovação; `lsp.rs::gate` não o lança (arranque mudado) ou lança-o com as definições de confiança (`Effective::trusted_config`), e `lsp_server_status` devolve o pedido (`blocksStart`, `config`).",
+        "`lsp_approve_server` confere o hash mostrado (se o comando mudou entretanto, recusa), grava a decisão no registo de auditoria ANTES de tudo (`audit_record`, acção `lsp.server.approve`; sem auditoria não aprova) e guarda a aprovação em `<config da app>/lsp-trusted.json` (0600), nunca no projecto.",
+        "A aprovação fica presa ao projecto, ao servidor, ao programa encontrado, aos campos de arranque, às definições e initOptions e, para um programa dentro do projecto, ao conteúdo dele: se algum mudar, volta a pedir. Aprovadas as definições, o servidor a correr recebe-as (`didChangeConfiguration`; initOptions novas reiniciam-no).",
+      ],
+      tips: ["Os marcadores de raiz, o nome e as extensões não correm nada: não pedem aprovação. O teu `lsp.json` é de confiança."],
+      covers: ["lsp:notice-review", "lsp:effective-review"],
+    },
+    {
+      title: "Ver a configuração efectiva",
+      where: ["paleta: «LSP: Show Effective Language Server Configuration»"],
+      what: "Mostra, para cada servidor, a entrada que o dxtutor usa depois de juntar tudo: de onde veio (embutido, utilizador, projecto), as linguagens que serve, as definições, e se espera por aprovação. Diz também o estado dos dois ficheiros de overrides.",
+      howTo: [
+        "Paleta → «LSP: Show Effective Language Server Configuration». Abre no servidor do ficheiro aberto.",
+        "Escolhe outro servidor na lista (os marcados com * foram mudados por um override).",
+      ],
+      flow: ["`lsp_config(root)` relê os ficheiros que mudaram e devolve o registo efectivo, os relatórios dos ficheiros e as aprovações em falta."],
+      covers: ["lsp:cmd-effective"],
+    },
+    {
+      title: "Aviso de definições ignoradas",
+      where: ["cartão vermelho no canto «Language server settings ignored»"],
+      what: "Quando o teu `lsp.json` ou o `.dxtutor/lsp.json` têm um erro, o dxtutor ignora esse ficheiro (os de baixo continuam a valer) e diz qual é e o que está errado, com o sítio (`servers[2] (rust): unknown field comand`, `line 4 column 3`).",
+      howTo: ["«Open» abre o ficheiro para o corrigires; ao gravar, o cartão sai sozinho.", "«Dismiss» esconde-o até o erro mudar."],
+      flow: ["Os erros vêm de `lsp_config` (`userFile`/`projectFile.errors`); o aviso só se repete quando os erros mudam."],
+      covers: ["lsp:config-errors-open"],
+    },
+    {
+      title: "Linguagens trazidas por uma extensão VS Code (VSIX)",
+      where: ["painel «Extensions» → instalar do Open VSX ou de um .vsix (+)", "página da extensão → «What this extension adds here»"],
+      what: "Uma extensão instalada que declara uma linguagem que o dxtutor ainda não conhece (o Apache para o `.htaccess`, o Perl, o `go.mod` da extensão do Go) passa a ser uma linguagem do editor: o ficheiro é reconhecido pelo nome inteiro, por um padrão, pela extensão ou pela primeira linha, ganha o realce da gramática da extensão (JSON ou `.tmLanguage` em XML), o Ctrl+/ com o comentário do `language-configuration.json` e o nome na barra de estado. Se o registo de linguagens do dxtutor o disser, o ficheiro vai para o servidor de linguagem dessa extensão (instalar a extensão do Go dá o gopls aos `go.mod`, `go.sum` e `go.work`). Desinstalar ou desligar a extensão tira tudo o que ela trouxe.",
+      howTo: [
+        "Instala a extensão (do Open VSX ou de um ficheiro .vsix) e abre um ficheiro dessa linguagem.",
+        "Na página da extensão, cada linguagem diz se é nova no editor ou já do dxtutor, que ficheiros reconhece, que servidor de linguagem tem (ou que não tem) e que ficheiros ficam com o registo do dxtutor.",
+        "Uma extensão instalada antes desta versão guardou só as extensões de ficheiro: a página pede para a reinstalar.",
+      ],
+      flow: [
+        "Ao instalar, `readFromVsix` lê de cada linguagem `extensions`, `filenames`, `filenamePatterns`, `firstLine` e `aliases` (o primeiro é o nome), e as gramáticas em JSON ou em property list XML (`ext/domain/plist.ts`); fica tudo no `vsx-contrib`.",
+        "As linguagens das extensões ligadas, juntadas por id, entram no registo de linguagens POR BAIXO dele (`useContributed`): o editor, o explorador e o cliente LSP perguntam lá. O registo ganha sempre: um ficheiro que ele já reconhece (pelo nome ou pela extensão) fica dele, e a página da extensão di-lo.",
+        "Dentro das extensões: o nome inteiro, depois o padrão mais comprido, depois a extensão mais comprida (`.d.ts` antes de `.ts`); a primeira linha só quando o nome não diz nada (a do registo primeiro). Uma linguagem com o id de uma do registo (`python` com `.pyw`) É essa, servidor incluído.",
+        "Servidor: só o do registo que nomeia a extensão em `vscodeExtensions` e a linguagem em `vscodeLanguages` (o gopls lista `go.mod`, `go.sum`, `go.work`; o `go.asm` da mesma extensão fica sem servidor, e o `pip-requirements` da extensão do Python nunca vai para o pyright). O id da linguagem da extensão é o `languageId` que o servidor recebe. Os overrides (P2), a aprovação e as receitas de instalação (P3) continuam iguais.",
+        "O backend recebe a lista inteira (`lsp_contributions`) antes de o cliente decidir a linguagem de um ficheiro e sempre que muda (bus `ext:languages`); quando muda, um documento aberto que perdeu o servidor fecha-se nele.",
+      ],
+      tips: ["No teu `lsp.json` podes dar `vscodeLanguages` a um servidor para que sirva outra linguagem que uma extensão dele traga."],
+      limits: [
+        "Não há extension host: o JavaScript da extensão nunca corre, e uma extensão nunca traz o comando de um servidor — o servidor é sempre o do registo.",
+        "Gramáticas que incluem outras gramáticas (`source.js`…) ficam sem realce nesses blocos; regras que acabam no fim da linha (`\\n`) ou com `\\G` (o comentário do Perl) ainda não são bem tratadas pelo realce.",
+      ],
+      covers: ["lsp:vsix-languages"],
+    },
+    {
+      title: "Ver os servidores de linguagem a correr",
+      where: ["paleta: «LSP: Show Running Language Servers»"],
+      what: "Lista os servidores de linguagem que estão a correr: o nome, a pasta, o PID, o estado (a arrancar, a indexar, pronto), os ficheiros abertos em cada um ou há quanto tempo está inactivo e quando vai parar, e a memória que gasta. «Restart» reinicia um servidor, «Stop» pára-o e «Show log» abre o registo dos servidores no painel Output.",
+      howTo: [
+        "Paleta (Ctrl+Shift+P) → «LSP: Show Running Language Servers». A lista actualiza-se sozinha enquanto está aberta.",
+        "Um servidor encravado ou a gastar memória a mais: «Restart» pára-o e arranca-o de novo, com os ficheiros que tens abertos.",
+        "Não precisas de um servidor agora: «Stop» pára-o já. Ele volta a arrancar sozinho quando um ficheiro da linguagem dele precisar.",
+        "«Show log» abre o canal «Language servers» do Output: o que cada servidor escreveu (erros, avisos) e quando arrancou, parou e porquê.",
+      ],
+      flow: [
+        "`lsp_servers` devolve a lista (`src-tauri/src/lsp/lifecycle.rs::list`); a memória é a do servidor e dos processos que ele arrancou, lida do `/proc` (só em Linux). O ecrã (`ui/servers-view.ts`) relê-a de 2 em 2 s e logo que o backend avisa que mudou (`lsp://servers`).",
+        "«Stop» (`lsp_server_stop`) e «Restart» (`lsp_server_restart`) param o servidor como o protocolo pede: `shutdown`, depois `exit`, e o processo é recolhido; se não sair a tempo (2 s + 1 s), é morto com o que arrancou (o grupo de processos dele).",
+        "O registo de cada servidor (stderr e as mensagens `logMessage` de erro, aviso e informação) fica no backend num anel limitado (500 linhas, 256 KiB), mascarado pelas regras de protecção de dados antes de sair; chega ao Output pelo evento `lsp://log` e lê-se de novo com `lsp_server_log` (por exemplo, depois de mudares de língua).",
+      ],
+      tips: ["Um servidor que morre sozinho também aparece no registo, com o código de saída, e arranca de novo no pedido seguinte."],
+      limits: ["A memória só se mostra em Linux.", "Parar um servidor não o desliga: o próximo pedido de um ficheiro da linguagem dele arranca-o outra vez. Para o desligar de vez, usa `\"server\": null` na linguagem, no teu `lsp.json`."],
+      covers: ["lsp:cmd-servers", "lsp:servers-restart", "lsp:servers-stop", "lsp:servers-log"],
+    },
+    {
+      title: "Servidores inactivos e o limite de servidores",
+      where: ["automático", "o teu `lsp.json`: «resources»"],
+      what: "Fechar um ficheiro avisa o servidor (`didClose`). Um servidor sem ficheiros abertos e sem uso durante 10 minutos pára sozinho, e correm no máximo 6 ao mesmo tempo: quando arranca um a mais, pára o usado há mais tempo que não tenha ficheiros abertos. Um servidor com ficheiros abertos nunca é parado por isto: se todos os que restam têm ficheiros abertos, o editor diz-to. Fechar a pasta (ou abrir outra) e sair do dxtutor param os servidores dela.",
+      howTo: [
+        "Não tens de fazer nada: fecha os separadores de que não precisas e o servidor dessa linguagem acaba por parar; volta a arrancar quando abrires um ficheiro dela.",
+        "Para mudar os tempos, no teu `lsp.json` (paleta → «LSP: Open User Language Server Settings»): `\"resources\": { \"idleMinutes\": 10, \"maxServers\": 6 }`. `idleMinutes` 0 deixa os servidores inactivos a correr até fechares a pasta; `maxServers` vai de 1 a 32.",
+      ],
+      flow: [
+        "Fechar um separador (bus `editor:tab-closed`), apagar ou renomear um ficheiro aberto (`workspace:changed`) → `lsp_did_close` → `didClose` aos servidores que o têm aberto, e o backend esquece-o.",
+        "De 30 em 30 s o backend procura servidores sem ficheiros abertos e sem uso há `idleMinutes`; ao arrancar um servidor, aplica o limite (`lifecycle::select_stops`). A decisão e a entrega de um servidor a um pedido acontecem com o mesmo lock, por isso um servidor parado nunca recebe um pedido: o pedido seguinte arranca outro, que só é usado depois do `initialize`.",
+        "Abrir outra pasta (`dx:workspace`) → `lsp_folder_closed` com a anterior; sair da app → todos param e são recolhidos antes de ela fechar.",
+        "Os `resources` só se lêem do TEU `lsp.json` (o de um projecto não os pode mudar: é um erro e o ficheiro é ignorado).",
+      ],
+      limits: ["O limite não pára um servidor com ficheiros abertos: com muitas linguagens abertas ao mesmo tempo, pode haver mais servidores do que o limite (o editor avisa)."],
+      covers: ["lsp:resources"],
+    },
+    {
+      title: "Realce sem extensão: as gramáticas que vêm com o dxtutor",
+      where: ["editor (automático)"],
+      what: "Um ficheiro Python, Go, Java, Shell, Makefile ou Dockerfile tem realce de sintaxe a sério (palavras-chave, strings, comentários, números) mesmo sem nenhuma extensão instalada: o dxtutor traz as gramáticas TextMate dessas linguagens, copiadas tal e qual do VS Code. A gramática de uma extensão instalada para a mesma linguagem ganha sempre. As outras linguagens ficam com o realce de sempre.",
+      howTo: [
+        "Abre um `.py`, `.go`, `.java`, `.sh`, um `Makefile`, um `Dockerfile` ou um script com `#!/usr/bin/env python3`: o realce chega logo que a gramática carrega (a primeira vez, um instante).",
+        "Queres outro realce para a linguagem? Instala uma extensão do Open VSX que traga a gramática: passa a ser a dela.",
+      ],
+      flow: [
+        "`languages/grammars/manifest.json` diz que gramática serve que linguagem do registo e fixa cada ficheiro pelo sha256 (repositório do VS Code, tag 1.148.0); `npm run grammars:verify` descarrega-os de novo e confere-os. As licenças estão em `languages/grammars/THIRD-PARTY-NOTICES.md`.",
+        "O editor (`paintEd`) pergunta primeiro às extensões (`vsxHighlight`); sem resposta, a `lsp/application/fallback-highlight.ts`: carrega a gramática por um `import()` próprio e tokeniza com o mesmo tokenizador «lite» das extensões.",
+        "O realce é incremental: guarda o HTML e o estado do tokenizador de cada linha e só volta a tokenizar as linhas que mudaram (no máximo 300 de cada vez); o resto de um ficheiro grande faz-se em pedaços e o editor repinta quando acaba.",
+        "O tokenizador (`ext/domain/textmate.ts`) passou a ler cada linha com o seu `\\n` e a dar ao `\\G` a âncora certa (onde acabou o `begin` da regra aberta, nessa linha), como o `vscode-textmate`: antes, uma regra que acaba em `\\n` ou num `(?!\\G)` nunca fechava, e um comentário pintava o resto do ficheiro — também nas gramáticas das extensões (o Perl, por exemplo).",
+      ],
+      limits: [
+        "Só estas seis. C# e Swift ficaram de fora (o tokenizador «lite» não percebe parte das expressões deles: no C# um comentário `///` pintava o resto do ficheiro), C++ é grande demais (678 KB), o CSS perde metade dos padrões; Ruby, Lua, Dart e C já funcionam, mas ficaram de fora para o conjunto continuar pequeno.",
+        "O tokenizador «lite» não faz `include` de outras gramáticas: o SQL dentro de uma string, por exemplo, fica sem realce.",
+      ],
+      covers: ["lsp:bundled-grammars"],
+    },
+    {
+      title: "Completion por palavras quando não há servidor",
+      where: ["editor: ao escrever 2 letras de um nome", "Ctrl+Espaço"],
+      what: "Quando nenhum servidor de linguagem sugere nada (não está instalado, não há pasta aberta, ou respondeu sem sugestões), a lista do completion mostra as palavras que já estão escritas: as do ficheiro (as mais perto do cursor primeiro) e as dos outros separadores abertos da mesma linguagem. A lista diz por cima que são palavras dos ficheiros abertos, e cada palavra diz de onde vem. Nunca se juntam às sugestões do servidor.",
+      howTo: [
+        "Escreve 2 letras de um nome: a lista abre sozinha. Ctrl+Espaço abre-a a qualquer altura (também em Markdown, onde não abre sozinha).",
+        "↑/↓ escolhem, Enter ou Tab aceitam, Escape fecha — as mesmas teclas do completion do servidor.",
+      ],
+      flow: [
+        "Os ganchos do completion (`lsp/ui/completion-hooks.ts`) perguntam primeiro ao servidor; sem sugestões, perguntam à `lsp/application/word-completion.ts`, que junta as palavras (`lsp/domain/words.ts`: letras, dígitos, `_` e `$`, com pelo menos 3 caracteres; a que estás a escrever não conta).",
+        "Os outros separadores lêem-se pelos stores (`app/store`), no máximo 8, só os da mesma linguagem do registo.",
+      ],
+      tips: ["Uma palavra igual ao que já escreveste não aparece, para o Enter continuar a ser uma linha nova."],
+      limits: ["São só palavras: não sabe tipos, membros nem imports. Para isso, o servidor de linguagem."],
+      covers: ["lsp:words"],
+    },
+    {
+      title: "Comentário de bloco (Ctrl+Shift+A) e Ctrl+/ sem comentário de linha",
+      where: ["editor: Ctrl+Shift+A (ou Shift+Alt+A)", "editor: Ctrl+/"],
+      what: "Ctrl+Shift+A envolve a selecção num comentário de bloco da linguagem (`/* … */`, `<!-- … -->`, `--[[ … ]]`, `{- … -}`) ou tira o comentário que a envolve; sem selecção, insere um comentário vazio com o cursor no meio. Numa linguagem sem comentário de linha (CSS, HTML, Markdown), o Ctrl+/ comenta as linhas da selecção com um só comentário de bloco.",
+      howTo: [
+        "Selecciona o texto e carrega em Ctrl+Shift+A; outra vez para descomentar (ou com o cursor dentro do comentário).",
+        "Numa linguagem sem comentário de bloco (Python, YAML, Shell), o editor diz-to e não mexe no texto: usa o Ctrl+/.",
+      ],
+      flow: [
+        "Os marcadores vêm da language-configuration de uma extensão instalada, se a tiver; senão, do `blockComment` do registo de linguagens (`languages/registry.json`, validado pelo `langreg::validate`: dois marcadores sem espaços). O teu `lsp.json` também o pode dar.",
+        "`lsp/domain/comments.ts` faz como o VS Code: procura a abertura para trás na linha onde a selecção começa e o fecho para a frente na linha onde acaba; um fecho a meio quer dizer dois comentários, e então acrescenta outro à volta.",
+      ],
+      limits: [
+        "No editor de um ficheiro, Ctrl+Shift+A deixou de abrir o assistente (como no VS Code no Linux); fora do editor continua a abri-lo, e o Ctrl+L leva-te ao chat.",
+        "Comentar à volta de um comentário que já existe aninha-os: em C ou CSS isso não compila.",
+      ],
+      covers: ["lsp:block-comment"],
+    },
+    {
+      title: "Format Document sem servidor: só o que é seguro",
+      where: ["editor: Shift+Alt+F"],
+      what: "Sem um servidor que formate o ficheiro, o Shift+Alt+F tira os espaços no fim das linhas, re-indenta no estilo do PRÓPRIO ficheiro as linhas que usam o outro carácter (um tab num ficheiro de espaços, ou o contrário) e deixa uma única quebra de linha no fim. Nunca parte nem junta linhas, nem mexe no meio de uma linha. O aviso diz o que mudou, o que ficou de propósito e porquê.",
+      howTo: [
+        "Shift+Alt+F no editor. Com um servidor de linguagem que formate a linguagem (desktop com a pasta aberta), é ele que formata; este só corre quando ele não o faz.",
+      ],
+      flow: [
+        "`lsp/domain/safe-format.ts` decide o estilo pelas linhas do ficheiro (tabs ou espaços, e a largura de um nível) e devolve um relatório; `lsp/application/fallback-format.ts` faz dele a frase do aviso. O «Format Document» do dxtutor (`ext-engine.ts`, `formatDoc`) usa-o.",
+        "Com o formatador do servidor ligado, o atalho global não formata antes dele (`services.lspFormat`): antes corriam os dois.",
+      ],
+      tips: ["As quebras de linha CRLF ficam CRLF."],
+      limits: [
+        "Onde o espaço é sintaxe não mexe: os espaços no fim de uma linha de Markdown (são quebras de linha), a indentação de um Makefile, de um script de shell (o `<<-`), de YAML ou de Haskell, e nada num `.diff`/`.patch`.",
+        "Um ficheiro sem estilo dominante (tantas linhas com tabs como com espaços) não é re-indentado.",
+      ],
+      covers: ["lsp:format-fallback"],
+    },
+  ],
+};

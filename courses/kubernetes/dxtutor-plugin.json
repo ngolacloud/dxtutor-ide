@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "id": "kubernetes",
+  "name": "Kubernetes",
+  "version": "1.1.0",
+  "description": "Kubernetes: Manifests That Mean What They Say — Pods, Deployments, Services, ConfigMaps and Secrets, probes, resources, namespaces, Ingress and Kustomize, graded offline; then rollouts, endpoints, probes, Jobs, mounted configuration, limits and rollbacks run live on the course's own practice cluster (kind on rootless Podman).",
+  "authors": ["dxtutor"],
+  "license": "MIT OR Apache-2.0",
+  "repository": "https://github.com/ngolacloud/dxtutor-course-kubernetes",
+  "engine": ">=0.7.0",
+  "kind": "course",
+  "category": "tool",
+  "subject": {
+    "id": "kubernetes",
+    "name": "Kubernetes",
+    "icon": "☸️",
+    "docs": "https://kubernetes.io/docs/"
+  },
+  "language": {
+    "id": "yaml",
+    "name": "YAML",
+    "icon": "📄",
+    "extension": "yaml",
+    "indent": "2",
+    "testCommand": "kubectl kustomize"
+  },
+  "courses": ["courses/kubernetes.toml"]
+}

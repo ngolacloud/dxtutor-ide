@@ -32,6 +32,7 @@ import { bootApp, golden } from "./harness";
  * (reassigna `window.X`); mesmo assim, cada teste fixa explicitamente o que muta. */
 
 let w: any;
+let INF: any; // eslint-disable-line @typescript-eslint/no-explicit-any — o módulo da infra da cadeia do bootApp (U7p2)
 /* initSecrets/driftReport/DSTY já não são publicadas em window (ADR-0002 passo 6):
    o resíduo expõe-nas só pela porta tipada (como v6 as consome). Como `bootApp`
    faz `vi.resetModules()`, um import estático ficaria obsoleto — por isso lemos o
@@ -42,7 +43,7 @@ let infra: any;
 function provideFixtures(): void {
   const side = document.querySelector(".side");
   if (side && !document.getElementById("pane-infra")) side.insertAdjacentHTML("beforeend", '<div class="pane" id="pane-infra"></div>');
-  w.RP.infra = () => w.renderInfraPane();
+  w.RP.infra = () => INF.renderInfraPane();
 }
 
 /** Carimba o pane recém-renderizado e devolve o golden strippado. */
@@ -52,22 +53,23 @@ function paneGolden(): string { return golden(document.getElementById("pane-infr
  *  `k8sInfra(SD)` em `deploy/k8s/`, parseia-os com `k8sDocs()` e constrói o `K8S`
  *  tal como `dxDeploy` + a decoração v6 fazem (com `ver`/`at` fixos). */
 function deployLocal(ver?: string): void {
-  w.FS[w.ROOT + "deploy/k8s/all.yaml"] = { content: w.k8sInfra(w.SD), orig: "" };
-  const docs = w.k8sDocs();
+  w.FS[w.ROOT + "deploy/k8s/all.yaml"] = { content: INF.k8sInfra(w.SD), orig: "" };
+  const docs = INF.k8sDocs();
   const deps = docs.filter((d: any) => d.k === "Deployment").map((d: any) => ({ n: d.n, rep: d.rep, ready: d.rep, img: d.img, port: d.port }));
-  w.K8S = { docs, deps, ver: ver || w.GIT.refs.develop, at: Date.parse("2026-01-01T00:00:00Z") };
+  INF.setK8s({ docs, deps, ver: ver || w.GIT.refs.develop, at: Date.parse("2026-01-01T00:00:00Z") });
 }
 
 beforeEach(async () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
   w = await bootApp();
+  INF = await import("../src/features/infra");
   infra = await import("../src/features/infra");
   provideFixtures();
   // Defensivo (o window persiste no jsdom; a reavaliação de infra.ts reassigna mas
   // garantimos o ponto de partida de cada teste): ambiente local, sem observáveis.
-  w.ENVX.cur = "local";
-  Object.keys(w.OBS).forEach((k) => delete w.OBS[k]);
+  INF.ENVX.cur = "local";
+  Object.keys(INF.OBS).forEach((k) => delete INF.OBS[k]);
 });
 
 afterEach(() => {
@@ -79,30 +81,30 @@ describe("golden de DOM — pane Infra (renderInfraPane)", () => {
   it("desligado: runtime/cluster off, sem dev container nem containers (seed)", () => {
     expect(w.ENVS.rtOn).toBe(false);
     expect(w.ENVS.k8sOn).toBe(false);
-    expect(w.K8S).toBe(null);
-    w.renderInfraPane();
+    expect(INF.k8s()).toBe(null);
+    INF.renderInfraPane();
     expect(paneGolden()).toMatchSnapshot("pane-disconnected");
   });
 
-  it("ligado: runtime + dev container + stack a correr + cluster deployado", () => {
+  it("ligado: runtime + dev container + stack a correr + cluster deployado", async () => {
     w.ENVS.rtOn = true;
     w.ENVS.k8sOn = true;
     w.ENVS.ssh = ["dev@edge-01"];
-    w.DEVC = { name: "dxtutor-dev", image: "devcontainers/base:bookworm" };
-    w.STACK = [
+    INF.setDevc({ name: "dxtutor-dev", image: "devcontainers/base:bookworm" });
+    (await import("../src/features/stack")).setStackState([
       { name: "orders-api", src: "build ./orders-api", url: "http://localhost:8080", state: "healthy" },
       { name: "orders-db", src: "postgres:16", url: "internal", state: "running" },
-    ];
+    ]);
     deployLocal();
-    w.renderInfraPane();
+    INF.renderInfraPane();
     expect(paneGolden()).toMatchSnapshot("pane-connected-deployed");
   });
 
   /* ADR-0006, R5c1: o estado de staging é a última leitura do cluster (o motivo do crash é o que o
      kubectl reporta — antes era um erro fabricado a partir dos segredos) */
   it("staging seleccionado: chips de ambiente + deps lidos do cluster (crash + ok)", () => {
-    w.ENVX.cur = "staging";
-    w.ENVX.st.staging = {
+    INF.ENVX.cur = "staging";
+    INF.ENVX.st.staging = {
       ver: "d5f2b66",
       at: Date.parse("2026-01-01T00:00:00Z"),
       ingress: true,
@@ -111,32 +113,32 @@ describe("golden de DOM — pane Infra (renderInfraPane)", () => {
         { n: "billing-worker", rep: 1, ready: 0, status: "crash", err: "CrashLoopBackOff (último fim: Error 1)", restarts: 4 },
       ],
     };
-    w.renderInfraPane();
+    INF.renderInfraPane();
     expect(paneGolden()).toMatchSnapshot("pane-staging-selected");
   });
 });
 
 describe("caracterização do motor — runtime / dev-container / Kubernetes (a extrair p/ domain)", () => {
   it("projectContext: detecção de tecnologias a partir do FS do seed", () => {
-    expect(w.projectContext()).toMatchSnapshot("projectContext");
+    expect(INF.projectContext()).toMatchSnapshot("projectContext");
   });
 
   it("devcontainerJson: devcontainer.json derivado do contexto do projecto", () => {
-    expect(w.devcontainerJson()).toMatchSnapshot("devcontainerJson");
+    expect(INF.devcontainerJson()).toMatchSnapshot("devcontainerJson");
   });
 
   it("k8sInfra: manifestos (Deployment/Service/Secret/Ingress) a partir do design", () => {
-    expect(w.k8sInfra(w.SD)).toMatchSnapshot("k8sInfra");
+    expect(INF.k8sInfra(w.SD)).toMatchSnapshot("k8sInfra");
   });
 
   it("appEnv: variáveis de ambiente de uma app (orders-api) a partir das arestas", () => {
     const api = w.SD.nodes.find((n: any) => n.id === "api");
-    expect(w.appEnv(api, w.SD)).toMatchSnapshot("appEnv-api");
+    expect(INF.appEnv(api, w.SD)).toMatchSnapshot("appEnv-api");
   });
 
   it("k8sDocs: parse dos manifestos escritos em deploy/k8s", () => {
     deployLocal();
-    expect(w.k8sDocs()).toMatchSnapshot("k8sDocs");
+    expect(INF.k8sDocs()).toMatchSnapshot("k8sDocs");
   });
 
   it("urlHosts: extracção do host de várias formas de URL (função pura)", () => {
@@ -148,24 +150,24 @@ describe("caracterização do motor — runtime / dev-container / Kubernetes (a 
       "8080",
       "",
     ];
-    expect(cases.map((v) => [v, w.urlHosts(v)])).toMatchSnapshot("urlHosts");
+    expect(cases.map((v) => [v, INF.urlHosts(v)])).toMatchSnapshot("urlHosts");
   });
 });
 
 describe("caracterização do motor — secrets (promoção aprovada por humano)", () => {
   it("localSecrets: segredos do ambiente local a partir do design/compose", () => {
-    expect(w.localSecrets()).toMatchSnapshot("localSecrets");
+    expect(INF.localSecrets()).toMatchSnapshot("localSecrets");
   });
 
   /* ADR-0006, R5c1: staging já não recebe valores «torcidos» — as chaves do design, por preencher */
   it("initSecrets: staging e production com as chaves do design por preencher (excepto PORT)", () => {
     infra.initSecrets();
-    expect(w.ENVX.sec).toMatchSnapshot("initSecrets-sec");
+    expect(INF.ENVX.sec).toMatchSnapshot("initSecrets-sec");
   });
 
   it("secretCheck: chaves em falta/vazias por ambiente (staging vs production)", () => {
     infra.initSecrets();
-    expect({ staging: w.secretCheck("staging"), production: w.secretCheck("production") }).toMatchSnapshot("secretCheck");
+    expect({ staging: INF.secretCheck("staging"), production: INF.secretCheck("production") }).toMatchSnapshot("secretCheck");
   });
 });
 
@@ -176,7 +178,7 @@ describe("caracterização do motor — drift (design vs realidade)", () => {
 
   it("envDeps/envState/envHealth: cluster local deployado na versão de develop", () => {
     deployLocal();
-    expect({ deps: w.envDeps("local"), state: w.envState("local"), health: w.envHealth("local") }).toMatchSnapshot("env-local-deployed");
+    expect({ deps: INF.envDeps("local"), state: INF.envState("local"), health: INF.envHealth("local") }).toMatchSnapshot("env-local-deployed");
   });
 
   it("driftReport(local): sincronizado quando a versão bate certo com develop", () => {
@@ -193,7 +195,7 @@ describe("caracterização do motor — drift (design vs realidade)", () => {
     deployLocal(w.GIT.refs.develop);
     // o manifesto diz 1 réplica; simulamos 3 a correr num workload de serviço
     // (orders-db é um Deployment; as apps como orders-api só geram Secret).
-    const d = w.K8S.deps.find((x: any) => x.n === "orders-db");
+    const d = INF.k8s().deps.find((x: any) => x.n === "orders-db");
     expect(d).toBeTruthy();
     d.rep = 3; d.ready = 3;
     expect(infra.driftReport("local")).toMatchSnapshot("drift-replicas");
@@ -204,16 +206,16 @@ describe("caracterização do motor — drift (design vs realidade)", () => {
   it("envDeps(staging): os workloads da última leitura do cluster, sem inventar crashes", () => {
     deployLocal(w.GIT.refs.develop);
     infra.initSecrets();
-    expect(w.envDeps("staging")).toEqual([]); // nunca lido: nada
+    expect(INF.envDeps("staging")).toEqual([]); // nunca lido: nada
     const deps = [{ n: "orders-db", rep: 1, ready: 0, status: "crash", err: "ImagePullBackOff", restarts: 0 }];
-    w.ENVX.st.staging = { ver: w.GIT.refs.develop, at: 0, ingress: true, deps };
-    expect(w.envDeps("staging")).toEqual(deps);
+    INF.ENVX.st.staging = { ver: w.GIT.refs.develop, at: 0, ingress: true, deps };
+    expect(INF.envDeps("staging")).toEqual(deps);
   });
 });
 
 describe("caracterização do motor — observabilidade (o sparkline; as séries são reais desde a R5c2)", () => {
   it("spark: sparkline SVG a partir de uma série fixa (função pura)", () => {
-    expect(w.spark([0, 1, 2, 3, 2, 1, 4, 3], "var(--green)")).toMatchSnapshot("spark");
+    expect(INF.spark([0, 1, 2, 3, 2, 1, 4, 3], "var(--green)")).toMatchSnapshot("spark");
   });
 });
 
@@ -230,27 +232,27 @@ describe("dispatch delegado (data-action) — Fase 4", () => {
      (era um interruptor «simulated»); uma ligação presa de uma sessão antiga desliga-se */
   it("rt-connect: no browser não finge a ligação; uma ligação presa desliga-se", () => {
     const toast = vi.spyOn(w, "toast");
-    w.renderInfraPane();
+    INF.renderInfraPane();
     expect(w.ENVS.rtOn).toBe(false);
     click(q('[data-action="rt-connect"]'));
     expect(w.ENVS.rtOn).toBe(false);
     expect(toast).toHaveBeenCalledWith(expect.stringMatching(/precisa da app desktop/));
     w.ENVS.rtOn = true;
-    w.renderInfraPane();
+    INF.renderInfraPane();
     click(q('[data-action="rt-connect"]'));
     expect(w.ENVS.rtOn).toBe(false);
   });
 
   it("rt-set: clicar «Podman» troca o runtime e desliga a ligação", () => {
     w.ENVS.rtOn = true;
-    w.renderInfraPane();
+    INF.renderInfraPane();
     click(q('[data-action="rt-set"][data-on="podman"]'));
     expect(w.ENVS.rt).toBe("podman");
     expect(w.ENVS.rtOn).toBe(false);
   });
 
   it("rt-sock: o onchange do input (evento change) actualiza o socket", () => {
-    w.renderInfraPane();
+    INF.renderInfraPane();
     const inp = q('input[data-action="rt-sock"]') as HTMLInputElement;
     inp.value = "/custom/docker.sock";
     change(inp);
@@ -258,7 +260,7 @@ describe("dispatch delegado (data-action) — Fase 4", () => {
   });
 
   it("kube-ns: o onchange do namespace (evento change) actualiza ENVS.ns", () => {
-    w.renderInfraPane();
+    INF.renderInfraPane();
     const inp = q('input[data-action="kube-ns"]') as HTMLInputElement;
     inp.value = "prod-ns";
     change(inp);
@@ -266,13 +268,13 @@ describe("dispatch delegado (data-action) — Fase 4", () => {
   });
 
   it("env-chip: clicar o chip «Staging» selecciona o ambiente", () => {
-    w.renderInfraPane();
+    INF.renderInfraPane();
     click(q('[data-action="env-chip"][data-on="staging"]'));
-    expect(w.ENVX.cur).toBe("staging");
+    expect(INF.ENVX.cur).toBe("staging");
   });
 
   it("ssh-add: o onchange do input acrescenta um remote host", () => {
-    w.renderInfraPane();
+    INF.renderInfraPane();
     const inp = q('input[data-action="ssh-add"]') as HTMLInputElement;
     inp.value = "dev@edge-02";
     change(inp);

@@ -1,11 +1,26 @@
-//! API keys, stored in the app's config folder (keys.json, readable only by the user on Unix).
-//! Resolution order per provider: the v7 `keys.json` → the legacy `~/.config/dxtutor/providers.json`
-//! that the pre-v7 UI still writes (so a key already configured there keeps working without
-//! re-entry) → the matching environment variable (ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY).
+//! API keys. r23 F4c (docs/v2/AUDIT-r23.md §5 Q8/Q15e): they live in the OS keychain (account
+//! `llm:<provider>`, `tutor_platform::keychain`); a key still in the app's `keys.json` moves there the
+//! first time it is read (and leaves the file). Without a keychain (no Secret Service running) the
+//! key stays in `keys.json` (0600), as before.
+//! Resolution order per provider: the keychain → `keys.json` → the legacy
+//! `~/.config/dxtutor/providers.json` that the pre-v7 UI still writes (so a key already configured
+//! there keeps working without re-entry) → the matching environment variable (ANTHROPIC_API_KEY,
+//! OPENAI_API_KEY, GEMINI_API_KEY). No command returns a key to the UI.
 
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+
+use tutor_platform::keychain::{OsStore, Store};
+
+fn account(provider: &str) -> String {
+    format!("llm:{provider}")
+}
+
+fn os_store() -> &'static OsStore {
+    static S: std::sync::OnceLock<OsStore> = std::sync::OnceLock::new();
+    S.get_or_init(OsStore::new)
+}
 
 pub fn file(dir: &Path) -> PathBuf {
     dir.join("keys.json")
@@ -19,6 +34,30 @@ pub fn load(dir: &Path) -> HashMap<String, String> {
 }
 
 pub fn save(dir: &Path, provider: &str, key: &str) -> Result<(), String> {
+    save_in(os_store(), dir, provider, key)
+}
+
+/// Saves (or, empty, removes) a key: in the keychain, and never in `keys.json` again; without a
+/// keychain, in `keys.json`.
+pub fn save_in(store: &dyn Store, dir: &Path, provider: &str, key: &str) -> Result<(), String> {
+    let key = key.trim();
+    let kept = if key.is_empty() {
+        store.delete(&account(provider))
+    } else {
+        store.set(&account(provider), key)
+    };
+    match kept {
+        Ok(()) => {
+            if load(dir).contains_key(provider) {
+                save_file(dir, provider, "")?;
+            }
+            Ok(())
+        }
+        Err(_) => save_file(dir, provider, key),
+    }
+}
+
+fn save_file(dir: &Path, provider: &str, key: &str) -> Result<(), String> {
     fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let mut all = load(dir);
     if key.trim().is_empty() {
@@ -33,9 +72,23 @@ pub fn save(dir: &Path, provider: &str, key: &str) -> Result<(), String> {
 }
 
 pub fn resolve(dir: &Path, provider: &str) -> Option<String> {
-    load(dir)
-        .get(provider)
-        .cloned()
+    resolve_in(os_store(), dir, provider)
+}
+
+/// The keychain first; a key found in `keys.json` moves to the keychain (and leaves the file).
+pub fn resolve_in(store: &dyn Store, dir: &Path, provider: &str) -> Option<String> {
+    if let Ok(Some(k)) = store.get(&account(provider)) {
+        if !k.is_empty() {
+            return Some(k);
+        }
+    }
+    let from_file = load(dir).get(provider).cloned().filter(|k| !k.is_empty());
+    if let Some(k) = &from_file {
+        if store.set(&account(provider), k).is_ok() {
+            let _ = save_file(dir, provider, "");
+        }
+    }
+    from_file
         .or_else(|| legacy_key(provider))
         .or_else(|| crate::llm::env_key(provider).and_then(|v| std::env::var(v).ok()))
         .filter(|k| !k.is_empty())
@@ -45,6 +98,10 @@ pub fn resolve(dir: &Path, provider: &str) -> Option<String> {
 /// (still-shipped) UI writes. Reuses `tutor_llm::chat::load_config` so the two UIs read
 /// one source of truth; Ollama needs no key, so only the three hosted providers map.
 fn legacy_key(provider: &str) -> Option<String> {
+    // only the hosted providers have a field there: reading it costs a file and three keychain reads
+    if !matches!(provider, "claude" | "codex" | "gemini") {
+        return None;
+    }
     legacy_key_from(&tutor_llm::chat::load_config(), provider)
 }
 
@@ -100,8 +157,12 @@ mod tests {
         // so the v7 UI can always override what the old config held.
         let d = std::env::temp_dir().join(format!("dxtutor-prec-{}", std::process::id()));
         let _ = fs::remove_dir_all(&d);
-        save(&d, "claude", "sk-from-keys-json").unwrap();
-        assert_eq!(resolve(&d, "claude").as_deref(), Some("sk-from-keys-json"));
+        let store = tutor_platform::keychain::MemStore::default();
+        save_in(&store, &d, "claude", "sk-from-keychain").unwrap();
+        assert_eq!(
+            resolve_in(&store, &d, "claude").as_deref(),
+            Some("sk-from-keychain")
+        );
         let _ = fs::remove_dir_all(&d);
     }
 
@@ -127,12 +188,59 @@ mod tests {
         );
     }
 
+    /// r23 F4c: a key saved goes to the keychain, never to `keys.json`; one already in `keys.json`
+    /// moves to the keychain the first time it is read, and leaves the file.
+    #[test]
+    fn keys_live_in_the_keychain_and_move_there_from_keys_json() {
+        let d = std::env::temp_dir().join(format!("dxtutor-keychain-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        let store = tutor_platform::keychain::MemStore::default();
+        save_in(&store, &d, "claude", " sk-ant-new ").unwrap();
+        assert_eq!(
+            store.get("llm:claude").unwrap().as_deref(),
+            Some("sk-ant-new")
+        );
+        assert!(!file(&d).exists() || !load(&d).contains_key("claude"));
+        save_file(&d, "codex", "sk-old-in-file").unwrap();
+        assert_eq!(
+            resolve_in(&store, &d, "codex").as_deref(),
+            Some("sk-old-in-file")
+        );
+        assert_eq!(
+            store.get("llm:codex").unwrap().as_deref(),
+            Some("sk-old-in-file")
+        );
+        assert!(
+            !load(&d).contains_key("codex"),
+            "the key stayed in keys.json"
+        );
+        save_in(&store, &d, "codex", "").unwrap();
+        assert_eq!(store.get("llm:codex").unwrap(), None);
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    /// Without a keychain the key stays in `keys.json` (0600), as before F4c.
     #[test]
     fn saves_removes_and_resolves() {
+        struct NoKeychain;
+        impl Store for NoKeychain {
+            fn get(&self, _: &str) -> Result<Option<String>, String> {
+                Err("no keychain".into())
+            }
+            fn set(&self, _: &str, _: &str) -> Result<(), String> {
+                Err("no keychain".into())
+            }
+            fn delete(&self, _: &str) -> Result<(), String> {
+                Err("no keychain".into())
+            }
+        }
         let d = std::env::temp_dir().join(format!("dxtutor-keys-{}", std::process::id()));
         let _ = fs::remove_dir_all(&d);
-        save(&d, "codex", " sk-test ").unwrap();
-        assert_eq!(resolve(&d, "codex").as_deref(), Some("sk-test"));
+        save_in(&NoKeychain, &d, "codex", " sk-test ").unwrap();
+        assert_eq!(
+            resolve_in(&NoKeychain, &d, "codex").as_deref(),
+            Some("sk-test")
+        );
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -141,7 +249,7 @@ mod tests {
                 0o600
             );
         }
-        save(&d, "codex", "").unwrap();
+        save_in(&NoKeychain, &d, "codex", "").unwrap();
         assert!(load(&d).get("codex").is_none());
     }
 }

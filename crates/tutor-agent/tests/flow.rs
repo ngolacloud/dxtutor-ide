@@ -218,6 +218,75 @@ fn task_runs_a_read_only_subagent_and_returns_its_report() {
 }
 
 #[test]
+fn the_loop_streams_the_subagent_progress_tagged_with_the_task_call() {
+    let d = tempfile::tempdir().unwrap();
+    std::fs::write(d.path().join("lexer.rs"), "fn tokenize() {}\n").unwrap();
+    let child = scripted(vec![
+        step(
+            StopReason::ToolUse,
+            vec![tool("g1", "grep", json!({"pattern": "fn tokenize"}))],
+        ),
+        step(StopReason::EndTurn, vec![text("em lexer.rs:1.")]),
+    ]);
+    let parent = scripted(vec![
+        step(
+            StopReason::ToolUse,
+            vec![tool(
+                "t1",
+                "task",
+                json!({"description": "onde está tokenize", "prompt": "Encontra tokenize.", "role": "tester"}),
+            )],
+        ),
+        step(StopReason::EndTurn, vec![text("feito")]),
+    ]);
+    let spec = SubagentSpec {
+        provider: child,
+        model: "claude-opus-5-5".into(),
+        effort: Effort::Low,
+        lang: tutor_agent::context::ReplyLang::Pt,
+    };
+    let opts = ToolsetOptions::default();
+    let tools = agent_tools(&opts, 5, &FlowState::default(), Some(spec), vec![]);
+    let agent = Agent::new(parent, tools, AgentConfig::new("m"), ctx(d.path()));
+    let mut t = Transcript::new();
+    let mut evs = vec![];
+    agent
+        .run_turn(
+            &mut t,
+            Some(Message::user_text("onde está?")),
+            &mut |e| evs.push(e),
+            &mut |_| Decision::Allow,
+        )
+        .unwrap();
+    let pos = |f: &dyn Fn(&AgentEvent) -> bool| evs.iter().position(f).expect("evento em falta");
+    let start = pos(&|e| matches!(e, AgentEvent::ToolStart { id, .. } if id == "t1"));
+    let end = pos(&|e| matches!(e, AgentEvent::ToolResult { id, .. } if id == "t1"));
+    let steps: Vec<Value> = evs[start..end]
+        .iter()
+        .filter(|e| matches!(e, AgentEvent::Subagent { .. }))
+        .map(|e| serde_json::to_value(e).unwrap())
+        .collect();
+    // a forma que a UI lê: {kind: "subagent", call, step: {type, ...}}, entre o início e o fim da chamada
+    assert!(steps
+        .iter()
+        .all(|s| s["kind"] == "subagent" && s["call"] == "t1"));
+    let types: Vec<&str> = steps
+        .iter()
+        .map(|s| s["step"]["type"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        types,
+        ["started", "usage", "tool_start", "tool_result", "usage"]
+    );
+    assert_eq!(steps[0]["step"]["role"], "tester");
+    assert_eq!(steps[2]["step"]["name"], "grep");
+    assert_eq!(steps[3]["step"]["is_error"], false);
+    // o total do turno do sub-agente: dois pedidos de 7 + 3
+    assert_eq!(steps[4]["step"]["turn"]["input_tokens"], 14);
+    assert_eq!(steps[4]["step"]["turn"]["output_tokens"], 6);
+}
+
+#[test]
 fn the_loop_checkpoints_once_per_turn_before_the_first_change() {
     let d = tempfile::tempdir().unwrap();
     let root = d.path();
@@ -560,7 +629,110 @@ fn toolset_8_adds_edit_lines_at_the_end_and_it_writes_only_its_lines() {
         &c,
     );
     assert!(r.is_error);
-    assert_eq!(tutor_agent::tools::TOOLSET_VERSION, 8);
+}
+
+#[test]
+fn toolset_9_offers_finish_issue_only_to_issue_sessions_and_keeps_8_as_it_was() {
+    let fs = FlowState::default();
+    let tools = |v: u32, issue: bool| {
+        agent_tools(
+            &ToolsetOptions {
+                issue,
+                ..Default::default()
+            },
+            v,
+            &fs,
+            None,
+            vec![],
+        )
+    };
+    // toolset 8: finish_issue for everyone and the old descriptions, issue or not
+    assert_eq!(names(&tools(8, false)), names(&tools(8, true)));
+    assert!(names(&tools(8, false)).contains(&"finish_issue".to_string()));
+    let desc = |v: u32, name: &str| {
+        tools(v, false)
+            .into_iter()
+            .find(|t| t.name() == name)
+            .unwrap()
+            .description()
+            .to_string()
+    };
+    assert!(desc(8, "edit_lines").starts_with("A forma principal"));
+    assert!(!desc(8, "read").contains("500"));
+    // toolset 9: the same tools in the same order, minus finish_issue outside an issue
+    let (n8, n9, n9i) = (
+        names(&tools(8, false)),
+        names(&tools(9, false)),
+        names(&tools(9, true)),
+    );
+    assert_eq!(
+        n9i, n8,
+        "an issue session keeps every tool, in the same order"
+    );
+    let mut without = n8.clone();
+    without.retain(|n| n != "finish_issue");
+    assert_eq!(n9, without);
+    // one preferred edit tool, and read by excerpts
+    assert!(!desc(9, "edit_lines").contains("forma principal"));
+    assert!(desc(9, "edit_lines").contains("prefere `edit`"));
+    assert!(desc(9, "read").contains("500 linhas") && desc(9, "read").contains("outline"));
+    // toolset 10 (Board B): the same tools in the same order; finish_issue answers the DoD too,
+    // and a toolset 9 session keeps the old schema byte for byte
+    assert_eq!(names(&tools(10, true)), n9i);
+    assert_eq!(names(&tools(10, false)), n9);
+    let schema = |v: u32| {
+        tools(v, true)
+            .into_iter()
+            .find(|t| t.name() == "finish_issue")
+            .unwrap()
+            .input_schema()
+    };
+    assert!(schema(9)["properties"].get("dod").is_none());
+    assert!(schema(10)["properties"]["dod"].is_object());
+    // toolset 11: the backlog tools are the host's, only in backlog sessions — the core is the same
+    assert_eq!(names(&tools(11, true)), n9i);
+    assert_eq!(names(&tools(11, false)), n9);
+    assert_eq!(schema(11), schema(10));
+    // toolset 12 (H1): the same tools; only `bash` gains `unsandboxed`, and 11 keeps its schema
+    assert_eq!(names(&tools(12, true)), n9i);
+    let bash = |v: u32| {
+        tools(v, false)
+            .into_iter()
+            .find(|t| t.name() == "bash")
+            .unwrap()
+            .input_schema()
+    };
+    assert!(bash(11)["properties"].get("unsandboxed").is_none());
+    assert_eq!(bash(12)["properties"]["unsandboxed"]["type"], "boolean");
+    // toolset 13 (H3): `ide` is the host's — the core tools and schemas stay as in 12
+    assert_eq!(names(&tools(13, true)), n9i);
+    assert_eq!(bash(13), bash(12));
+    // toolset 14 (H4): only the host's `ide` grows — the core tools and schemas stay as in 13
+    assert_eq!(names(&tools(14, true)), n9i);
+    assert_eq!(bash(14), bash(13));
+    assert_eq!(tutor_agent::tools::TOOLSET_VERSION, 14);
+}
+
+#[test]
+fn read_gives_500_lines_by_default_and_says_how_to_get_more() {
+    let fs = FlowState::default();
+    let tools = agent_tools(&ToolsetOptions::default(), 9, &fs, None, vec![]);
+    let read = tools.iter().find(|t| t.name() == "read").unwrap();
+    let d = tempfile::tempdir().unwrap();
+    let text: String = (1..=1200).map(|i| format!("linha {i}\n")).collect();
+    std::fs::write(d.path().join("big.txt"), text).unwrap();
+    let c = ctx(d.path());
+    let r = read.run(&json!({"path": "big.txt"}), &c);
+    assert!(!r.is_error);
+    assert!(r.content.contains("linha 500\n") && !r.content.contains("linha 501\n"));
+    assert!(
+        r.content.contains("offset=501") && r.content.contains("outline"),
+        "{}",
+        r.content
+    );
+    // an explicit limit still goes up to 2000
+    let r = read.run(&json!({"path": "big.txt", "limit": 1200}), &c);
+    assert!(r.content.contains("linha 1200\n"));
 }
 
 #[test]

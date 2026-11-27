@@ -1,0 +1,221 @@
+{
+  "$comment": "The dxtutor language registry: ONE file read by the Rust backend (tutor_eval::langreg, include_str!) and by the UI (features/lsp/domain/registry.ts, imported by Vite). A language says how to recognise a file (extensions, filenames, firstLine) and what the editor needs (name, comment, outline); a server says how to start and talk to its language server, and how dxtutor may install it (recipes). Field reference and rules: tutor_eval::langreg (validated by its tests).",
+  "version": 1,
+  "languages": [
+    { "id": "rust", "name": "Rust", "lspLanguageId": "rust", "extensions": ["rs"], "lineComment": "//", "blockComment": ["/*", "*/"], "outline": "rust", "server": "rust" },
+    { "id": "go", "name": "Go", "lspLanguageId": "go", "extensions": ["go"], "lineComment": "//", "blockComment": ["/*", "*/"], "outline": "go", "server": "go" },
+    { "id": "typescript", "name": "TypeScript", "lspLanguageId": "typescript", "extensions": ["ts", "mts", "cts"], "lineComment": "//", "blockComment": ["/*", "*/"], "outline": "typescript", "server": "typescript" },
+    { "id": "typescriptreact", "name": "TypeScript JSX", "lspLanguageId": "typescriptreact", "extensions": ["tsx"], "lineComment": "//", "blockComment": ["/*", "*/"], "outline": "typescript", "server": "typescript" },
+    { "id": "javascript", "name": "JavaScript", "lspLanguageId": "javascript", "extensions": ["js", "mjs", "cjs"], "firstLine": "^#!.*\\bnode\\b", "lineComment": "//", "blockComment": ["/*", "*/"], "outline": "javascript", "server": "typescript" },
+    { "id": "javascriptreact", "name": "JavaScript JSX", "lspLanguageId": "javascriptreact", "extensions": ["jsx"], "lineComment": "//", "blockComment": ["/*", "*/"], "outline": "javascript", "server": "typescript" },
+    { "id": "python", "name": "Python", "lspLanguageId": "python", "extensions": ["py", "pyi"], "firstLine": "^#!.*\\bpython[0-9.]*\\b", "lineComment": "#", "outline": "python", "server": "python" },
+    { "id": "c", "name": "C", "lspLanguageId": "c", "extensions": ["c"], "lineComment": "//", "blockComment": ["/*", "*/"], "outline": "cpp", "server": "cpp" },
+    { "id": "cpp", "name": "C++", "lspLanguageId": "cpp", "extensions": ["cpp", "cc", "cxx", "hpp", "hh", "hxx", "h"], "lineComment": "//", "blockComment": ["/*", "*/"], "outline": "cpp", "server": "cpp" },
+    { "id": "swift", "name": "Swift", "lspLanguageId": "swift", "extensions": ["swift"], "lineComment": "//", "blockComment": ["/*", "*/"], "outline": "swift", "server": "swift" },
+    { "id": "csharp", "name": "C#", "lspLanguageId": "csharp", "extensions": ["cs"], "lineComment": "//", "blockComment": ["/*", "*/"], "outline": "csharp", "server": "csharp" },
+    { "id": "java", "name": "Java", "lspLanguageId": "java", "extensions": ["java"], "lineComment": "//", "blockComment": ["/*", "*/"], "outline": "java", "server": "java" },
+    { "id": "kotlin", "name": "Kotlin", "lspLanguageId": "kotlin", "extensions": ["kt", "kts"], "lineComment": "//", "blockComment": ["/*", "*/"], "outline": "kotlin", "server": "kotlin" },
+    { "id": "sql", "name": "SQL", "lspLanguageId": "sql", "extensions": ["sql"], "lineComment": "--", "blockComment": ["/*", "*/"], "server": "sql" },
+
+    { "id": "markdown", "name": "Markdown", "extensions": ["md"], "blockComment": ["<!--", "-->"] },
+    { "id": "json", "name": "JSON", "extensions": ["json"] },
+    { "id": "toml", "name": "TOML", "extensions": ["toml"], "lineComment": "#" },
+    { "id": "yaml", "name": "YAML", "extensions": ["yaml", "yml"], "lineComment": "#" },
+    { "id": "html", "name": "HTML", "extensions": ["html"], "blockComment": ["<!--", "-->"] },
+    { "id": "css", "name": "CSS", "extensions": ["css"], "blockComment": ["/*", "*/"] },
+    { "id": "shellscript", "name": "Shell", "extensions": ["sh"], "firstLine": "^#!.*\\b(ba|da|k|z)?sh\\b", "lineComment": "#" },
+    { "id": "ruby", "name": "Ruby", "extensions": ["rb"], "filenames": ["Gemfile", "Rakefile"], "lineComment": "#" },
+    { "id": "php", "name": "PHP", "extensions": ["php"], "lineComment": "//", "blockComment": ["/*", "*/"] },
+    { "id": "lua", "name": "Lua", "extensions": ["lua"], "lineComment": "--", "blockComment": ["--[[", "]]"] },
+    { "id": "dart", "name": "Dart", "extensions": ["dart"], "lineComment": "//", "blockComment": ["/*", "*/"] },
+    { "id": "zig", "name": "Zig", "extensions": ["zig"], "lineComment": "//" },
+    { "id": "elixir", "name": "Elixir", "extensions": ["ex"], "lineComment": "#" },
+    { "id": "haskell", "name": "Haskell", "extensions": ["hs"], "lineComment": "--", "blockComment": ["{-", "-}"] },
+    { "id": "dockerfile", "name": "Dockerfile", "extensions": ["dockerfile"], "filenames": ["Dockerfile", "Containerfile"], "lineComment": "#" },
+    { "id": "makefile", "name": "Makefile", "extensions": ["mk"], "filenames": ["Makefile", "GNUmakefile"], "lineComment": "#" }
+  ],
+  "servers": [
+    {
+      "id": "rust",
+      "name": "Rust",
+      "label": "rust-analyzer",
+      "command": "rust-analyzer",
+      "resolver": "rustup",
+      "envOverride": "DXTUTOR_RUST_ANALYZER",
+      "rootMarkers": ["Cargo.toml"],
+      "readySignal": "cachepriming",
+      "oneShot": true,
+      "quirks": ["rustupProxy"],
+      "install": "rustup component add rust-analyzer",
+      "recipes": [
+        { "manager": "rustup", "packages": ["rust-analyzer"] },
+        {
+          "manager": "github",
+          "assets": [
+            { "platform": "linux-x64", "url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-11-02/rust-analyzer-x86_64-unknown-linux-gnu.gz", "sha256": "5249da68c3f36bb77ea7d401824f5e8bd8d0a47a162daf5f72208eb7c1bf1500", "archive": "gz" },
+            { "platform": "linux-arm64", "url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-11-02/rust-analyzer-aarch64-unknown-linux-gnu.gz", "sha256": "4f8699eaee4231df5a5ffd477106ecae3bf6328918a60de742798912ecff6869", "archive": "gz" },
+            { "platform": "darwin-x64", "url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-11-02/rust-analyzer-x86_64-apple-darwin.gz", "sha256": "2c3d6c564f9b2734085cf6439c78896545e86b54ebb63870ba701e12ca582b22", "archive": "gz" },
+            { "platform": "darwin-arm64", "url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-11-02/rust-analyzer-aarch64-apple-darwin.gz", "sha256": "d10ca0a10e386f74ca36847b3df2ad5ab6f1328feeb1591467b3724f3fd8e8cf", "archive": "gz" }
+          ]
+        }
+      ],
+      "vscodeExtensions": ["rust-lang.rust-analyzer"]
+    },
+    {
+      "id": "go",
+      "name": "Go",
+      "label": "gopls",
+      "command": "gopls",
+      "resolver": "go",
+      "envOverride": "DXTUTOR_GOPLS",
+      "searchDirs": ["~/go/bin"],
+      "rootMarkers": ["go.work", "go.mod"],
+      "readySignal": "setting up workspace",
+      "oneShot": true,
+      "install": "go install golang.org/x/tools/gopls@latest",
+      "recipes": [
+        { "manager": "go", "packages": ["golang.org/x/tools/gopls@latest"] },
+        { "manager": "brew", "packages": ["gopls"] }
+      ],
+      "vscodeExtensions": ["golang.go"], "vscodeLanguages": ["go.mod", "go.sum", "go.work"]
+    },
+    {
+      "id": "typescript",
+      "name": "TypeScript/JavaScript",
+      "label": "typescript-language-server",
+      "command": "typescript-language-server",
+      "args": ["--stdio"],
+      "resolver": "node",
+      "searchDirs": ["~/.nvm/versions/node/*/bin", "~/.local/bin"],
+      "rootMarkers": ["tsconfig.json", "jsconfig.json", "package.json"],
+      "readySignal": "initializ",
+      "oneShot": true,
+      "quirks": ["nodePath"],
+      "install": "npm install -g typescript-language-server typescript@5",
+      "recipes": [{ "manager": "npm", "packages": ["typescript-language-server", "typescript@5"] }],
+      "vscodeExtensions": ["vscode.typescript-language-features"]
+    },
+    {
+      "id": "python",
+      "name": "Python",
+      "label": "pyright",
+      "command": "pyright-langserver",
+      "args": ["--stdio"],
+      "resolver": "node",
+      "searchDirs": ["~/.nvm/versions/node/*/bin", "~/.local/bin"],
+      "rootMarkers": ["pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", "Pipfile", ".git"],
+      "readySignal": "",
+      "oneShot": true,
+      "install": "npm install -g pyright",
+      "recipes": [{ "manager": "npm", "packages": ["pyright"] }],
+      "vscodeExtensions": ["ms-python.python", "ms-pyright.pyright", "detachhead.basedpyright", "ms-python.vscode-pylance"]
+    },
+    {
+      "id": "cpp",
+      "name": "C/C++",
+      "label": "clangd",
+      "command": "clangd",
+      "searchDirs": ["/opt/homebrew/opt/llvm/bin", "/usr/local/opt/llvm/bin"],
+      "rootMarkers": ["compile_commands.json", "CMakeLists.txt", ".clangd", "Makefile"],
+      "readySignal": "",
+      "install": "install clangd from your package manager (e.g. apt install clangd)",
+      "recipes": [
+        {
+          "manager": "github",
+          "assets": [
+            { "platform": "linux-x64", "url": "https://github.com/clangd/clangd/releases/download/23.1.0/clangd-linux-23.1.0.zip", "sha256": "e53b1a96196095faedb7642cf64964f7fb9ad4a0c1f00dd2c172a3d9dcbafdfd", "archive": "zip", "bin": "clangd_23.1.0/bin" },
+            { "platform": "darwin-x64", "url": "https://github.com/clangd/clangd/releases/download/23.1.0/clangd-mac-23.1.0.zip", "sha256": "1082e6638223b785ca2daf0939f13afcd0bb95c84ee9a4bbaff4745365159253", "archive": "zip", "bin": "clangd_23.1.0/bin" }
+          ]
+        },
+        { "manager": "apt", "packages": ["clangd"] },
+        { "manager": "brew", "packages": ["llvm"] }
+      ],
+      "vscodeExtensions": ["llvm-vs-code-extensions.vscode-clangd", "ms-vscode.cpptools"]
+    },
+    {
+      "id": "swift",
+      "name": "Swift",
+      "label": "sourcekit-lsp",
+      "command": "sourcekit-lsp",
+      "searchDirs": ["~/.local/share/swiftly/toolchains/*/usr/bin", "/usr/share/swift/usr/bin", "/opt/swift/usr/bin"],
+      "rootMarkers": ["Package.swift"],
+      "readySignal": "",
+      "install": "it comes with the Swift toolchain (swift.org/install)",
+      "vscodeExtensions": ["swiftlang.swift-vscode", "sswg.swift-lang"]
+    },
+    {
+      "id": "csharp",
+      "name": "C#",
+      "label": "csharp-ls",
+      "command": "csharp-ls",
+      "searchDirs": ["~/.dotnet/tools"],
+      "rootMarkers": ["global.json", "Directory.Build.props"],
+      "readySignal": "",
+      "install": "dotnet tool install -g csharp-ls",
+      "recipes": [{ "manager": "dotnet", "packages": ["csharp-ls"] }],
+      "vscodeExtensions": ["ms-dotnettools.csharp", "ms-dotnettools.csdevkit"]
+    },
+    {
+      "id": "java",
+      "name": "Java",
+      "label": "jdtls",
+      "command": "jdtls",
+      "searchDirs": ["~/.local/share/jdtls/bin"],
+      "rootMarkers": ["pom.xml", "build.gradle"],
+      "readySignal": "",
+      "initOptions": {
+        "settings": {
+          "java": {
+            "signatureHelp": { "enabled": true },
+            "symbols": { "includeSourceMethodDeclarations": true }
+          }
+        }
+      },
+      "quirks": ["stringRequestIds"],
+      "install": "download Eclipse JDT LS and put its bin folder on PATH (or in ~/.local/share/jdtls/bin)",
+      "recipes": [{ "manager": "brew", "packages": ["jdtls"] }],
+      "vscodeExtensions": ["redhat.java"]
+    },
+    {
+      "id": "kotlin",
+      "name": "Kotlin",
+      "label": "kotlin-language-server",
+      "command": "kotlin-language-server",
+      "rootMarkers": ["settings.gradle.kts", "build.gradle.kts"],
+      "readySignal": "",
+      "quirks": ["uriOnlyWorkspaceSymbols", "noRangeFormatting"],
+      "install": "download kotlin-language-server and put its bin folder on PATH",
+      "recipes": [
+        {
+          "manager": "github",
+          "assets": [
+            { "platform": "any", "url": "https://github.com/fwcd/kotlin-language-server/releases/download/1.3.13/server.zip", "sha256": "4fe7d71d087b307c7869036171bd9d8c6a4284cd7c25b89098b0a24eb2d9b6d2", "archive": "zip", "bin": "server/bin" }
+          ]
+        },
+        { "manager": "brew", "packages": ["kotlin-language-server"] }
+      ],
+      "vscodeExtensions": ["fwcd.kotlin", "jetbrains.kotlin"]
+    },
+    {
+      "id": "sql",
+      "name": "SQL",
+      "label": "sqls",
+      "command": "sqls",
+      "searchDirs": ["~/go/bin"],
+      "rootMarkers": [],
+      "readySignal": "",
+      "install": "go install github.com/sqls-server/sqls@latest",
+      "recipes": [
+        { "manager": "go", "packages": ["github.com/sqls-server/sqls@latest"] },
+        {
+          "manager": "github",
+          "assets": [
+            { "platform": "linux-x64", "url": "https://github.com/sqls-server/sqls/releases/download/v0.2.48/sqls-linux-0.2.48.zip", "sha256": "30047b92c41658c821b7803d2c2a3a1ce4e17ee769ceff6f24bb9e3daaf5d4dc", "archive": "zip", "bin": "." },
+            { "platform": "darwin-x64", "url": "https://github.com/sqls-server/sqls/releases/download/v0.2.48/sqls-darwin-0.2.48.zip", "sha256": "b44165ca597a4b4298d56657bc911aa3ca8a591befefde4e29566923c6229f3d", "archive": "zip", "bin": "." }
+          ]
+        }
+      ],
+      "vscodeExtensions": ["lighttiger2505.sqls"]
+    }
+  ]
+}

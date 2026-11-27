@@ -38,8 +38,34 @@ published_names() {
 # Object.assign(window, {…})): mover uma função de módulo pode trocar de sintaxe sem mudar
 # o número; deixar de a publicar (o consumidor importa) é que baixa (U3/U4/U7)
 window_assigns() { grep -rhoE 'window\.[A-Za-z_$][A-Za-z0-9_$]*[[:space:]]*=[^=]' "$SRC" --include=*.ts | count; }
-metric "globais publicadas no window (U3/U4/U7)" 130 0 \
-  "$(( $(window_assigns) + $(published_names) ))"
+# (U7p, correcção da medida) as duas formas que a contagem não via: (1) as superfícies `publish({ … })` das
+# pontes das features, que fazem `Object.assign(window, surface)` com uma variável (o painel fica de fora: o seu
+# `publish` escreve no `DXR` e as escritas no window contam pela regra seguinte); (2) as escritas por uma fachada
+# do window (`const G = window as …; G.X = …`)
+surface_names() {
+  local total=0 f n
+  for f in $(grep -rlE '\bpublish\(\{' "$SRC" --include=*.ts | grep -v '/features/panel/'); do
+    n=$(sed -E 's#//.*$##' "$f" | tr '\n' ' ' | grep -oE '\bpublish\(\{[^}]*\}' \
+      | grep -oE '[{,][[:space:]]*[A-Za-z_$][A-Za-z0-9_$]*' | count)
+    total=$((total + n))
+  done
+  echo "$total"
+}
+facade_writes() {
+  local total=0 f x facs
+  for f in $(grep -rlE '= *\(?(window|globalThis) +as\b' "$SRC" --include=*.ts); do
+    facs=$(sed -E 's#//.*$##' "$f" | grep -oE '(const|let|var) +[A-Za-z_$][A-Za-z0-9_$]* *= *\(?(window|globalThis) +as\b' \
+      | sed -E 's/(const|let|var) +([A-Za-z_$][A-Za-z0-9_$]*).*/\2/' | sort -u)
+    for x in $facs; do
+      total=$((total + $(sed -E 's#//.*$##' "$f" | grep -oE "(^|[^A-Za-z0-9_\$.])$x\.[A-Za-z_\$][A-Za-z0-9_\$]*[[:space:]]*=[^=>]" | count)))
+    done
+  done
+  echo "$total"
+}
+# baseline subida UMA vez, de propósito, no início da U7p (119 → 291): a medida antiga não via as superfícies nem as
+# fachadas (ADR-0004, «U7p — correcção da medida»). Daqui para a frente só desce.
+metric "globais publicadas no window (U3/U4/U7)" 158 0 \
+  "$(( $(window_assigns) + $(published_names) + $(surface_names) + $(facade_writes) ))"
 # só atributos de verdade (o valor abre com aspas, escapadas ou não): a prosa — p.ex. o achado da
 # revisão «<img src=x onerror=…>» — não conta (U5e)
 metric "handlers inline on*=\"…\" (U5)" 0 0 \

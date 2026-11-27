@@ -16,10 +16,153 @@ use crate::provider::SystemBlock;
 pub const MEMORY_DIR: &str = ".dxtutor/memory";
 pub const INSTRUCTION_FILES: &[&str] =
     &["AGENTS.md", "CLAUDE.md", "DELONIX.md", ".dxtutor/regras.md"];
-/// Tamanho máximo de cada ficheiro de instruções incluído.
-const MAX_FILE_BYTES: usize = 40 * 1024;
-/// Tamanho máximo do conjunto das instruções do projecto.
-const MAX_TOTAL_BYTES: usize = 120 * 1024;
+/// Tamanho máximo de cada ficheiro de instruções incluído. As instruções vão em TODOS os
+/// pedidos da sessão; um ficheiro maior entra condensado ([`condense`]): o início, o índice
+/// das secções com os números de linha, e a indicação de as ler com `read` quando a tarefa lhes
+/// tocar — em vez de um corte arbitrário a meio do texto.
+pub const MAX_FILE_BYTES: usize = 12 * 1024;
+/// O início de um ficheiro condensado (cortado no fim de uma linha).
+const HEAD_BYTES: usize = 6 * 1024;
+/// Tamanho máximo do conjunto das instruções do projecto (e da memória).
+pub const MAX_TOTAL_BYTES: usize = 32 * 1024;
+/// O que se reserva, num ficheiro condensado, para a nota que explica o corte.
+const NOTE_BYTES: usize = 700;
+
+/// O maior prefixo de `text` com até `max` bytes que acaba no fim de uma linha (ou, sem
+/// nenhuma, numa fronteira de carácter).
+fn cut_at_line(text: &str, max: usize) -> &str {
+    if text.len() <= max {
+        return text;
+    }
+    let mut end = max;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    match text[..end].rfind('\n') {
+        Some(i) => &text[..=i],
+        None => &text[..end],
+    }
+}
+
+/// Os títulos markdown (`#`…`######`) de `text`, fora de blocos de código: `(linha 1-based,
+/// nível, título)`.
+fn headings(text: &str) -> Vec<(usize, usize, &str)> {
+    let mut out = vec![];
+    let mut fence: Option<&str> = None;
+    for (i, line) in text.lines().enumerate() {
+        let t = line.trim_start();
+        let mark = if t.starts_with("```") {
+            Some("```")
+        } else if t.starts_with("~~~") {
+            Some("~~~")
+        } else {
+            None
+        };
+        if let Some(m) = mark {
+            fence = match fence {
+                Some(f) if f == m => None,
+                None => Some(m),
+                other => other,
+            };
+            continue;
+        }
+        if fence.is_some() || !line.starts_with('#') {
+            continue;
+        }
+        let level = line.chars().take_while(|&c| c == '#').count();
+        let rest = &line[level..];
+        if level <= 6 && rest.starts_with(' ') && !rest.trim().is_empty() {
+            out.push((i + 1, level, rest.trim()));
+        }
+    }
+    out
+}
+
+/// O índice das secções (as que começam depois da linha `after`), no máximo `budget` bytes: o
+/// nível mais fundo que cabe; se nem o primeiro nível couber, os primeiros títulos que couberem.
+fn toc(text: &str, after: usize, budget: usize) -> String {
+    let hs: Vec<_> = headings(text)
+        .into_iter()
+        .filter(|(l, _, _)| *l > after)
+        .collect();
+    // profundidade relativa ao nível mais alto que aparece (o índice pode começar em `##`)
+    let min_level = hs.iter().map(|h| h.1).min().unwrap_or(1);
+    let render = |depth: usize| -> String {
+        hs.iter()
+            .filter(|h| h.1 - min_level < depth)
+            .map(|(l, lv, t)| format!("{}- {t} (linha {l})\n", "  ".repeat(lv - min_level)))
+            .collect()
+    };
+    for depth in (1..=6).rev() {
+        let s = render(depth);
+        if s.len() <= budget {
+            return s;
+        }
+    }
+    let top = render(1);
+    let mut s = cut_at_line(&top, budget.saturating_sub("- …\n".len())).to_string();
+    s.push_str("- …\n");
+    s
+}
+
+/// O texto de um ficheiro de instruções tal como entra no system prompt. Até
+/// [`MAX_FILE_BYTES`], inteiro; maior, o início (`head` bytes, cortado no fim de uma linha) e o
+/// índice das secções seguintes, com a indicação de as ler com `read` quando for preciso.
+/// Determinístico (só depende do conteúdo): o prefixo do pedido fica estável e a cache serve.
+fn condense(name: &str, text: &str, head: usize) -> String {
+    let text = text.trim_end();
+    if text.len() <= MAX_FILE_BYTES {
+        return text.to_string();
+    }
+    let head = cut_at_line(text, head);
+    let head_lines = head.lines().count();
+    let total_lines = text.lines().count();
+    let index = toc(
+        text,
+        head_lines,
+        MAX_FILE_BYTES.saturating_sub(head.len() + NOTE_BYTES),
+    );
+    let mut out = head.trim_end().to_string();
+    if !out.is_empty() {
+        out.push_str("\n\n");
+    }
+    out.push_str(&format!(
+        "[{name} tem {total_lines} linhas ({} KB); aqui estão só {} e o índice das secções \
+         seguintes. Quando a tarefa tocar numa delas, lê essa secção com `read` (path \"{name}\", \
+         offset = a linha do título, limit até à secção seguinte) antes de agir; não leias o \
+         ficheiro inteiro.]",
+        text.len() / 1024,
+        if head_lines > 0 {
+            format!("as primeiras {head_lines} linhas")
+        } else {
+            "o título".to_string()
+        },
+    ));
+    if !index.is_empty() {
+        out.push_str("\nSecções:\n");
+        out.push_str(index.trim_end());
+    }
+    out
+}
+
+/// Acrescenta um ficheiro a `out` respeitando o total: inteiro ou condensado; se não couber,
+/// só o índice; se nem isso, uma linha a dizer que ficou de fora.
+fn push_file(out: &mut String, tag: &str, name: &str, text: &str) {
+    let body = condense(name, text, HEAD_BYTES);
+    let body = if out.len() + body.len() > MAX_TOTAL_BYTES {
+        condense(name, text, 0)
+    } else {
+        body
+    };
+    if out.len() + body.len() > MAX_TOTAL_BYTES {
+        out.push_str(&format!(
+            "\n\n({tag} {name} omitido: limite de tamanho das instruções; lê-o com `read` se a \
+             tarefa precisar)"
+        ));
+        return;
+    }
+    out.push_str(&format!("\n\n<{tag} file=\"{name}\">\n{body}\n</{tag}>"));
+}
 
 /// Em que língua o Co-Dev responde ao humano: a da interface (o `LOCALE` da UI), escolhida
 /// quando a sessão começa. As instruções ao modelo continuam em português; só a regra da
@@ -70,8 +213,15 @@ pub fn core_prompt_in(lang: ReplyLang) -> String {
      programador humano, dentro do projecto aberto. {}\n\
      \n\
      Como trabalhas:\n\
-     - Lê antes de alterar: usa read/grep/glob para perceber o código antes de editar.\n\
-     - Prefere `edit` (substituições pequenas e exactas) a reescrever ficheiros inteiros.\n\
+     - Lê antes de alterar, mas só o que precisas: localiza primeiro (`outline` quando existir, \
+     `grep` com mode=\"content\", `glob`) e lê com `read` só o excerto relevante (offset/limit; \
+     sem limit vêm 500 linhas). Não releias o que já tens na conversa.\n\
+     - Para alterar ficheiros, `edit` é a ferramenta preferida: old_string curto mas único, \
+     copiado do `read`. `edit_lines` (quando existir) só para inserir linhas num ponto ou trocar \
+     um bloco grande que acabaste de ler; `write` só para ficheiros novos ou reescritas \
+     completas pedidas.\n\
+     - Saídas longas de comandos são cortadas (fica sobretudo o fim): filtra-as \
+     (`| tail -n 80`, `| grep -n erro`) em vez de as pedir inteiras.\n\
      - Depois de alterar código, verifica: corre `run_tests`/`lint` quando existirem, ou o \
      comando de verificação adequado com `bash`. Não declares uma tarefa feita sem a \
      verificares, e diz o que verificaste.\n\
@@ -87,8 +237,8 @@ pub fn core_prompt_in(lang: ReplyLang) -> String {
     )
 }
 
-/// Lê as instruções do projecto em `root` (só os ficheiros que existem), cortando
-/// ficheiros grandes. Devolve o texto pronto a entrar no system prompt.
+/// Lê as instruções do projecto em `root` (só os ficheiros que existem), condensando os
+/// grandes ([`condense`]). Devolve o texto pronto a entrar no system prompt.
 pub fn project_instructions(root: &Path) -> Option<String> {
     let mut out = String::new();
     for name in INSTRUCTION_FILES {
@@ -98,20 +248,7 @@ pub fn project_instructions(root: &Path) -> Option<String> {
         if text.trim().is_empty() {
             continue;
         }
-        let mut body: String = text.chars().take(MAX_FILE_BYTES).collect();
-        if body.len() < text.len() {
-            body.push_str("\n…[ficheiro cortado]");
-        }
-        if out.len() + body.len() > MAX_TOTAL_BYTES {
-            out.push_str(&format!(
-                "\n\n(instruções de {name} omitidas: limite de tamanho)"
-            ));
-            continue;
-        }
-        out.push_str(&format!(
-            "\n\n<instructions file=\"{name}\">\n{}\n</instructions>",
-            body.trim_end()
-        ));
+        push_file(&mut out, "instructions", name, &text);
     }
     // memória do projecto: .dxtutor/memory/*.md
     if let Ok(rd) = std::fs::read_dir(root.join(MEMORY_DIR)) {
@@ -132,15 +269,7 @@ pub fn project_instructions(root: &Path) -> Option<String> {
                 "{MEMORY_DIR}/{}",
                 p.file_name().unwrap_or_default().to_string_lossy()
             );
-            let body: String = text.chars().take(MAX_FILE_BYTES).collect();
-            if out.len() + body.len() > MAX_TOTAL_BYTES {
-                out.push_str(&format!("\n\n(memória {name} omitida: limite de tamanho)"));
-                continue;
-            }
-            out.push_str(&format!(
-                "\n\n<memory file=\"{name}\">\n{}\n</memory>",
-                body.trim_end()
-            ));
+            push_file(&mut out, "memory", &name, &text);
         }
     }
     (!out.is_empty()).then(|| {
@@ -189,9 +318,14 @@ mod tests {
     fn core_only_when_there_are_no_instruction_files() {
         let d = tempfile::tempdir().unwrap();
         let s = system_prompt(d.path());
-        assert_eq!(s.len(), 1);
-        assert!(s[0].cache, "o breakpoint fica no último bloco");
+        // the core and (H3) the index of the IDE's skills
+        assert_eq!(s.len(), 2);
+        assert!(
+            !s[0].cache && s[1].cache,
+            "o breakpoint fica no último bloco"
+        );
         assert!(!s[0].text.contains("<instructions"));
+        assert!(s[1].text.contains("- project-board: "));
     }
 
     #[test]
@@ -202,15 +336,98 @@ mod tests {
         std::fs::create_dir_all(d.path().join(".dxtutor")).unwrap();
         std::fs::write(d.path().join(".dxtutor/regras.md"), "x".repeat(60 * 1024)).unwrap();
         let s = system_prompt(d.path());
-        assert_eq!(s.len(), 2);
-        assert!(!s[0].cache && s[1].cache);
+        assert_eq!(s.len(), 3, "core, instructions, the IDE's skills");
+        assert!(!s[0].cache && !s[1].cache && s[2].cache);
         let p = &s[1].text;
         let (a, c) = (
             p.find("file=\"AGENTS.md\"").unwrap(),
             p.find("file=\"CLAUDE.md\"").unwrap(),
         );
         assert!(a < c, "AGENTS.md antes de CLAUDE.md");
-        assert!(p.contains("[ficheiro cortado]"));
+        // o ficheiro grande entra condensado: o início e a indicação de o ler com `read`
+        assert!(p.contains("[.dxtutor/regras.md tem 1 linhas (60 KB)"));
+        assert!(p.len() < MAX_FILE_BYTES + 2048, "{}", p.len());
+    }
+
+    /// Um ficheiro de instruções grande como o CLAUDE.md deste repositório: secções com
+    /// títulos, blocos de código com `#` lá dentro.
+    fn big_markdown() -> String {
+        let mut s = String::from("# Projecto\n\nRegras gerais.\n\n");
+        for i in 1..=40 {
+            s.push_str(&format!("## Secção {i}\n\n"));
+            s.push_str("```bash\n# não é um título\ncargo test\n```\n\n");
+            for j in 0..12 {
+                s.push_str(&format!(
+                    "Linha {j} da secção {i}: texto de exemplo para encher.\n"
+                ));
+            }
+            s.push_str(&format!("\n### Detalhe {i}\n\nMais texto.\n\n"));
+        }
+        s
+    }
+
+    #[test]
+    fn a_big_instruction_file_brings_its_beginning_and_an_index_with_line_numbers() {
+        let text = big_markdown();
+        assert!(text.len() > MAX_FILE_BYTES * 2);
+        let c = condense("CLAUDE.md", &text, HEAD_BYTES);
+        assert!(c.len() <= MAX_FILE_BYTES, "{}", c.len());
+        assert!(c.starts_with("# Projecto\n\nRegras gerais."));
+        assert!(c.contains("lê essa secção com `read` (path \"CLAUDE.md\""));
+        // o índice aponta para a linha certa de cada título que ficou fora do início
+        let line_of = |title: &str| {
+            text.lines()
+                .position(|l| l == title)
+                .map(|i| i + 1)
+                .unwrap()
+        };
+        let last = format!("- Secção 40 (linha {})", line_of("## Secção 40"));
+        assert!(c.contains(&last), "{c}");
+        assert!(
+            !c.contains("não é um título (linha"),
+            "títulos dentro de código não contam"
+        );
+        // corta no fim de uma linha
+        let head_end = c.find("\n\n[CLAUDE.md tem").unwrap();
+        assert!(text.starts_with(&c[..head_end]));
+        // determinístico: o mesmo texto dá o mesmo prefixo (a cache serve entre turnos)
+        assert_eq!(c, condense("CLAUDE.md", &text, HEAD_BYTES));
+        // pequeno: entra inteiro
+        assert_eq!(condense("AGENTS.md", "regra\n", HEAD_BYTES), "regra");
+    }
+
+    #[test]
+    fn the_index_drops_deeper_levels_before_dropping_sections() {
+        let text = big_markdown();
+        let full = toc(&text, 0, usize::MAX);
+        assert!(full.contains("    - Detalhe 3"));
+        // depois do título (linha 1) o índice começa nas secções `##`
+        let full = toc(&text, 1, usize::MAX);
+        assert!(full.starts_with("- Secção 1 (linha 5)"), "{full}");
+        let small = toc(&text, 1, full.len() / 2);
+        assert!(!small.contains("Detalhe"));
+        assert!(small.contains("- Secção 40"));
+        let tiny = toc(&text, 1, 200);
+        assert!(tiny.len() <= 200 && tiny.ends_with("- …\n"), "{tiny}");
+    }
+
+    #[test]
+    fn the_total_keeps_every_file_at_least_as_an_index() {
+        let d = tempfile::tempdir().unwrap();
+        for f in ["AGENTS.md", "CLAUDE.md", "DELONIX.md"] {
+            std::fs::write(d.path().join(f), big_markdown()).unwrap();
+        }
+        std::fs::create_dir_all(d.path().join(".dxtutor/memory")).unwrap();
+        std::fs::write(d.path().join(".dxtutor/memory/a.md"), big_markdown()).unwrap();
+        let p = project_instructions(d.path()).unwrap();
+        assert!(p.len() <= MAX_TOTAL_BYTES + 1024, "{}", p.len());
+        for f in ["AGENTS.md", "CLAUDE.md", "DELONIX.md"] {
+            assert!(
+                p.contains(&format!("file=\"{f}\""))
+                    || p.contains(&format!("instructions {f} omitido")),
+                "{f}"
+            );
+        }
     }
 
     #[test]

@@ -1,0 +1,4931 @@
+id = "dxjs-basics"
+language = "typescript"
+category = "framework"
+subject = "dxjs"
+title = "Dxjs: Reactive UIs from Signals Up"
+level = "intermediate"
+summary = "Learn dxjs, NgolaCloud's fine-grained reactive UI engine, the way it is built: from a single signal to computeds, effects, batching and the owner tree, then cached queries, forms, safe html templates and components, and finally a small app. Every exercise runs against the real dxjs 1.2.0."
+overview = '''
+## What dxjs is
+
+dxjs is a **fine-grained reactive UI engine** written in TypeScript. It has no Virtual DOM,
+no re-render cycle and no build step in development. A dxjs component is a *constructor*: it
+runs **once**, builds the DOM, and wires every dynamic spot to a **signal**. When a signal
+changes, only the bindings that read it run again: one text node, one attribute, one list
+row. Nothing is diffed.
+
+It was designed to run under a strict Content-Security-Policy: no `eval`, no inline event
+handlers, and data is always escaped on the way into the page. A full reactive app
+(core + dom + component) is about 2.8 KB gzip.
+
+## Where it is used
+
+dxjs powers the NgolaCloud consoles, such as the Seiva Console Admin. The official
+documentation is at [ngolacloud.github.io/dxjs](https://ngolacloud.github.io/dxjs/). Its
+packages are published as tarballs on the
+[GitHub releases](https://github.com/ngolacloud/dxjs/releases), not on npm.
+
+## The mental model
+
+Everything in this course grows from four primitives in `@dxjs/core`:
+
+- a **signal** holds a value; call it to read, `.set` or `.update` to write;
+- a **computed** derives a value from signals and caches it;
+- an **effect** runs a side effect now and again whenever what it read changes;
+- an **owner** (a root, a component, an effect) disposes everything created inside it.
+
+The rule that keeps an app reactive is short: **keep the read lazy**. Pass a function that
+reads a signal, `() => count()`, not the value `count()`.
+
+## How the course is organised
+
+- **Basic:** signals, computeds and effects.
+- **Intermediate:** batching and untracking, the owner tree, context and error boundaries,
+  a store in modules, cached queries with `@dxjs/query` and forms with `@dxjs/forms`.
+- **Advanced:** `html` templates and `render` from `@dxjs/dom`, components with
+  `@dxjs/component`, and a small todo app that puts it all together.
+
+## How grading works
+
+You write TypeScript, which Node.js runs directly by stripping the types, so you need
+**Node.js 22.18 or newer**. The course brings dxjs 1.2.0 with it (the official `cdn/dxjs.js`
+bundle, built from the release), so `import { signal } from "@dxjs/core"` works offline,
+exactly as in a real project. The DOM units also get a browser-like DOM for Node from
+[happy-dom](https://github.com/capricorn86/happy-dom), the same one dxjs's own tests use.
+Challenges are judged by hidden tests; project steps by hidden `node:test` files.
+
+You should already know basic TypeScript (functions, objects, arrays, `async`/`await`). The
+official TypeScript course covers all of it.
+'''
+
+# Read-only files written next to every step's files when grading (path in the work folder ->
+# file of this plugin). See support/README.md for where each one comes from.
+[support]
+"node_modules/.dxjs/dxjs.js" = "support/dxjs-1.2.0.js"
+"node_modules/@dxjs/core/package.json" = "support/core/package.json"
+"node_modules/@dxjs/core/index.js" = "support/core/index.js"
+"node_modules/@dxjs/dom/package.json" = "support/dom/package.json"
+"node_modules/@dxjs/dom/index.js" = "support/dom/index.js"
+"node_modules/@dxjs/component/package.json" = "support/component/package.json"
+"node_modules/@dxjs/component/index.js" = "support/component/index.js"
+"node_modules/@dxjs/query/package.json" = "support/query/package.json"
+"node_modules/@dxjs/query/index.js" = "support/query/index.js"
+"node_modules/@dxjs/forms/package.json" = "support/forms/package.json"
+"node_modules/@dxjs/forms/index.js" = "support/forms/index.js"
+"node_modules/happy-dom/package.json" = "support/happy-dom/package.json"
+"node_modules/happy-dom/index.js" = "support/happy-dom-15.11.7.js"
+"node_modules/@dxtutor/dom/package.json" = "support/dxtutor-dom/package.json"
+"node_modules/@dxtutor/dom/index.js" = "support/dxtutor-dom/index.js"
+
+# ── basic ────────────────────────────────────────────────────────────────────────────
+
+[[unit]]
+id = "dxjs-u01-signals"
+title = "Signals: reactive values"
+level = "basic"
+difficulty = 1
+intro = '''
+The one primitive everything else in dxjs is built on: a signal, a cell that holds a value and
+knows who is reading it. You will read and write signals, update them from their previous
+value, and keep their contents immutable.
+'''
+concepts = '''
+## The idea
+
+A user interface is state plus a picture of that state. When the state changes, the picture
+must follow. Frameworks such as React re-run whole components and compare trees to find what
+changed. dxjs takes the opposite road: it records **exactly who read which value**, so a change
+can go straight to the few places that depend on it. The thing that holds such a value is a
+**signal**.
+
+## How dxjs does it
+
+`signal(initial)` from `@dxjs/core` returns a function:
+
+```ts
+import { signal } from "@dxjs/core";
+
+const count = signal(0);
+count();                      // read: 0
+count.set(5);                 // write a value
+count.update((n) => n + 1);   // write from the previous value: 6
+count((n) => n * 2);          // calling with a function is an update too: 12
+count(3);                     // calling with a value is a set
+count.peek();                 // read WITHOUT subscribing (more on this later)
+```
+
+Reading is a call with no arguments. When that read happens inside a computed or an effect,
+the signal remembers the reader and will notify it on the next change. Every write returns
+the new value.
+
+A write that does not change the value does **nothing**: by default a signal compares the old
+and new value with `Object.is`. You can change that with an option:
+`signal(v, { equals: false })` notifies on every write, and
+`signal(v, { equals: (a, b) => a.id === b.id })` uses your own comparison.
+
+## What is special or tricky
+
+- **Never mutate what a signal holds.** `todos().push(item)` changes the array in place, the
+  signal still holds the *same* array, `Object.is` says nothing changed, and nobody is told.
+  Write a new value instead: `todos.update((list) => [...list, item])`.
+- **A function stored in a signal must go through `.set`.** `s(fn)` treats `fn` as an
+  updater; `s.set(fn)` stores it.
+- **Types are only for you.** In this course Node strips TypeScript types before running, so
+  a type-only import must say so: `import type { Signal } from "@dxjs/core"`. The library
+  itself exports only values.
+- **Expose reads, keep writes private.** Returning `() => count()` instead of `count` lets
+  other code read the value but not change it.
+
+## What you will practise
+
+You will type programs that read and write signals and update a list immutably. Then you
+will build a counter whose state lives in a signal, exposing only a read-only accessor.
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "dxjs-u01-c1-signal"
+title = "A signal is a reactive cell"
+points = 5
+difficulty = 1
+intro = '''
+Before typing, picture a signal as a box with a list of readers written on its side. Reading
+the box inside a reactive scope adds your name to the list; writing a new value tells everyone
+on the list.
+'''
+body = '''
+## Read by calling, write with set or update
+
+```ts
+import { signal } from "@dxjs/core";
+
+const name = signal("Ana");
+console.log(name());          // Ana
+name.set("Grace");
+console.log(name());          // Grace
+name.update((n) => n.toUpperCase());
+console.log(name());          // GRACE
+```
+
+Things to notice:
+
+- **`signal("Ana")`** returns a *function*. The value lives inside it; you never touch a
+  `.value` field.
+- **`name()`** reads. Outside any computed or effect, a read is just a read.
+- **`.set(v)`** replaces the value; **`.update(fn)`** computes it from the previous one.
+- A write of an **equal** value (by `Object.is`) is ignored, so nobody is disturbed.
+
+## Values, not places
+
+A signal holds a value, and a change is a *new* value. With arrays and objects that means
+building a copy with the change: `[...list, item]`, `list.filter(...)`, `{ ...todo, done: true }`.
+That is what lets the signal see that something changed at all.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dxjs-u01-d1-read-write"
+title = "Read and write a signal"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+run_command = "node --experimental-transform-types main.ts"
+intro = '''
+The four ways to write a signal, side by side. Each `console.log` shows the value after one
+kind of write, so you can see that `.set`, `.update` and calling the signal all end up in the
+same place.
+'''
+prompt = '''
+Create a counter signal, then write it with `.set`, `.update` and an updater call, printing
+the value after each write.
+
+**Why:** reading by calling and writing through `.set`/`.update` is the whole surface of a
+signal; you will use these lines in every exercise that follows.
+'''
+target = '''
+import { signal } from "@dxjs/core";
+
+const count = signal(0);
+console.log("start:", count());
+
+count.set(5);
+console.log("after set:", count());
+
+count.update((n) => n + 1);
+console.log("after update:", count());
+
+count((n) => n * 2);
+console.log("after an updater call:", count());
+console.log("peek:", count.peek());
+'''
+line_comments = [
+  "Imports `signal` from `@dxjs/core`, the reactive core of dxjs. The course provides the package, so the import works offline.",
+  "",
+  "Creates a signal whose first value is `0`. `count` is a function: calling it reads the value.",
+  "A read is a call with no arguments: this prints `start: 0`.",
+  "",
+  "`.set` replaces the value with `5`.",
+  "Prints `after set: 5`.",
+  "",
+  "`.update` receives the previous value and returns the next one: `5 + 1`.",
+  "Prints `after update: 6`.",
+  "",
+  "Calling the signal with a function is an update too: `6 * 2`.",
+  "Prints `after an updater call: 12`.",
+  "`.peek()` reads without subscribing anyone; here it simply prints `12` again.",
+]
+explanation = '''
+The program printed `start: 0`, `after set: 5`, `after update: 6`,
+`after an updater call: 12` and `peek: 12`. All four writes went into the same cell; the
+difference is only whether you give the new value directly or compute it from the old one.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dxjs-u01-d2-immutable"
+title = "Update a list without mutating it"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+run_command = "node --experimental-transform-types main.ts"
+intro = '''
+A signal notices a change by comparing the old and the new value with `Object.is`. An array
+changed in place is still the same array, so every change to a list or an object is written
+as a new value built from the old one.
+'''
+prompt = '''
+Keep a list of todos in a signal. Add two items and mark the first one as done, each time
+producing a new array, then print the list.
+
+**Why:** immutable updates are what make signals see changes. This is the pattern every store
+in this course uses.
+'''
+target = '''
+import { signal } from "@dxjs/core";
+
+type Todo = { id: number; text: string; done: boolean };
+
+const todos = signal<Todo[]>([]);
+todos.update((list) => [...list, { id: 1, text: "Learn signals", done: false }]);
+todos.update((list) => [...list, { id: 2, text: "Write a store", done: false }]);
+todos.update((list) => list.map((t) => (t.id === 1 ? { ...t, done: true } : t)));
+
+for (const t of todos()) {
+  console.log(t.done ? "[x]" : "[ ]", t.text);
+}
+console.log("items:", todos().length);
+'''
+line_comments = [
+  "Imports the signal factory.",
+  "",
+  "A type for one todo. It exists only for the type checker and is stripped before running.",
+  "",
+  "A signal holding an empty array; `signal<Todo[]>` tells TypeScript what the array will contain.",
+  "Adds an item by building a NEW array: the old items spread with `...`, then the new one.",
+  "Adds a second item the same way.",
+  "Marks item 1 as done: `map` builds a new array and `{ ...t, done: true }` a new object; the others are kept as they are.",
+  "",
+  "Reads the signal once and walks the current array.",
+  "Prints a checkbox and the text of each todo.",
+  "Closes the loop.",
+  "Prints how many items the list has.",
+]
+explanation = '''
+The output was `[x] Learn signals`, `[ ] Write a store` and `items: 2`. Each update returned a
+new array, so each write really was a change: had you used `todos().push(...)`, the signal
+would still hold the same array and nobody reading it would be told.
+'''
+
+[[unit.step]]
+kind = "challenge"
+id = "dxjs-u01-x1-counter"
+title = "A counter with a private signal"
+points = 20
+difficulty = 1
+entry = "createCounter"
+intro = '''
+Now you build something reusable. A function that creates state and returns a small object of
+operations is the simplest **store**. Keeping the signal private, and handing out a read-only
+accessor, means only the store's own operations can change the value.
+'''
+instructions = '''
+## Your turn
+
+Implement `createCounter`:
+
+```ts
+export function createCounter(start = 0, step = 1): {
+  count: () => number;
+  increment(): void;
+  decrement(): void;
+  reset(): void;
+}
+```
+
+- The current value lives in a **signal** created inside `createCounter`, starting at `start`.
+- `count()` returns the current value. It must be a **read-only accessor** (`() => value()`),
+  not the signal itself: calling `count(99)` must not change anything.
+- `increment()` adds `step`, `decrement()` subtracts `step`, `reset()` goes back to `start`.
+- Two counters never share state.
+
+Examples:
+
+- `createCounter()` then `increment()` twice → `count()` is `2`
+- `createCounter(10, 5)` then `decrement()` → `count()` is `5`
+
+Hidden tests also check that `count()` is a real signal read: a computed that reads it must
+update when the counter changes.
+'''
+starter = '''
+import { signal } from "@dxjs/core";
+
+// Return a counter whose value lives in a private signal.
+export function createCounter(start = 0, step = 1) {
+  throw new Error("not implemented");
+}
+'''
+tests = '''
+import { computed as computedForTest } from "@dxjs/core";
+
+dxt.test("starts at 0 by default", () => {
+  dxt.equal(createCounter().count(), 0);
+});
+
+dxt.test("starts where you say", () => {
+  dxt.equal(createCounter(10).count(), 10);
+});
+
+dxt.test("increments and decrements by one", () => {
+  const c = createCounter();
+  c.increment();
+  c.increment();
+  c.decrement();
+  dxt.equal(c.count(), 1);
+});
+
+dxt.test("uses the step", () => {
+  const c = createCounter(5, 5);
+  c.increment();
+  dxt.equal(c.count(), 10);
+  c.decrement();
+  c.decrement();
+  dxt.equal(c.count(), 0);
+});
+
+dxt.test("reset goes back to the start value", () => {
+  const c = createCounter(3);
+  c.increment();
+  c.increment();
+  c.reset();
+  dxt.equal(c.count(), 3);
+});
+
+dxt.test("two counters are independent", () => {
+  const a = createCounter();
+  const b = createCounter();
+  a.increment();
+  dxt.equal([a.count(), b.count()], [1, 0]);
+});
+
+dxt.test("count is a real signal read", () => {
+  const c = createCounter();
+  const doubled = computedForTest(() => c.count() * 2);
+  dxt.equal(doubled(), 0);
+  c.increment();
+  dxt.equal(doubled(), 2);
+});
+
+dxt.test("count is a read-only accessor", () => {
+  const c = createCounter(3);
+  (c.count as unknown as (v: number) => number)(99);
+  dxt.equal(c.count(), 3);
+  dxt.check(!("set" in c.count), "count should not be the signal itself");
+});
+'''
+
+[unit.step.gabarito]
+solution = '''
+import { signal } from "@dxjs/core";
+
+// Return a counter whose value lives in a private signal.
+export function createCounter(start = 0, step = 1) {
+  const count = signal(start);
+  return {
+    count: () => count(),
+    increment: () => {
+      count.update((n) => n + step);
+    },
+    decrement: () => {
+      count.update((n) => n - step);
+    },
+    reset: () => {
+      count.set(start);
+    },
+  };
+}
+'''
+time = "O(1)"
+space = "O(1)"
+justification = '''
+Every operation is a single read or write of one signal, so each costs **O(1)** time; the
+counter keeps one number and a fixed set of closures, **O(1)** space. A write notifies only
+the computeds and effects that read `count()`, so the cost of a change is proportional to its
+readers, not to the size of the app. Returning `() => count()` instead of the signal hides
+`.set` and `.update`: only the store's own operations can change the value.
+'''
+
+[[unit]]
+id = "dxjs-u02-computed"
+title = "Computed: derived state"
+level = "basic"
+difficulty = 2
+intro = '''
+Values that follow from other values: a total from prices, a count from a list. A computed
+derives them from signals, caches the result and recomputes only when something it read
+changed.
+'''
+concepts = '''
+## The idea
+
+Much of an app's state is not stored, it is **derived**: the total of a cart, the number of
+unfinished todos, whether a form is valid. If you store derived values by hand, you must
+remember to update them every time their inputs change, and sooner or later one is stale.
+The reactive answer is to *define* the value by its formula and let the system keep it
+correct.
+
+## How dxjs does it
+
+`computed(fn)` returns a read-only accessor. `fn` reads signals (or other computeds) and
+returns the derived value:
+
+```ts
+import { signal, computed } from "@dxjs/core";
+
+const price = signal(100);
+const qty = signal(2);
+const total = computed(() => price() * qty());
+
+total();        // 200
+qty.set(3);
+total();        // 300
+```
+
+Three properties matter:
+
+- **Automatic dependencies.** The computed tracks whatever `fn` read during its last run. No
+  dependency list to maintain.
+- **Lazy.** Creating a computed runs nothing. `fn` runs on the first read, and after a change
+  only when someone reads the value again.
+- **Memoised.** Between changes, reading the computed returns the cached value without
+  running `fn`. If a recomputation produces an equal value (by `Object.is`, or your `equals`
+  option), readers of the computed are not disturbed.
+
+Computeds can read other computeds, forming a graph. dxjs updates that graph
+**glitch-free**: when two paths lead from one signal to a reader (a "diamond"), the reader
+never sees a mix of old and new values.
+
+## What is special or tricky
+
+- **A computed has no setter.** If you feel the need to write to one, the value is not
+  derived: it belongs in a signal.
+- **Keep `fn` pure.** It may run at any read, or not at all. Logging, fetching or writing
+  signals inside it is a bug; side effects belong in effects (next unit).
+- **Read inside the formula.** `computed(() => price() * qty())` tracks both signals. Reading
+  them *outside* and capturing the numbers would freeze the result.
+- **Money in integers.** Floating point cannot represent `0.1` exactly; prices in this course
+  are whole cents, and only the final rounding uses `Math.round`.
+
+## What you will practise
+
+You will derive a total, watch a computed run lazily and only once per change, and then
+build a shopping cart whose subtotal, VAT, total and item count are all computeds.
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "dxjs-u02-c1-derived"
+title = "Define a value by its formula"
+points = 5
+difficulty = 2
+intro = '''
+A computed is a signal you do not write: it is the result of a formula over other signals,
+kept up to date for you, and only worked out when somebody actually needs it.
+'''
+body = '''
+## A formula that stays true
+
+```ts
+const items = signal([{ priceCents: 250, qty: 2 }, { priceCents: 100, qty: 1 }]);
+const subtotal = computed(() =>
+  items().reduce((sum, line) => sum + line.priceCents * line.qty, 0),
+);
+const vat = computed(() => Math.round(subtotal() * 0.14));
+const total = computed(() => subtotal() + vat());
+```
+
+- `total` depends on `subtotal` and `vat`; `vat` depends on `subtotal`; `subtotal` on `items`.
+- Changing `items` marks the whole chain as possibly stale, but **nothing runs** until you
+  read `total()`.
+- Reading `total()` twice in a row computes it once.
+
+## Lazy and cached
+
+The computed keeps the last value and the list of signals it read. A write to one of them
+marks it stale; the next read recomputes it. If nobody reads it, the formula never runs, so
+an unused computed costs nothing.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dxjs-u02-d1-total"
+title = "Derive a total"
+points = 10
+difficulty = 2
+placeholder_policy = "shown"
+run_command = "node --experimental-transform-types main.ts"
+intro = '''
+The smallest useful computed: a product of two signals. Each write to either input is followed
+by a read of the total, which recomputes it from the current values.
+'''
+prompt = '''
+Derive `total` from `price` and `qty`, then change each input and print the total again.
+
+**Why:** a computed defined once stays correct after any change to its inputs; you never
+update it yourself.
+'''
+target = '''
+import { signal, computed } from "@dxjs/core";
+
+const price = signal(100);
+const qty = signal(2);
+const total = computed(() => price() * qty());
+
+console.log("total:", total());
+qty.set(3);
+console.log("total:", total());
+price.update((p) => p + 10);
+console.log("total:", total());
+'''
+line_comments = [
+  "Imports `signal` and `computed` from the core package.",
+  "",
+  "The unit price, a signal.",
+  "The quantity, another signal.",
+  "`total` is defined by its formula; it tracks `price` and `qty` because the formula reads them.",
+  "",
+  "The first read runs the formula: prints `total: 200`.",
+  "Changes the quantity; the computed is marked stale but does not run yet.",
+  "Reading it again recomputes: prints `total: 300`.",
+  "Raises the price by 10.",
+  "Recomputes with the new price: prints `total: 330`.",
+]
+explanation = '''
+The program printed `total: 200`, `total: 300` and `total: 330`. You never assigned `total`:
+it was always the product of the current price and quantity.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dxjs-u02-d2-lazy"
+title = "Lazy and memoised"
+points = 10
+difficulty = 2
+placeholder_policy = "shown"
+run_command = "node --experimental-transform-types main.ts"
+intro = '''
+A counter of how many times the formula ran makes laziness and caching visible: no run until
+the first read, one run per change, and none for repeated reads.
+'''
+prompt = '''
+Count the runs of a computed's formula. Read it before and after a change and print the count
+each time.
+
+**Why:** knowing exactly when a computed runs is what lets you put expensive derivations in
+one without worrying.
+'''
+target = '''
+import { signal, computed } from "@dxjs/core";
+
+let runs = 0;
+const items = signal(["tea", "bread", "milk"]);
+const count = computed(() => {
+  runs++;
+  return items().length;
+});
+
+console.log("runs before any read:", runs);
+console.log("count:", count(), "runs:", runs);
+console.log("count:", count(), "runs:", runs);
+items.update((xs) => [...xs, "eggs"]);
+console.log("runs after the write:", runs);
+console.log("count:", count(), "runs:", runs);
+'''
+line_comments = [
+  "Imports the two primitives.",
+  "",
+  "A plain variable counting how many times the formula runs. It is not reactive.",
+  "A signal holding a shopping list.",
+  "A computed with a formula that also counts its own runs.",
+  "Increments the run counter (fine for a demonstration; real formulas stay pure).",
+  "Returns the length of the list, which makes `items` a dependency.",
+  "Closes the formula.",
+  "",
+  "Nothing has read `count` yet, so the formula never ran: prints `0`.",
+  "The first read runs the formula once: prints `count: 3 runs: 1`.",
+  "A second read returns the cached value; the formula does not run: still `runs: 1`.",
+  "Adds an item; the computed is marked stale but stays lazy.",
+  "Still `1`: nothing recomputes until the value is read.",
+  "This read recomputes once: prints `count: 4 runs: 2`.",
+]
+explanation = '''
+The output was `runs before any read: 0`, `count: 3 runs: 1` twice, `runs after the write: 1`
+and `count: 4 runs: 2`. The formula ran only when a read needed a fresh value: never ahead of
+time, and never twice for the same inputs.
+'''
+
+[[unit.step]]
+kind = "challenge"
+id = "dxjs-u02-x1-cart"
+title = "A shopping cart of computeds"
+points = 20
+difficulty = 2
+entry = "createCart"
+intro = '''
+A cart is the classic derived-state problem: the lines are the only real state, and subtotal,
+VAT, total and item count all follow from them. Each becomes a computed, chained where one
+builds on another.
+'''
+instructions = '''
+## Your turn
+
+Implement `createCart(vatPercent)`. Prices are whole **cents**.
+
+```ts
+export type Line = { name: string; priceCents: number; qty: number };
+
+export function createCart(vatPercent: number): {
+  lines: () => Line[];
+  add(name: string, priceCents: number, qty?: number): void;   // qty defaults to 1
+  remove(name: string): void;
+  subtotal: () => number;   // sum of priceCents * qty
+  vat: () => number;        // Math.round(subtotal * vatPercent / 100)
+  total: () => number;      // subtotal + vat
+  count: () => number;      // sum of qty
+}
+```
+
+- The lines live in **one signal**; `subtotal`, `vat`, `total` and `count` are **computeds**.
+- `add` with a name already in the cart increases that line's `qty` (keeping its first price);
+  otherwise it appends a new line. Every change writes a **new** array.
+- `remove` drops the line with that name.
+
+Example with `createCart(14)`: `add("tea", 250, 2)` and `add("milk", 99)` → subtotal `599`,
+vat `84` (599 × 14 / 100 = 83.86), total `683`, count `3`.
+'''
+starter = '''
+import { signal, computed } from "@dxjs/core";
+
+export type Line = { name: string; priceCents: number; qty: number };
+
+// The lines are the only state; everything else is derived.
+export function createCart(vatPercent: number) {
+  throw new Error("not implemented");
+}
+'''
+tests = '''
+import { computed as computedForTest } from "@dxjs/core";
+
+dxt.test("an empty cart is all zeros", () => {
+  const cart = createCart(14);
+  dxt.equal([cart.lines(), cart.subtotal(), cart.vat(), cart.total(), cart.count()], [[], 0, 0, 0, 0]);
+});
+
+dxt.test("derives subtotal, vat, total and count", () => {
+  const cart = createCart(14);
+  cart.add("tea", 250, 2);
+  cart.add("milk", 99);
+  dxt.equal(cart.subtotal(), 599);
+  dxt.equal(cart.vat(), 84);
+  dxt.equal(cart.total(), 683);
+  dxt.equal(cart.count(), 3);
+});
+
+dxt.test("adding an existing name increases its quantity and keeps the first price", () => {
+  const cart = createCart(0);
+  cart.add("tea", 250);
+  cart.add("tea", 999, 2);
+  dxt.equal(cart.lines(), [{ name: "tea", priceCents: 250, qty: 3 }]);
+  dxt.equal(cart.total(), 750);
+});
+
+dxt.test("remove drops a line", () => {
+  const cart = createCart(10);
+  cart.add("tea", 200);
+  cart.add("bread", 300);
+  cart.remove("tea");
+  dxt.equal(cart.lines(), [{ name: "bread", priceCents: 300, qty: 1 }]);
+  dxt.equal([cart.subtotal(), cart.vat(), cart.total(), cart.count()], [300, 30, 330, 1]);
+});
+
+dxt.test("vat is rounded to whole cents", () => {
+  const cart = createCart(14);
+  cart.add("x", 999);
+  dxt.equal(cart.vat(), 140);
+  cart.add("y", 1);
+  dxt.equal(cart.vat(), 140);
+});
+
+dxt.test("every change writes a new array", () => {
+  const cart = createCart(14);
+  const before = cart.lines();
+  cart.add("tea", 250);
+  dxt.check(cart.lines() !== before, "add must not mutate the old array");
+  dxt.equal(before, []);
+});
+
+dxt.test("the totals are reactive", () => {
+  const cart = createCart(50);
+  const label = computedForTest(() => cart.count() + " items, " + cart.total() + " cents");
+  dxt.equal(label(), "0 items, 0 cents");
+  cart.add("tea", 100, 2);
+  dxt.equal(label(), "2 items, 300 cents");
+  cart.remove("tea");
+  dxt.equal(label(), "0 items, 0 cents");
+});
+'''
+
+[unit.step.gabarito]
+solution = '''
+import { signal, computed } from "@dxjs/core";
+
+export type Line = { name: string; priceCents: number; qty: number };
+
+// The lines are the only state; everything else is derived.
+export function createCart(vatPercent: number) {
+  const lines = signal<Line[]>([]);
+  const subtotal = computed(() => lines().reduce((sum, l) => sum + l.priceCents * l.qty, 0));
+  const vat = computed(() => Math.round((subtotal() * vatPercent) / 100));
+  const total = computed(() => subtotal() + vat());
+  const count = computed(() => lines().reduce((sum, l) => sum + l.qty, 0));
+  return {
+    lines: () => lines(),
+    add(name: string, priceCents: number, qty = 1) {
+      lines.update((ls) =>
+        ls.some((l) => l.name === name)
+          ? ls.map((l) => (l.name === name ? { ...l, qty: l.qty + qty } : l))
+          : [...ls, { name, priceCents, qty }],
+      );
+    },
+    remove(name: string) {
+      lines.update((ls) => ls.filter((l) => l.name !== name));
+    },
+    subtotal,
+    vat,
+    total,
+    count,
+  };
+}
+'''
+time = "O(n)"
+space = "O(n)"
+justification = '''
+With `n` lines, `subtotal` and `count` each walk the list once, **O(n)**, and `vat` and `total`
+are **O(1)** on top of them. Thanks to memoisation each runs at most once per change, however
+many times it is read. `add` and `remove` build a new array, **O(n)** time and space, which is
+what lets the signal see the change: the old array is never touched.
+'''
+
+[[unit]]
+id = "dxjs-u03-effects"
+title = "Effects: reacting to change"
+level = "basic"
+difficulty = 3
+intro = '''
+Where reactivity meets the outside world: logging, the network, the DOM, a subscription. An
+effect runs now and again whenever what it read changes, cleans up after itself, and stops
+when you dispose it.
+'''
+concepts = '''
+## The idea
+
+Signals and computeds are pure: they hold and derive values. Sooner or later a value must
+*leave* the reactive world: be written to the page, saved, sent, logged. Doing that by hand
+after every write is the bug-prone path dxjs exists to avoid. An **effect** is code that runs
+because something changed.
+
+## How dxjs does it
+
+```ts
+import { signal, effect, onCleanup } from "@dxjs/core";
+
+const room = signal("general");
+const stop = effect(() => {
+  const name = room();                 // tracked: the effect re-runs when room changes
+  const unsubscribe = chat.join(name);
+  return () => unsubscribe();          // cleanup, before the next run and on dispose
+});
+
+room.set("random");                    // cleanup for "general", then a run for "random"
+stop();                                // cleanup, and no more runs
+```
+
+- `effect(fn)` runs `fn` **immediately**, tracking every signal and computed it reads.
+- A later write to one of them runs the effect again, **synchronously**, right after the
+  write (or at the end of a `batch`, next unit).
+- `fn` may return a **cleanup** function. dxjs calls it before the next run and when the
+  effect is disposed. `onCleanup(fn)` inside the effect registers one too.
+- `effect` returns a **disposer**: call it and the effect stops for good.
+
+Dependencies are **dynamic**: each run tracks only what that run read. If a branch did not
+read a signal this time, changes to it do not wake the effect until a run reads it again.
+
+## What is special or tricky
+
+- **Effects are for side effects.** If you are computing a value, use a computed. An effect
+  that writes a signal it also reads can loop forever (dxjs stops at a million iterations).
+- **Writes of equal values are invisible.** `temperature.set(22)` twice runs the effect once.
+- **Always undo what you did.** Every subscription, listener or timer an effect starts must
+  be released in its cleanup, or each re-run leaks one more.
+- **Dispose what you start.** An effect created outside any owner lives until you call its
+  disposer. Inside components dxjs does this for you (later units).
+
+## What you will practise
+
+You will log a signal's changes and stop the effect, watch dependencies change between runs,
+and then follow a chat channel chosen by a signal: subscribe, switch and unsubscribe.
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "dxjs-u03-c1-effect"
+title = "Run, re-run, clean up, stop"
+points = 5
+difficulty = 3
+intro = '''
+An effect has a short life cycle: a first run when created, a re-run after each relevant change
+(with the previous run's cleanup first), and a final cleanup when disposed.
+'''
+body = '''
+## The life cycle in order
+
+```ts
+const id = signal(1);
+const stop = effect(() => {
+  const current = id();
+  console.log("open", current);
+  return () => console.log("close", current);
+});
+id.set(2);
+stop();
+```
+
+prints `open 1`, `close 1`, `open 2`, `close 2`:
+
+1. **Create:** the effect runs at once and remembers that it read `id`.
+2. **Change:** `id.set(2)` first runs the cleanup of the previous run, then the effect again.
+3. **Dispose:** `stop()` runs the last cleanup and detaches the effect from its signals.
+
+## Only what was read
+
+The tracked set is rebuilt on every run. An `if` that skips a read this time also skips the
+subscription, which is exactly right: a value you did not use cannot change your result.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dxjs-u03-d1-log"
+title = "Log every change, then stop"
+points = 10
+difficulty = 3
+placeholder_policy = "shown"
+run_command = "node --experimental-transform-types main.ts"
+intro = '''
+An effect that logs a signal shows the three moments of its life: the first run, the re-runs
+on real changes (not on equal writes), and silence after it is disposed.
+'''
+prompt = '''
+Log a temperature signal with an effect, write it a few times (once with the same value), stop
+the effect and write it again.
+
+**Why:** seeing which writes reach the effect, and that a disposed effect never runs again,
+is the basis for reasoning about every effect you will write.
+'''
+target = '''
+import { signal, effect } from "@dxjs/core";
+
+const temperature = signal(20);
+
+const stop = effect(() => {
+  console.log("temperature is", temperature());
+});
+
+temperature.set(22);
+temperature.set(22);
+temperature.set(25);
+stop();
+temperature.set(30);
+console.log("done");
+'''
+line_comments = [
+  "Imports `signal` and `effect`.",
+  "",
+  "The value the effect will follow.",
+  "",
+  "Creates the effect and keeps its disposer in `stop`. The effect runs immediately.",
+  "Reads `temperature`, which subscribes the effect; prints `temperature is 20`.",
+  "Closes the effect function.",
+  "",
+  "A real change: the effect runs again at once and prints `temperature is 22`.",
+  "The same value again: `Object.is` says nothing changed, so the effect does not run.",
+  "Another change: prints `temperature is 25`.",
+  "Disposes the effect; it detaches from `temperature`.",
+  "Nobody is listening any more, so nothing is printed.",
+  "The last line of output.",
+]
+explanation = '''
+The output was `temperature is 20`, `22`, `25` and `done`. The repeated `22` was ignored
+because the value did not change, and after `stop()` the write of `30` reached nobody.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dxjs-u03-d2-dynamic"
+title = "Dynamic dependencies and cleanup"
+points = 10
+difficulty = 3
+placeholder_policy = "shown"
+run_command = "node --experimental-transform-types main.ts"
+intro = '''
+The signals an effect depends on are the ones its last run read. A branch decides whether
+`email` is read at all, and the cleanup announces each re-run.
+'''
+prompt = '''
+Show the email only when `showEmail` is on. Change the email while it is hidden, turn it on,
+then change the email again.
+
+**Why:** dynamic tracking means an effect is woken only by values it actually used, and the
+cleanup always runs before the next pass.
+'''
+target = '''
+import { signal, effect } from "@dxjs/core";
+
+const showEmail = signal(false);
+const name = signal("Ana");
+const email = signal("ana@example.org");
+
+effect(() => {
+  if (showEmail()) {
+    console.log(name(), "<" + email() + ">");
+  } else {
+    console.log(name());
+  }
+  return () => console.log("cleanup");
+});
+
+email.set("ana@dxjs.dev");
+showEmail.set(true);
+email.set("ana@ngola.cloud");
+'''
+line_comments = [
+  "Imports the primitives.",
+  "",
+  "A switch: should the email be shown?",
+  "The name, always shown.",
+  "The email, shown only when the switch is on.",
+  "",
+  "Creates the effect; its first run happens now.",
+  "Reads `showEmail`, so the switch is always a dependency.",
+  "When it is on, the effect also reads `name` and `email`.",
+  "When it is off...",
+  "...it reads only `name`: on this run `email` is NOT a dependency. Prints `Ana`.",
+  "Closes the branch.",
+  "Returns a cleanup, which dxjs runs before the next run.",
+  "Closes the effect.",
+  "",
+  "The email changes, but the last run did not read it: nothing happens.",
+  "The switch changes: prints `cleanup`, then `Ana <ana@dxjs.dev>`; now `email` is tracked.",
+  "This time the email is a dependency: prints `cleanup` and `Ana <ana@ngola.cloud>`.",
+]
+explanation = '''
+The output was `Ana`, `cleanup`, `Ana <ana@dxjs.dev>`, `cleanup`, `Ana <ana@ngola.cloud>`. The
+first email change was ignored because the effect had not read `email` on that run; once the
+switch was on, the email became a dependency, and every re-run was preceded by the cleanup.
+'''
+
+[[unit.step]]
+kind = "challenge"
+id = "dxjs-u03-x1-channel"
+title = "Follow a chat channel"
+points = 20
+difficulty = 3
+entry = "followChannel"
+intro = '''
+A subscription that depends on reactive state is the textbook effect: subscribe for the current
+value, and when the value changes, release the old subscription before taking the new one. The
+cleanup function is what makes that switch leak-free.
+'''
+instructions = '''
+## Your turn
+
+Implement `followChannel`:
+
+```ts
+export interface Bus {
+  subscribe(channel: string, onMessage: (text: string) => void): () => void;
+}
+
+export function followChannel(
+  channel: () => string,
+  bus: Bus,
+  onMessage: (channel: string, text: string) => void,
+): () => void
+```
+
+- Subscribe to `bus` for the channel `channel()` returns, **right away**. Each message
+  `text` on it calls `onMessage(thatChannel, text)`.
+- When `channel()` changes, **unsubscribe from the old channel first**, then subscribe to the
+  new one. At any time there is exactly one subscription.
+- Return a function that stops following: it unsubscribes, and later channel changes do
+  nothing.
+
+Use one `effect` whose cleanup is the function `bus.subscribe` returned.
+'''
+starter = '''
+import { effect } from "@dxjs/core";
+
+export interface Bus {
+  subscribe(channel: string, onMessage: (text: string) => void): () => void;
+}
+
+// Keep exactly one subscription, always for the current channel.
+export function followChannel(
+  channel: () => string,
+  bus: Bus,
+  onMessage: (channel: string, text: string) => void,
+): () => void {
+  throw new Error("not implemented");
+}
+'''
+tests = '''
+import { signal as signalForTest } from "@dxjs/core";
+
+function fakeBus() {
+  const subs = new Map<string, Set<(text: string) => void>>();
+  const log: string[] = [];
+  return {
+    log,
+    subscribe(channel: string, fn: (text: string) => void) {
+      log.push("sub " + channel);
+      if (!subs.has(channel)) subs.set(channel, new Set());
+      subs.get(channel)!.add(fn);
+      return () => {
+        log.push("unsub " + channel);
+        subs.get(channel)!.delete(fn);
+      };
+    },
+    send(channel: string, text: string) {
+      for (const fn of [...(subs.get(channel) ?? [])]) fn(text);
+    },
+    active() {
+      return [...subs].filter(([, s]) => s.size > 0).map(([c, s]) => c + ":" + s.size);
+    },
+  };
+}
+
+dxt.test("subscribes to the current channel right away", () => {
+  const bus = fakeBus();
+  followChannel(signalForTest("general"), bus, () => {});
+  dxt.equal(bus.active(), ["general:1"]);
+});
+
+dxt.test("delivers messages with their channel", () => {
+  const bus = fakeBus();
+  const got: string[] = [];
+  followChannel(signalForTest("general"), bus, (c, t) => got.push(c + ": " + t));
+  bus.send("general", "hello");
+  bus.send("random", "not for us");
+  dxt.equal(got, ["general: hello"]);
+});
+
+dxt.test("switching unsubscribes the old channel before subscribing the new one", () => {
+  const bus = fakeBus();
+  const room = signalForTest("general");
+  const got: string[] = [];
+  followChannel(room, bus, (c, t) => got.push(c + ": " + t));
+  room.set("random");
+  dxt.equal(bus.log, ["sub general", "unsub general", "sub random"]);
+  dxt.equal(bus.active(), ["random:1"]);
+  bus.send("general", "old");
+  bus.send("random", "new");
+  dxt.equal(got, ["random: new"]);
+});
+
+dxt.test("writing the same channel does not resubscribe", () => {
+  const bus = fakeBus();
+  const room = signalForTest("general");
+  followChannel(room, bus, () => {});
+  room.set("general");
+  dxt.equal(bus.log, ["sub general"]);
+});
+
+dxt.test("the returned function stops following", () => {
+  const bus = fakeBus();
+  const room = signalForTest("general");
+  const stop = followChannel(room, bus, () => {});
+  stop();
+  dxt.equal(bus.active(), []);
+  room.set("random");
+  dxt.equal(bus.log, ["sub general", "unsub general"]);
+});
+'''
+
+[unit.step.gabarito]
+solution = '''
+import { effect } from "@dxjs/core";
+
+export interface Bus {
+  subscribe(channel: string, onMessage: (text: string) => void): () => void;
+}
+
+// Keep exactly one subscription, always for the current channel.
+export function followChannel(
+  channel: () => string,
+  bus: Bus,
+  onMessage: (channel: string, text: string) => void,
+): () => void {
+  return effect(() => {
+    const name = channel();
+    return bus.subscribe(name, (text) => onMessage(name, text));
+  });
+}
+'''
+time = "O(1)"
+space = "O(1)"
+justification = '''
+Each channel change costs one unsubscribe and one subscribe, **O(1)** work on top of the bus's
+own; the effect keeps one closure and one cleanup, **O(1)** space. Returning the unsubscribe
+function as the effect's cleanup is the whole trick: dxjs runs it before every re-run and on
+dispose, so the old subscription is always released first and none can leak. The effect's
+disposer doubles as the "stop following" function.
+'''
+
+# ── intermediate ─────────────────────────────────────────────────────────────────────
+
+[[unit]]
+id = "dxjs-u04-batch-untrack"
+title = "Batch and untrack"
+level = "intermediate"
+difficulty = 4
+intro = '''
+Two tools for precise control: `batch` groups several writes into one consistent update, and
+`untrack` (or `.peek()`) reads a value without subscribing to it.
+'''
+concepts = '''
+## The idea
+
+By default every write is delivered at once: write two signals in a row and an effect that
+reads both runs twice, the first time seeing a half-updated state (the new first name with
+the old last name). Most of the time you want the opposite: make all the changes, *then* let
+the world react once. And sometimes a computation needs a value without wanting to depend
+on it.
+
+## How dxjs does it
+
+**`batch(fn)`** runs `fn` and delays every effect until it finishes:
+
+```ts
+batch(() => {
+  first.set("Alan");
+  last.set("Turing");
+});   // effects run here, once, and see both new values
+```
+
+- Batches nest: only the outermost one flushes.
+- `batch` returns what `fn` returns.
+- Computeds are still correct *inside* the batch: reading one recomputes it on demand.
+
+**`untrack(fn)`** runs `fn` with tracking switched off and returns its result. Signals read
+inside it do not become dependencies of the surrounding computed or effect:
+
+```ts
+effect(() => {
+  const size = untrack(() => pageSize());   // read, but not a dependency
+  search(query(), size);                     // re-runs on query changes only
+});
+```
+
+`signal.peek()` is the shorthand for one signal: `pageSize.peek()`.
+
+## What is special or tricky
+
+- **A callback is a hidden read.** When an effect calls code you do not control (a user
+  callback, a logger), every signal that code reads becomes a dependency of your effect.
+  Wrap such calls in `untrack` so your effect re-runs only for its own reasons.
+- **`untrack` is not "read once".** The value is current at the time of the read; the effect
+  simply will not wake up when it changes.
+- **Batch writes that belong together.** Moving money between two accounts, replacing a list
+  and its selection, resetting a form: one batch per logical change keeps every observer
+  consistent.
+- **Event handlers in dxjs are not batched for you.** Wrap multi-signal updates yourself.
+
+## What you will practise
+
+You will count effect runs with and without a batch, read a value without depending on it,
+and then write `watch`, a helper that calls back with the new and previous value of any
+reactive expression, without letting the callback's own reads leak into the subscription.
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "dxjs-u04-c1-consistent"
+title = "One logical change, one update"
+points = 5
+difficulty = 4
+intro = '''
+Batching is about consistency more than speed: observers should only ever see states that make
+sense, never the halfway point between two writes.
+'''
+body = '''
+## The halfway state
+
+```ts
+const from = signal(100);
+const to = signal(0);
+effect(() => console.log("total", from() + to()));
+
+from.update((n) => n - 30);   // prints "total 70"  ← money vanished!
+to.update((n) => n + 30);     // prints "total 100"
+```
+
+With `batch(() => { from.update(...); to.update(...); })` the effect runs once, after both
+writes, and prints `total 100`: no observer ever sees the 30 in flight.
+
+## Reading without subscribing
+
+```ts
+const total = computed(() => price() * untrack(() => rate()));
+```
+
+`total` recomputes when `price` changes. A change to `rate` alone does not invalidate it; the
+next recomputation, caused by `price`, will pick up the current rate.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dxjs-u04-d1-batch"
+title = "Count the runs with and without a batch"
+points = 10
+difficulty = 4
+placeholder_policy = "shown"
+run_command = "node --experimental-transform-types main.ts"
+intro = '''
+The same two writes, first one after the other and then inside `batch`. The run counter and the
+log show both the extra run and the inconsistent intermediate state it exposes.
+'''
+prompt = '''
+Follow a full name made of two signals with an effect. Change both names twice: once without
+and once inside `batch`, and print how many times the effect ran.
+
+**Why:** the unbatched version shows a name that never existed (`Grace Lovelace`); the batched
+one goes straight to the final state.
+'''
+target = '''
+import { signal, effect, batch } from "@dxjs/core";
+
+const first = signal("Ada");
+const last = signal("Lovelace");
+let runs = 0;
+
+effect(() => {
+  runs++;
+  console.log("full name:", first() + " " + last());
+});
+
+first.set("Grace");
+last.set("Hopper");
+console.log("runs without batch:", runs);
+
+batch(() => {
+  first.set("Alan");
+  last.set("Turing");
+});
+console.log("runs with batch:", runs);
+'''
+line_comments = [
+  "Imports `batch` together with the other primitives.",
+  "",
+  "The first name.",
+  "The last name.",
+  "Counts how many times the effect runs.",
+  "",
+  "The effect runs once now: prints `full name: Ada Lovelace`.",
+  "Counts this run.",
+  "Reads both signals, so both are dependencies.",
+  "Closes the effect.",
+  "",
+  "First write: the effect runs right away and prints the half-updated `Grace Lovelace`.",
+  "Second write: it runs again and prints `Grace Hopper`.",
+  "Three runs so far: the first one plus one per write.",
+  "",
+  "Starts a batch: effects are held until it ends.",
+  "This write is delivered later...",
+  "...and so is this one.",
+  "The batch ends: the effect runs ONCE and prints `full name: Alan Turing`.",
+  "Prints `runs with batch: 4`: two writes, one run.",
+]
+explanation = '''
+Without the batch the effect ran after each write and printed `Grace Lovelace`, a name that
+was never meant to exist. Inside the batch both writes landed first and the effect ran once,
+so the count went from 3 to 4 and the log jumped straight to `Alan Turing`.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dxjs-u04-d2-untrack"
+title = "Read without subscribing"
+points = 10
+difficulty = 4
+placeholder_policy = "shown"
+run_command = "node --experimental-transform-types main.ts"
+intro = '''
+A search effect needs the page size to build its request, but changing the page size alone
+should not trigger a search. `untrack` reads the value without making it a dependency.
+'''
+prompt = '''
+Run a search effect that depends on `query` but only reads `pageSize`. Change the page size,
+then the query, and finally peek at the page size.
+
+**Why:** controlling exactly which values wake an effect is how you avoid surprise re-runs.
+'''
+target = '''
+import { signal, effect, untrack } from "@dxjs/core";
+
+const query = signal("dx");
+const pageSize = signal(10);
+
+effect(() => {
+  const size = untrack(() => pageSize());
+  console.log("search", query(), "size", size);
+});
+
+pageSize.set(50);
+query.set("dxjs");
+console.log("peek:", pageSize.peek());
+'''
+line_comments = [
+  "Imports `untrack`.",
+  "",
+  "What the user typed; the effect depends on it.",
+  "The page size; read but not tracked.",
+  "",
+  "The effect runs now.",
+  "`untrack` reads `pageSize` with tracking switched off: no dependency is recorded.",
+  "Reads `query` normally, so it IS a dependency. Prints `search dx size 10`.",
+  "Closes the effect.",
+  "",
+  "The page size changes, but the effect does not depend on it: nothing is printed.",
+  "The query changes: the effect runs and picks up the current size, `search dxjs size 50`.",
+  "`.peek()` is the one-signal shorthand for an untracked read: prints `peek: 50`.",
+]
+explanation = '''
+The output was `search dx size 10`, `search dxjs size 50` and `peek: 50`. The page-size write
+alone woke nobody; the next query change ran the effect, which read the page size as it was at
+that moment.
+'''
+
+[[unit.step]]
+kind = "challenge"
+id = "dxjs-u04-x1-watch"
+title = "watch: new value, previous value"
+points = 25
+difficulty = 4
+entry = "watch"
+intro = '''
+`watch` turns any reactive expression into a change listener: it skips the first value and
+then calls back with the new and the previous value on every change. The callback is foreign
+code, so it must run untracked.
+'''
+instructions = '''
+## Your turn
+
+Implement `watch`:
+
+```ts
+export function watch<T>(
+  source: () => T,
+  callback: (value: T, previous: T) => void,
+): () => void
+```
+
+- Follow `source` (it can read any signals and computeds) with an effect.
+- Do **not** call `callback` for the initial value. On each later change call
+  `callback(newValue, previousValue)`.
+- A write that leaves `source()` equal to before (same signal value) causes no call.
+- Run `callback` with **`untrack`**: signals it reads must not become dependencies of the
+  watcher.
+- Return the disposer: after calling it, no more callbacks.
+
+Example: `watch(() => count(), (v, p) => log.push(p + "→" + v))`, then `count.set(1)` and
+`count.set(5)` → log is `["0→1", "1→5"]`.
+'''
+starter = '''
+import { effect, untrack } from "@dxjs/core";
+
+// Call back with (value, previous) on every change of source, but not for the first value.
+export function watch<T>(source: () => T, callback: (value: T, previous: T) => void): () => void {
+  throw new Error("not implemented");
+}
+'''
+tests = '''
+import { signal as signalForTest, batch as batchForTest } from "@dxjs/core";
+
+dxt.test("does not call back for the initial value", () => {
+  const n = signalForTest(0);
+  const calls: number[] = [];
+  watch(() => n(), (v) => calls.push(v));
+  dxt.equal(calls, []);
+});
+
+dxt.test("calls back with the new and the previous value", () => {
+  const n = signalForTest(0);
+  const log: string[] = [];
+  watch(() => n(), (v, p) => log.push(p + "→" + v));
+  n.set(1);
+  n.set(5);
+  dxt.equal(log, ["0→1", "1→5"]);
+});
+
+dxt.test("an equal write causes no call", () => {
+  const n = signalForTest(3);
+  let calls = 0;
+  watch(() => n(), () => calls++);
+  n.set(3);
+  dxt.equal(calls, 0);
+});
+
+dxt.test("watches any expression, once per batch", () => {
+  const a = signalForTest(1);
+  const b = signalForTest(2);
+  const log: string[] = [];
+  watch(() => a() + b(), (v, p) => log.push(p + "→" + v));
+  batchForTest(() => {
+    a.set(10);
+    b.set(20);
+  });
+  dxt.equal(log, ["3→30"]);
+});
+
+dxt.test("signals read by the callback are not tracked", () => {
+  const n = signalForTest(0);
+  const other = signalForTest("x");
+  const seen: string[] = [];
+  watch(() => n(), (v) => seen.push(v + other()));
+  n.set(1);
+  other.set("y");
+  other.set("z");
+  dxt.equal(seen, ["1x"]);
+  n.set(2);
+  dxt.equal(seen, ["1x", "2z"]);
+});
+
+dxt.test("the disposer stops the callbacks", () => {
+  const n = signalForTest(0);
+  let calls = 0;
+  const stop = watch(() => n(), () => calls++);
+  n.set(1);
+  stop();
+  n.set(2);
+  dxt.equal(calls, 1);
+});
+'''
+
+[unit.step.gabarito]
+solution = '''
+import { effect, untrack } from "@dxjs/core";
+
+// Call back with (value, previous) on every change of source, but not for the first value.
+export function watch<T>(source: () => T, callback: (value: T, previous: T) => void): () => void {
+  let first = true;
+  let previous: T;
+  return effect(() => {
+    const value = source();
+    if (first) {
+      first = false;
+      previous = value;
+      return;
+    }
+    const old = previous;
+    previous = value;
+    untrack(() => callback(value, old));
+  });
+}
+'''
+time = "O(1)"
+space = "O(1)"
+justification = '''
+Each change costs one evaluation of `source` plus the callback, so the watcher adds **O(1)**
+work and keeps one previous value, **O(1)** space. Two details make it correct: the effect's
+first run only records the starting value, and `untrack` around the callback keeps its reads
+out of the dependency set, so the watcher wakes only when `source` changes. An equal write
+never reaches the effect at all, because the signal filters it out.
+'''
+
+[[unit]]
+id = "dxjs-u05-owners"
+title = "The owner tree and teardown"
+level = "intermediate"
+difficulty = 5
+intro = '''
+Every effect and computed belongs to an owner, and disposing the owner tears down everything
+inside it, in order. `createRoot` gives you an owner of your own: the shape of a store.
+'''
+concepts = '''
+## The idea
+
+Reactive code creates things that keep running: effects that listen, subscriptions that
+deliver, timers that fire. If nothing ever stops them, a long-running app leaks memory and
+does work for screens nobody sees. dxjs answers with **ownership**: every effect or computed
+is owned by the scope that was active when it was created, and disposing a scope disposes
+everything it owns, recursively. Teardown is deterministic, never left to chance.
+
+## How dxjs does it
+
+```ts
+import { createRoot, effect, onCleanup } from "@dxjs/core";
+
+const dispose = createRoot((dispose) => {
+  effect(() => console.log("tick", ticks()));   // owned by the root
+  onCleanup(() => console.log("bye"));          // runs when the root is disposed
+  return dispose;
+});
+
+dispose();   // disposes the effect, then runs the cleanups
+```
+
+- `createRoot(fn)` creates a scope with no parent, runs `fn(dispose)` inside it and returns
+  what `fn` returns. Reads inside `fn` itself are not tracked.
+- `onCleanup(fn)` registers teardown on the **current owner**: a root, an effect or a
+  computed. Outside any owner it does nothing.
+- An effect is itself an owner. Effects created *inside* an effect are disposed before each
+  re-run of the outer one, so nested work is always rebuilt fresh, never duplicated.
+- Components (later units) run inside a root that `mount` creates, which is why unmounting
+  stops everything they started.
+
+## What is special or tricky
+
+- **A store is a root.** When a module creates long-lived state with effects, wrap it in
+  `createRoot` and hand out its `dispose`. Tests and hot reload can then throw it away.
+- **Order of teardown:** owned children first, then the owner's own cleanups.
+- **`onCleanup` must run inside the owner.** Registering it later, from a callback, attaches
+  it to whatever owner is current at that moment (often none).
+- **Disposed means gone.** A disposed effect never runs again, even if its signals change.
+
+## What you will practise
+
+You will dispose a root with an effect and a cleanup, watch nested effects being replaced
+when their parent re-runs, and then connect a price feed whose subscription and alerts all
+stop with one `dispose`.
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "dxjs-u05-c1-ownership"
+title = "Who owns this effect?"
+points = 5
+difficulty = 5
+intro = '''
+The owner of an effect is simply the reactive scope that was running when the effect was
+created. That one rule builds a tree, and the tree decides what gets cleaned up and when.
+'''
+body = '''
+## A tree of scopes
+
+```ts
+createRoot((dispose) => {           // root
+  effect(() => {                    // ├─ outer effect
+    const r = room();
+    effect(() => listen(r));        // │  └─ inner effect (rebuilt on every outer run)
+  });
+  computed(() => expensive());      // └─ computed
+  return dispose;
+});
+```
+
+- Disposing the root disposes the outer effect (and so the inner one) and the computed.
+- When `room` changes, the outer effect first disposes its children, so the old inner
+  effect stops before the new one starts.
+
+## Cleanups
+
+Return a function from an effect or call `onCleanup(fn)` in any owner. Cleanups run when the
+owner re-runs (effects) or is disposed, after its children are gone.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dxjs-u05-d1-root"
+title = "Dispose a root"
+points = 10
+difficulty = 5
+placeholder_policy = "shown"
+run_command = "node --experimental-transform-types main.ts"
+intro = '''
+A root owns an effect and a cleanup. One call to its `dispose` stops the effect and runs the
+cleanup, and later writes reach nobody.
+'''
+prompt = '''
+Create a root with an effect that logs a signal and an `onCleanup`. Write the signal, dispose
+the root, and write it again.
+
+**Why:** `createRoot` plus `dispose` is the pattern every store and every mounted component
+uses for deterministic teardown.
+'''
+target = '''
+import { signal, effect, onCleanup, createRoot } from "@dxjs/core";
+
+const ticks = signal(0);
+
+const dispose = createRoot((dispose) => {
+  effect(() => {
+    console.log("tick", ticks());
+  });
+  onCleanup(() => console.log("root cleaned up"));
+  return dispose;
+});
+
+ticks.set(1);
+dispose();
+ticks.set(2);
+console.log("after dispose nothing is listening");
+'''
+line_comments = [
+  "Imports `onCleanup` and `createRoot` as well.",
+  "",
+  "A signal that lives outside the root.",
+  "",
+  "Creates a root; `fn` receives the root's own `dispose` and we hand it back out.",
+  "This effect is created inside the root, so the root owns it.",
+  "Prints `tick 0` now and on each change.",
+  "Closes the effect.",
+  "Registers a cleanup on the root itself.",
+  "Returns the disposer, which `createRoot` returns to us.",
+  "Closes the root.",
+  "",
+  "The owned effect runs: prints `tick 1`.",
+  "Disposes the root: first the effect, then the cleanup prints `root cleaned up`.",
+  "The effect is gone, so this write prints nothing.",
+  "Confirms the silence.",
+]
+explanation = '''
+The output was `tick 0`, `tick 1`, `root cleaned up` and the final line. One `dispose()`
+stopped the effect and ran the cleanup; the write of `2` found no listeners.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dxjs-u05-d2-nested"
+title = "Nested effects are rebuilt"
+points = 10
+difficulty = 5
+placeholder_policy = "shown"
+run_command = "node --experimental-transform-types main.ts"
+intro = '''
+An inner effect created by an outer one belongs to it. When the outer effect re-runs, the old
+inner effect is disposed before a new one is created, so there is never more than one.
+'''
+prompt = '''
+Join a room with an outer effect that creates an inner effect for the room's messages. Send a
+message, change the room, and send another.
+
+**Why:** this is how a component that depends on a route parameter rebuilds its subscriptions
+without leaking the old ones.
+'''
+target = '''
+import { signal, effect } from "@dxjs/core";
+
+const room = signal("lobby");
+const message = signal("hello");
+
+effect(() => {
+  const r = room();
+  console.log("joined", r);
+  effect(() => {
+    console.log(r + ":", message());
+  });
+});
+
+message.set("hi there");
+room.set("kitchen");
+message.set("dinner is ready");
+'''
+line_comments = [
+  "Imports the primitives.",
+  "",
+  "The current room.",
+  "The latest message.",
+  "",
+  "The outer effect depends on `room` only.",
+  "Reads the room (tracked) and keeps it in a constant.",
+  "Prints `joined lobby`.",
+  "Creates an inner effect; the outer effect owns it.",
+  "The inner effect depends on `message`; prints `lobby: hello`.",
+  "Closes the inner effect.",
+  "Closes the outer effect.",
+  "",
+  "Only the inner effect depends on `message`: prints `lobby: hi there`.",
+  "The outer effect re-runs: it disposes the old inner effect, prints `joined kitchen` and creates a new one, which prints `kitchen: hi there`.",
+  "Only the NEW inner effect is alive: prints `kitchen: dinner is ready`, once.",
+]
+explanation = '''
+The output was `joined lobby`, `lobby: hello`, `lobby: hi there`, `joined kitchen`,
+`kitchen: hi there` and `kitchen: dinner is ready`. The last message was printed once: the
+lobby's inner effect had been disposed with the outer effect's previous run.
+'''
+
+[[unit.step]]
+kind = "challenge"
+id = "dxjs-u05-x1-feed"
+title = "A price feed that tears down cleanly"
+points = 25
+difficulty = 5
+entry = "connectFeed"
+intro = '''
+A store with a subscription and an effect: prices arrive from outside, an alert rule watches
+them, and a single `dispose` must stop both. `createRoot` gives the store its owner, and
+`onCleanup` ties the subscription to it.
+'''
+instructions = '''
+## Your turn
+
+Implement `connectFeed`:
+
+```ts
+export interface Feed {
+  subscribe(onPrice: (price: number) => void): () => void;
+}
+
+export function connectFeed(
+  feed: Feed,
+  threshold: () => number,
+  onAlert: (price: number) => void,
+): {
+  latest: () => number | undefined;   // the last price, undefined before the first
+  history: () => number[];            // the last 5 prices, oldest first
+  dispose: () => void;
+}
+```
+
+- Create everything inside **`createRoot`** and return its `dispose`.
+- Subscribe to `feed` at once; each price is appended to the history (keep only the **last 5**,
+  as a new array each time). Register the unsubscribe with **`onCleanup`**.
+- Run an **effect** that calls `onAlert(price)` whenever the latest price is strictly above
+  `threshold()`. It re-checks when a new price arrives or when the threshold changes.
+- `latest()` and `history()` are reactive reads.
+- After `dispose()`: the feed has no subscriber left, and threshold changes trigger no alert.
+'''
+starter = '''
+import { signal, effect, onCleanup, createRoot } from "@dxjs/core";
+
+export interface Feed {
+  subscribe(onPrice: (price: number) => void): () => void;
+}
+
+// One root owns the subscription and the alert effect; one dispose stops both.
+export function connectFeed(feed: Feed, threshold: () => number, onAlert: (price: number) => void) {
+  throw new Error("not implemented");
+}
+'''
+tests = '''
+import { signal as signalForTest, computed as computedForTest } from "@dxjs/core";
+
+function fakeFeed() {
+  const listeners = new Set<(price: number) => void>();
+  return {
+    subscribe(fn: (price: number) => void) {
+      listeners.add(fn);
+      return () => {
+        listeners.delete(fn);
+      };
+    },
+    emit(price: number) {
+      for (const fn of [...listeners]) fn(price);
+    },
+    count: () => listeners.size,
+  };
+}
+
+dxt.test("starts empty and subscribed", () => {
+  const feed = fakeFeed();
+  const c = connectFeed(feed, () => 1000, () => {});
+  dxt.equal([c.latest(), c.history(), feed.count()], [undefined, [], 1]);
+});
+
+dxt.test("keeps the latest price and the last five", () => {
+  const feed = fakeFeed();
+  const c = connectFeed(feed, () => 1000, () => {});
+  for (const p of [1, 2, 3, 4, 5, 6, 7]) feed.emit(p);
+  dxt.equal(c.latest(), 7);
+  dxt.equal(c.history(), [3, 4, 5, 6, 7]);
+});
+
+dxt.test("latest and history are reactive", () => {
+  const feed = fakeFeed();
+  const c = connectFeed(feed, () => 1000, () => {});
+  const label = computedForTest(() => c.latest() + " of " + c.history().length);
+  dxt.equal(label(), "undefined of 0");
+  feed.emit(42);
+  dxt.equal(label(), "42 of 1");
+});
+
+dxt.test("alerts when the price is above the threshold", () => {
+  const feed = fakeFeed();
+  const limit = signalForTest(100);
+  const alerts: number[] = [];
+  connectFeed(feed, limit, (p) => alerts.push(p));
+  feed.emit(90);
+  feed.emit(120);
+  dxt.equal(alerts, [120]);
+  limit.set(130);
+  dxt.equal(alerts, [120]);
+  limit.set(110);
+  dxt.equal(alerts, [120, 120]);
+  feed.emit(100);
+  dxt.equal(alerts, [120, 120]);
+});
+
+dxt.test("dispose unsubscribes and stops the alerts", () => {
+  const feed = fakeFeed();
+  const limit = signalForTest(100);
+  const alerts: number[] = [];
+  const c = connectFeed(feed, limit, (p) => alerts.push(p));
+  feed.emit(150);
+  c.dispose();
+  dxt.equal(feed.count(), 0);
+  limit.set(10);
+  feed.emit(500);
+  dxt.equal(alerts, [150]);
+  dxt.equal(c.latest(), 150);
+});
+'''
+
+[unit.step.gabarito]
+solution = '''
+import { signal, effect, onCleanup, createRoot } from "@dxjs/core";
+
+export interface Feed {
+  subscribe(onPrice: (price: number) => void): () => void;
+}
+
+// One root owns the subscription and the alert effect; one dispose stops both.
+export function connectFeed(feed: Feed, threshold: () => number, onAlert: (price: number) => void) {
+  return createRoot((dispose) => {
+    const history = signal<number[]>([]);
+    const latest = (): number | undefined => {
+      const h = history();
+      return h.length ? h[h.length - 1] : undefined;
+    };
+    onCleanup(feed.subscribe((price) => history.update((h) => [...h, price].slice(-5))));
+    effect(() => {
+      const price = latest();
+      if (price !== undefined && price > threshold()) onAlert(price);
+    });
+    return { latest, history: () => history(), dispose };
+  });
+}
+'''
+time = "O(1)"
+space = "O(1)"
+justification = '''
+Each price copies a history of at most five numbers and runs the alert check once: **O(1)**
+time and **O(1)** space per price, whatever the length of the feed. The root is what makes
+teardown a single call: the subscription's unsubscribe is a cleanup of the root and the alert
+effect is owned by it, so `dispose()` releases both, in order, and nothing keeps running for a
+store nobody uses.
+'''
+
+[[unit]]
+id = "dxjs-u06-context-errors"
+title = "Context and error boundaries"
+level = "intermediate"
+difficulty = 6
+intro = '''
+Two owner-tree features for real apps: context passes shared things (a locale, an API client)
+down without threading them through every call, and `onError` contains failures so one broken
+effect does not take the rest with it.
+'''
+concepts = '''
+## The idea
+
+Some values are needed everywhere: the current locale, the API client, the theme. Passing them
+as arguments through every function ("prop drilling") is tedious and brittle. And in a big
+app, something will throw: a malformed response, a bug in one widget. Without a boundary, an
+exception in one effect surfaces at whatever write triggered it.
+
+## How dxjs does it: context
+
+```ts
+import { createContext, provide, inject } from "@dxjs/core";
+
+const Locale = createContext("en");          // a key with a default value
+
+provide(Locale, "pt-AO", () => {
+  inject(Locale);                            // "pt-AO" while this function runs
+});
+inject(Locale);                              // "en" (the default)
+```
+
+- `createContext(defaultValue)` makes a context; `inject(ctx)` returns the innermost
+  provided value, or the default.
+- `provide(ctx, value, fn)` makes `value` visible **while `fn` runs synchronously**, then
+  restores the previous value. Provides nest.
+- dxjs components run once, during construction, so the idiom is: `inject` at the top of a
+  component and close over the result. A callback that runs *later* is outside `provide`.
+
+## How dxjs does it: error boundaries
+
+```ts
+createRoot(() => {
+  onError((e) => status.set("failed: " + String(e)));   // register FIRST
+  effect(() => {
+    if (bad()) throw new Error("boom");
+  });
+});
+```
+
+- `onError(handler)` registers a handler on the current owner.
+- When an effect or computed throws, dxjs walks **up the owner tree** to the nearest owner with
+  a handler and calls it (untracked). The write that triggered the effect does not throw.
+- With no handler anywhere, the error is rethrown to the caller, after every other queued
+  effect has still run.
+- A handled throw disposes whatever the failed run had created, so nothing half-built lingers.
+
+## What is special or tricky
+
+- **Register the boundary before the work** it should guard.
+- **The handler is notified, it does not render.** The idiom is to record the error in a
+  signal and let the display read that signal.
+- **A throw during the very first run** of an effect is caught too, if the boundary is in place.
+- **Context is not reactive.** To share changing state, provide a signal and read it.
+
+## What you will practise
+
+You will greet in the provided locale with nested `provide`s, contain a parse error with a
+boundary, and then write `guard`, a reusable boundary that records the last error.
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "dxjs-u06-c1-scope"
+title = "Resolved by construction, caught by ownership"
+points = 5
+difficulty = 6
+intro = '''
+Context and error boundaries both lean on structure: context on the call stack during
+construction, boundaries on the owner tree. Knowing which structure each uses tells you where
+they work.
+'''
+body = '''
+## Context follows the call
+
+`provide` pushes a value, runs your function, and pops it. Whatever `inject` runs inside that
+call sees the value; anything that runs later (an event handler, a timer) does not. So read the
+context at construction time and keep the result:
+
+```ts
+function makeGreeter() {
+  const locale = inject(Locale);                 // read once, now
+  return (name: string) => locale + ": " + name; // the closure keeps it
+}
+```
+
+## Errors follow the owners
+
+An error in an effect looks for a handler on the effect, then its owner, then that owner's
+owner, up to the root. The first handler found wins; siblings keep working.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dxjs-u06-d1-context"
+title = "Provide and inject a locale"
+points = 10
+difficulty = 6
+placeholder_policy = "shown"
+run_command = "node --experimental-transform-types main.ts"
+intro = '''
+A greeting function asks the context for the locale. Nested `provide` calls show that the
+innermost value wins, and that the previous value comes back when a `provide` ends.
+'''
+prompt = '''
+Create a `Locale` context, greet outside any provide, inside a `pt-AO` provide, inside a nested
+`en` provide, and after each one ends.
+
+**Why:** context is dependency injection by construction scope; seeing values come and go with
+the calls is the whole model.
+'''
+target = '''
+import { createContext, provide, inject } from "@dxjs/core";
+
+const Locale = createContext("en");
+
+function greet(name: string): string {
+  const locale = inject(Locale);
+  return locale === "pt-AO" ? "Olá, " + name : "Hello, " + name;
+}
+
+console.log(greet("Ana"));
+provide(Locale, "pt-AO", () => {
+  console.log(greet("Ana"));
+  provide(Locale, "en", () => console.log(greet("Ana")));
+  console.log(greet("Ana"));
+});
+console.log(greet("Ana"));
+'''
+line_comments = [
+  "Imports the three context functions.",
+  "",
+  "A context whose default value is `\"en\"`.",
+  "",
+  "A function that depends on the locale without taking it as an argument.",
+  "`inject` returns the innermost provided value, or the default.",
+  "Chooses the greeting for the current locale.",
+  "Closes the function.",
+  "",
+  "Nothing is provided yet, so the default applies: prints `Hello, Ana`.",
+  "Provides `pt-AO` while the function runs.",
+  "Inside: prints `Olá, Ana`.",
+  "A nested provide overrides it: prints `Hello, Ana`.",
+  "The nested value is gone again: prints `Olá, Ana`.",
+  "Closes the outer provide; the previous value is restored.",
+  "Back to the default: prints `Hello, Ana`.",
+]
+explanation = '''
+The output alternated `Hello, Ana` and `Olá, Ana` exactly as the calls nested: each `provide`
+set a value for the duration of its function and restored the previous one on the way out.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dxjs-u06-d2-boundary"
+title = "Contain an error"
+points = 10
+difficulty = 6
+placeholder_policy = "shown"
+run_command = "node --experimental-transform-types main.ts"
+intro = '''
+An effect parses a number and throws on bad input. A boundary registered on the root catches
+the throw and records it in a signal, so the write that caused it completes normally.
+'''
+prompt = '''
+Inside a root, register an `onError` boundary and an effect that throws on input that is not a
+number. Feed it a bad value, then a good one, printing the status after each.
+
+**Why:** a boundary turns an exception into state the app can show, and keeps the rest of the
+app running.
+'''
+target = '''
+import { signal, effect, onError, createRoot } from "@dxjs/core";
+
+const input = signal("42");
+const status = signal("ok");
+
+createRoot(() => {
+  onError((e) => status.set("error: " + (e as Error).message));
+  effect(() => {
+    const n = Number(input());
+    if (Number.isNaN(n)) throw new Error("not a number: " + input());
+    status.set("ok");
+    console.log("parsed", n);
+  });
+});
+
+input.set("x7");
+console.log(status());
+input.set("7");
+console.log(status());
+'''
+line_comments = [
+  "Imports `onError` with the other primitives.",
+  "",
+  "The raw text to parse.",
+  "The status the app would display.",
+  "",
+  "A root, so the boundary and the effect have an owner.",
+  "The boundary, registered first: errors from below are recorded in `status`.",
+  "The effect that does the risky work.",
+  "Reads and converts the input (`input` becomes a dependency).",
+  "Throws on text that is not a number.",
+  "On success, clears any previous error.",
+  "Prints `parsed 42` on the first run.",
+  "Closes the effect.",
+  "Closes the root.",
+  "",
+  "The effect throws; the boundary catches it and this write completes normally.",
+  "Prints `error: not a number: x7`.",
+  "The effect runs again (it still depends on `input`): prints `parsed 7`.",
+  "The status was reset: prints `ok`.",
+]
+explanation = '''
+The output was `parsed 42`, `error: not a number: x7`, `parsed 7` and `ok`. The throw never
+escaped `input.set("x7")`: the boundary turned it into state, and the effect kept working for
+the next value.
+'''
+
+[[unit.step]]
+kind = "challenge"
+id = "dxjs-u06-x1-guard"
+title = "A reusable error boundary"
+points = 25
+difficulty = 6
+entry = "guard"
+intro = '''
+Wrapping work in a root with a boundary, and exposing the error as a reactive value, is a
+pattern worth naming. `guard` runs any reactive setup under a boundary and reports the last
+error it caught.
+'''
+instructions = '''
+## Your turn
+
+Implement `guard`:
+
+```ts
+export function guard(run: () => void): {
+  error: () => string | null;   // the last error's message, or null
+  dispose: () => void;
+}
+```
+
+- Create a **root**, register an **`onError`** handler in it, then call `run()` inside the root,
+  so every effect and computed `run` creates is owned by it.
+- When something under the root throws, `error()` becomes the message: `e.message` for an
+  `Error`, `String(e)` for anything else. Until then it is `null`. It is a reactive read.
+- A throw must not escape the write that triggered it, and the other effects keep working.
+- `dispose()` disposes the root: nothing created by `run` runs afterwards.
+'''
+starter = '''
+import { signal, onError, createRoot } from "@dxjs/core";
+
+// Run reactive setup under an error boundary and report the last error.
+export function guard(run: () => void) {
+  throw new Error("not implemented");
+}
+'''
+tests = '''
+import {
+  signal as signalForTest,
+  effect as effectForTest,
+  computed as computedForTest,
+} from "@dxjs/core";
+
+dxt.test("no error means null", () => {
+  const g = guard(() => {});
+  dxt.equal(g.error(), null);
+});
+
+dxt.test("catches an effect that throws later", () => {
+  const n = signalForTest(1);
+  const g = guard(() => {
+    effectForTest(() => {
+      if (n() < 0) throw new Error("negative: " + n());
+    });
+  });
+  n.set(-3);
+  dxt.equal(g.error(), "negative: -3");
+});
+
+dxt.test("catches a throw on the first run", () => {
+  const g = guard(() => {
+    effectForTest(() => {
+      throw new Error("broken from the start");
+    });
+  });
+  dxt.equal(g.error(), "broken from the start");
+});
+
+dxt.test("non-Error values are turned into strings", () => {
+  const n = signalForTest(0);
+  const g = guard(() => {
+    effectForTest(() => {
+      if (n() === 1) throw "plain text";
+    });
+  });
+  n.set(1);
+  dxt.equal(g.error(), "plain text");
+});
+
+dxt.test("a computed that throws is caught through the effect reading it", () => {
+  const n = signalForTest(2);
+  const g = guard(() => {
+    const inverse = computedForTest(() => {
+      if (n() === 0) throw new Error("division by zero");
+      return 1 / n();
+    });
+    effectForTest(() => {
+      inverse();
+    });
+  });
+  n.set(0);
+  dxt.equal(g.error(), "division by zero");
+});
+
+dxt.test("error is reactive and siblings keep working", () => {
+  const n = signalForTest(1);
+  const seen: number[] = [];
+  const g = guard(() => {
+    effectForTest(() => {
+      if (n() === 2) throw new Error("two");
+    });
+    effectForTest(() => {
+      seen.push(n());
+    });
+  });
+  const shown = computedForTest(() => g.error() ?? "fine");
+  dxt.equal(shown(), "fine");
+  n.set(2);
+  dxt.equal(shown(), "two");
+  n.set(3);
+  dxt.equal(seen, [1, 2, 3]);
+});
+
+dxt.test("dispose stops everything run created", () => {
+  const n = signalForTest(0);
+  const seen: number[] = [];
+  const g = guard(() => {
+    effectForTest(() => {
+      seen.push(n());
+    });
+  });
+  g.dispose();
+  n.set(1);
+  dxt.equal(seen, [0]);
+});
+'''
+
+[unit.step.gabarito]
+solution = '''
+import { signal, onError, createRoot } from "@dxjs/core";
+
+// Run reactive setup under an error boundary and report the last error.
+export function guard(run: () => void) {
+  return createRoot((dispose) => {
+    const error = signal<string | null>(null);
+    onError((e) => error.set(e instanceof Error ? e.message : String(e)));
+    run();
+    return { error: () => error(), dispose };
+  });
+}
+'''
+time = "O(1)"
+space = "O(1)"
+justification = '''
+`guard` adds one root, one handler and one signal: **O(1)** time and space on top of whatever
+`run` builds. Correctness comes from the order: the handler is registered on the root *before*
+`run()`, so every effect created by `run` has the root as its owner and its errors walk up to
+that handler. The write that triggered a failing effect returns normally, the error becomes
+state, and `dispose()` tears the whole subtree down at once.
+'''
+
+[[unit]]
+id = "dxjs-u07-store"
+title = "A store in modules"
+level = "intermediate"
+difficulty = 7
+intro = '''
+Put the pieces together into the shape real dxjs apps use: plain functions for the rules, a
+store module that owns the signals and derives everything else, and types shared by both.
+'''
+concepts = '''
+## The idea
+
+A UI that grows needs a home for its state that is not a component. A **store** is a module
+that owns some signals, derives what can be derived, and offers a small set of operations to
+change them. Everything else (the view, other stores, tests) uses those operations and reads
+the derived values. The rules themselves (which todos a filter shows, how many are left) are
+**plain functions** with no reactivity at all, easy to test on their own.
+
+## How dxjs does it
+
+```ts
+// src/filters.ts: pure rules
+export function remaining(todos: Todo[]): number {
+  return todos.filter((t) => !t.done).length;
+}
+
+// src/store.ts: state + derivations + operations
+import { signal, computed, createRoot } from "@dxjs/core";
+import { remaining } from "./filters.ts";
+
+export function createTodoStore(initial: Todo[] = []) {
+  return createRoot((dispose) => {
+    const todos = signal(initial);
+    const left = computed(() => remaining(todos()));
+    return {
+      todos: () => todos(),
+      remaining: left,
+      add(text: string) { /* … todos.update(…) … */ },
+      dispose,
+    };
+  });
+}
+```
+
+- **One signal per independent piece of state** (the list, the current filter). Everything
+  derivable is a `computed` that calls a pure function.
+- **Reads out, writes in:** expose accessors and computeds, keep `.set`/`.update` private.
+- **A root per store**, with its `dispose` returned, so the store can be thrown away cleanly.
+- **Types in their own module**, imported with `import type`, which Node strips entirely.
+
+## Modules in Node
+
+In this course Node runs your `.ts` files directly, as ES modules, so imports between your
+files spell the extension: `import { visible } from "./filters.ts"`. A type-only import must
+say `import type { Todo } from "./types.ts"`, because the file exports no runtime value.
+
+## What is special or tricky
+
+- **A computed returns the same object until its inputs change.** `store.visible()` called
+  twice gives the *same* array, which lets views skip work. A plain function would build a
+  new array on every call.
+- **Ids are state too.** Keep a counter in the store; derive the first id from the initial data
+  so new items never collide with existing ones.
+- **Validate at the edge.** `add("   ")` should not create an empty todo: trim and refuse.
+
+## What you will practise
+
+You will build a small store with a root and a computed, then write a todo store across three
+files: pure filters, the store itself, and shared types (read-only).
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "dxjs-u07-c1-store"
+title = "Rules, state and operations"
+points = 5
+difficulty = 7
+intro = '''
+A store separates three things that are easy to mix up: the rules (pure functions), the state
+(signals) and the ways to change it (operations). Keeping them apart is what makes each one
+small and testable.
+'''
+body = '''
+## Three layers
+
+| Layer | Lives in | Example |
+|---|---|---|
+| Rules | plain functions | `visible(todos, filter)` |
+| State | signals inside the store | `todos`, `filter` |
+| Derived | computeds over the rules | `shown = computed(() => visible(todos(), filter()))` |
+| Operations | methods of the store | `add`, `toggle`, `remove`, `setFilter` |
+
+The view never computes anything itself: it reads `store.visible()` and `store.remaining()`,
+and calls `store.toggle(id)` when the user clicks. Swapping the view, or testing the store
+without any view, needs no change to the store.
+
+## One owner
+
+`createRoot` gives the store an owner. Today the store only has computeds; tomorrow it might
+persist to storage with an effect. Either way, `store.dispose()` stops it.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dxjs-u07-d1-basket"
+title = "A small store with a root"
+points = 10
+difficulty = 7
+placeholder_policy = "shown"
+run_command = "node --experimental-transform-types main.ts"
+intro = '''
+A basket store: a signal with the items, a computed with the number of units, two operations
+and a `dispose`, all created inside one root.
+'''
+prompt = '''
+Write `createBasket` with a root, a signal, a computed and two operations. Use it, then dispose
+it.
+
+**Why:** this is the skeleton of every store you will write; the challenge adds filters, ids
+and more operations to it.
+'''
+target = '''
+import { signal, computed, batch, createRoot } from "@dxjs/core";
+
+type Item = { name: string; qty: number };
+
+function createBasket() {
+  return createRoot((dispose) => {
+    const items = signal<Item[]>([]);
+    const units = computed(() => items().reduce((sum, i) => sum + i.qty, 0));
+    const add = (name: string, qty: number) => items.update((xs) => [...xs, { name, qty }]);
+    const clear = () => batch(() => items.set([]));
+    return { items, units, add, clear, dispose };
+  });
+}
+
+const basket = createBasket();
+basket.add("tea", 2);
+basket.add("bread", 1);
+console.log("units:", basket.units());
+basket.clear();
+console.log("units after clear:", basket.units());
+basket.dispose();
+'''
+line_comments = [
+  "Imports the four primitives the store uses.",
+  "",
+  "The shape of one item (a type only).",
+  "",
+  "A factory: each call creates an independent basket.",
+  "Everything is created inside a root, which the store owns.",
+  "The only real state: the list of items.",
+  "Derived state: the total number of units.",
+  "An operation that adds an item immutably.",
+  "An operation that empties the basket (a batch is where several related writes would go).",
+  "Hands out the reads, the operations and the root's `dispose`.",
+  "Closes the root.",
+  "Closes the factory.",
+  "",
+  "Creates a basket.",
+  "Adds two units of tea.",
+  "Adds one bread.",
+  "Prints `units: 3`.",
+  "Empties it.",
+  "Prints `units after clear: 0`.",
+  "Disposes the store's root.",
+]
+explanation = '''
+The output was `units: 3` and `units after clear: 0`. The view-free store did all the work:
+state in a signal, a computed for the derived count, operations to change it, and one
+`dispose` to end it.
+'''
+
+[[unit.step]]
+kind = "challenge"
+id = "dxjs-u07-p1-todo-store"
+title = "A todo store across three files"
+points = 40
+difficulty = 7
+entry = "createTodoStore"
+intro = '''
+Your first project step: three files, two of them yours. The filters are pure functions; the
+store owns the signals, derives the visible list and the count with computeds, and offers the
+operations a todo app needs.
+'''
+instructions = '''
+## Your turn
+
+`src/types.ts` (read-only) defines `Todo` and `Filter`. Write two files.
+
+**`src/filters.ts`**, pure functions, no signals:
+
+- `visible(todos, filter)` returns the todos the filter shows: all of them for `"all"`, the
+  not-done ones for `"active"`, the done ones for `"done"`. It never changes its input.
+- `remaining(todos)` returns how many todos are not done.
+
+**`src/store.ts`**: `createTodoStore(initial: Todo[] = [])`, created inside a **`createRoot`**,
+returning:
+
+| Member | Meaning |
+|---|---|
+| `todos()` | the current list |
+| `filter()` | the current filter, `"all"` at first |
+| `visible()` | a **computed**: `visible(todos(), filter())` |
+| `remaining()` | a **computed**: `remaining(todos())` |
+| `add(text)` | trims `text`; if empty, returns `null` and changes nothing; otherwise appends `{ id, text, done: false }` and returns it. Ids start at 1, or at the largest id in `initial` plus 1, and always increase |
+| `toggle(id)` | flips `done` of that todo (a new object, in a new array) |
+| `remove(id)` | removes that todo |
+| `clearDone()` | removes every done todo |
+| `setFilter(f)` | changes the filter |
+| `dispose()` | disposes the store's root |
+
+Hidden `node:test` files test both modules.
+'''
+run_command = "node --experimental-transform-types --test"
+
+[unit.step.project]
+main = "src/store.ts"
+readonly = ["src/types.ts"]
+explanation = '''
+The rules stay pure and reusable (`visible`, `remaining`), the store holds exactly two signals
+(the list and the filter), and everything the view needs is a computed over the rules. Because
+`visible` is a computed, reading it twice returns the same array until something changes, and
+because every operation writes a new array, every change is seen. The id counter starts after
+the largest initial id, so ids never collide.
+'''
+
+[unit.step.project.starter]
+"src/types.ts" = '''
+export type Todo = { id: number; text: string; done: boolean };
+
+export type Filter = "all" | "active" | "done";
+'''
+"src/filters.ts" = '''
+import type { Filter, Todo } from "./types.ts";
+
+// The todos a filter shows: all of them, only the not-done ("active") or only the done ones.
+export function visible(todos: Todo[], filter: Filter): Todo[] {
+  throw new Error("not implemented");
+}
+
+// How many todos are not done yet.
+export function remaining(todos: Todo[]): number {
+  throw new Error("not implemented");
+}
+'''
+"src/store.ts" = '''
+import { signal, computed, createRoot } from "@dxjs/core";
+import type { Filter, Todo } from "./types.ts";
+import { visible, remaining } from "./filters.ts";
+
+// A store: two signals, two computeds over the pure rules, and the operations.
+export function createTodoStore(initial: Todo[] = []) {
+  throw new Error("not implemented");
+}
+'''
+
+[unit.step.project.tests]
+"filters.test.ts" = '''
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { visible, remaining } from "./src/filters.ts";
+
+const todos = [
+  { id: 1, text: "a", done: false },
+  { id: 2, text: "b", done: true },
+  { id: 3, text: "c", done: false },
+];
+
+test("all shows every todo", () => {
+  assert.deepEqual(visible(todos, "all").map((t) => t.id), [1, 2, 3]);
+});
+
+test("active shows the not-done todos", () => {
+  assert.deepEqual(visible(todos, "active").map((t) => t.id), [1, 3]);
+});
+
+test("done shows the done todos", () => {
+  assert.deepEqual(visible(todos, "done").map((t) => t.id), [2]);
+});
+
+test("visible never changes its input", () => {
+  const copy = structuredClone(todos);
+  visible(todos, "active");
+  visible(todos, "done");
+  assert.deepEqual(todos, copy);
+});
+
+test("remaining counts the not-done todos", () => {
+  assert.equal(remaining(todos), 2);
+  assert.equal(remaining([]), 0);
+});
+'''
+"store.test.ts" = '''
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { effect } from "@dxjs/core";
+import { createTodoStore } from "./src/store.ts";
+
+test("starts with the initial todos and the all filter", () => {
+  const s = createTodoStore([{ id: 7, text: "x", done: true }]);
+  assert.deepEqual(s.todos(), [{ id: 7, text: "x", done: true }]);
+  assert.equal(s.filter(), "all");
+  assert.equal(s.remaining(), 0);
+});
+
+test("add trims, appends and returns the todo", () => {
+  const s = createTodoStore();
+  const t = s.add("  buy milk  ");
+  assert.deepEqual(t, { id: 1, text: "buy milk", done: false });
+  assert.deepEqual(s.todos(), [{ id: 1, text: "buy milk", done: false }]);
+});
+
+test("add refuses empty text", () => {
+  const s = createTodoStore();
+  const before = s.todos();
+  assert.equal(s.add("   "), null);
+  assert.equal(s.todos(), before);
+});
+
+test("ids continue after the largest initial id and keep increasing", () => {
+  const s = createTodoStore([
+    { id: 4, text: "a", done: false },
+    { id: 9, text: "b", done: false },
+  ]);
+  assert.equal(s.add("c")!.id, 10);
+  s.remove(10);
+  assert.equal(s.add("d")!.id, 11);
+});
+
+test("toggle flips done with new objects in a new array", () => {
+  const s = createTodoStore([{ id: 1, text: "a", done: false }]);
+  const before = s.todos();
+  s.toggle(1);
+  assert.equal(s.todos()[0].done, true);
+  assert.equal(before[0].done, false);
+  assert.notEqual(s.todos(), before);
+  s.toggle(1);
+  assert.equal(s.todos()[0].done, false);
+});
+
+test("remove and clearDone", () => {
+  const s = createTodoStore([
+    { id: 1, text: "a", done: true },
+    { id: 2, text: "b", done: false },
+    { id: 3, text: "c", done: true },
+  ]);
+  s.remove(2);
+  assert.deepEqual(s.todos().map((t) => t.id), [1, 3]);
+  s.add("d");
+  s.clearDone();
+  assert.deepEqual(s.todos().map((t) => t.text), ["d"]);
+});
+
+test("the filter drives visible", () => {
+  const s = createTodoStore([
+    { id: 1, text: "a", done: true },
+    { id: 2, text: "b", done: false },
+  ]);
+  s.setFilter("active");
+  assert.equal(s.filter(), "active");
+  assert.deepEqual(s.visible().map((t) => t.id), [2]);
+  s.setFilter("done");
+  assert.deepEqual(s.visible().map((t) => t.id), [1]);
+});
+
+test("visible is a computed: the same array until something changes", () => {
+  const s = createTodoStore([{ id: 1, text: "a", done: false }]);
+  s.setFilter("active");
+  const first = s.visible();
+  assert.equal(s.visible(), first);
+  s.add("b");
+  assert.notEqual(s.visible(), first);
+});
+
+test("remaining is reactive", () => {
+  const s = createTodoStore();
+  const seen: number[] = [];
+  const stop = effect(() => {
+    seen.push(s.remaining());
+  });
+  s.add("a");
+  s.add("b");
+  s.toggle(1);
+  stop();
+  assert.deepEqual(seen, [0, 1, 2, 1]);
+});
+
+test("dispose is the root's disposer", () => {
+  const s = createTodoStore();
+  assert.equal(typeof s.dispose, "function");
+  s.dispose();
+});
+'''
+
+[unit.step.project.solution]
+"src/filters.ts" = '''
+import type { Filter, Todo } from "./types.ts";
+
+// The todos a filter shows: all of them, only the not-done ("active") or only the done ones.
+export function visible(todos: Todo[], filter: Filter): Todo[] {
+  if (filter === "active") return todos.filter((t) => !t.done);
+  if (filter === "done") return todos.filter((t) => t.done);
+  return todos;
+}
+
+// How many todos are not done yet.
+export function remaining(todos: Todo[]): number {
+  return todos.filter((t) => !t.done).length;
+}
+'''
+"src/store.ts" = '''
+import { signal, computed, createRoot } from "@dxjs/core";
+import type { Filter, Todo } from "./types.ts";
+import { visible, remaining } from "./filters.ts";
+
+// A store: two signals, two computeds over the pure rules, and the operations.
+export function createTodoStore(initial: Todo[] = []) {
+  return createRoot((dispose) => {
+    const todos = signal<Todo[]>(initial);
+    const filter = signal<Filter>("all");
+    let nextId = initial.reduce((max, t) => Math.max(max, t.id), 0) + 1;
+    return {
+      todos: () => todos(),
+      filter: () => filter(),
+      visible: computed(() => visible(todos(), filter())),
+      remaining: computed(() => remaining(todos())),
+      add(text: string): Todo | null {
+        const clean = text.trim();
+        if (!clean) return null;
+        const todo = { id: nextId++, text: clean, done: false };
+        todos.update((ts) => [...ts, todo]);
+        return todo;
+      },
+      toggle(id: number) {
+        todos.update((ts) => ts.map((t) => (t.id === id ? { ...t, done: !t.done } : t)));
+      },
+      remove(id: number) {
+        todos.update((ts) => ts.filter((t) => t.id !== id));
+      },
+      clearDone() {
+        todos.update((ts) => ts.filter((t) => !t.done));
+      },
+      setFilter(f: Filter) {
+        filter.set(f);
+      },
+      dispose,
+    };
+  });
+}
+'''
+
+[[unit]]
+id = "dxjs-u08-query"
+title = "Cached queries with @dxjs/query"
+level = "intermediate"
+difficulty = 8
+intro = '''
+Server data as signals: `@dxjs/query` caches each request by key, shares one request between
+readers, serves cached data while it refreshes, and refetches what you invalidate.
+'''
+concepts = '''
+## The idea
+
+Data from a server is not like local state. Several parts of the screen want the same user at
+once; it may already be cached; it can go stale; after a change you must refresh it. Writing
+that by hand in every component leads to duplicated requests and inconsistent screens.
+`@dxjs/query` (the dxjs answer to react-query) puts it in one place: a **query client** that
+caches results by **key**.
+
+## How dxjs does it
+
+```ts
+import { createQueryClient, query } from "@dxjs/query";
+
+const client = createQueryClient();
+
+// inside a component (or any owner):
+const todos = query(client, ["todos"], () => api.get("/todos"), { staleTime: 5000 });
+todos.data();        // the value, reactive (undefined until the first load)
+todos.isLoading();   // true until the first load finishes
+todos.isFetching();  // true while any request for this key is in flight
+todos.error();       // the last error, or undefined
+todos.refetch();     // force a new request now
+
+client.invalidate(["todos"]);          // mark stale and refetch live ones (prefix match)
+client.setData(["todos"], optimistic);  // write the cache directly; readers update
+client.getData(["todos"]);              // read the cache without subscribing
+```
+
+- **Keys** are strings or arrays: `["users", 1]`. Object keys are serialised in a stable order.
+- **Dedupe:** concurrent queries for one key share a single in-flight request.
+- **Stale-while-revalidate:** cached data is shown at once while a background refetch runs.
+  `staleTime` (ms, default `0`) says how long data counts as fresh; a new reader of fresh data
+  does not trigger a request.
+- **Invalidate by prefix:** `invalidate(["users"])` matches `["users", 1]`, `["users", 2]`…
+  but `invalidate(["users", 1])` does not match `["users", 10]`.
+- A query is an **observer** of its key. Created inside an owner, it is released when the
+  owner is disposed, and `invalidate` refetches only keys that still have observers.
+
+## What is special or tricky
+
+- **The fetcher is any `() => Promise<T>`:** `fetch`, a dxjs transport client, or a fake in tests.
+- **Optimistic updates** write the expected result with `setData` before the server answers,
+  then `invalidate` to get the truth. If the request fails, put the previous data back.
+- **Results arrive asynchronously.** Right after `query(...)` the data is `undefined`; it
+  appears once the promise settles.
+- **Errors do not throw at you:** a failed fetch sets `error()` and keeps the old data.
+
+## What you will practise
+
+You will watch two readers share one request, update a cache optimistically and then
+invalidate it, and build a user directory with optimistic renames that roll back on failure.
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "dxjs-u08-c1-cache"
+title = "A cache keyed by what you asked for"
+points = 5
+difficulty = 8
+intro = '''
+A query client is a map from keys to entries, and each entry is made of signals: data, error and
+fetching. Reading a query is reading those signals, which is why server data updates the UI the
+same way local state does.
+'''
+body = '''
+## One entry per key
+
+```ts
+const a = query(client, ["user", 1], () => fetchUser(1));
+const b = query(client, ["user", 1], () => fetchUser(1));
+```
+
+`a` and `b` observe the **same** entry: one request, one cached value, both update together.
+A third query for `["user", 2]` is another entry.
+
+## Fresh or stale
+
+An entry remembers when it last loaded. Within `staleTime` it is fresh: a new reader just
+gets the cache. After that, a new reader gets the cached value immediately *and* triggers a
+background refetch. `invalidate` makes entries stale at once.
+
+## The optimistic write
+
+```ts
+const before = client.getData<User>(["user", 1]);
+client.setData(["user", 1], { ...before, name: "Ana" });   // the UI shows it now
+await api.rename(1, "Ana");                                  // the server catches up
+await client.invalidate(["user", 1]);                        // reload the truth
+```
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dxjs-u08-d1-dedupe"
+title = "Two readers, one request"
+points = 10
+difficulty = 8
+placeholder_policy = "shown"
+run_command = "node --experimental-transform-types main.ts"
+intro = '''
+Two queries for the same key are created together. The fetcher counts its calls, and a short
+wait lets the promise settle, so you can see the loading state, the data and the single
+request.
+'''
+prompt = '''
+Create a query client and two queries for `["todos"]` inside a root. Print the state before and
+after the request settles, and how many times the fetcher ran.
+
+**Why:** deduplication and the loading → data transition are what every screen built on queries
+relies on.
+'''
+target = '''
+import { createRoot } from "@dxjs/core";
+import { createQueryClient, query } from "@dxjs/query";
+
+const client = createQueryClient();
+let calls = 0;
+async function fetchTodos(): Promise<string[]> {
+  calls++;
+  return ["write a signal", "build a store"];
+}
+
+const [a, b] = createRoot(() => [
+  query(client, ["todos"], fetchTodos),
+  query(client, ["todos"], fetchTodos),
+]);
+
+console.log("loading:", a.isLoading(), "data:", a.data());
+await new Promise((resolve) => setTimeout(resolve, 0));
+console.log("loading:", a.isLoading(), "data:", a.data());
+console.log("same data:", b.data() === a.data(), "fetches:", calls);
+'''
+line_comments = [
+  "`createRoot` gives the queries an owner, as a component would.",
+  "`@dxjs/query` exports the client factory and `query`.",
+  "",
+  "One cache for the whole app.",
+  "Counts how many requests are made.",
+  "A fake fetcher: any function returning a promise will do.",
+  "Counts this call.",
+  "Resolves with two todos.",
+  "Closes the fetcher.",
+  "",
+  "Creates two queries inside a root and keeps both handles.",
+  "The first query starts a request for the key `[\"todos\"]`.",
+  "The second finds that request in flight and shares it.",
+  "Closes the root.",
+  "",
+  "Nothing has arrived yet: prints `loading: true data: undefined`.",
+  "Waits one turn of the event loop, after the promise has settled.",
+  "Prints `loading: false` and the two todos.",
+  "Both handles see the same array, and the fetcher ran once: `same data: true fetches: 1`.",
+]
+explanation = '''
+The output was `loading: true data: undefined`, then `loading: false` with the two todos, and
+`same data: true fetches: 1`. The second query joined the first one's request instead of
+starting another, and both read the same cached array.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dxjs-u08-d2-optimistic"
+title = "Write the cache, then invalidate"
+points = 10
+difficulty = 8
+placeholder_policy = "shown"
+run_command = "node --experimental-transform-types main.ts"
+intro = '''
+A user is loaded, overwritten optimistically with `setData`, and then reloaded with
+`invalidate`. A version counter in the fake server shows which answer you are looking at.
+'''
+prompt = '''
+Load user 1, replace it in the cache with `setData`, then invalidate the `["users"]` prefix and
+print the data after each step.
+
+**Why:** optimistic writes make the UI feel instant; invalidation brings back the server's
+truth.
+'''
+target = '''
+import { createRoot } from "@dxjs/core";
+import { createQueryClient, query } from "@dxjs/query";
+
+type User = { id: number; name: string; version: number };
+
+const client = createQueryClient();
+let version = 0;
+const fetchUser = async (id: number): Promise<User> => ({ id, name: "user " + id, version: ++version });
+
+const user = createRoot(() => query(client, ["users", 1], () => fetchUser(1)));
+await new Promise((resolve) => setTimeout(resolve, 0));
+console.log(user.data());
+
+client.setData(["users", 1], { id: 1, name: "Ana (optimistic)", version: 0 });
+console.log(user.data());
+
+await client.invalidate(["users"]);
+console.log(user.data());
+'''
+line_comments = [
+  "Imports `createRoot` for an owner.",
+  "Imports the query client and `query`.",
+  "",
+  "The shape of a user, with a version so you can tell the answers apart.",
+  "",
+  "The cache.",
+  "Each server answer gets the next version number.",
+  "A fake server call that returns a fresh user each time.",
+  "",
+  "Queries user 1 under the key `[\"users\", 1]`, owned by a root.",
+  "Waits for the first answer.",
+  "Prints `{ id: 1, name: 'user 1', version: 1 }`.",
+  "",
+  "Writes the cache directly, as an optimistic update would.",
+  "Readers see it at once: prints the optimistic user, version 0.",
+  "",
+  "Invalidates every key starting with `\"users\"`; the live query refetches and we await it.",
+  "Prints the server's answer again, now `version: 2`.",
+]
+explanation = '''
+The output showed version 1 from the server, the optimistic user with version 0, and, after
+`invalidate(["users"])`, version 2: the prefix matched `["users", 1]`, the query still had an
+observer, so it refetched.
+'''
+
+[[unit.step]]
+kind = "challenge"
+id = "dxjs-u08-x1-directory"
+title = "A user directory with optimistic renames"
+points = 30
+difficulty = 8
+entry = "createUserDirectory"
+intro = '''
+A small data layer on top of `@dxjs/query`: users are cached by id with a stale time, and a
+rename shows the new name immediately, rolls back if the server refuses, and refetches only the
+user that changed.
+'''
+instructions = '''
+## Your turn
+
+Implement `createUserDirectory(client, api)`:
+
+```ts
+export type User = { id: number; name: string };
+export interface UserApi {
+  get(id: number): Promise<User>;
+  rename(id: number, name: string): Promise<User>;
+}
+
+export function createUserDirectory(client: QueryClient, api: UserApi): {
+  user(id: number): Query<User>;
+  rename(id: number, name: string): Promise<void>;
+}
+```
+
+- `user(id)` returns `query(client, ["users", id], () => api.get(id), { staleTime: 30_000 })`.
+- `rename(id, name)`:
+  1. remember the cached user (`client.getData`) and, if there is one, write
+     `{ ...previous, name }` to the cache **before** calling the server (optimistic);
+  2. `await api.rename(id, name)`;
+  3. if it **fails**: put the previous user back (if there was one) and rethrow the error;
+  4. if it succeeds: `await client.invalidate(["users", id])`, so only that user reloads.
+
+`QueryClient` and `Query` are types: import them with `import type { … } from "@dxjs/query"`.
+'''
+starter = '''
+import { query } from "@dxjs/query";
+import type { Query, QueryClient } from "@dxjs/query";
+
+export type User = { id: number; name: string };
+
+export interface UserApi {
+  get(id: number): Promise<User>;
+  rename(id: number, name: string): Promise<User>;
+}
+
+// Users cached by id; renames are optimistic and roll back on failure.
+export function createUserDirectory(client: QueryClient, api: UserApi) {
+  throw new Error("not implemented");
+}
+'''
+tests = '''
+import { createRoot as createRootForTest } from "@dxjs/core";
+import { createQueryClient as createClientForTest } from "@dxjs/query";
+
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+function fakeApi() {
+  const db = new Map<number, string>([
+    [1, "Ana"],
+    [2, "Grace"],
+    [10, "Alan"],
+  ]);
+  const gets: number[] = [];
+  let failNext = false;
+  return {
+    gets,
+    db,
+    failOnce() {
+      failNext = true;
+    },
+    async get(id: number) {
+      gets.push(id);
+      return { id, name: db.get(id) ?? "?" };
+    },
+    async rename(id: number, name: string) {
+      if (failNext) {
+        failNext = false;
+        throw new Error("server refused");
+      }
+      db.set(id, name + " (saved)");
+      return { id, name: db.get(id)! };
+    },
+  };
+}
+
+dxt.test("user(id) loads through the api, keyed by id", async () => {
+  const api = fakeApi();
+  const dir = createUserDirectory(createClientForTest(), api);
+  const ana = createRootForTest(() => dir.user(1));
+  await settle();
+  dxt.equal(ana.data(), { id: 1, name: "Ana" });
+  dxt.equal(api.gets, [1]);
+});
+
+dxt.test("two readers of one user share one request", async () => {
+  const api = fakeApi();
+  const dir = createUserDirectory(createClientForTest(), api);
+  const [a, b] = createRootForTest(() => [dir.user(2), dir.user(2)]);
+  await settle();
+  dxt.equal(api.gets, [2]);
+  dxt.check(a.data() === b.data(), "both readers see the same cached user");
+});
+
+dxt.test("a user loaded less than 30 s ago is not fetched again", async () => {
+  const api = fakeApi();
+  const dir = createUserDirectory(createClientForTest(), api);
+  createRootForTest(() => dir.user(1));
+  await settle();
+  const again = createRootForTest(() => dir.user(1));
+  await settle();
+  dxt.equal(api.gets, [1]);
+  dxt.equal(again.data(), { id: 1, name: "Ana" });
+});
+
+dxt.test("rename shows the new name at once, then the server's answer", async () => {
+  const api = fakeApi();
+  const dir = createUserDirectory(createClientForTest(), api);
+  const ana = createRootForTest(() => dir.user(1));
+  await settle();
+  const done = dir.rename(1, "Ana Maria");
+  dxt.equal(ana.data(), { id: 1, name: "Ana Maria" });
+  await done;
+  dxt.equal(ana.data(), { id: 1, name: "Ana Maria (saved)" });
+  dxt.equal(api.gets, [1, 1]);
+});
+
+dxt.test("a failed rename restores the old name and rethrows", async () => {
+  const api = fakeApi();
+  const dir = createUserDirectory(createClientForTest(), api);
+  const ana = createRootForTest(() => dir.user(1));
+  await settle();
+  api.failOnce();
+  let error = "";
+  try {
+    await dir.rename(1, "Nope");
+  } catch (e) {
+    error = (e as Error).message;
+  }
+  dxt.equal(error, "server refused");
+  dxt.equal(ana.data(), { id: 1, name: "Ana" });
+  dxt.equal(api.gets, [1]);
+});
+
+dxt.test("rename refetches only that user", async () => {
+  const api = fakeApi();
+  const dir = createUserDirectory(createClientForTest(), api);
+  createRootForTest(() => [dir.user(1), dir.user(2), dir.user(10)]);
+  await settle();
+  await dir.rename(1, "Ana Maria");
+  dxt.equal(api.gets, [1, 2, 10, 1]);
+});
+
+dxt.test("renaming a user nobody loaded still calls the server", async () => {
+  const api = fakeApi();
+  const client = createClientForTest();
+  const dir = createUserDirectory(client, api);
+  await dir.rename(2, "Grace H.");
+  dxt.equal(api.db.get(2), "Grace H. (saved)");
+  dxt.equal(client.getData(["users", 2]), undefined);
+});
+'''
+
+[unit.step.gabarito]
+solution = '''
+import { query } from "@dxjs/query";
+import type { Query, QueryClient } from "@dxjs/query";
+
+export type User = { id: number; name: string };
+
+export interface UserApi {
+  get(id: number): Promise<User>;
+  rename(id: number, name: string): Promise<User>;
+}
+
+// Users cached by id; renames are optimistic and roll back on failure.
+export function createUserDirectory(client: QueryClient, api: UserApi) {
+  return {
+    user(id: number): Query<User> {
+      return query(client, ["users", id], () => api.get(id), { staleTime: 30_000 });
+    },
+    async rename(id: number, name: string): Promise<void> {
+      const previous = client.getData<User>(["users", id]);
+      if (previous) client.setData(["users", id], { ...previous, name });
+      try {
+        await api.rename(id, name);
+      } catch (e) {
+        if (previous) client.setData(["users", id], previous);
+        throw e;
+      }
+      await client.invalidate(["users", id]);
+    },
+  };
+}
+'''
+time = "O(n)"
+space = "O(1)"
+justification = '''
+`user(id)` is a cache lookup by key; `rename` does a constant number of cache operations plus
+one invalidation, which scans the client's `n` cache entries for the `["users", id]` prefix:
+**O(n)** time, **O(1)** extra space. The order of operations is the point: the optimistic write
+happens before the request so the UI updates instantly, the rollback restores the exact object
+that was cached, and the targeted invalidation reloads one user, because the prefix
+`["users", 1]` does not match `["users", 10]`.
+'''
+
+[[unit]]
+id = "dxjs-u09-forms"
+title = "Forms with @dxjs/forms"
+level = "intermediate"
+difficulty = 9
+intro = '''
+A form is state too: values, which fields were touched, what is wrong, whether it changed.
+`@dxjs/forms` keeps the values in a signal and derives errors, validity and dirtiness as
+computeds, with your validation rules as a plain function.
+'''
+concepts = '''
+## The idea
+
+Forms collect many small decisions: show an error only after the user left the field, enable
+"Save" only when the form is valid and changed, reset after saving. Spread across event
+handlers, these rules contradict each other. `@dxjs/forms` (the dxjs answer to
+react-hook-form) models the whole form as signals and computeds, so every rule is a derived
+value and the view only reads.
+
+## How dxjs does it
+
+```ts
+import { createForm } from "@dxjs/forms";
+
+const form = createForm({
+  initial: { email: "", password: "" },
+  validate: (v) => (v.email.includes("@") ? {} : { email: "Enter a valid email" }),
+});
+
+form.values();                 // { email: "", password: "" }  (reactive)
+form.setValue("email", "ana@dxjs.dev");
+form.errors();                 // {}            computed from validate(values)
+form.isValid();                // true          no errors
+form.dirty();                  // true          a value differs from the initial one
+form.touched("email")();       // false         until blur or a submit attempt
+form.error("email")();         // undefined     one field's message
+```
+
+- `validate(values)` is a **plain function** returning `{ field: message }` for the fields that
+  are wrong (an empty object when all is well). Bring your own, or adapt a zod schema with
+  `zodValidate(schema)` (duck-typed: any object with `safeParse` works).
+- `form.field(name)` returns `{ value, onInput, onBlur }` to bind an input: `onInput` reads
+  `event.target.value`, `onBlur` marks the field touched.
+- `form.handleSubmit(onValid)` returns a submit handler. It calls `event.preventDefault()`
+  when given an event, marks **every** field touched, and calls `onValid(values)` only if the
+  form is valid.
+- `form.reset()` restores the initial values and clears touched.
+
+## What is special or tricky
+
+- **Errors exist from the start**; showing them is a view decision. The usual rule is
+  `touched(name)() && error(name)()`.
+- **Keep validation pure and separate.** A `validateSignup(values)` function in its own module
+  is trivial to test and reusable on the server.
+- **Transform on the way out.** Normalise what you send (lowercase an email, drop a
+  confirmation field) inside `onValid`, not in the form's state.
+- **`touched(name)` and `error(name)` return accessors:** call them again to read.
+
+## What you will practise
+
+You will drive a login form through invalid, valid, submit and reset. Then, across two files,
+you will write signup validation rules and the form that uses them.
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "dxjs-u09-c1-form-state"
+title = "A form is values plus derived rules"
+points = 5
+difficulty = 9
+intro = '''
+Only the values (and which fields were touched) are stored. Errors, validity and dirtiness are
+computeds, so they can never disagree with the values on screen.
+'''
+body = '''
+## Stored vs derived
+
+| Stored (signals) | Derived (computeds) |
+|---|---|
+| `values` | `errors = validate(values)` |
+| touched fields | `isValid = no errors` |
+| | `dirty = some value differs from initial` |
+
+## Showing an error at the right time
+
+```ts
+const showEmailError = () => form.touched("email")() && form.error("email")();
+```
+
+Before the user leaves the field, nothing is shown; after a blur or a submit attempt, the
+current message is, and it disappears as soon as the value becomes valid, because both parts
+are reactive reads.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dxjs-u09-d1-login"
+title = "Drive a login form"
+points = 10
+difficulty = 9
+placeholder_policy = "shown"
+run_command = "node --experimental-transform-types main.ts"
+intro = '''
+A login form with two rules goes from invalid to valid through `field(...).onInput` and
+`setValue`, is submitted, and is reset. Each `console.log` shows the derived state at that
+moment.
+'''
+prompt = '''
+Create a login form with a validator, print its errors, fill it in, submit it and reset it.
+
+**Why:** these are the calls a form view makes; seeing their effect without a page makes the
+model clear.
+'''
+target = '''
+import { createForm } from "@dxjs/forms";
+
+type Login = { email: string; password: string };
+
+const form = createForm<Login>({
+  initial: { email: "", password: "" },
+  validate: (v) => {
+    const errors: Partial<Record<keyof Login, string>> = {};
+    if (!v.email.includes("@")) errors.email = "Enter a valid email";
+    if (v.password.length < 8) errors.password = "At least 8 characters";
+    return errors;
+  },
+});
+
+console.log("valid:", form.isValid(), form.errors());
+form.field("email").onInput({ target: { value: "ana@dxjs.dev" } });
+form.setValue("password", "correct horse");
+console.log("valid:", form.isValid(), "dirty:", form.dirty());
+
+const submit = form.handleSubmit((values) => console.log("saved", values.email));
+submit();
+form.reset();
+console.log("after reset:", form.values(), "dirty:", form.dirty());
+'''
+line_comments = [
+  "`@dxjs/forms` exports `createForm`.",
+  "",
+  "The form's values, as a type.",
+  "",
+  "Creates the form with its initial values and a validator.",
+  "Both fields start empty.",
+  "The validator: a plain function from values to messages.",
+  "Starts with no errors.",
+  "Adds a message when the email has no `@`.",
+  "Adds a message when the password is too short.",
+  "Returns the messages (an empty object means valid).",
+  "Closes the validator.",
+  "Closes the options.",
+  "",
+  "Errors are computed from the start: prints `valid: false` and both messages.",
+  "What an `<input @input=…>` would do: sets `email` from `event.target.value`.",
+  "Sets a value directly.",
+  "Now both rules pass and the values differ from the initial ones: `valid: true dirty: true`.",
+  "",
+  "Builds a submit handler; `onValid` receives the values.",
+  "Submitting a valid form calls it: prints `saved ana@dxjs.dev`.",
+  "Restores the initial values and clears touched.",
+  "Prints the empty values and `dirty: false`.",
+]
+explanation = '''
+The output was `valid: false` with both messages, then `valid: true dirty: true`,
+`saved ana@dxjs.dev`, and the empty values with `dirty: false` after the reset. You never
+computed validity or dirtiness yourself: they followed the values.
+'''
+
+[[unit.step]]
+kind = "challenge"
+id = "dxjs-u09-p1-signup"
+title = "Signup: rules and form in two files"
+points = 35
+difficulty = 9
+entry = "createSignupForm"
+intro = '''
+The validation rules go in a pure module, the form in another. The form uses the rules through
+`createForm`, and its submit handler normalises the data before handing it on.
+'''
+instructions = '''
+## Your turn
+
+**`src/validate.ts`**: `validateSignup(values)` returns a message for each field that is wrong,
+and nothing for the fields that are right:
+
+| Field | Wrong when | Message |
+|---|---|---|
+| `email` | it does not match `/^[^\s@]+@[^\s@]+\.[^\s@]+$/` | `"Enter a valid email"` |
+| `password` | it has fewer than 8 characters | `"Use at least 8 characters"` |
+| `confirm` | it differs from `password` | `"Passwords do not match"` |
+
+**`src/signup.ts`**: `createSignupForm(onSave)` returns `{ form, submit }`:
+
+- `form` is `createForm` with initial values `{ email: "", password: "", confirm: "" }` and
+  `validateSignup` as the validator;
+- `submit` is `form.handleSubmit(...)` that calls `onSave({ email, password })` with the email
+  **lowercased** and **without** `confirm`.
+
+Hidden `node:test` files test the rules alone and the form through its API.
+'''
+run_command = "node --experimental-transform-types --test"
+
+[unit.step.project]
+main = "src/signup.ts"
+explanation = '''
+The rules are a pure function, so they are tested without a form and could run on a server.
+The form is a thin layer: `createForm` derives errors, validity and dirtiness from those rules,
+and `handleSubmit` guarantees `onSave` only ever sees valid data, already normalised: a
+lowercased email and no confirmation field.
+'''
+
+[unit.step.project.starter]
+"src/validate.ts" = '''
+export type Signup = { email: string; password: string; confirm: string };
+
+export type SignupErrors = Partial<Record<keyof Signup, string>>;
+
+// One message per field that is wrong; nothing for the fields that are right.
+export function validateSignup(values: Signup): SignupErrors {
+  throw new Error("not implemented");
+}
+'''
+"src/signup.ts" = '''
+import { createForm } from "@dxjs/forms";
+import { validateSignup } from "./validate.ts";
+import type { Signup } from "./validate.ts";
+
+// The signup form, and a submit handler that saves normalised data.
+export function createSignupForm(onSave: (data: { email: string; password: string }) => void) {
+  throw new Error("not implemented");
+}
+'''
+
+[unit.step.project.tests]
+"validate.test.ts" = '''
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { validateSignup } from "./src/validate.ts";
+
+const good = { email: "ana@dxjs.dev", password: "correct horse", confirm: "correct horse" };
+
+test("valid values have no errors", () => {
+  assert.deepEqual(validateSignup(good), {});
+});
+
+test("empty values have all three errors", () => {
+  assert.deepEqual(validateSignup({ email: "", password: "", confirm: "x" }), {
+    email: "Enter a valid email",
+    password: "Use at least 8 characters",
+    confirm: "Passwords do not match",
+  });
+});
+
+test("the email needs a name, an @, a domain and a dot", () => {
+  for (const email of ["ana", "ana@", "@dxjs.dev", "ana@dxjs", "ana @dxjs.dev"]) {
+    assert.equal(validateSignup({ ...good, email }).email, "Enter a valid email", email);
+  }
+  assert.equal(validateSignup({ ...good, email: "a.b@c.io" }).email, undefined);
+});
+
+test("eight characters are enough", () => {
+  assert.equal(validateSignup({ ...good, password: "1234567", confirm: "1234567" }).password, "Use at least 8 characters");
+  assert.deepEqual(validateSignup({ ...good, password: "12345678", confirm: "12345678" }), {});
+});
+
+test("only the wrong fields are present", () => {
+  assert.deepEqual(Object.keys(validateSignup({ ...good, confirm: "other" })), ["confirm"]);
+});
+'''
+"signup.test.ts" = '''
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { createSignupForm } from "./src/signup.ts";
+
+test("starts empty, invalid and not dirty", () => {
+  const { form } = createSignupForm(() => {});
+  assert.deepEqual(form.values(), { email: "", password: "", confirm: "" });
+  assert.equal(form.isValid(), false);
+  assert.equal(form.dirty(), false);
+  assert.equal(form.error("email")(), "Enter a valid email");
+});
+
+test("uses the signup rules", () => {
+  const { form } = createSignupForm(() => {});
+  form.field("email").onInput({ target: { value: "ana@dxjs.dev" } });
+  form.setValue("password", "correct horse");
+  form.setValue("confirm", "correct horsE");
+  assert.deepEqual(form.errors(), { confirm: "Passwords do not match" });
+  form.setValue("confirm", "correct horse");
+  assert.equal(form.isValid(), true);
+  assert.equal(form.dirty(), true);
+});
+
+test("an invalid submit saves nothing and touches every field", () => {
+  const saved: unknown[] = [];
+  const { form, submit } = createSignupForm((d) => saved.push(d));
+  assert.equal(form.touched("password")(), false);
+  let prevented = false;
+  submit({ preventDefault: () => (prevented = true) });
+  assert.deepEqual(saved, []);
+  assert.equal(prevented, true);
+  assert.equal(form.touched("email")(), true);
+  assert.equal(form.touched("confirm")(), true);
+});
+
+test("a valid submit saves the lowercased email and the password only", () => {
+  const saved: unknown[] = [];
+  const { form, submit } = createSignupForm((d) => saved.push(d));
+  form.setValue("email", "Ana@DXJS.dev");
+  form.setValue("password", "correct horse");
+  form.setValue("confirm", "correct horse");
+  submit();
+  assert.deepEqual(saved, [{ email: "ana@dxjs.dev", password: "correct horse" }]);
+});
+
+test("each form is independent", () => {
+  const a = createSignupForm(() => {});
+  const b = createSignupForm(() => {});
+  a.form.setValue("email", "x@y.io");
+  assert.equal(b.form.values().email, "");
+});
+'''
+
+[unit.step.project.solution]
+"src/validate.ts" = '''
+export type Signup = { email: string; password: string; confirm: string };
+
+export type SignupErrors = Partial<Record<keyof Signup, string>>;
+
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// One message per field that is wrong; nothing for the fields that are right.
+export function validateSignup(values: Signup): SignupErrors {
+  const errors: SignupErrors = {};
+  if (!EMAIL.test(values.email)) errors.email = "Enter a valid email";
+  if (values.password.length < 8) errors.password = "Use at least 8 characters";
+  if (values.confirm !== values.password) errors.confirm = "Passwords do not match";
+  return errors;
+}
+'''
+"src/signup.ts" = '''
+import { createForm } from "@dxjs/forms";
+import { validateSignup } from "./validate.ts";
+import type { Signup } from "./validate.ts";
+
+// The signup form, and a submit handler that saves normalised data.
+export function createSignupForm(onSave: (data: { email: string; password: string }) => void) {
+  const form = createForm<Signup>({
+    initial: { email: "", password: "", confirm: "" },
+    validate: validateSignup,
+  });
+  const submit = form.handleSubmit((values) => {
+    onSave({ email: values.email.toLowerCase(), password: values.password });
+  });
+  return { form, submit };
+}
+'''
+
+# ── advanced ─────────────────────────────────────────────────────────────────────────
+
+[[unit]]
+id = "dxjs-u10-html"
+title = "html templates and render"
+level = "advanced"
+difficulty = 10
+intro = '''
+From state to the page: `html` tagged templates from `@dxjs/dom` compile once and bind each
+dynamic spot to a signal through a safe sink. Text, attributes, properties, booleans and events,
+all escaped and CSP-safe.
+'''
+concepts = '''
+## The idea
+
+The DOM is where reactivity pays off. Instead of producing a new tree on each change and
+diffing it, dxjs builds the DOM **once** from a template and then updates only the exact text
+node or attribute a signal feeds. And because values never go through a string-to-HTML path,
+user data cannot inject markup: escaping is not something you remember, it is how the
+renderer works.
+
+## How dxjs does it
+
+```ts
+import { signal } from "@dxjs/core";
+import { html, render } from "@dxjs/dom";
+
+const name = signal("Ana");
+const dispose = render(html`<p class="greeting">Hello, ${() => name()}!</p>`, host);
+name.set("Grace");   // only the text node changes
+dispose();           // removes the nodes and stops every binding
+```
+
+`html` is a tagged template: the static parts are compiled once into a `<template>`, and each
+`${…}` becomes a binding. What a binding does depends on where it sits:
+
+| Where | Example | Sink |
+|---|---|---|
+| text | `<p>${() => name()}</p>` | a text node (escaped) |
+| attribute | `<div class=${() => cls()}>` | `setAttribute` (escaped; URLs sanitised) |
+| `.prop` | `<input .value=${() => draft()}>` | an element property |
+| `?attr` | `<button ?disabled=${() => busy()}>` | toggles a boolean attribute |
+| `@event` | `<button @click=${onClick}>` | `addEventListener`, never an inline handler |
+| `ref` | `<input ref=${(el) => (input = el)}>` | hands you the element once |
+
+`render(view, host)` appends the result to `host` and returns a disposer.
+
+## What is special or tricky
+
+- **Keep the read lazy.** `${() => n()}` is a binding that updates; `${n()}` reads once while
+  building and is frozen forever. When something does not update, you forgot the arrow.
+- **An interpolation must be the whole attribute value.** `class="a ${x}"` is refused; write
+  `class=${() => "a " + x()}`.
+- **No inline handlers, ever.** An `onclick=` attribute is dropped; `@click` is the only event
+  path. `javascript:` URLs in `href`/`src` are neutralised.
+- **Raw HTML properties are refused:** `.innerHTML=${…}` does nothing.
+- **Under Node there is no DOM.** In this course, `import "@dxtutor/dom"` installs a browser-like
+  DOM (happy-dom) first, the same setup dxjs's own tests use. In a browser you skip that line.
+
+## What you will practise
+
+You will render a reactive greeting and dispose it, compare a live binding with a frozen one
+and see injected markup stay text, and then build a like button with text, attribute, boolean
+and event bindings.
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "dxjs-u10-c1-bindings"
+title = "One template, many surgical bindings"
+points = 5
+difficulty = 10
+intro = '''
+A template is compiled once per call site and cloned for each use; after that, the only work a
+change causes is the update of the bindings that read the changed signal.
+'''
+body = '''
+## What happens when you render
+
+```ts
+render(html`<li class=${() => cls()}>${() => label()}</li>`, host);
+```
+
+1. The first time this call site runs, dxjs turns the static strings into a `<template>` with
+   markers where the `${…}` were. That is the only `innerHTML` it ever uses, and only on your
+   static literal.
+2. The template is cloned, and each marker becomes a binding: here an attribute effect for
+   `class` and a text effect for the label.
+3. `cls.set("done")` re-runs only the attribute effect; the text is untouched.
+
+## Escaped by construction
+
+A text binding creates a text node; an attribute binding calls `setAttribute`. Neither parses
+HTML, so `"<img onerror=…>"` is shown as those characters. There is nothing to sanitise
+because nothing is ever interpreted.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dxjs-u10-d1-render"
+title = "Render, update, dispose"
+points = 10
+difficulty = 10
+placeholder_policy = "shown"
+run_command = "node --experimental-transform-types main.ts"
+intro = '''
+A greeting rendered into a detached `<div>`. Printing `innerHTML` after each step shows the
+initial render, the surgical update of the text and the empty host after `dispose`.
+'''
+prompt = '''
+Give Node a DOM, render a greeting bound to a signal, change the signal, then dispose.
+
+**Why:** `render` and its disposer are the lowest level of the dxjs view layer; components are
+built on exactly this.
+'''
+target = '''
+import "@dxtutor/dom";
+import { signal } from "@dxjs/core";
+import { html, render } from "@dxjs/dom";
+
+const name = signal("Ana");
+const host = document.createElement("div");
+const dispose = render(html`<p class="greeting">Hello, ${() => name()}!</p>`, host);
+
+console.log(host.innerHTML);
+name.set("Grace");
+console.log(host.innerHTML);
+dispose();
+console.log(JSON.stringify(host.innerHTML));
+'''
+line_comments = [
+  "Installs a browser-like DOM (happy-dom) for Node. This course provides it; in a browser you leave this line out.",
+  "The signal primitive.",
+  "`html` builds a template, `render` puts it in the page.",
+  "",
+  "The name to greet.",
+  "A detached element to render into (in a browser, an element of the page).",
+  "Renders the template; the `${() => name()}` binding becomes a reactive text node. Keeps the disposer.",
+  "",
+  "Prints `<p class=\"greeting\">Hello, Ana!</p>`.",
+  "Changes the signal: only the text node is updated.",
+  "Prints the same paragraph with `Grace`.",
+  "Removes the rendered nodes and stops the binding.",
+  "Prints `\"\"`: the host is empty again.",
+]
+explanation = '''
+The output was the paragraph with `Ana`, the same paragraph with `Grace`, and `""`. The `<p>`
+element was created once; the change only rewrote its text, and `dispose()` removed everything
+render had added.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dxjs-u10-d2-lazy-safe"
+title = "Live, frozen and escaped"
+points = 10
+difficulty = 10
+placeholder_policy = "shown"
+run_command = "node --experimental-transform-types main.ts"
+intro = '''
+One button shows the same signal twice: once through a function (live) and once read directly
+(frozen). Then a comment containing markup is rendered, and stays text.
+'''
+prompt = '''
+Render a button with an `@click` handler that shows a counter live and frozen, click it twice,
+then render a comment that contains an `<img onerror>` tag.
+
+**Why:** the missing arrow is the most common dxjs mistake, and escaped text is the guarantee
+that makes dxjs safe to feed user data.
+'''
+target = '''
+import "@dxtutor/dom";
+import { signal } from "@dxjs/core";
+import { html, render } from "@dxjs/dom";
+
+const n = signal(0);
+const host = document.createElement("div");
+render(html`<button @click=${() => n.update((x) => x + 1)}>live ${() => n()}, frozen ${n()}</button>`, host);
+const button = host.querySelector("button")!;
+button.click();
+button.click();
+console.log(button.textContent);
+
+const comment = signal('<img src=x onerror="alert(1)">');
+render(html`<p>${() => comment()}</p>`, host);
+console.log(host.querySelector("img") === null, host.querySelector("p")!.textContent);
+'''
+line_comments = [
+  "A DOM for Node, provided by the course.",
+  "The signal primitive.",
+  "The template tag and `render`.",
+  "",
+  "A counter.",
+  "The host element.",
+  "`@click` adds a real event listener; `${() => n()}` is live, while `${n()}` is read once and frozen at 0.",
+  "Finds the rendered button (`!` tells TypeScript it exists).",
+  "A click runs the handler: the counter becomes 1.",
+  "And 2.",
+  "Prints `live 2, frozen 0`: only the live binding followed the signal.",
+  "",
+  "A comment that tries to inject an image with an inline handler.",
+  "Renders it through a text binding.",
+  "No `<img>` element exists, and the paragraph's text is the literal markup: prints `true` and the string.",
+]
+explanation = '''
+The output was `live 2, frozen 0` and `true <img src=x onerror="alert(1)">`. The frozen part
+read the signal once while the template was built, which is exactly what `${n()}` asks for.
+The comment went through a text node, so the browser never parsed it as HTML.
+'''
+
+[[unit.step]]
+kind = "challenge"
+id = "dxjs-u10-x1-like"
+title = "A like button"
+points = 30
+difficulty = 10
+entry = "likeButton"
+intro = '''
+A small widget with every kind of binding: a reactive text, a reactive attribute, a boolean
+attribute and an event handler, all fed by one signal the caller owns.
+'''
+instructions = '''
+## Your turn
+
+Implement `likeButton(likes, max)`, returning an `html` template (do not render it yourself):
+
+```ts
+export function likeButton(likes: Signal<number>, max: number): TemplateResult
+```
+
+It renders **one** `<button class="like">` that:
+
+- shows `♥ ` followed by the current number of likes, e.g. `♥ 3`, kept up to date;
+- has a `title` attribute `"<likes> of <max>"`, e.g. `"3 of 10"`, kept up to date;
+- is `disabled` (the boolean attribute) when `likes() >= max`, and enabled otherwise;
+- on `click`, adds one like, but never goes above `max`.
+
+`Signal` comes from `@dxjs/core` and `TemplateResult` from `@dxjs/dom`; both are types, so import
+them with `import type`. Hidden tests render your template into a DOM and click it.
+'''
+starter = '''
+import { html } from "@dxjs/dom";
+import type { TemplateResult } from "@dxjs/dom";
+import type { Signal } from "@dxjs/core";
+
+// One button: text, title, disabled and click, all driven by the likes signal.
+export function likeButton(likes: Signal<number>, max: number): TemplateResult {
+  throw new Error("not implemented");
+}
+'''
+tests = '''
+import { body, fire } from "@dxtutor/dom";
+import { signal as signalForTest } from "@dxjs/core";
+import { render as renderForTest } from "@dxjs/dom";
+
+function setup(start: number, max: number) {
+  const likes = signalForTest(start);
+  const host = body();
+  const dispose = renderForTest(likeButton(likes, max), host);
+  const button = host.querySelector("button.like") as HTMLButtonElement;
+  return { likes, host, dispose, button };
+}
+
+dxt.test("renders one like button with the count and the title", () => {
+  const { host, button } = setup(0, 3);
+  dxt.equal(host.querySelectorAll("button").length, 1);
+  dxt.equal(button.textContent!.trim(), "♥ 0");
+  dxt.equal(button.getAttribute("title"), "0 of 3");
+  dxt.equal(button.hasAttribute("disabled"), false);
+});
+
+dxt.test("a click adds a like to the signal and the view", () => {
+  const { likes, button } = setup(0, 3);
+  fire(button, "click");
+  dxt.equal(likes(), 1);
+  dxt.equal(button.textContent!.trim(), "♥ 1");
+  dxt.equal(button.getAttribute("title"), "1 of 3");
+});
+
+dxt.test("writes from outside update the view (no frozen reads)", () => {
+  const { likes, button } = setup(0, 10);
+  likes.set(7);
+  dxt.equal(button.textContent!.trim(), "♥ 7");
+  dxt.equal(button.getAttribute("title"), "7 of 10");
+});
+
+dxt.test("disabled at the maximum, enabled below it", () => {
+  const { likes, button } = setup(2, 3);
+  fire(button, "click");
+  dxt.equal(button.hasAttribute("disabled"), true);
+  likes.set(1);
+  dxt.equal(button.hasAttribute("disabled"), false);
+});
+
+dxt.test("never goes above the maximum", () => {
+  const { likes, button } = setup(3, 3);
+  fire(button, "click");
+  fire(button, "click");
+  dxt.equal(likes(), 3);
+  dxt.equal(button.textContent!.trim(), "♥ 3");
+});
+
+dxt.test("uses an event listener, not an inline handler", () => {
+  const { button } = setup(0, 3);
+  dxt.equal(button.getAttribute("onclick"), null);
+  dxt.equal(button.getAttribute("@click"), null);
+});
+
+dxt.test("the disposer removes the button and stops the bindings", () => {
+  const { likes, host, dispose } = setup(0, 3);
+  dispose();
+  dxt.equal(host.querySelector("button"), null);
+  likes.set(2);
+  dxt.equal(host.innerHTML, "");
+});
+'''
+
+[unit.step.gabarito]
+solution = '''
+import { html } from "@dxjs/dom";
+import type { TemplateResult } from "@dxjs/dom";
+import type { Signal } from "@dxjs/core";
+
+// One button: text, title, disabled and click, all driven by the likes signal.
+export function likeButton(likes: Signal<number>, max: number): TemplateResult {
+  return html`<button
+    class="like"
+    title=${() => likes() + " of " + max}
+    ?disabled=${() => likes() >= max}
+    @click=${() => likes.update((n) => Math.min(n + 1, max))}
+  >♥ ${() => likes()}</button>`;
+}
+'''
+time = "O(1)"
+space = "O(1)"
+justification = '''
+The template is compiled once per call site; each like then costs one write and three small
+binding updates (text, title, disabled), **O(1)** time, with a fixed number of bindings,
+**O(1)** space. Every dynamic part is a function, so each one re-runs on its own when `likes`
+changes and none is frozen. The click handler clamps with `Math.min`, so the maximum holds even
+for a click that reaches a disabled button.
+'''
+
+[[unit]]
+id = "dxjs-u11-components"
+title = "Components and keyed lists"
+level = "advanced"
+difficulty = 11
+intro = '''
+Components package a piece of view with its state: functions that run once, take props as
+accessors, and are mounted with a disposer. Keyed lists keep each row's DOM node across inserts,
+removals and reorders.
+'''
+concepts = '''
+## The idea
+
+A **component** in dxjs is a plain function that builds a view once. It is not re-run when
+data changes; its bindings are. That makes components cheap and predictable: a `console.log`
+in the body prints once per mount, ever. State that belongs to the component is a signal
+created in the body; state that belongs to the caller arrives as **props that are
+accessors**, so the caller can keep feeding new values.
+
+## How dxjs does it
+
+```ts
+import { signal } from "@dxjs/core";
+import { html, list } from "@dxjs/dom";
+import { component, mount, onMount } from "@dxjs/component";
+
+const Badge = component((props: { count: () => number; onPick: (n: number) => void }) => {
+  onMount(() => () => console.log("unmounted"));   // runs after insertion; may return a cleanup
+  return html`<button @click=${() => props.onPick(props.count())}>${() => props.count()}</button>`;
+});
+
+const dispose = mount(Badge, host, { count: () => total(), onPick: pick });
+```
+
+- `component(fn)` is an identity helper that types `fn` as a component.
+- `mount(Component, host, props)` runs it inside a new root, renders the view into `host`, runs
+  the `onMount` callbacks, and returns a disposer that tears it all down.
+- A component can be used inside another template by calling it: `${Badge({ … })}`.
+- `onCleanup`, `createContext`, `provide` and `inject` are re-exported by `@dxjs/component`.
+
+**Keyed lists:** `list(items, key, render)` renders a collection, reconciled by key:
+
+```ts
+html`<ul>${list(() => todos(), (t) => t.id, (t) => html`<li>${t.text}</li>`)}</ul>`
+```
+
+A new key renders a new row; a key that disappears disposes its row; a key that stays keeps its
+**DOM node**, in the new order. No list is rebuilt, and rows that stay keep their focus.
+
+## What is special or tricky
+
+- **A row renders once per key.** When a todo with the same id comes back as a new object
+  (`{ ...t, done: true }`), its row is *not* rendered again. So put what can change inside a row
+  into the **key**: `(t) => t.id + ":" + t.done` gives a toggled todo a fresh row, while every
+  other row keeps its node.
+- **Known limitation of dxjs 1.2.0:** a reactive binding *inside* a row (say
+  `class=${() => color()}`) updates only until the list itself changes for the first time.
+  The row's bindings belong to the list's effect, which disposes them when it re-runs, even for
+  rows it keeps. Event handlers (`@click`) are not affected. Until that is fixed, keep rows
+  static and let the key decide when a row is rebuilt.
+- **Pass accessors, not values.** `count: () => total()` stays live; `count: total()` freezes the
+  child at construction.
+- **Outputs are callbacks.** A child never writes its parent's signals directly; it calls
+  `props.onToggle(id)`.
+- **Always keep the disposer** `mount` returns: tests, route changes and hot reload need it.
+
+## What you will practise
+
+You will mount a component with `onMount` and dispose it, watch a keyed list keep a row's node,
+and then write a counter and a todo list component in two files.
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "dxjs-u11-c1-run-once"
+title = "Components run once; bindings run many times"
+points = 5
+difficulty = 11
+intro = '''
+The key difference from React-style frameworks: a dxjs component body is a constructor, so all
+reactivity must live in the bindings and computeds it creates, not in re-running the body.
+'''
+body = '''
+## The body is a constructor
+
+```ts
+const Counter = component(() => {
+  console.log("constructed");        // prints ONCE per mount
+  const n = signal(0);
+  return html`<button @click=${() => n.update((x) => x + 1)}>${() => n()}</button>`;
+});
+```
+
+There is no dependency array, no memo and no re-render: the arrow in `${() => n()}` *is* the
+subscription.
+
+## Rows keep their identity
+
+`list(source, key, render)` remembers one DOM row per key. Appending a todo adds one `<li>`;
+removing one deletes one node; reordering moves nodes. Because a row is rendered once per key,
+the key must change when the row's content does: key a todo by `id` and `done` together, and
+toggling it renders that one row again.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dxjs-u11-d1-mount"
+title = "Mount a component, then dispose it"
+points = 10
+difficulty = 11
+placeholder_policy = "shown"
+run_command = "node --experimental-transform-types main.ts"
+intro = '''
+A greeting component takes its name as an accessor prop and logs from `onMount` and its cleanup.
+Mounting, changing the name and disposing show the whole life of a component.
+'''
+prompt = '''
+Write a `Greeting` component with an accessor prop and an `onMount` that returns a cleanup.
+Mount it, change the name, and dispose it.
+
+**Why:** accessor props and the disposer from `mount` are the two things every component
+relies on.
+'''
+target = '''
+import "@dxtutor/dom";
+import { signal } from "@dxjs/core";
+import { html } from "@dxjs/dom";
+import { component, mount, onMount } from "@dxjs/component";
+
+const Greeting = component((props: { name: () => string }) => {
+  onMount(() => {
+    console.log("mounted");
+    return () => console.log("unmounted");
+  });
+  return html`<h1>Hello, ${() => props.name()}!</h1>`;
+});
+
+const who = signal("Ana");
+const host = document.createElement("div");
+const dispose = mount(Greeting, host, { name: () => who() });
+console.log(host.textContent);
+who.set("Grace");
+console.log(host.textContent);
+dispose();
+console.log(JSON.stringify(host.textContent));
+'''
+line_comments = [
+  "A DOM for Node, provided by the course.",
+  "The signal primitive.",
+  "The template tag.",
+  "`component`, `mount` and `onMount` come from `@dxjs/component`.",
+  "",
+  "A component whose `name` prop is an accessor, so the caller can keep it live.",
+  "Registers a callback that runs once the view is in the DOM.",
+  "Prints `mounted` right after mounting.",
+  "The returned function is a cleanup: it runs when the component is disposed.",
+  "Closes the `onMount` callback.",
+  "The view: reads the prop lazily, so it updates when the caller's signal changes.",
+  "Closes the component.",
+  "",
+  "The caller's state.",
+  "The host element.",
+  "Mounts the component, passing an accessor over `who`; keeps the disposer.",
+  "Prints `Hello, Ana!`.",
+  "Changes the caller's signal; the heading's text follows.",
+  "Prints `Hello, Grace!`.",
+  "Disposes: the cleanup prints `unmounted` and the nodes are removed.",
+  "Prints `\"\"`.",
+]
+explanation = '''
+The output was `mounted`, `Hello, Ana!`, `Hello, Grace!`, `unmounted` and `""`. The component
+body ran once; the name prop, being an accessor, kept the heading live, and the disposer from
+`mount` ran the cleanup and removed the view.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dxjs-u11-d2-keyed"
+title = "A keyed list keeps its nodes"
+points = 10
+difficulty = 11
+placeholder_policy = "shown"
+run_command = "node --experimental-transform-types main.ts"
+intro = '''
+A list of rows keyed by id. A new row is inserted at the front; comparing node references shows
+that the existing rows were moved, not rebuilt.
+'''
+prompt = '''
+Render a keyed list of two rows, insert a row before them, and check that the row with id 1 is
+still the same DOM node.
+
+**Why:** node identity is what keeps focus, selection and scroll position stable in real lists.
+'''
+target = '''
+import "@dxtutor/dom";
+import { signal } from "@dxjs/core";
+import { html, list, render } from "@dxjs/dom";
+
+type Row = { id: number; label: string };
+
+const rows = signal<Row[]>([
+  { id: 1, label: "one" },
+  { id: 2, label: "two" },
+]);
+const host = document.createElement("ul");
+render(html`${list(() => rows(), (r) => r.id, (r) => html`<li>${r.label}</li>`)}`, host);
+
+const first = host.querySelector("li");
+rows.update((xs) => [{ id: 0, label: "zero" }, ...xs]);
+console.log(host.textContent);
+console.log("same node for id 1:", host.querySelectorAll("li")[1] === first);
+'''
+line_comments = [
+  "A DOM for Node, provided by the course.",
+  "The signal primitive.",
+  "`list` builds a keyed list for a template.",
+  "",
+  "The shape of a row.",
+  "",
+  "The rows, in a signal.",
+  "Row with id 1.",
+  "Row with id 2.",
+  "Closes the array.",
+  "A `<ul>` to render into.",
+  "Renders a keyed list: the source accessor, the key function (the id) and the row template.",
+  "",
+  "Keeps a reference to the `<li>` of id 1.",
+  "Inserts a new row at the front (a new array).",
+  "Prints `zeroonetwo`: the new row is first.",
+  "The row of id 1 is now second, and it is the SAME node: prints `true`.",
+]
+explanation = '''
+The output was `zeroonetwo` and `same node for id 1: true`. Only one `<li>` was created for the
+new key; the rows of ids 1 and 2 kept their nodes and were moved after it.
+'''
+
+[[unit.step]]
+kind = "challenge"
+id = "dxjs-u11-p1-components"
+title = "A counter and a todo list component"
+points = 40
+difficulty = 11
+entry = "TodoList"
+intro = '''
+Two components in two files: a counter with its own state and an accessor prop, and a todo list
+that renders a keyed list, keeps each row's node, and reports clicks through callback props.
+'''
+instructions = '''
+## Your turn
+
+`src/types.ts` (read-only) defines `Todo`. Write two components with `component` from
+`@dxjs/component` and `html`/`list` from `@dxjs/dom`.
+
+**`src/counter.ts`**: `Counter` with props `{ start: number; step: () => number }`:
+
+```html
+<div class="counter"><button class="dec">-</button><output>N</output><button class="inc">+</button></div>
+```
+
+- its value is its **own signal**, starting at `start`, shown in the `<output>`;
+- `+`/`-` add/subtract `step()` read **at click time** (the prop can change).
+
+**`src/todo-list.ts`**: `TodoList` with props
+`{ todos: () => Todo[]; onToggle: (id: number) => void; onRemove: (id: number) => void }`:
+
+```html
+<ul class="todos">
+  <li data-id="1" class="done"><input type="checkbox"> <span>text</span> <button class="remove">×</button></li>
+  …
+</ul>
+```
+
+- one `<li>` per todo, in order, rendered with `list` and keyed by **`t.id + ":" + t.done`**: a
+  row keeps its DOM node while the todo's id and done-ness stay, and a toggled todo gets a fresh
+  row (a row is rendered once per key, see the reading text);
+- the `<li>` has the class `done` when the todo is done (and no `class` when not), and the
+  checkbox's `checked` **property** matches `done`;
+- the checkbox's `change` event calls `onToggle(id)`, the button's `click` calls `onRemove(id)`;
+- the text is shown as text (escaped).
+'''
+run_command = "node --experimental-transform-types --test"
+
+[unit.step.project]
+main = "src/todo-list.ts"
+readonly = ["src/types.ts"]
+explanation = '''
+`Counter` owns its signal and reads `props.step()` inside the click handler, so a changed step
+applies to the next click. `TodoList` renders each row once per key with `list`, which is what
+keeps the nodes of the rows that did not change. Putting `done` into the key makes a toggled
+todo render a fresh row with the right class and checkbox, without any reactive binding inside
+the row (which dxjs 1.2.0 would stop updating after the list's first change). Clicks leave the
+component only through the callback props.
+'''
+
+[unit.step.project.starter]
+"src/types.ts" = '''
+export type Todo = { id: number; text: string; done: boolean };
+'''
+"src/counter.ts" = '''
+import { signal } from "@dxjs/core";
+import { html } from "@dxjs/dom";
+import { component } from "@dxjs/component";
+
+// A counter with its own state; the step is an accessor read at click time.
+export const Counter = component((props: { start: number; step: () => number }) => {
+  throw new Error("not implemented");
+});
+'''
+"src/todo-list.ts" = '''
+import { html, list } from "@dxjs/dom";
+import { component } from "@dxjs/component";
+import type { Todo } from "./types.ts";
+
+type Props = {
+  todos: () => Todo[];
+  onToggle: (id: number) => void;
+  onRemove: (id: number) => void;
+};
+
+// A keyed list of todos: a row is rendered once per id + done.
+export const TodoList = component((props: Props) => {
+  throw new Error("not implemented");
+});
+'''
+
+[unit.step.project.tests]
+"counter.test.ts" = '''
+import { body, fire } from "@dxtutor/dom";
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { signal } from "@dxjs/core";
+import { mount } from "@dxjs/component";
+import { Counter } from "./src/counter.ts";
+
+test("shows the start value", () => {
+  const host = body();
+  mount(Counter, host, { start: 5, step: () => 1 });
+  assert.ok(host.querySelector("div.counter"));
+  assert.equal(host.querySelector("output")!.textContent, "5");
+});
+
+test("+ and - use the step", () => {
+  const host = body();
+  mount(Counter, host, { start: 0, step: () => 2 });
+  fire(host.querySelector("button.inc")!, "click");
+  fire(host.querySelector("button.inc")!, "click");
+  fire(host.querySelector("button.dec")!, "click");
+  assert.equal(host.querySelector("output")!.textContent, "2");
+});
+
+test("the step is read at click time", () => {
+  const host = body();
+  const step = signal(1);
+  mount(Counter, host, { start: 0, step: () => step() });
+  fire(host.querySelector("button.inc")!, "click");
+  step.set(10);
+  fire(host.querySelector("button.inc")!, "click");
+  assert.equal(host.querySelector("output")!.textContent, "11");
+});
+
+test("each counter has its own state", () => {
+  const a = body();
+  const b = body();
+  mount(Counter, a, { start: 0, step: () => 1 });
+  mount(Counter, b, { start: 0, step: () => 1 });
+  fire(a.querySelector("button.inc")!, "click");
+  assert.equal(a.querySelector("output")!.textContent, "1");
+  assert.equal(b.querySelector("output")!.textContent, "0");
+});
+
+test("disposing removes the counter", () => {
+  const host = body();
+  const dispose = mount(Counter, host, { start: 0, step: () => 1 });
+  dispose();
+  assert.equal(host.querySelector("div.counter"), null);
+});
+'''
+"todo-list.test.ts" = '''
+import { body, fire } from "@dxtutor/dom";
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { signal } from "@dxjs/core";
+import { mount } from "@dxjs/component";
+import { TodoList } from "./src/todo-list.ts";
+
+type Todo = { id: number; text: string; done: boolean };
+
+function setup(start: Todo[]) {
+  const todos = signal<Todo[]>(start);
+  const toggled: number[] = [];
+  const removed: number[] = [];
+  const host = body();
+  const dispose = mount(TodoList, host, {
+    todos: () => todos(),
+    onToggle: (id: number) => toggled.push(id),
+    onRemove: (id: number) => removed.push(id),
+  });
+  const rows = () => [...host.querySelectorAll("ul.todos > li")] as HTMLLIElement[];
+  return { todos, toggled, removed, host, dispose, rows };
+}
+
+const two: Todo[] = [
+  { id: 1, text: "write a signal", done: false },
+  { id: 2, text: "build a store", done: true },
+];
+
+test("one row per todo, in order, with data-id, text and done class", () => {
+  const { rows } = setup(two);
+  assert.deepEqual(rows().map((li) => li.getAttribute("data-id")), ["1", "2"]);
+  assert.deepEqual(rows().map((li) => li.querySelector("span")!.textContent), ["write a signal", "build a store"]);
+  assert.equal(rows()[0].classList.contains("done"), false);
+  assert.equal(rows()[1].classList.contains("done"), true);
+});
+
+test("the checkbox property matches done", () => {
+  const { rows } = setup(two);
+  const boxes = rows().map((li) => li.querySelector("input[type=checkbox]") as HTMLInputElement);
+  assert.deepEqual(boxes.map((b) => b.checked), [false, true]);
+});
+
+test("change and click report through the callbacks", () => {
+  const { rows, toggled, removed } = setup(two);
+  fire(rows()[0].querySelector("input")!, "change");
+  fire(rows()[1].querySelector("button.remove")!, "click");
+  assert.deepEqual(toggled, [1]);
+  assert.deepEqual(removed, [2]);
+});
+
+test("a toggled todo gets a fresh row; the others keep theirs", () => {
+  const { todos, rows } = setup(two);
+  const [first, second] = rows();
+  todos.update((ts) => ts.map((t) => (t.id === 1 ? { ...t, done: true } : t)));
+  const now = rows()[0];
+  assert.equal(now.getAttribute("data-id"), "1");
+  assert.notEqual(now, first, "a new key renders a new row");
+  assert.equal(now.classList.contains("done"), true);
+  assert.equal((now.querySelector("input") as HTMLInputElement).checked, true);
+  assert.equal(rows()[1], second, "the untouched row keeps its node");
+  todos.update((ts) => ts.map((t) => (t.id === 1 ? { ...t, done: false } : t)));
+  assert.equal(rows()[0].classList.contains("done"), false);
+  assert.equal((rows()[0].querySelector("input") as HTMLInputElement).checked, false);
+  assert.equal(rows().length, 2);
+});
+
+test("rows are keyed: inserts and removals keep the other nodes", () => {
+  const { todos, rows } = setup(two);
+  const [a, b] = rows();
+  todos.update((ts) => [{ id: 3, text: "new", done: false }, ...ts]);
+  assert.deepEqual(rows().map((li) => li.getAttribute("data-id")), ["3", "1", "2"]);
+  assert.equal(rows()[1], a);
+  todos.update((ts) => ts.filter((t) => t.id !== 1));
+  assert.deepEqual(rows().map((li) => li.getAttribute("data-id")), ["3", "2"]);
+  assert.equal(rows()[1], b);
+});
+
+test("text is escaped", () => {
+  const { rows } = setup([{ id: 1, text: "<b>bold</b>", done: false }]);
+  assert.equal(rows()[0].querySelector("b"), null);
+  assert.equal(rows()[0].querySelector("span")!.textContent, "<b>bold</b>");
+});
+
+test("disposing removes the list", () => {
+  const { host, dispose } = setup(two);
+  dispose();
+  assert.equal(host.querySelector("ul"), null);
+});
+'''
+
+[unit.step.project.solution]
+"src/counter.ts" = '''
+import { signal } from "@dxjs/core";
+import { html } from "@dxjs/dom";
+import { component } from "@dxjs/component";
+
+// A counter with its own state; the step is an accessor read at click time.
+export const Counter = component((props: { start: number; step: () => number }) => {
+  const value = signal(props.start);
+  return html`<div class="counter">
+    <button class="dec" @click=${() => value.update((n) => n - props.step())}>-</button>
+    <output>${() => value()}</output>
+    <button class="inc" @click=${() => value.update((n) => n + props.step())}>+</button>
+  </div>`;
+});
+'''
+"src/todo-list.ts" = '''
+import { html, list } from "@dxjs/dom";
+import { component } from "@dxjs/component";
+import type { Todo } from "./types.ts";
+
+type Props = {
+  todos: () => Todo[];
+  onToggle: (id: number) => void;
+  onRemove: (id: number) => void;
+};
+
+// A keyed list of todos: a row is rendered once per id + done.
+export const TodoList = component((props: Props) => {
+  return html`<ul class="todos">
+    ${list(
+      () => props.todos(),
+      (t) => t.id + ":" + t.done,
+      (t) => html`<li data-id=${t.id} class=${t.done ? "done" : null}>
+        <input type="checkbox" .checked=${t.done} @change=${() => props.onToggle(t.id)} />
+        <span>${t.text}</span>
+        <button class="remove" @click=${() => props.onRemove(t.id)}>×</button>
+      </li>`,
+    )}
+  </ul>`;
+});
+'''
+
+[[unit]]
+id = "dxjs-u12-app"
+title = "A small app: the todo list"
+level = "advanced"
+difficulty = 12
+intro = '''
+Everything together: the store from unit 7 and the list from unit 11 become a real app with a
+form, filters, a live count and a "clear done" button, mounted with one call and torn down with
+one disposer.
+'''
+concepts = '''
+## The idea
+
+An app is a composition: a **store** holds the state and the rules, **components** turn it into
+DOM and turn events back into store operations, and a small **entry point** wires them to a
+host element. Each piece only knows its neighbours through their public surface: the view calls
+`store.add(text)`, never `todos.update(...)`; the list reports `onToggle(id)`, never touches the
+store. That is what lets each piece be tested, replaced or reused.
+
+## How dxjs does it
+
+```ts
+// src/main.ts: the entry point
+export function start(host: Element) {
+  const store = createTodoStore();
+  const unmount = mount(App, host, { store });
+  return () => { unmount(); store.dispose(); };   // one call tears everything down
+}
+
+// src/app.ts: the composition
+export const App = component((props: { store: TodoStore }) => {
+  const draft = signal("");                         // view-only state lives in the view
+  return html`
+    <form @submit=${(e: Event) => { e.preventDefault(); if (props.store.add(draft())) draft.set(""); }}>
+      <input .value=${() => draft()} @input=${(e: Event) => draft.set((e.target as HTMLInputElement).value)} />
+    </form>
+    ${TodoList({ todos: () => props.store.visible(), onToggle: props.store.toggle, onRemove: props.store.remove })}`;
+});
+```
+
+- **Controlled input:** `.value=${() => draft()}` writes the property from the signal, and
+  `@input` writes the signal from the element. Clearing `draft` clears the box.
+- **`@submit` with `preventDefault()`** handles Enter and the button alike, without reloading.
+- **Composition by calling:** `${TodoList({ … })}` renders a child component in place.
+- **Static arrays of templates** (`${FILTERS.map((f) => html`…`)}`) render once; reactive
+  bindings inside them stay live because that array never changes.
+- **Derived UI state** (the count text, whether "Clear done" is enabled, which filter button is
+  pressed) is read straight from the store's computeds in bindings.
+
+## What is special or tricky
+
+- **State that only the view needs** (the text being typed) is a signal in the component, not
+  in the store.
+- **Ownership composes:** `mount` creates a root for the view; the store has its own. The
+  entry point disposes both, view first.
+- **Accessibility is markup:** `aria-pressed` on toggle buttons, real `<button>`s and a
+  `<form>` cost nothing and make the app usable from the keyboard.
+
+## What you will practise
+
+You will mount a form with a controlled input and submit it, and then finish the todo app: the
+`App` component and the `start` entry point, on top of the store and the list you already wrote
+(provided read-only).
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "dxjs-u12-c1-composition"
+title = "Store, components, entry point"
+points = 5
+difficulty = 12
+intro = '''
+The last unit adds no new primitive. It shows how the ones you know fit together, and where each
+kind of state belongs.
+'''
+body = '''
+## Who owns what
+
+| Piece | Owns | Talks to |
+|---|---|---|
+| `store.ts` | the todos and the filter (signals), the rules (computeds) | nobody |
+| `todo-list.ts` | nothing | its props: `todos()`, `onToggle`, `onRemove` |
+| `app.ts` | the draft text | the store, through its operations and computeds |
+| `main.ts` | the store instance and the mounted view | `createTodoStore`, `mount` |
+
+## Events in, state out
+
+1. The user types: `@input` writes `draft`.
+2. The user presses Enter: `@submit` calls `store.add(draft())` and clears `draft`.
+3. `store.add` writes the todos signal.
+4. The computeds `visible` and `remaining` change; the list effect adds one row and the count
+   text updates. Nothing else runs.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "dxjs-u12-d1-form"
+title = "A controlled input and a submit"
+points = 10
+difficulty = 12
+placeholder_policy = "shown"
+run_command = "node --experimental-transform-types main.ts"
+intro = '''
+A component with a form: the input is bound both ways to a `draft` signal, and submitting adds
+the name to a list and clears the box. The program then plays the user: it types and submits.
+'''
+prompt = '''
+Write a `NameForm` component with a controlled input and a submit handler, mount it, then
+simulate typing a name and submitting the form.
+
+**Why:** this is exactly the form of the todo app you are about to finish.
+'''
+target = '''
+import "@dxtutor/dom";
+import { signal } from "@dxjs/core";
+import { html } from "@dxjs/dom";
+import { component, mount } from "@dxjs/component";
+
+const NameForm = component(() => {
+  const draft = signal("");
+  const names = signal<string[]>([]);
+  const add = (e: Event) => {
+    e.preventDefault();
+    const name = draft().trim();
+    if (name) names.update((xs) => [...xs, name]);
+    draft.set("");
+  };
+  return html`
+    <form @submit=${add}>
+      <input .value=${() => draft()} @input=${(e: Event) => draft.set((e.target as HTMLInputElement).value)} />
+    </form>
+    <p>${() => names().join(", ")}</p>`;
+});
+
+const host = document.createElement("div");
+mount(NameForm, host, {});
+const input = host.querySelector("input")!;
+input.value = "Ada";
+input.dispatchEvent(new Event("input", { bubbles: true }));
+host.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+console.log(host.querySelector("p")!.textContent, JSON.stringify(input.value));
+'''
+line_comments = [
+  "A DOM for Node, provided by the course.",
+  "The signal primitive.",
+  "The template tag.",
+  "`component` and `mount`.",
+  "",
+  "A component with its own view state.",
+  "The text being typed.",
+  "The names added so far.",
+  "The submit handler.",
+  "Stops the browser from reloading the page.",
+  "Reads and trims the draft.",
+  "Adds a non-empty name, immutably.",
+  "Clears the draft; the input follows through its `.value` binding.",
+  "Closes the handler.",
+  "The view.",
+  "A form: `@submit` covers Enter and a submit button alike.",
+  "A controlled input: `.value` comes from `draft`, and `@input` writes `draft` back.",
+  "Closes the form.",
+  "The names, kept up to date.",
+  "Closes the component.",
+  "",
+  "A host element.",
+  "Mounts the component.",
+  "Finds the input.",
+  "Plays the user typing `Ada`...",
+  "...which a browser announces with an `input` event: `draft` becomes `Ada`.",
+  "Submits the form, as pressing Enter would.",
+  "Prints `Ada \"\"`: the name was added and the input was cleared.",
+]
+explanation = '''
+The output was `Ada ""`. The input event copied the typed text into `draft`, the submit handler
+added it to `names` and cleared `draft`, and the `.value` binding emptied the box: data flowed
+from the element to the signal and back, with no manual DOM code.
+'''
+
+[[unit.step]]
+kind = "challenge"
+id = "dxjs-u12-p1-todo-app"
+title = "Finish the todo app"
+points = 50
+difficulty = 12
+entry = "App"
+intro = '''
+The final project. The store (unit 7) and the list (unit 11) are provided read-only; you write
+the `App` component that composes them with a form, a count, filter buttons and a "Clear done"
+button, and the `start` entry point that mounts it and tears everything down.
+'''
+instructions = '''
+## Your turn
+
+Read-only: `src/types.ts`, `src/filters.ts`, `src/store.ts` (`createTodoStore`, unit 7) and
+`src/todo-list.ts` (`TodoList`, unit 11). Write two files.
+
+**`src/app.ts`**: `App`, a component with props `{ store }` (a store from `createTodoStore`).
+It renders, in this order:
+
+1. `<form class="new-todo">` with one `<input>` (a controlled input bound to a `draft` signal)
+   and a `<button>Add</button>`. On **submit**: `preventDefault()`, call `store.add(draft())`;
+   if it returned a todo, clear the draft (the input becomes empty). Empty text adds nothing.
+2. `TodoList` with `todos: () => store.visible()`, `onToggle` → `store.toggle(id)` and
+   `onRemove` → `store.remove(id)`.
+3. `<footer>` with:
+   - `<span class="remaining">`: `"1 item left"` when one todo is not done, otherwise
+     `"N items left"` (`"0 items left"`, `"3 items left"`);
+   - three `<button class="filter">` with `data-filter` `all`, `active` and `done` and the
+     labels `All`, `Active`, `Done`; a click calls `store.setFilter(...)`; each has
+     `aria-pressed` `"true"` when its filter is the current one, `"false"` otherwise;
+   - `<button class="clear">Clear done</button>` calling `store.clearDone()`, `disabled` when
+     no todo is done.
+
+**`src/main.ts`**: `start(host, initial = [])` creates a store with `initial`, mounts `App` into
+`host` with it, and returns a function that unmounts the view **and** disposes the store.
+
+Hidden `node:test` files drive the app like a user: typing, submitting, clicking.
+'''
+run_command = "node --experimental-transform-types --test"
+
+[unit.step.project]
+main = "src/app.ts"
+readonly = ["src/types.ts", "src/filters.ts", "src/store.ts", "src/todo-list.ts"]
+explanation = '''
+`App` owns only the draft; everything else is read from the store's computeds (`visible`,
+`remaining`, `filter`, `todos`) in bindings, and every event becomes one store operation. The
+filter buttons are a static array of templates, so their `aria-pressed` bindings stay live. The
+entry point keeps both disposers and returns one function, so a test, a route change or hot
+reload can drop the whole app in one call.
+'''
+
+[unit.step.project.starter]
+"src/types.ts" = '''
+export type Todo = { id: number; text: string; done: boolean };
+
+export type Filter = "all" | "active" | "done";
+'''
+"src/filters.ts" = '''
+import type { Filter, Todo } from "./types.ts";
+
+// The todos a filter shows: all of them, only the not-done ("active") or only the done ones.
+export function visible(todos: Todo[], filter: Filter): Todo[] {
+  if (filter === "active") return todos.filter((t) => !t.done);
+  if (filter === "done") return todos.filter((t) => t.done);
+  return todos;
+}
+
+// How many todos are not done yet.
+export function remaining(todos: Todo[]): number {
+  return todos.filter((t) => !t.done).length;
+}
+'''
+"src/store.ts" = '''
+import { signal, computed, createRoot } from "@dxjs/core";
+import type { Filter, Todo } from "./types.ts";
+import { visible, remaining } from "./filters.ts";
+
+// A store: two signals, two computeds over the pure rules, and the operations.
+export function createTodoStore(initial: Todo[] = []) {
+  return createRoot((dispose) => {
+    const todos = signal<Todo[]>(initial);
+    const filter = signal<Filter>("all");
+    let nextId = initial.reduce((max, t) => Math.max(max, t.id), 0) + 1;
+    return {
+      todos: () => todos(),
+      filter: () => filter(),
+      visible: computed(() => visible(todos(), filter())),
+      remaining: computed(() => remaining(todos())),
+      add(text: string): Todo | null {
+        const clean = text.trim();
+        if (!clean) return null;
+        const todo = { id: nextId++, text: clean, done: false };
+        todos.update((ts) => [...ts, todo]);
+        return todo;
+      },
+      toggle(id: number) {
+        todos.update((ts) => ts.map((t) => (t.id === id ? { ...t, done: !t.done } : t)));
+      },
+      remove(id: number) {
+        todos.update((ts) => ts.filter((t) => t.id !== id));
+      },
+      clearDone() {
+        todos.update((ts) => ts.filter((t) => !t.done));
+      },
+      setFilter(f: Filter) {
+        filter.set(f);
+      },
+      dispose,
+    };
+  });
+}
+'''
+"src/todo-list.ts" = '''
+import { html, list } from "@dxjs/dom";
+import { component } from "@dxjs/component";
+import type { Todo } from "./types.ts";
+
+type Props = {
+  todos: () => Todo[];
+  onToggle: (id: number) => void;
+  onRemove: (id: number) => void;
+};
+
+// A keyed list of todos: a row is rendered once per id + done.
+export const TodoList = component((props: Props) => {
+  return html`<ul class="todos">
+    ${list(
+      () => props.todos(),
+      (t) => t.id + ":" + t.done,
+      (t) => html`<li data-id=${t.id} class=${t.done ? "done" : null}>
+        <input type="checkbox" .checked=${t.done} @change=${() => props.onToggle(t.id)} />
+        <span>${t.text}</span>
+        <button class="remove" @click=${() => props.onRemove(t.id)}>×</button>
+      </li>`,
+    )}
+  </ul>`;
+});
+'''
+"src/app.ts" = '''
+import { signal } from "@dxjs/core";
+import { html } from "@dxjs/dom";
+import { component } from "@dxjs/component";
+import type { createTodoStore } from "./store.ts";
+import type { Filter } from "./types.ts";
+import { TodoList } from "./todo-list.ts";
+
+type TodoStore = ReturnType<typeof createTodoStore>;
+
+// The app: a form, the list, and a footer with the count, the filters and "Clear done".
+export const App = component((props: { store: TodoStore }) => {
+  throw new Error("not implemented");
+});
+'''
+"src/main.ts" = '''
+import { mount } from "@dxjs/component";
+import { createTodoStore } from "./store.ts";
+import type { Todo } from "./types.ts";
+import { App } from "./app.ts";
+
+// Create the store, mount the app, and return one function that tears both down.
+export function start(host: Element, initial: Todo[] = []): () => void {
+  throw new Error("not implemented");
+}
+'''
+
+[unit.step.project.tests]
+"app.test.ts" = '''
+import { body, fire, typeInto } from "@dxtutor/dom";
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { start } from "./src/main.ts";
+
+type Todo = { id: number; text: string; done: boolean };
+
+function app(initial: Todo[] = []) {
+  const host = body();
+  const stop = start(host, initial);
+  const $ = <E extends Element>(sel: string) => host.querySelector(sel) as E;
+  const rows = () => [...host.querySelectorAll("ul.todos > li")] as HTMLLIElement[];
+  const texts = () => rows().map((li) => li.querySelector("span")!.textContent);
+  const add = (text: string) => {
+    typeInto($("form.new-todo input"), text);
+    fire($("form.new-todo"), "submit");
+  };
+  const filter = (name: string) => fire($(`button.filter[data-filter="${name}"]`), "click");
+  return { host, stop, $, rows, texts, add, filter };
+}
+
+const three: Todo[] = [
+  { id: 1, text: "read the docs", done: true },
+  { id: 2, text: "write a store", done: false },
+  { id: 3, text: "ship the app", done: false },
+];
+
+test("renders the form, the list and the footer in order", () => {
+  const { host, texts } = app(three);
+  const order = [...host.children].map((el) => el.tagName.toLowerCase());
+  assert.deepEqual(order.filter((t) => ["form", "ul", "footer"].includes(t)), ["form", "ul", "footer"]);
+  assert.ok(host.querySelector("form.new-todo input"));
+  assert.equal(host.querySelector("form.new-todo button")!.textContent!.trim(), "Add");
+  assert.deepEqual(texts(), ["read the docs", "write a store", "ship the app"]);
+});
+
+test("submitting adds a todo and clears the input", () => {
+  const { $, add, texts } = app();
+  add("  learn dxjs  ");
+  assert.deepEqual(texts(), ["learn dxjs"]);
+  assert.equal($<HTMLInputElement>("form.new-todo input").value, "");
+});
+
+test("empty text adds nothing and keeps what was typed", () => {
+  const { $, add, rows } = app();
+  add("   ");
+  assert.equal(rows().length, 0);
+  assert.equal($<HTMLInputElement>("form.new-todo input").value, "   ");
+});
+
+test("the remaining count follows the todos", () => {
+  const { $, add, rows } = app(three);
+  const left = () => $("span.remaining").textContent!.trim();
+  assert.equal(left(), "2 items left");
+  fire(rows()[1].querySelector("input")!, "change");
+  assert.equal(left(), "1 item left");
+  fire(rows()[2].querySelector("input")!, "change");
+  assert.equal(left(), "0 items left");
+  add("one more");
+  assert.equal(left(), "1 item left");
+});
+
+test("toggling and removing go through the store", () => {
+  const { rows, texts } = app(three);
+  fire(rows()[1].querySelector("input")!, "change");
+  assert.equal(rows()[1].classList.contains("done"), true);
+  fire(rows()[0].querySelector("button.remove")!, "click");
+  assert.deepEqual(texts(), ["write a store", "ship the app"]);
+});
+
+test("filter buttons switch the list and show which one is pressed", () => {
+  const { $, filter, texts } = app(three);
+  const pressed = () =>
+    ["all", "active", "done"].map((f) => $(`button.filter[data-filter="${f}"]`).getAttribute("aria-pressed"));
+  assert.deepEqual(
+    ["all", "active", "done"].map((f) => $(`button.filter[data-filter="${f}"]`).textContent!.trim()),
+    ["All", "Active", "Done"],
+  );
+  assert.deepEqual(pressed(), ["true", "false", "false"]);
+  filter("active");
+  assert.deepEqual(texts(), ["write a store", "ship the app"]);
+  assert.deepEqual(pressed(), ["false", "true", "false"]);
+  filter("done");
+  assert.deepEqual(texts(), ["read the docs"]);
+  filter("all");
+  assert.deepEqual(texts(), ["read the docs", "write a store", "ship the app"]);
+});
+
+test("clear done removes the done todos and is disabled when there are none", () => {
+  const { $, texts } = app(three);
+  const clear = () => $<HTMLButtonElement>("button.clear");
+  assert.equal(clear().textContent!.trim(), "Clear done");
+  assert.equal(clear().hasAttribute("disabled"), false);
+  fire(clear(), "click");
+  assert.deepEqual(texts(), ["write a store", "ship the app"]);
+  assert.equal(clear().hasAttribute("disabled"), true);
+});
+
+test("typed text is shown as text", () => {
+  const { add, rows } = app();
+  add("<img src=x onerror=alert(1)>");
+  assert.equal(rows()[0].querySelector("img"), null);
+  assert.equal(rows()[0].querySelector("span")!.textContent, "<img src=x onerror=alert(1)>");
+});
+
+test("the function start returns tears the whole app down", () => {
+  const { host, stop } = app(three);
+  stop();
+  assert.equal(host.children.length, 0);
+});
+'''
+
+[unit.step.project.solution]
+"src/app.ts" = '''
+import { signal } from "@dxjs/core";
+import { html } from "@dxjs/dom";
+import { component } from "@dxjs/component";
+import type { createTodoStore } from "./store.ts";
+import type { Filter } from "./types.ts";
+import { TodoList } from "./todo-list.ts";
+
+type TodoStore = ReturnType<typeof createTodoStore>;
+
+const FILTERS: Array<[Filter, string]> = [
+  ["all", "All"],
+  ["active", "Active"],
+  ["done", "Done"],
+];
+
+// The app: a form, the list, and a footer with the count, the filters and "Clear done".
+export const App = component((props: { store: TodoStore }) => {
+  const store = props.store;
+  const draft = signal("");
+  const submit = (e: Event) => {
+    e.preventDefault();
+    if (store.add(draft())) draft.set("");
+  };
+  const left = () => {
+    const n = store.remaining();
+    return n === 1 ? "1 item left" : n + " items left";
+  };
+  return html`
+    <form class="new-todo" @submit=${submit}>
+      <input
+        placeholder="What needs doing?"
+        .value=${() => draft()}
+        @input=${(e: Event) => draft.set((e.target as HTMLInputElement).value)}
+      />
+      <button>Add</button>
+    </form>
+    ${TodoList({
+      todos: () => store.visible(),
+      onToggle: (id) => store.toggle(id),
+      onRemove: (id) => store.remove(id),
+    })}
+    <footer>
+      <span class="remaining">${left}</span>
+      ${FILTERS.map(
+        ([filter, label]) => html`<button
+          class="filter"
+          data-filter=${filter}
+          aria-pressed=${() => String(store.filter() === filter)}
+          @click=${() => store.setFilter(filter)}
+        >${label}</button>`,
+      )}
+      <button class="clear" ?disabled=${() => !store.todos().some((t) => t.done)} @click=${() => store.clearDone()}>
+        Clear done
+      </button>
+    </footer>`;
+});
+'''
+"src/main.ts" = '''
+import { mount } from "@dxjs/component";
+import { createTodoStore } from "./store.ts";
+import type { Todo } from "./types.ts";
+import { App } from "./app.ts";
+
+// Create the store, mount the app, and return one function that tears both down.
+export function start(host: Element, initial: Todo[] = []): () => void {
+  const store = createTodoStore(initial);
+  const unmount = mount(App, host, { store });
+  return () => {
+    unmount();
+    store.dispose();
+  };
+}
+'''

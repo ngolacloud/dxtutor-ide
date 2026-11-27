@@ -12,7 +12,12 @@ export interface SpawnRequest {
   shell?: string | null;
   command?: string | null;
   env?: Record<string, string> | null;
+  /** r23 F4c: the Vault (and a lease of dynamic credentials) the backend puts in the terminal's environment */
+  vault?: TaskVault | null;
 }
+
+/** The Vault a task terminal takes its token (and, with `lease`, its credentials) from — resolved in Rust. */
+export interface TaskVault { addr: string; namespace?: string | null; lease?: string | null }
 
 export type Unlisten = () => void;
 

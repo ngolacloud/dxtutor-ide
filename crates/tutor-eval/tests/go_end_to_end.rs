@@ -43,6 +43,9 @@ fn go_phase(tests: &str) -> Phase {
         probe: None,
         hints: Vec::new(),
         dependencies: Vec::new(),
+        project: None,
+        support: Default::default(),
+        build: Default::default(),
     }
 }
 

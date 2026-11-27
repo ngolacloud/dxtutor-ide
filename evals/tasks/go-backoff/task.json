@@ -1,0 +1,9 @@
+{
+  "id": "go-backoff",
+  "title": "Exponential backoff with jitter",
+  "language": "go",
+  "category": "feature",
+  "prompt": "Implement `Backoff` in retry/backoff.go for the HTTP client: `NewBackoff(base, max time.Duration, jitter float64,\nrnd func() float64)` and `(b *Backoff) Next(attempt int) time.Duration`. The delay is `base * 2^attempt` capped at\n`max`; with jitter j (0..1) the delay becomes `d * (1 - j + 2*j*rnd())` and is still capped at `max`. `rnd` returns\nvalues in [0,1) and is injected for tests. Negative attempts are treated as 0; a huge attempt must not overflow.",
+  "check": "go test ./... 2>&1",
+  "test": "go test ./..."
+}

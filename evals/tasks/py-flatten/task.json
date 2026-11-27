@@ -1,0 +1,9 @@
+{
+  "id": "py-flatten",
+  "title": "Flatten and unflatten nested settings",
+  "language": "python",
+  "category": "feature",
+  "prompt": "The settings UI stores nested JSON as flat keys. Implement in app/flat.py `flatten(obj)` — nested dicts become\ndotted keys (`{\"db\": {\"host\": \"x\"}}` → `{\"db.host\": \"x\"}`) and lists use the index (`{\"tags\": [\"a\"]}` →\n`{\"tags.0\": \"a\"}`); empty dicts and lists are kept as values — and `unflatten(flat)`, its inverse (numeric segments\nbuild lists). `unflatten(flatten(x)) == x` for any JSON-like value whose dict keys contain no dots.",
+  "check": "python3 -m unittest discover -s tests -q 2>&1",
+  "test": "python3 -m unittest discover -s tests -q"
+}

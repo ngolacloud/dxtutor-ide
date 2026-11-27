@@ -5,7 +5,8 @@
 // (Cargo.toml for Rust, go.mod for Go, tsconfig/package.json for TS, pyproject for
 // Python). Rooting the server at the file's own project keeps the index small, fast
 // and correct, and makes a DETACHED project resolve — which a single server rooted
-// at a huge monorepo never would. The language registry (`LANGS` + `server_cmd`)
+// at a huge monorepo never would. The language registry (`languages/registry.json`, through
+// `tutor_eval::langreg`: languages, servers, root markers, init options, ready signals, quirks)
 // is the ONLY language-specific part; everything below is protocol-generic.
 //
 // THREADING: every command is `async` and runs its blocking work (the LSP
@@ -19,7 +20,9 @@
 // waits (bounded) for it, hover does not.
 
 use std::collections::{HashMap, HashSet};
+use std::ffi::OsString;
 use std::io::{BufReader, Read, Write};
+use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -27,7 +30,16 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
+use tutor_eval::langcontrib::{self, ContribLanguage, FileLanguage};
+use tutor_eval::langreg::{self, Server};
+use tutor_eval::lspconf::{self, Effective, TrustStore};
+use tutor_eval::lspinstall;
+
+// LSP P6: how a server ends (`shutdown`/`exit`, reaped), idle servers and the cap, its log
+mod lifecycle;
+pub use lifecycle::shutdown_all;
+use lifecycle::{emitter, Emit, Reason};
 
 struct Session {
     child: Option<Child>,
@@ -44,13 +56,37 @@ struct Session {
     /// «este servidor não tem isto» em vez de um erro ou de uma lista vazia.
     server_caps: Value,
     ready: bool,
-    /// Human label of the backing server ("rust-analyzer", "gopls", …) for the pill.
-    label: &'static str,
     /// Substring marking the end-of-index `$/progress` for this server (see `Lang`).
-    ready_signal: &'static str,
+    ready_signal: String,
+    /// What the session was started with (`fingerprint`): when the effective entry changes (an
+    /// override file), the session is stale and is restarted.
+    fingerprint: String,
+    /// The server's settings (`settings` of the effective entry, dotted keys nested): the answer to
+    /// `workspace/configuration`.
+    settings: Value,
+    /// The open folder whose override files made this session's entry (`None`: outside them all).
+    project: Option<String>,
     /// token → begin-title, so an `end` event (whose own title is empty) can be matched
     /// against `ready_signal` by the title announced when the work began.
     progress_titles: HashMap<String, String>,
+    // ── LSP P6 (`lifecycle`) ──
+    /// Its key in the session map ([`session_key`]).
+    key: String,
+    /// The server's label (`rust-analyzer`) and the root it runs at: the list of servers, the log.
+    label: String,
+    root: String,
+    /// The process id (`None` once it has ended).
+    pid: Option<u32>,
+    started: Instant,
+    /// The last time something was sent to it (a request, a notification, a document opened or
+    /// closed) or it was handed out for one: a server with no open document is idle from here.
+    last_used: Instant,
+    /// `initialize` was answered: a stop sends `shutdown` first (before it, only `exit` is allowed).
+    handshaken: bool,
+    /// Being shut down (or ended): nothing new is sent to it.
+    stopping: bool,
+    /// Where its events go (`lsp://diagnostics`, `lsp://status`, `lsp://log`, …).
+    emit: Emit,
 }
 
 type SessionMap = Arc<Mutex<HashMap<String, Arc<Mutex<Session>>>>>;
@@ -58,345 +94,449 @@ type SessionMap = Arc<Mutex<HashMap<String, Arc<Mutex<Session>>>>>;
 #[derive(Default, Clone)]
 pub struct LspState(SessionMap);
 
-/// A supported language: how to recognise its files and find its project root.
-/// This (+ `server_cmd`) is the ONLY place that knows about specific languages.
+/// A session group — ONE server per (group, project root): its registry server entry plus what
+/// a session needs. Everything language-specific comes from the language registry
+/// (`languages/registry.json`, read through `tutor_eval::langreg`) with the user's and the
+/// project's override files over it (`tutor_eval::lspconf`); this is only a view of it.
+#[derive(Clone)]
 struct Lang {
-    /// LSP `languageId` — also the session-key prefix and the UI's language tag.
-    id: &'static str,
-    /// File extensions (no dot) that map to this language.
-    exts: &'static [&'static str],
+    /// The server id (`rust`, `typescript`, `cpp`, …) — the session-key prefix and the
+    /// `language` the UI hears (`ServerStatus`, workspace symbols).
+    id: String,
     /// Project-root markers: the session roots at the nearest ancestor holding ANY.
-    markers: &'static [&'static str],
-    /// Human label of the server binary, for the progress pill ("rust-analyzer", "gopls", …).
-    server_label: &'static str,
-    /// Lowercase substring that, in the TOKEN or the BEGIN-title of a finishing
-    /// `$/progress`, marks the symbol index as built (session becomes `ready`). MEASURED
-    /// per server: rust-analyzer's token is `rustAnalyzer/cachePriming`; gopls titles its
-    /// startup "Setting up workspace". The ts/python signals are best-effort until their
-    /// servers are installed and measured the same way.
-    ready_signal: &'static str,
+    markers: Vec<String>,
+    /// Human label of the server, for the progress pill ("rust-analyzer", "gopls", …).
+    server_label: String,
+    /// Lowercase substring that, in the TOKEN or the BEGIN-title of a finishing `$/progress`,
+    /// marks the symbol index as built (session becomes `ready`). MEASURED per server:
+    /// rust-analyzer's token is `rustAnalyzer/cachePriming`; gopls titles its startup "Setting up
+    /// workspace"; pyright sends nothing (empty ⇒ ready as soon as `initialized`).
+    ready_signal: String,
+    server: Server,
+    /// The open folder whose override files apply (`None`: the file is outside every open folder).
+    project: Option<String>,
+    /// The registry this entry came from (bundled + user + project), with what it was made of.
+    eff: Arc<Effective>,
 }
 
-const LANGS: &[Lang] = &[
-    Lang {
-        id: "rust",
-        exts: &["rs"],
-        markers: &["Cargo.toml"],
-        server_label: "rust-analyzer",
-        ready_signal: "cachepriming",
-    },
-    Lang {
-        id: "go",
-        exts: &["go"],
-        markers: &["go.work", "go.mod"],
-        server_label: "gopls",
-        ready_signal: "setting up workspace",
-    },
-    Lang {
-        id: "typescript",
-        exts: &["ts", "tsx", "js", "jsx", "mjs", "cjs"],
-        markers: &["tsconfig.json", "jsconfig.json", "package.json"],
-        server_label: "typescript-language-server",
-        ready_signal: "initializ",
-    },
-    Lang {
-        id: "python",
-        exts: &["py", "pyi"],
-        markers: &[
-            "pyproject.toml",
-            "setup.py",
-            "setup.cfg",
-            "requirements.txt",
-            "Pipfile",
-            ".git",
-        ],
-        server_label: "pyright",
-        // Measured: pyright emits NO startup indexing progress (only transient per-request
-        // tokens) and answers immediately. Empty signal ⇒ ready as soon as `initialized`.
-        ready_signal: "",
-    },
-    // ── ADR-0005, Fase 4: as linguagens novas do Learning Track. Os servidores arrancam quando
-    // estão instalados; até haver medição, ficam prontos logo após `initialized`. ──
-    Lang {
-        id: "cpp",
-        exts: &["cpp", "cc", "cxx", "hpp", "hh", "hxx", "c", "h"],
-        markers: &[
-            "compile_commands.json",
-            "CMakeLists.txt",
-            ".clangd",
-            "Makefile",
-        ],
-        server_label: "clangd",
-        ready_signal: "",
-    },
-    Lang {
-        id: "swift",
-        exts: &["swift"],
-        markers: &["Package.swift"],
-        server_label: "sourcekit-lsp",
-        ready_signal: "",
-    },
-    Lang {
-        id: "csharp",
-        exts: &["cs"],
-        markers: &["global.json", "Directory.Build.props"],
-        server_label: "csharp-ls",
-        ready_signal: "",
-    },
-    Lang {
-        id: "java",
-        exts: &["java"],
-        markers: &["pom.xml", "build.gradle"],
-        server_label: "jdtls",
-        ready_signal: "",
-    },
-    Lang {
-        id: "kotlin",
-        exts: &["kt", "kts"],
-        markers: &["settings.gradle.kts", "build.gradle.kts"],
-        server_label: "kotlin-language-server",
-        ready_signal: "",
-    },
-    Lang {
-        id: "sql",
-        exts: &["sql"],
-        markers: &[],
-        server_label: "sqls",
-        ready_signal: "",
-    },
-];
+impl Lang {
+    fn of(server: &Server, project: Option<String>, eff: Arc<Effective>) -> Lang {
+        Lang {
+            id: server.id.clone(),
+            markers: server.root_markers.clone(),
+            server_label: server.label.clone(),
+            ready_signal: server.ready_signal.clone(),
+            server: server.clone(),
+            project,
+            eff,
+        }
+    }
+}
 
-/// Resolve um servidor nativo: primeiro o PATH (aumentado), depois pastas conhecidas —
+/// Every session group of a project's effective registry (a server no language uses — an override
+/// turned it off — is not one).
+fn langs_for(project: Option<&str>) -> Vec<Lang> {
+    let eff = effective(project);
+    eff.registry
+        .servers
+        .iter()
+        .filter(|s| serves_a_language(&eff.registry, &s.id))
+        .map(|s| Lang::of(s, project.map(String::from), eff.clone()))
+        .collect()
+}
+
+/// Does some language use this server?
+fn serves_a_language(reg: &langreg::Registry, server_id: &str) -> bool {
+    reg.languages
+        .iter()
+        .any(|l| l.server.as_deref() == Some(server_id))
+}
+
+/// The session group of a file: its language (by file name or extension, case-insensitive; by the
+/// first line for a file whose name says nothing) and that language's server — in the registry of
+/// the open folder the file is in (its override files included). A file the registry does not know
+/// may be a language an installed VSIX contributes (LSP P4, [`file_language`]).
+fn lang_for_path(path: &str) -> Option<Lang> {
+    let project = project_of(path);
+    let eff = effective(project.as_deref());
+    let server = file_language(&eff.registry, path)?
+        .server(&eff.registry)?
+        .clone();
+    Some(Lang::of(&server, project, eff))
+}
+
+/// The languages the installed VS Code extensions contribute (LSP P4), as the UI last sent them
+/// (`lsp_contributions`). Only file routing: the server one of them gets comes from the registry
+/// (`vscodeExtensions` + `vscodeLanguages`, see `tutor_eval::langcontrib`); a VSIX never brings a
+/// command.
+fn contributed() -> &'static Mutex<Vec<ContribLanguage>> {
+    static C: OnceLock<Mutex<Vec<ContribLanguage>>> = OnceLock::new();
+    C.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+/// The language of a file: the registry's rules first, then the VSIX languages
+/// (`langcontrib::file_language`; the first line is read only when the name says nothing).
+fn file_language<'a>(reg: &'a langreg::Registry, path: &str) -> Option<FileLanguage<'a>> {
+    let langs = contributed().lock().unwrap().clone();
+    langcontrib::file_language(reg, &langs, path, || {
+        langreg::first_line_of(Path::new(path))
+    })
+}
+
+/// The open folder a file belongs to (the deepest one), whose `.dxtutor/lsp.json` applies.
+fn project_of(path: &str) -> Option<String> {
+    fallback_root(path, &workspace_roots().lock().unwrap())
+}
+
+/// Where programs are looked for: the home folder, a PATH and the environment variables. In the
+/// app it is [`Host::current`]; the tests build one with an empty PATH and a temporary home.
+struct Host {
+    home: Option<PathBuf>,
+    path: OsString,
+    var: EnvLookup,
+    /// dxtutor's own folder of installed servers (`<app data>/lsp-servers`, LSP P3): looked in first
+    managed: Option<PathBuf>,
+}
+
+/// Reads an environment variable (the process's, or a test's).
+type EnvLookup = Box<dyn Fn(&str) -> Option<String>>;
+
+impl Host {
+    fn current() -> Host {
+        Host {
+            home: home_dir(),
+            path: augmented_path(None),
+            var: Box::new(|k| std::env::var(k).ok()),
+            managed: managed_root(),
+        }
+    }
+}
+
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .filter(|h| !h.is_empty())
+        .map(PathBuf::from)
+}
+
+/// `program` on the host's PATH.
+fn on_path(host: &Host, program: &str) -> Option<PathBuf> {
+    std::env::split_paths(&host.path)
+        .map(|d| d.join(program))
+        .find(|p| p.is_file())
+}
+
+/// The folders a `searchDirs` entry stands for: `~/` is the home folder and ONE `*` segment
+/// expands to every match, the highest version first.
+fn expand_dir(host: &Host, hint: &str) -> Vec<PathBuf> {
+    let expanded = match hint.strip_prefix("~/") {
+        Some(rest) => match &host.home {
+            Some(h) => h.join(rest).to_string_lossy().into_owned(),
+            None => return Vec::new(),
+        },
+        None => hint.to_string(),
+    };
+    glob_candidates(&expanded)
+}
+
+/// `program` in the first of `dirs` that holds it.
+fn in_dirs(host: &Host, program: &str, dirs: &[String]) -> Option<PathBuf> {
+    dirs.iter()
+        .flat_map(|d| expand_dir(host, d))
+        .map(|d| d.join(program))
+        .find(|p| p.is_file())
+}
+
+/// (Para os testes.) Resolve um servidor nativo: primeiro o PATH (aumentado), depois pastas conhecidas —
 /// `~/` é a pasta do utilizador e um segmento `*` escolhe a versão mais recente (ex.: a
 /// toolchain do swiftly, que traz o `sourcekit-lsp`). Erro legível se não estiver instalado.
+#[cfg(test)]
 fn native_server(name: &str, hints: &[&str]) -> Result<String, String> {
-    for dir in std::env::split_paths(&augmented_path()) {
-        let p = dir.join(name);
-        if p.is_file() {
-            return Ok(p.to_string_lossy().into_owned());
-        }
-    }
-    let home = std::env::var("HOME").unwrap_or_default();
-    for hint in hints {
-        let expanded = match hint.strip_prefix("~/") {
-            Some(rest) => format!("{home}/{rest}"),
-            None => hint.to_string(),
-        };
-        if let Some(dir) = newest_glob(&expanded) {
-            let p = dir.join(name);
-            if p.is_file() {
-                return Ok(p.to_string_lossy().into_owned());
-            }
-        }
-    }
-    Err(format!(
-        "servidor de linguagem `{name}` não encontrado — instala-o e põe-no no PATH"
-    ))
+    let host = Host::current();
+    let dirs: Vec<String> = hints.iter().map(|h| h.to_string()).collect();
+    on_path(&host, name)
+        .or_else(|| in_dirs(&host, name, &dirs))
+        .map(|p| p.to_string_lossy().into_owned())
+        .ok_or_else(|| not_found(name))
 }
 
-/// Expande um único segmento `*` para a entrada com a versão mais alta (`6.4.3` > `6.10.0`
-/// comparado numericamente, segmento a segmento).
-fn newest_glob(path: &str) -> Option<std::path::PathBuf> {
+fn not_found(name: &str) -> String {
+    format!("servidor de linguagem `{name}` não encontrado — instala-o e põe-no no PATH")
+}
+
+/// Every expansion of a single `*` segment, the highest version first (`6.10.0` > `6.4.3`,
+/// compared numerically, segment by segment). A path without `*` is itself.
+fn glob_candidates(path: &str) -> Vec<PathBuf> {
     let Some((before, after)) = path.split_once('*') else {
-        return Some(std::path::PathBuf::from(path));
+        return vec![PathBuf::from(path)];
     };
     let key = |s: &str| -> Vec<u64> {
         s.split(|c: char| !c.is_ascii_digit())
             .filter_map(|p| p.parse().ok())
             .collect()
     };
-    let mut names: Vec<String> = std::fs::read_dir(before)
-        .ok()?
+    let Ok(rd) = std::fs::read_dir(before) else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = rd
         .flatten()
         .filter(|e| e.path().is_dir())
         .map(|e| e.file_name().to_string_lossy().into_owned())
         .collect();
-    names.sort_by_key(|n| key(n));
-    let newest = names.pop()?;
-    Some(std::path::PathBuf::from(format!("{before}{newest}{after}")))
+    names.sort_by_key(|n| std::cmp::Reverse(key(n)));
+    names
+        .into_iter()
+        .map(|n| PathBuf::from(format!("{before}{n}{after}")))
+        .collect()
 }
 
-fn lang_for_path(path: &str) -> Option<&'static Lang> {
-    let ext = std::path::Path::new(path).extension()?.to_str()?;
-    LANGS.iter().find(|l| l.exts.contains(&ext))
+/// Expande um único segmento `*` para a entrada com a versão mais alta.
+#[cfg(test)]
+fn newest_glob(path: &str) -> Option<PathBuf> {
+    glob_candidates(path).into_iter().next()
 }
 
-/// The rust-analyzer binary to spawn. The bare `rust-analyzer` on PATH is often the
-/// rustup PROXY, which INFINITELY RECURSES (and crashes) when the active toolchain of the
-/// opened project lacks the rust-analyzer component (common with a nightly-pinned fuzz
-/// crate). We therefore resolve a CONCRETE toolchain binary. Cached for the process.
-fn ra_bin() -> String {
-    static BIN: OnceLock<String> = OnceLock::new();
-    BIN.get_or_init(|| {
-        if let Ok(p) = std::env::var("DXTUTOR_RUST_ANALYZER") {
-            if !p.is_empty() {
-                return p;
-            }
+/// `<app data>/lsp-servers`: where dxtutor installs servers from the registry's recipes (LSP P3,
+/// `tutor_eval::lspinstall`). `None` in unit tests and before start-up.
+pub(crate) fn managed_root() -> Option<PathBuf> {
+    conf().lock().unwrap().managed.clone()
+}
+
+/// The server's program in dxtutor's own folder (an install from a recipe) — unless its
+/// `envOverride` variable is set, which still wins.
+fn managed_hit(server: &Server, host: &Host) -> Option<PathBuf> {
+    let env_set = server
+        .env_override
+        .as_ref()
+        .and_then(|var| (host.var)(var))
+        .is_some_and(|v| !v.is_empty());
+    if env_set {
+        return None;
+    }
+    lspinstall::managed_program(host.managed.as_deref()?, &server.id, &server.command)
+}
+
+/// The binary a registry server runs, found the way its `resolver` says (see `tutor_eval::langreg`).
+/// An `envOverride` variable that is set wins; if it names no file, that is the answer (not a
+/// silent fall-through to another binary). Then dxtutor's own folder of installed servers (LSP P3),
+/// then the resolver. A human error when nothing is found lets the UI tell the student what to add.
+fn resolve_server(server: &Server, host: &Host) -> Result<String, String> {
+    if let Some(var) = &server.env_override {
+        if let Some(v) = (host.var)(var).filter(|v| !v.is_empty()) {
+            return if Path::new(&v).is_file() {
+                Ok(v)
+            } else {
+                Err(format!("{var}={v}: esse ficheiro não existe"))
+            };
         }
-        if let Ok(out) = Command::new("rustup")
-            .args(["which", "--toolchain", "stable", "rust-analyzer"])
+    }
+    if let Some(p) = managed_hit(server, host) {
+        return Ok(p.to_string_lossy().into_owned());
+    }
+    let name = server.command.as_str();
+    let dirs = &server.search_dirs;
+    let found = match server.resolver() {
+        "rustup" => rustup_toolchain_bin(host, name)
+            .or_else(|| on_path(host, name).filter(|p| !is_rustup_proxy(host, p)))
+            .or_else(|| in_dirs(host, name, dirs)),
+        "go" => gopath_bin(host, name)
+            .or_else(|| in_dirs(host, name, dirs))
+            .or_else(|| on_path(host, name)),
+        "node" => in_dirs(host, name, dirs).or_else(|| on_path(host, name)),
+        _ => on_path(host, name).or_else(|| in_dirs(host, name, dirs)),
+    };
+    found
+        .map(|p| p.to_string_lossy().into_owned())
+        .ok_or_else(|| not_found(name))
+}
+
+/// rust-analyzer from a CONCRETE toolchain. The bare `rust-analyzer` on PATH is often the rustup
+/// PROXY, which INFINITELY RECURSES (and crashes) when the active toolchain of the opened project
+/// lacks the component (common with a nightly-pinned fuzz crate): `rustup which --toolchain
+/// stable`, else a `~/.rustup/toolchains/*/bin` that has it (stable first).
+fn rustup_toolchain_bin(host: &Host, name: &str) -> Option<PathBuf> {
+    let rustup = on_path(host, "rustup").or_else(|| {
+        let p = host.home.as_ref()?.join(".cargo/bin/rustup");
+        p.is_file().then_some(p)
+    });
+    if let Some(rustup) = rustup {
+        if let Ok(out) = Command::new(rustup)
+            .env("PATH", &host.path)
+            .args(["which", "--toolchain", "stable", name])
             .output()
         {
             if out.status.success() {
-                let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                if std::path::Path::new(&p).is_file() {
-                    return p;
+                let p = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim());
+                if p.is_file() {
+                    return Some(p);
                 }
             }
         }
-        if let Ok(home) = std::env::var("HOME") {
-            if let Ok(rd) =
-                std::fs::read_dir(std::path::Path::new(&home).join(".rustup/toolchains"))
-            {
-                let mut fallback = None;
-                for e in rd.flatten() {
-                    let b = e.path().join("bin/rust-analyzer");
-                    if b.is_file() {
-                        if e.file_name().to_string_lossy().starts_with("stable") {
-                            return b.to_string_lossy().to_string();
-                        }
-                        fallback.get_or_insert_with(|| b.to_string_lossy().to_string());
-                    }
-                }
-                if let Some(f) = fallback {
-                    return f;
-                }
+    }
+    let rd = std::fs::read_dir(host.home.as_ref()?.join(".rustup/toolchains")).ok()?;
+    let mut fallback = None;
+    for e in rd.flatten() {
+        let b = e.path().join("bin").join(name);
+        if b.is_file() {
+            if e.file_name().to_string_lossy().starts_with("stable") {
+                return Some(b);
             }
+            fallback.get_or_insert(b);
         }
-        "rust-analyzer".to_string()
-    })
-    .clone()
+    }
+    fallback
 }
 
-/// First existing file among `$HOME/<rel>` candidates, else None.
-fn home_bin(rels: &[&str]) -> Option<String> {
-    let home = std::env::var("HOME").ok()?;
-    rels.iter()
-        .map(|r| std::path::Path::new(&home).join(r))
+/// Is `p` a rustup proxy (a link to the `rustup` binary)? rustup installs its proxies as hard
+/// links (symbolic on some systems) next to `rustup`.
+fn is_rustup_proxy(host: &Host, p: &Path) -> bool {
+    let canon = std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    if canon
+        .file_name()
+        .is_some_and(|n| n.to_string_lossy().starts_with("rustup"))
+    {
+        return true;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let id = |q: &Path| std::fs::metadata(q).ok().map(|m| (m.dev(), m.ino()));
+        let me = id(p);
+        let rustups = [
+            p.parent().map(|d| d.join("rustup")),
+            on_path(host, "rustup"),
+        ];
+        if me.is_some() && rustups.iter().flatten().any(|r| id(r) == me) {
+            return true;
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = host;
+    false
+}
+
+/// `program` in `$(go env GOPATH)/bin` (every GOPATH entry).
+fn gopath_bin(host: &Host, program: &str) -> Option<PathBuf> {
+    let go = on_path(host, "go")?;
+    let out = Command::new(go)
+        .env("PATH", &host.path)
+        .args(["env", "GOPATH"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let gp = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    std::env::split_paths(&gp)
+        .map(|d| d.join("bin").join(program))
         .find(|p| p.is_file())
-        .map(|p| p.to_string_lossy().to_string())
 }
 
-/// gopls: `$DXTUTOR_GOPLS`, then `$(go env GOPATH)/bin`, then `~/go/bin`, then PATH.
-fn gopls_bin() -> Result<String, String> {
-    static BIN: OnceLock<Option<String>> = OnceLock::new();
-    BIN.get_or_init(|| {
-        if let Ok(p) = std::env::var("DXTUTOR_GOPLS") {
-            if std::path::Path::new(&p).is_file() {
-                return Some(p);
-            }
-        }
-        if let Ok(out) = Command::new("go")
-            .env("PATH", augmented_path())
-            .args(["env", "GOPATH"])
-            .output()
-        {
-            if out.status.success() {
-                let gp = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                let b = std::path::Path::new(&gp).join("bin/gopls");
-                if b.is_file() {
-                    return Some(b.to_string_lossy().to_string());
-                }
-            }
-        }
-        home_bin(&["go/bin/gopls"])
-    })
-    .clone()
-    .ok_or_else(|| {
-        "gopls não encontrado (instala com `go install golang.org/x/tools/gopls@latest`)".into()
-    })
-}
-
-/// A node-based stdio server (typescript-language-server, pyright-langserver): look in
-/// the active nvm node bin dir, then PATH.
-fn node_server(name: &'static str) -> Result<String, String> {
-    if let Some(p) = home_bin(&[
-        &format!(".nvm/versions/node/v25.0.0/bin/{name}"),
-        &format!(".local/bin/{name}"),
-    ]) {
-        return Ok(p);
+/// Resolve the language server command (program + args) of a registry server. A human error
+/// when the server isn't installed lets the UI tell the student what to add. The resolvers that
+/// run a program (`rustup`, `go`) remember what they found for the rest of the run — never a
+/// miss, so a server installed from the notice is found without restarting the app. dxtutor's own
+/// folder is looked in before that memory (a stat): what it installs wins at once.
+fn server_cmd(server: &Server) -> Result<(String, Vec<String>), String> {
+    let host = Host::current();
+    if let Some(p) = managed_hit(server, &host) {
+        return Ok((p.to_string_lossy().into_owned(), server.args.clone()));
     }
-    // nvm has many node versions — pick the newest that carries the binary.
-    if let Ok(home) = std::env::var("HOME") {
-        if let Ok(rd) = std::fs::read_dir(std::path::Path::new(&home).join(".nvm/versions/node")) {
-            let mut cands: Vec<_> = rd
-                .flatten()
-                .map(|e| e.path().join("bin").join(name))
-                .filter(|p| p.is_file())
-                .collect();
-            cands.sort();
-            if let Some(p) = cands.pop() {
-                return Ok(p.to_string_lossy().to_string());
-            }
+    static FOUND: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+    let cache = FOUND.get_or_init(Default::default);
+    let cacheable = matches!(server.resolver(), "rustup" | "go");
+    // an override can change how the same server id is found: the key is everything that decides it
+    let key = format!(
+        "{}\u{0}{}\u{0}{}\u{0}{:?}\u{0}{:?}",
+        server.id,
+        server.command,
+        server.resolver(),
+        server.search_dirs,
+        server.env_override
+    );
+    if cacheable {
+        if let Some(p) = cache.lock().unwrap().get(&key) {
+            return Ok((p.clone(), server.args.clone()));
         }
     }
-    Err(format!(
-        "{name} não encontrado (instala com `npm i -g {name}`)"
-    ))
+    let program = resolve_server(server, &host)?;
+    if cacheable {
+        cache.lock().unwrap().insert(key, program.clone());
+    }
+    Ok((program, server.args.clone()))
 }
 
-/// The newest nvm node's GLOBAL `node_modules`, for `NODE_PATH`. typescript-language-server
-/// does `require('typescript')` and does NOT bundle it, so without this it can't find the
-/// globally-installed `typescript` and silently answers nothing. (pyright bundles its own.)
-/// NOTE: it needs the classic TypeScript 5.x `tsserver.js`; `typescript@7` (the native tsgo
-/// preview) ships no tsserver and breaks it — keep the global `typescript` on the 5.x line.
-fn node_global_modules() -> Option<String> {
-    let home = std::env::var("HOME").ok()?;
-    let rd = std::fs::read_dir(std::path::Path::new(&home).join(".nvm/versions/node")).ok()?;
-    let mut cands: Vec<_> = rd
-        .flatten()
-        .map(|e| e.path().join("lib/node_modules"))
-        .filter(|p| p.is_dir())
+/// The global `node_modules` for `NODE_PATH` (quirk `nodePath`): typescript-language-server does
+/// `require('typescript')` and does NOT bundle it, so without this it can't find the
+/// globally-installed `typescript` and silently answers nothing. The one next to the server
+/// (`<prefix>/bin/server` → `<prefix>/lib/node_modules`, where `npm install -g` put both), else
+/// the newest nvm node's. NOTE: it needs the classic TypeScript 5.x `tsserver.js`; `typescript@7`
+/// (the native tsgo preview) ships no tsserver and breaks it — keep the global `typescript` on 5.x.
+fn node_global_modules(program: &str) -> Option<String> {
+    let beside = Path::new(program)
+        .parent()
+        .and_then(Path::parent)
+        .map(|prefix| prefix.join("lib/node_modules"))
+        .filter(|p| p.is_dir());
+    beside
+        .or_else(|| {
+            let host = Host {
+                home: home_dir(),
+                path: OsString::new(),
+                var: Box::new(|_| None),
+                managed: None,
+            };
+            expand_dir(&host, "~/.nvm/versions/node/*/lib/node_modules")
+                .into_iter()
+                .find(|p| p.is_dir())
+        })
+        .map(|p| p.to_string_lossy().into_owned())
+}
+
+/// The login shell's PATH (`shellenv`: a desktop app started from the launcher inherits a bare
+/// PATH, without nvm's node or `~/go/bin`). Not asked in unit tests, which must not start a shell.
+fn login_shell_path() -> Option<String> {
+    if cfg!(test) {
+        None
+    } else {
+        crate::shellenv::get().get("PATH").cloned()
+    }
+}
+
+/// PATH for finding and running the servers, so they find their runtimes (gopls needs `go`; the
+/// node servers need `node`) regardless of the app's own PATH: `front` (the node server's own
+/// bin folder, whose `node` is the one it was installed with), the go folders, the login shell's
+/// PATH and the app's — without repeats, joined the platform's way (`;` on Windows).
+fn augmented_path(front: Option<&Path>) -> OsString {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    dirs.extend(front.map(Path::to_path_buf));
+    dirs.push(PathBuf::from("/usr/local/go/bin"));
+    dirs.extend(home_dir().map(|h| h.join("go/bin")));
+    let base = std::env::var_os("PATH").unwrap_or_default();
+    join_dirs(
+        dirs,
+        login_shell_path().map(OsString::from).as_deref(),
+        &base,
+    )
+}
+
+/// `extra` then every entry of `login` and `base`, first occurrence kept.
+fn join_dirs(
+    extra: Vec<PathBuf>,
+    login: Option<&std::ffi::OsStr>,
+    base: &std::ffi::OsStr,
+) -> OsString {
+    let mut seen = HashSet::new();
+    let all: Vec<PathBuf> = extra
+        .into_iter()
+        .chain(
+            login
+                .map(|l| std::env::split_paths(l).collect::<Vec<_>>())
+                .unwrap_or_default(),
+        )
+        .chain(std::env::split_paths(base))
+        .filter(|d| !d.as_os_str().is_empty() && seen.insert(d.clone()))
         .collect();
-    cands.sort();
-    cands.pop().map(|p| p.to_string_lossy().to_string())
-}
-
-/// Resolve the language server command (program + args) for `lang_id`. A human error
-/// when the server isn't installed lets the UI tell the student what to add.
-fn server_cmd(lang_id: &str) -> Result<(String, Vec<String>), String> {
-    match lang_id {
-        "rust" => Ok((ra_bin(), vec![])),
-        "go" => Ok((gopls_bin()?, vec![])),
-        "typescript" => Ok((
-            node_server("typescript-language-server")?,
-            vec!["--stdio".into()],
-        )),
-        "python" => Ok((node_server("pyright-langserver")?, vec!["--stdio".into()])),
-        "cpp" => Ok((native_server("clangd", &[])?, vec![])),
-        "swift" => Ok((
-            native_server(
-                "sourcekit-lsp",
-                &[
-                    "~/.local/share/swiftly/toolchains/*/usr/bin",
-                    "/usr/share/swift/usr/bin",
-                    "/opt/swift/usr/bin",
-                ],
-            )?,
-            vec![],
-        )),
-        "csharp" => Ok((native_server("csharp-ls", &["~/.dotnet/tools"])?, vec![])),
-        "java" => Ok((
-            native_server("jdtls", &["~/.local/share/jdtls/bin"])?,
-            vec![],
-        )),
-        "kotlin" => Ok((native_server("kotlin-language-server", &[])?, vec![])),
-        "sql" => Ok((native_server("sqls", &["~/go/bin"])?, vec![])),
-        other => Err(format!("linguagem sem servidor LSP: {other}")),
-    }
-}
-
-/// PATH augmented with the host's go + node toolchains so spawned servers find their
-/// runtimes (gopls needs `go`; the node servers need `node`) regardless of the app's PATH.
-fn augmented_path() -> String {
-    let base = std::env::var("PATH").unwrap_or_default();
-    let mut extra = vec!["/usr/local/go/bin".to_string()];
-    if let Ok(home) = std::env::var("HOME") {
-        extra.push(format!("{home}/go/bin"));
-        extra.push(format!("{home}/.nvm/versions/node/v25.0.0/bin"));
-    }
-    extra.push(base);
-    extra.join(":")
+    std::env::join_paths(all).unwrap_or_else(|_| base.to_os_string())
 }
 
 /// Pastas abertas na app (registadas por `lsp_start`). São a raiz de reserva de um ficheiro
@@ -421,7 +561,7 @@ fn fallback_root(path: &str, roots: &HashSet<String>) -> Option<String> {
 }
 
 /// Nearest ancestor directory of `path` holding any of `markers` (the file's project root).
-fn project_root_for(path: &str, markers: &[&str]) -> Option<String> {
+fn project_root_for(path: &str, markers: &[String]) -> Option<String> {
     let mut dir = std::path::Path::new(path).parent();
     while let Some(d) = dir {
         if markers.iter().any(|m| d.join(m).exists()) {
@@ -494,17 +634,21 @@ fn server_request_id(msg: &Value) -> Option<Value> {
     .then(|| id.clone())
 }
 
-fn dispatch(session: &Arc<Mutex<Session>>, app: &AppHandle, root: &str, label: &str, msg: Value) {
+fn dispatch(session: &Arc<Mutex<Session>>, emit: &Emit, root: &str, label: &str, msg: Value) {
     if let Some(id) = server_request_id(&msg) {
         let method = msg["method"].as_str().unwrap_or_default();
         {
             let result = if method == "workspace/configuration" {
-                let n = msg["params"]["items"].as_array().map_or(0, Vec::len);
-                Value::Array(vec![Value::Null; n])
+                // the server's settings (an override's `settings`), section by section
+                let settings = session
+                    .lock()
+                    .map(|g| g.settings.clone())
+                    .unwrap_or(Value::Null);
+                configuration_reply(&settings, &msg["params"])
             } else if method == "workspace/applyEdit" {
                 // Um comando executado no servidor (code action) quer mudar ficheiros: a UI
                 // (features/lsp) aplica a WorkspaceEdit pelo mesmo caminho do rename.
-                let _ = app.emit(
+                emit(
                     "lsp://apply-edit",
                     json!({
                         "root": root,
@@ -534,7 +678,7 @@ fn dispatch(session: &Arc<Mutex<Session>>, app: &AppHandle, root: &str, label: &
     } else if let Some(method) = msg.get("method").and_then(Value::as_str) {
         if method == "textDocument/publishDiagnostics" {
             cache_diagnostics(msg.get("params").unwrap_or(&Value::Null));
-            let _ = app.emit(
+            emit(
                 "lsp://diagnostics",
                 msg.get("params").cloned().unwrap_or(Value::Null),
             );
@@ -545,7 +689,7 @@ fn dispatch(session: &Arc<Mutex<Session>>, app: &AppHandle, root: &str, label: &
             let title = v["title"].as_str().unwrap_or("");
             // Surface the server's own indexing progress so the UI can show it (with the
             // server's label, so the pill reads "gopls · …" for Go, "rust-analyzer · …" etc.).
-            let _ = app.emit(
+            emit(
                 "lsp://status",
                 json!({
                     "root": root,
@@ -570,13 +714,16 @@ fn dispatch(session: &Arc<Mutex<Session>>, app: &AppHandle, root: &str, label: &
                     "end" => {
                         let begin_title = g.progress_titles.remove(&token).unwrap_or_default();
                         let hay = format!("{} {}", token, begin_title).to_ascii_lowercase();
-                        if !g.ready_signal.is_empty() && hay.contains(g.ready_signal) {
+                        if !g.ready_signal.is_empty() && hay.contains(g.ready_signal.as_str()) {
                             g.ready = true;
                         }
                     }
                     _ => {}
                 }
             }
+        } else if method == "window/logMessage" {
+            // errors, warnings and info go to the server's log (the «Language servers» output)
+            lifecycle::log_message(session, &msg["params"]);
         }
     }
 }
@@ -598,6 +745,10 @@ fn session_request_within(
     let (tx, rx) = channel();
     {
         let mut g = session.lock().map_err(|_| "lsp lock")?;
+        if g.stopping {
+            return Err(format!("{} was stopped", g.label));
+        }
+        g.last_used = Instant::now();
         g.next_id += 1;
         let id = g.next_id;
         g.pending.insert(id, tx);
@@ -615,19 +766,37 @@ fn session_notify(
     params: Value,
 ) -> Result<(), String> {
     let mut g = session.lock().map_err(|_| "lsp lock")?;
+    if g.stopping {
+        return Err(format!("{} was stopped", g.label));
+    }
+    g.last_used = Instant::now();
     let msg = json!({ "jsonrpc": "2.0", "method": method, "params": params });
     let si = g.stdin.as_mut().ok_or("lsp not started")?;
     write_msg(si, &msg).map_err(|e| e.to_string())
 }
 
-/// Quanto esperar que outra thread acabe o `initialize` de uma sessão que já está no mapa.
-const INIT_BUDGET: Duration = Duration::from_secs(60);
+/// Quanto tempo um servidor tem para responder ao `initialize`, a contar do arranque. Uma JVM sob carga é lenta
+/// (medido a 2026-11-26, carga ~40: o jdtls levou 27 s até à primeira linha do registo e mais 12 s a responder — os
+/// 30 s de então passaram, o `initialized` nunca foi enviado e o projecto nunca se importou). Um servidor que morre
+/// falha logo (o leitor larga o pedido pendente): este tecto só limita um servidor vivo que nunca responde.
+const INIT_BUDGET: Duration = Duration::from_secs(180);
 
-/// Espera (limitada) que a sessão tenha feito o `initialize`/`initialized` (ver `Session::initialized`).
-fn wait_initialized(session: &Arc<Mutex<Session>>, budget: Duration) {
+/// Espera (limitada) que a sessão acabe o `initialize`/`initialized` (ver `Session::initialized`), mais uma margem
+/// para quem chegou depois de quem a arrancou. Uma sessão que falhou, foi parada ou ainda não acabou é um erro —
+/// nunca se usa a meio: um `didOpen` antes do `initialized` deixou o jdtls sem projecto (sem diagnósticos).
+fn wait_initialized(session: &Arc<Mutex<Session>>, budget: Duration) -> Result<(), String> {
     let start = Instant::now();
+    let budget = budget + Duration::from_secs(10);
     while !session.lock().map(|g| g.initialized).unwrap_or(true) && start.elapsed() < budget {
         thread::sleep(Duration::from_millis(50));
+    }
+    let g = session.lock().map_err(|_| "lsp lock")?;
+    if g.initialized && g.handshaken && !g.stopping {
+        Ok(())
+    } else if g.initialized {
+        Err(format!("{} did not start", g.label))
+    } else {
+        Err(format!("{} is still starting", g.label))
     }
 }
 
@@ -644,19 +813,50 @@ fn wait_ready(session: &Arc<Mutex<Session>>, budget: Duration) {
     }
 }
 
-/// Opções de arranque (`initializationOptions`) por linguagem. O jdtls tem o signatureHelp
-/// DESLIGADO por omissão: sem `java.signatureHelp.enabled` responde sempre sem assinaturas
-/// (medido directamente contra o jdtls 1.61). Os outros servidores não precisam de nada.
-fn init_options(lang: &str) -> Value {
-    match lang {
-        // `symbols.includeSourceMethodDeclarations`: sem isto o workspace/symbol do jdtls só
-        // devolve tipos (medido: «ad» não encontrava `add`).
-        "java" => json!({ "settings": { "java": {
-            "signatureHelp": { "enabled": true },
-            "symbols": { "includeSourceMethodDeclarations": true }
-        } } }),
-        _ => Value::Null,
-    }
+/// (Para os testes.) Opções de arranque (`initializationOptions`) do servidor `id`, do registo de linguagens
+/// (`initOptions`). O jdtls tem o signatureHelp DESLIGADO por omissão: sem
+/// `java.signatureHelp.enabled` responde sempre sem assinaturas (medido directamente contra o
+/// jdtls 1.61), e sem `symbols.includeSourceMethodDeclarations` o workspace/symbol dele só devolve
+/// tipos (medido: «ad» não encontrava `add`). Os outros servidores não precisam de nada.
+#[cfg(test)]
+fn init_options(id: &str) -> Value {
+    langreg::registry()
+        .server(id)
+        .map(|s| s.init_options.clone())
+        .unwrap_or(Value::Null)
+}
+
+/// The answer to `workspace/configuration`: one value per item, from the server's settings by
+/// section (`tutor_eval::langreg::settings_section`); `null` for a section it has no settings for.
+fn configuration_reply(settings: &Value, params: &Value) -> Value {
+    Value::Array(
+        params["items"]
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .map(|it| langreg::settings_section(settings, it["section"].as_str()))
+                    .collect()
+            })
+            .unwrap_or_default(),
+    )
+}
+
+/// What a session is started with: when any of it changes in the effective entry, a running
+/// session is stale (it is restarted). Settings are not here: they are sent to the running server.
+fn fingerprint(s: &Server) -> String {
+    json!({
+        "command": s.command,
+        "args": s.args,
+        "resolver": s.resolver(),
+        "searchDirs": s.search_dirs,
+        "envOverride": s.env_override,
+        "rootMarkers": s.root_markers,
+        "readySignal": s.ready_signal,
+        "initOptions": s.init_options,
+        "quirks": s.quirks,
+    })
+    .to_string()
 }
 
 fn capabilities() -> Value {
@@ -728,10 +928,14 @@ fn capabilities() -> Value {
 }
 
 /// Get the session for `key` (languageId + root), starting and initializing the resolved
-/// server at `root` if needed. `program`/`args` come from `server_cmd`. Blocking.
+/// server at `root` if needed. `program`/`args` come from `server_cmd`. A session started from an
+/// older entry (its `fingerprint` differs: an override file changed how it starts) is shut down and
+/// replaced. A new server may stop the least recently used one with no open document, to stay
+/// under the cap (`lifecycle::enforce`). It is handed out only after its `initialize` (the
+/// GOTCHA-arranque race), so a server reaped while idle comes back the same way. Blocking.
 fn get_or_start(
     map: &SessionMap,
-    app: &AppHandle,
+    emit: &Emit,
     key: &str,
     root: &str,
     lang: &Lang,
@@ -742,28 +946,68 @@ fn get_or_start(
         .lock()
         .unwrap()
         .insert(format!("{} ({})", root, lang.id));
+    let fp = fingerprint(&lang.server);
+    // one start at a time per key: requests that race for a server that is not running (after an
+    // idle stop, say) wait for the one being started instead of each spawning their own
+    let start_lock = start_lock(key);
+    let starting = start_lock.lock().map_err(|_| "lsp start lock")?;
     {
-        let existing = map.lock().map_err(|_| "lsp map lock")?.get(key).cloned();
-        if let Some(s) = existing {
-            wait_initialized(&s, INIT_BUDGET);
-            return Ok(s);
+        let mut m = map.lock().map_err(|_| "lsp map lock")?;
+        if let Some(s) = m.get(key).cloned() {
+            // touched under the map's lock: the idle reaper (which decides under it too) either
+            // removed it already — and it is not found — or sees it in use now
+            let same = s
+                .lock()
+                .map(|mut g| {
+                    g.last_used = Instant::now();
+                    g.fingerprint == fp && !g.stopping
+                })
+                .unwrap_or(false);
+            if same {
+                drop(m);
+                drop(starting);
+                wait_initialized(&s, INIT_BUDGET)?;
+                // the same start-up, maybe newer settings (an approval, or a reload not seen yet)
+                sync_settings(&s, &lang.server.settings);
+                return Ok(s);
+            }
+            m.remove(key);
+            drop(m);
+            lifecycle::shutdown(&s, Reason::Config);
         }
     }
+    // so gopls finds `go`, and a node server finds the `node` it was installed with
+    let front = (lang.server.resolver() == "node")
+        .then(|| Path::new(program).parent())
+        .flatten();
     let mut cmd = Command::new(program);
     cmd.args(args)
-        .env("PATH", augmented_path()) // so gopls finds `go`, the node servers find `node`
+        .current_dir(root)
+        .env("PATH", augmented_path(front))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null());
-    if let Some(nm) = node_global_modules() {
-        cmd.env("NODE_PATH", nm); // so typescript-language-server can require('typescript')
+        .stderr(Stdio::piped());
+    // its own process group: a server that does not exit is killed with what it started
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
+    if lang.server.has_quirk("nodePath") {
+        if let Some(nm) = node_global_modules(program) {
+            cmd.env("NODE_PATH", nm); // so typescript-language-server can require('typescript')
+        }
+    }
+    for (k, v) in managed_launch_env(program) {
+        cmd.env(k, v); // a server dxtutor installed: a gem's GEM_PATH, a .NET tool's DOTNET_ROOT
     }
     let mut child = cmd
         .spawn()
         .map_err(|e| format!("failed to start {}: {e}", lang.server_label))?;
     let stdin = child.stdin.take().ok_or("lsp server: no stdin")?;
     let stdout = child.stdout.take().ok_or("lsp server: no stdout")?;
+    let stderr = child.stderr.take();
+    let settings = langreg::normalize_settings(&lang.server.settings);
+    let now = Instant::now();
     let session = Arc::new(Mutex::new(Session {
+        pid: Some(child.id()),
         child: Some(child),
         stdin: Some(stdin),
         next_id: 0,
@@ -772,37 +1016,57 @@ fn get_or_start(
         initialized: false,
         server_caps: Value::Null,
         ready: false,
-        label: lang.server_label,
-        ready_signal: lang.ready_signal,
+        ready_signal: lang.ready_signal.clone(),
+        fingerprint: fp,
+        settings: settings.clone(),
+        project: lang.project.clone(),
         progress_titles: HashMap::new(),
+        key: key.to_string(),
+        label: lang.server_label.clone(),
+        root: root.to_string(),
+        started: now,
+        last_used: now,
+        handshaken: false,
+        stopping: false,
+        emit: emit.clone(),
     }));
+    lifecycle::started(&session);
+    if let Some(err) = stderr {
+        lifecycle::read_stderr(&session, err);
+    }
     {
         let mut m = map.lock().map_err(|_| "lsp map lock")?;
         if let Some(existing) = m.get(key) {
-            if let Ok(mut g) = session.lock() {
-                if let Some(mut c) = g.child.take() {
-                    let _ = c.kill();
-                }
-            }
+            // another thread started this one first: ours goes (it never had an `initialize`)
             let existing = existing.clone();
             drop(m);
-            wait_initialized(&existing, INIT_BUDGET);
+            let ours = session.clone();
+            thread::spawn(move || lifecycle::shutdown(&ours, Reason::Replaced));
+            drop(starting);
+            wait_initialized(&existing, INIT_BUDGET)?;
             return Ok(existing);
         }
         m.insert(key.to_string(), session.clone());
     }
+    // in the map: whoever comes next finds it (and waits for its `initialize`)
+    drop(starting);
+    emit("lsp://servers", json!({}));
     let rsession = session.clone();
-    let rapp = app.clone();
+    let rmap = map.clone();
+    let remit = emit.clone();
     let rroot = root.to_string();
-    let rlabel = lang.server_label.to_string();
+    let rlabel = lang.server_label.clone();
     thread::spawn(move || {
         let mut r = BufReader::new(stdout);
         while let Some(msg) = read_message(&mut r) {
-            dispatch(&rsession, &rapp, &rroot, &rlabel, msg);
+            dispatch(&rsession, &remit, &rroot, &rlabel, msg);
         }
+        // its stdout closed: it was stopped, or it died (removed and reaped here)
+        lifecycle::reader_ended(&rmap, &rsession);
     });
     let uri = path_to_uri(root);
-    let init = session_request(
+    // as long as the others wait for it (a JVM server's first start is slow)
+    let init = session_request_within(
         &session,
         "initialize",
         json!({
@@ -810,10 +1074,32 @@ fn get_or_start(
             "rootUri": uri,
             "workspaceFolders": [{ "uri": uri, "name": "root" }],
             "capabilities": capabilities(),
-            "initializationOptions": init_options(lang.id)
+            "initializationOptions": lang.server.init_options
         }),
-    )?;
+        INIT_BUDGET,
+    );
+    let init = match init {
+        Ok(v) => v,
+        Err(e) => {
+            // no answer: it never becomes usable — out of the map, and stopped
+            lifecycle::detach(map, key, &session);
+            lifecycle::shutdown(&session, Reason::Failed);
+            return Err(e);
+        }
+    };
+    if let Ok(mut g) = session.lock() {
+        g.handshaken = true;
+    }
     session_notify(&session, "initialized", json!({}))?;
+    // the settings, pushed too (some servers never ask `workspace/configuration`); none → nothing
+    // sent, as before overrides existed
+    if settings.as_object().is_some_and(|o| !o.is_empty()) {
+        session_notify(
+            &session,
+            "workspace/didChangeConfiguration",
+            json!({ "settings": settings }),
+        )?;
+    }
     if let Ok(mut g) = session.lock() {
         g.server_caps = init.get("capabilities").cloned().unwrap_or(Value::Null);
         g.initialized = true;
@@ -825,34 +1111,181 @@ fn get_or_start(
             g.ready = true;
         }
     }
+    // a new server: over the cap, the least recently used one with no open document stops
+    lifecycle::enforce(map, emit, lifecycle::Limits::current(), Some(key), true);
     Ok(session)
 }
 
-/// Resolve the session a file belongs to: its language (by extension), its project root
-/// (nearest marker), and the server for that language — starting it if needed. Blocking.
-/// `None` when the file's extension is unsupported, no project root is found, or the
-/// language's server is not installed (the UI then falls back to the intra-file heuristic).
+/// The lock that lets one thread at a time start the session `key` ([`get_or_start`]).
+fn start_lock(key: &str) -> Arc<Mutex<()>> {
+    static L: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+    L.get_or_init(Default::default)
+        .lock()
+        .unwrap()
+        .entry(key.to_string())
+        .or_default()
+        .clone()
+}
+
+/// The session key: one server per (server id, session root, open folder) — the open folder
+/// because its override files decide the entry (two folders sharing a root never fight over one
+/// session). `\0`-separated: [`split_key`].
+fn session_key(lang: &Lang, root: &str) -> String {
+    format!(
+        "{}\u{0}{}\u{0}{}",
+        lang.id,
+        root,
+        lang.project.as_deref().unwrap_or("")
+    )
+}
+
+/// (server id, session root) of a session key.
+fn split_key(key: &str) -> Option<(&str, &str)> {
+    let mut it = key.splitn(3, '\u{0}');
+    Some((it.next()?, it.next()?))
+}
+
+/// A file's session group and the root its session runs at (the nearest project marker, else the
+/// open folder it is in). `None`: no server for its language, or no root.
+fn locate(path: &str) -> Option<(Lang, String)> {
+    let lang = lang_for_path(path)?;
+    let root = project_root_for(path, &lang.markers)
+        .or_else(|| fallback_root(path, &workspace_roots().lock().unwrap()))?;
+    Some((lang, root))
+}
+
+/// The documents the editor opened (path → language id, version, text): a server that starts
+/// later (a restart after an override changed, an approval) gets each one in a `didOpen` before
+/// any request about it.
+#[derive(Clone)]
+struct OpenDoc {
+    language_id: String,
+    version: i64,
+    text: String,
+}
+
+fn docs() -> &'static Mutex<HashMap<String, OpenDoc>> {
+    static D: OnceLock<Mutex<HashMap<String, OpenDoc>>> = OnceLock::new();
+    D.get_or_init(Default::default)
+}
+
+/// Send `didOpen` for `path` if the editor opened it and this session has not seen it; true when
+/// it was sent now (the text it carried is the latest).
+fn ensure_doc_open(session: &Arc<Mutex<Session>>, path: &str) -> Result<bool, String> {
+    let uri = path_to_uri(path);
+    let doc = {
+        let mut g = session.lock().map_err(|_| "lsp lock")?;
+        if g.open.contains(&uri) {
+            return Ok(false);
+        }
+        let Some(d) = docs().lock().unwrap().get(path).cloned() else {
+            return Ok(false);
+        };
+        g.open.insert(uri.clone());
+        d
+    };
+    session_notify(
+        session,
+        "textDocument/didOpen",
+        json!({ "textDocument": { "uri": uri, "languageId": doc.language_id, "version": doc.version, "text": doc.text } }),
+    )?;
+    Ok(true)
+}
+
+/// The trusted-approvals store (the app's config folder; nowhere in unit tests, so nothing is
+/// approved there).
+fn trust() -> TrustStore {
+    let dir = conf().lock().unwrap().dir.clone();
+    TrustStore::new(dir.map(|d| d.join(lspconf::TRUST_FILE)).unwrap_or_default())
+}
+
+/// The approval a session group still needs before its server may start (a project file that adds
+/// it or changes how it starts), `None` when it may start.
+fn pending_approval(lang: &Lang, program: &str, cwd: &str) -> Option<lspconf::Approval> {
+    lspconf::approval_request(&lang.eff, &lang.id, program, cwd, &trust())
+}
+
+/// What a session group may run with now: its entry; or — while the project's `settings` /
+/// `initOptions` wait for the human — the entry with the trusted ones (bundled + user), so the
+/// language still works and nothing the project configured is applied; `Err` when the project
+/// changed how it starts and it may not start at all.
+fn gate(lang: &Lang, program: &str, cwd: &str) -> Result<Lang, Box<lspconf::Approval>> {
+    match pending_approval(lang, program, cwd) {
+        None => Ok(lang.clone()),
+        Some(a) if a.blocks_start => Err(Box::new(a)),
+        Some(_) => {
+            let mut l = lang.clone();
+            let (settings, init) = l.eff.trusted_config(&l.id);
+            l.server.settings = settings;
+            l.server.init_options = init;
+            Ok(l)
+        }
+    }
+}
+
+/// Give a running session these settings, if they are not the ones it has
+/// (`workspace/didChangeConfiguration`).
+fn sync_settings(s: &Arc<Mutex<Session>>, settings: &Value) {
+    let new_settings = langreg::normalize_settings(settings);
+    let changed = match s.lock() {
+        Ok(mut g) if g.settings != new_settings => {
+            g.settings = new_settings.clone();
+            true
+        }
+        _ => false,
+    };
+    if changed {
+        let payload = if new_settings.is_null() {
+            json!({})
+        } else {
+            new_settings
+        };
+        let _ = session_notify(
+            s,
+            "workspace/didChangeConfiguration",
+            json!({ "settings": payload }),
+        );
+    }
+}
+
+/// Resolve the session a file belongs to: its language (by name/extension, or first line), its project root
+/// (nearest marker), and the server for that language — starting it if needed — with the file open
+/// in it. Blocking. `None` when the file's language has no server, no project root is found, the
+/// language's server is not installed (the UI then falls back to the intra-file heuristic), or a
+/// project file asks for a command the human has not approved.
 fn session_for(
     map: &SessionMap,
     app: &AppHandle,
     path: &str,
 ) -> Result<Option<Arc<Mutex<Session>>>, String> {
-    let Some(lang) = lang_for_path(path) else {
+    Ok(open_session(map, app, path)?.map(|(s, _)| s))
+}
+
+/// A session, and whether a file's `didOpen` was sent to it just now.
+type OpenedSession = (Arc<Mutex<Session>>, bool);
+
+/// [`session_for`], and whether the file's `didOpen` was sent just now.
+fn open_session(
+    map: &SessionMap,
+    app: &AppHandle,
+    path: &str,
+) -> Result<Option<OpenedSession>, String> {
+    let Some((lang, root)) = locate(path) else {
         return Ok(None);
     };
-    let Some(root) = project_root_for(path, lang.markers)
-        .or_else(|| fallback_root(path, &workspace_roots().lock().unwrap()))
-    else {
-        return Ok(None);
-    };
-    let (program, args) = match server_cmd(lang.id) {
+    let (program, args) = match server_cmd(&lang.server) {
         Ok(c) => c,
         Err(_) => return Ok(None), // server not installed → no session; frontend falls back
     };
-    let key = format!("{}\u{0}{}", lang.id, root);
-    Ok(Some(get_or_start(
-        map, app, &key, &root, lang, &program, &args,
-    )?))
+    // a project command waiting for the human does not start; project settings waiting for the
+    // human are not applied (`lsp_server_status` says so in both cases)
+    let Ok(lang) = gate(&lang, &program, &root) else {
+        return Ok(None);
+    };
+    let key = session_key(&lang, &root);
+    let session = get_or_start(map, &emitter(app), &key, &root, &lang, &program, &args)?;
+    let opened = ensure_doc_open(&session, path)?;
+    Ok(Some((session, opened)))
 }
 
 fn pos(path: &str, line: u32, character: u32) -> Value {
@@ -885,22 +1318,69 @@ pub struct ServerStatus {
     pub installed: bool,
     /// Porque não foi encontrado (a mensagem de `server_cmd`).
     pub problem: Option<String>,
+    /// Onde foi encontrado: o programa que arranca (LSP P3).
+    pub found_at: Option<String>,
+    /// Foi o dxtutor que o instalou (`<dados da app>/lsp-servers`).
+    pub managed: bool,
+    /// O `.dxtutor/lsp.json` do projecto pede um comando que o humano ainda não aprovou: o servidor
+    /// não arranca até lá (o editor mostra o pedido com o comando exacto).
+    pub approval: Option<lspconf::Approval>,
 }
 
 /// O estado do servidor da linguagem de `path` (`None` se o ficheiro não tem servidor conhecido).
-/// Resolve-o exactamente como uma sessão o resolveria (`server_cmd`: PATH aumentado + pistas).
+/// Resolve-o exactamente como uma sessão o resolveria (`server_cmd`: PATH aumentado + pistas), com
+/// os ficheiros de overrides do utilizador e do projecto.
 pub fn server_status(path: &str) -> Option<ServerStatus> {
     let lang = lang_for_path(path)?;
-    let (installed, problem) = match server_cmd(lang.id) {
-        Ok(_) => (true, None),
-        Err(e) => (false, Some(e)),
+    let (installed, problem, approval, found_at) = match server_cmd(&lang.server) {
+        Ok((program, _)) => {
+            let cwd = project_root_for(path, &lang.markers)
+                .or_else(|| lang.project.clone())
+                .unwrap_or_default();
+            let approval = pending_approval(&lang, &program, &cwd);
+            (true, None, approval, Some(program))
+        }
+        Err(e) => (false, Some(e), None, None),
+    };
+    let managed = match (&found_at, managed_root()) {
+        (Some(p), Some(m)) => Path::new(p).starts_with(m),
+        _ => false,
     };
     Some(ServerStatus {
-        language: lang.id.into(),
-        server: lang.server_label.into(),
+        language: lang.id.clone(),
+        server: lang.server_label.clone(),
         installed,
         problem,
+        found_at,
+        managed,
+        approval,
     })
+}
+
+/// The environment a server dxtutor installed needs to start (`lspinstall::launch_env`).
+fn managed_launch_env(program: &str) -> Vec<(String, String)> {
+    let Some(m) = managed_root() else {
+        return Vec::new();
+    };
+    lspinstall::launch_env(
+        &m,
+        Path::new(program),
+        &augmented_path(None),
+        std::env::var_os("DOTNET_ROOT").is_some(),
+    )
+}
+
+/// What the install commands (LSP P3, `commands/lsp_install.rs`) need for a file: the server the
+/// editor uses for it and the registries it came from (the trusted one = bundled + the user's file).
+pub(crate) fn install_target(path: &str) -> Option<(Server, Arc<Effective>)> {
+    let lang = lang_for_path(path)?;
+    Some((lang.server, lang.eff))
+}
+
+/// The PATH the install commands look for the package managers in (the login shell's, with the go
+/// folders), and give the terminal task.
+pub(crate) fn login_path() -> OsString {
+    augmented_path(None)
 }
 
 // ── Commands — all async: the blocking work runs on spawn_blocking, off the UI thread. ──
@@ -911,6 +1391,472 @@ pub async fn lsp_server_status(path: String) -> Result<Option<ServerStatus>, Str
     tauri::async_runtime::spawn_blocking(move || server_status(&path))
         .await
         .map_err(|e| e.to_string())
+}
+
+/// LSP P4: the languages the installed VS Code extensions contribute (merged by id), sent by the UI
+/// when the app starts and after each install or uninstall — the whole list each time, so an
+/// uninstalled VSIX's languages are gone. A file the registry knows never changes language; a
+/// VSIX-only language reaches a server only as `tutor_eval::langcontrib` says.
+#[tauri::command]
+pub async fn lsp_contributions(languages: Vec<ContribLanguage>) -> Result<(), String> {
+    set_contributions(languages);
+    Ok(())
+}
+
+fn set_contributions(languages: Vec<ContribLanguage>) {
+    let clean = languages
+        .into_iter()
+        .filter(|l| !l.id.trim().is_empty())
+        .map(|mut l| {
+            l.from = l.from.iter().map(|x| x.to_ascii_lowercase()).collect();
+            l
+        })
+        .collect();
+    *contributed().lock().unwrap() = clean;
+}
+
+// ── Overrides (LSP P2): the user file, the project's `.dxtutor/lsp.json`, approvals, reload ──
+
+/// Where the override files and approvals live, and the effective registry of each open folder.
+#[derive(Default)]
+struct Conf {
+    /// the app's config folder (`lsp.json`, `lsp-trusted.json`); `None` in unit tests
+    dir: Option<PathBuf>,
+    /// `<app local data>/lsp-servers` (LSP P3); `None` in unit tests
+    managed: Option<PathBuf>,
+    /// open folder (`""` = none) → bundled + user + project, as read
+    cache: HashMap<String, Arc<Effective>>,
+}
+
+fn conf() -> &'static Mutex<Conf> {
+    static C: OnceLock<Mutex<Conf>> = OnceLock::new();
+    C.get_or_init(Default::default)
+}
+
+/// The user's override file (`<app config>/lsp.json`).
+fn user_file() -> Option<PathBuf> {
+    conf()
+        .lock()
+        .unwrap()
+        .dir
+        .as_ref()
+        .map(|d| d.join(lspconf::USER_FILE))
+}
+
+/// The effective registry of an open folder (`None`: a file outside every open folder — the user
+/// file still applies). Read once and kept until a file changes (`reload_changed`).
+fn effective(project: Option<&str>) -> Arc<Effective> {
+    let key = project.unwrap_or("").to_string();
+    if let Some(e) = conf().lock().unwrap().cache.get(&key) {
+        return e.clone();
+    }
+    let user = user_file();
+    let e = Arc::new(Effective::load(
+        langreg::registry(),
+        user.as_deref(),
+        project.map(Path::new),
+    ));
+    conf().lock().unwrap().cache.entry(key).or_insert(e).clone()
+}
+
+/// Registers an open folder (the root of a file outside every project marker, and the folder whose
+/// `.dxtutor/lsp.json` applies).
+fn register_root(root: &str) -> String {
+    let r = root.trim_end_matches('/').to_string();
+    workspace_roots().lock().unwrap().insert(r.clone());
+    r
+}
+
+/// Called once at start-up: where the user file and the approvals live, and a thread that applies a
+/// change to any override file without restarting the app (checked every 2 s: one `stat` per file);
+/// and the thread that stops idle servers (LSP P6, `lifecycle`).
+pub fn init(app: &AppHandle) {
+    if let Ok(dir) = app.path().app_config_dir() {
+        conf().lock().unwrap().dir = Some(dir);
+    }
+    if let Ok(dir) = app.path().app_local_data_dir() {
+        conf().lock().unwrap().managed = Some(dir.join(lspinstall::INSTALL_DIR));
+    }
+    lifecycle::spawn_reaper(app);
+    let app = app.clone();
+    thread::spawn(move || loop {
+        thread::sleep(Duration::from_secs(2));
+        let map = app.state::<LspState>().0.clone();
+        reload_changed(&app, &map);
+    });
+}
+
+/// Re-read the override files that changed since they were read and bring the running servers in
+/// line; true when something changed.
+fn reload_changed(app: &AppHandle, map: &SessionMap) -> bool {
+    let stale: Vec<String> = conf()
+        .lock()
+        .unwrap()
+        .cache
+        .iter()
+        .filter(|(_, e)| !e.is_current())
+        .map(|(k, _)| k.clone())
+        .collect();
+    if stale.is_empty() {
+        return false;
+    }
+    reload(app, map, &stale);
+    true
+}
+
+/// Forget the effective registry of `keys` (open folders; `""` = none), read them again and apply
+/// the difference to the running servers ([`reconcile`]); the UI hears `lsp://config`.
+fn reload(app: &AppHandle, map: &SessionMap, keys: &[String]) {
+    let old: HashMap<String, Arc<Effective>> = {
+        let mut c = conf().lock().unwrap();
+        keys.iter()
+            .filter_map(|k| c.cache.remove(k).map(|e| (k.clone(), e)))
+            .collect()
+    };
+    reconcile(app, map, &old);
+    let _ = app.emit("lsp://config", json!({ "roots": keys }));
+}
+
+/// Bring every running session whose open folder's registry changed in line with the new entry: a
+/// server that is gone stops; one whose start-up changed (`fingerprint`) restarts — unless the
+/// project now asks for a command that needs approval — and gets the open documents again; one
+/// whose settings changed hears `workspace/didChangeConfiguration`.
+fn reconcile(app: &AppHandle, map: &SessionMap, old: &HashMap<String, Arc<Effective>>) {
+    let sessions: Vec<(String, Arc<Mutex<Session>>)> = match map.lock() {
+        Ok(m) => m.iter().map(|(k, s)| (k.clone(), s.clone())).collect(),
+        Err(_) => return,
+    };
+    for (key, s) in sessions {
+        let Some((server_id, root)) = split_key(&key) else {
+            continue;
+        };
+        let (project, fp, settings) = match s.lock() {
+            Ok(g) => (g.project.clone(), g.fingerprint.clone(), g.settings.clone()),
+            Err(_) => continue,
+        };
+        if !old.contains_key(project.as_deref().unwrap_or("")) {
+            continue;
+        }
+        let eff = effective(project.as_deref());
+        let server = eff
+            .registry
+            .server(server_id)
+            .filter(|_| serves_a_language(&eff.registry, server_id))
+            .cloned();
+        let Some(server) = server else {
+            remove_session(map, &key, &s); // gone, or no language uses it any more
+            continue;
+        };
+        let lang = Lang::of(&server, project.clone(), eff.clone());
+        // what it may run with now (the project's settings only once approved)
+        let run = match server_cmd(&server) {
+            Ok((program, _)) => gate(&lang, &program, root),
+            Err(_) => {
+                remove_session(map, &key, &s); // no longer installed (another command)
+                continue;
+            }
+        };
+        let Ok(run) = run else {
+            remove_session(map, &key, &s); // the project changed its command: waits for the human
+            continue;
+        };
+        if fingerprint(&run.server) != fp {
+            // out of the map now (a request starts the new entry at once); the old server is shut
+            // down before this thread starts the new one with the open documents
+            lifecycle::detach(map, &key, &s);
+            let (map, emit, key, root) = (map.clone(), emitter(app), key.clone(), root.to_string());
+            thread::spawn(move || {
+                lifecycle::shutdown(&s, Reason::Config);
+                restart(&map, &emit, &key, &root, &lang);
+            });
+            continue;
+        }
+        if langreg::normalize_settings(&run.server.settings) != settings {
+            sync_settings(&s, &run.server.settings);
+        }
+    }
+}
+
+/// Take a session out of the map and shut its server down (on a thread of its own: `shutdown` and
+/// `exit`, then reaped).
+fn remove_session(map: &SessionMap, key: &str, s: &Arc<Mutex<Session>>) {
+    lifecycle::detach(map, key, s);
+    let s = s.clone();
+    thread::spawn(move || lifecycle::shutdown(&s, Reason::Config));
+}
+
+/// Start a session group again (after its entry changed) and give it the documents the editor has
+/// open in it. Nothing starts when the server is not installed or waits for an approval.
+fn restart(map: &SessionMap, emit: &Emit, key: &str, root: &str, lang: &Lang) {
+    let Ok((program, args)) = server_cmd(&lang.server) else {
+        return;
+    };
+    let Ok(lang) = gate(lang, &program, root) else {
+        return;
+    };
+    let Ok(session) = get_or_start(map, emit, key, root, &lang, &program, &args) else {
+        return;
+    };
+    for path in docs_in(key) {
+        let _ = ensure_doc_open(&session, &path);
+    }
+}
+
+/// The open documents whose session would be `key`.
+fn docs_in(key: &str) -> Vec<String> {
+    let paths: Vec<String> = docs().lock().unwrap().keys().cloned().collect();
+    paths
+        .into_iter()
+        .filter(|p| locate(p).is_some_and(|(l, r)| session_key(&l, &r) == key))
+        .collect()
+}
+
+/// A server of the effective registry, as the UI shows it.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerView {
+    #[serde(flatten)]
+    pub entry: Server,
+    /// the layers that made it (`bundled`, `user`, `project`)
+    pub sources: Vec<&'static str>,
+    /// the launch fields the project file set (empty: it starts as bundled/user say)
+    pub project_launch: Vec<&'static str>,
+    /// the settings/initOptions the project file set (applied only once approved)
+    pub project_config: Vec<&'static str>,
+    /// the approval it still needs (installed, and the project changed how it starts)
+    pub approval: Option<lspconf::Approval>,
+}
+
+/// The override files and the registry they make for an open folder (`lsp_config`).
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LspConfigView {
+    pub root: Option<String>,
+    /// `None` when the app has no config folder
+    pub user_file: Option<lspconf::FileReport>,
+    pub project_file: Option<lspconf::FileReport>,
+    pub languages: Vec<langreg::Language>,
+    pub servers: Vec<ServerView>,
+}
+
+fn config_view(project: Option<&str>) -> LspConfigView {
+    let eff = effective(project);
+    let servers = eff
+        .registry
+        .servers
+        .iter()
+        .map(|s| {
+            let applied = eff.project.as_ref().is_some_and(|p| p.applied);
+            let project_launch = if applied {
+                eff.project_launch_changes(&s.id)
+            } else {
+                Vec::new()
+            };
+            let project_config = if applied {
+                eff.project_config_changes(&s.id)
+            } else {
+                Vec::new()
+            };
+            let approval = if project_launch.is_empty() && project_config.is_empty() {
+                None
+            } else {
+                server_cmd(s).ok().and_then(|(program, _)| {
+                    let lang = Lang::of(s, project.map(String::from), eff.clone());
+                    pending_approval(&lang, &program, project.unwrap_or_default())
+                })
+            };
+            ServerView {
+                entry: s.clone(),
+                sources: eff.sources_of("server", &s.id),
+                project_launch,
+                project_config,
+                approval,
+            }
+        })
+        .collect();
+    LspConfigView {
+        root: project.map(String::from),
+        user_file: eff.user.clone(),
+        project_file: eff.project.clone(),
+        languages: eff.registry.languages.clone(),
+        servers,
+    }
+}
+
+/// The override files of the open folder `root` (their errors, if they were ignored) and the
+/// registry the editor uses there (bundled + user + project), with the approvals still missing.
+/// Reads any file that changed first.
+#[tauri::command]
+pub async fn lsp_config(
+    app: AppHandle,
+    state: State<'_, LspState>,
+    root: Option<String>,
+) -> Result<LspConfigView, String> {
+    let map = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let project = root.as_deref().map(register_root);
+        reload_changed(&app, &map);
+        config_view(project.as_deref())
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// An override file to edit: the user's (`kind: "user"`) or the project's (`"project"`, needs
+/// `root`). Its text, or the commented template when it does not exist yet.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigFile {
+    pub path: String,
+    pub exists: bool,
+    pub text: String,
+}
+
+fn config_file(kind: &str, root: Option<&str>) -> Result<ConfigFile, String> {
+    let (path, template) = match kind {
+        "user" => (
+            user_file().ok_or("dxtutor has no config folder here")?,
+            lspconf::USER_TEMPLATE,
+        ),
+        "project" => (
+            lspconf::project_file(Path::new(
+                root.filter(|r| !r.trim().is_empty())
+                    .ok_or("open a folder first")?,
+            )),
+            lspconf::PROJECT_TEMPLATE,
+        ),
+        other => return Err(format!("unknown override file `{other}` (user or project)")),
+    };
+    let meta = std::fs::metadata(&path).ok();
+    if meta
+        .as_ref()
+        .is_some_and(|m| m.len() > lspconf::MAX_FILE_BYTES)
+    {
+        return Err(format!("{}: too big to edit here", path.display()));
+    }
+    let exists = meta.is_some();
+    let text = if exists {
+        std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?
+    } else {
+        template.to_string()
+    };
+    Ok(ConfigFile {
+        path: path.display().to_string(),
+        exists,
+        text,
+    })
+}
+
+#[tauri::command]
+pub async fn lsp_config_file(kind: String, root: Option<String>) -> Result<ConfigFile, String> {
+    tauri::async_runtime::spawn_blocking(move || config_file(&kind, root.as_deref()))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Save the user's override file (only that file: the path is decided here) and apply it at once.
+/// An invalid file is saved too — it is being edited — and its report says why it is ignored.
+#[tauri::command]
+pub async fn lsp_user_config_save(
+    app: AppHandle,
+    state: State<'_, LspState>,
+    text: String,
+) -> Result<lspconf::FileReport, String> {
+    let map = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        if text.len() as u64 > lspconf::MAX_FILE_BYTES {
+            return Err("an override file is at most 512 KiB".to_string());
+        }
+        let path = user_file().ok_or("dxtutor has no config folder here")?;
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        }
+        std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))?;
+        // every open folder sees the user file: all of them are read again
+        let mut keys: Vec<String> = conf().lock().unwrap().cache.keys().cloned().collect();
+        if !keys.iter().any(|k| k.is_empty()) {
+            keys.push(String::new());
+        }
+        reload(&app, &map, &keys);
+        Ok(effective(None).user.clone().unwrap_or_default())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// The human's decision on a server the project's `.dxtutor/lsp.json` asks for. `hash` is the one
+/// the dialog showed (`ServerStatus.approval`): if the project's command changed since, nothing is
+/// approved. The decision goes to the audit log FIRST (no audit, no approval); an approval is kept
+/// for this project and this exact command, and the server starts for the open files.
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+pub async fn lsp_approve_server(
+    app: AppHandle,
+    state: State<'_, LspState>,
+    root: String,
+    server: String,
+    hash: String,
+    approved: bool,
+    reason: Option<String>,
+    decided_at: Option<i64>,
+) -> Result<(), String> {
+    let map = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let project = register_root(&root);
+        reload_changed(&app, &map);
+        let eff = effective(Some(&project));
+        let entry = eff
+            .registry
+            .server(&server)
+            .cloned()
+            .ok_or_else(|| format!("no language server `{server}` in this project"))?;
+        let (program, _) = server_cmd(&entry)?;
+        let lang = Lang::of(&entry, Some(project.clone()), eff.clone());
+        let req = pending_approval(&lang, &program, &project)
+            .ok_or("this language server needs no approval (or it is approved already)")?;
+        if req.hash != hash {
+            return Err(
+                "the project's command changed since it was shown — review it again".to_string(),
+            );
+        }
+        crate::board::record_ide_audit(
+            &app,
+            &project,
+            &crate::board::IdeAudit {
+                feature: "lsp".into(),
+                action: "lsp.server.approve".into(),
+                command: req.audit_text(),
+                scope: Some(format!(
+                    "{} · asked by {} · cwd {}",
+                    req.label, req.file, req.cwd
+                )),
+                approved,
+                reason,
+                outcome: None,
+                decided_at,
+            },
+        )
+        .map_err(|e| format!("not approved: the audit log failed ({})", e.message))?;
+        if !approved {
+            return Ok(());
+        }
+        trust().approve(&project, &server, &hash, crate::board::now_ms())?;
+        // running sessions of this project get what was approved (a settings-only approval: the
+        // project's settings; initOptions: a restart)
+        reconcile(&app, &map, &HashMap::from([(project.clone(), eff.clone())]));
+        // the open files of this language start their server now
+        let paths: Vec<String> = docs().lock().unwrap().keys().cloned().collect();
+        for p in paths {
+            if locate(&p)
+                .is_some_and(|(l, _)| l.id == server && l.project.as_deref() == Some(&project))
+            {
+                let _ = open_session(&map, &app, &p);
+            }
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -926,16 +1872,21 @@ pub async fn lsp_start(
         .insert(root.trim_end_matches('/').to_string());
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         // Warm up every language whose project marker sits AT the opened folder, so the
-        // (possibly minutes-long) first index starts before the student navigates.
-        for lang in LANGS {
+        // (possibly minutes-long) first index starts before the student navigates. A server the
+        // project's `.dxtutor/lsp.json` asks for without an approval does not start.
+        let project = root.trim_end_matches('/').to_string();
+        for lang in langs_for(Some(&project)) {
             if lang
                 .markers
                 .iter()
                 .any(|m| std::path::Path::new(&root).join(m).exists())
             {
-                if let Ok((program, args)) = server_cmd(lang.id) {
-                    let key = format!("{}\u{0}{}", lang.id, root);
-                    let _ = get_or_start(&map, &app, &key, &root, lang, &program, &args);
+                if let Ok((program, args)) = server_cmd(&lang.server) {
+                    let Ok(lang) = gate(&lang, &program, &root) else {
+                        continue;
+                    };
+                    let key = session_key(&lang, &root);
+                    let _ = get_or_start(&map, &emitter(&app), &key, &root, &lang, &program, &args);
                 }
             }
         }
@@ -955,19 +1906,17 @@ pub async fn lsp_did_open(
 ) -> Result<(), String> {
     let map = state.0.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
-        let Some(session) = session_for(&map, &app, &path)? else { return Ok(()); };
-        let uri = path_to_uri(&path);
-        {
-            let mut g = session.lock().map_err(|_| "lsp lock")?;
-            if !g.open.insert(uri.clone()) {
-                return Ok(());
-            }
-        }
-        session_notify(
-            &session,
-            "textDocument/didOpen",
-            json!({ "textDocument": { "uri": uri, "languageId": language_id, "version": 1, "text": text } }),
-        )
+        // remembered, so a server that starts later gets it too; sent once per session
+        docs().lock().unwrap().insert(
+            path.clone(),
+            OpenDoc {
+                language_id,
+                version: 1,
+                text,
+            },
+        );
+        open_session(&map, &app, &path)?;
+        Ok(())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -983,13 +1932,40 @@ pub async fn lsp_did_change(
 ) -> Result<(), String> {
     let map = state.0.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
-        let Some(session) = session_for(&map, &app, &path)? else { return Ok(()); };
+        {
+            let mut d = docs().lock().unwrap();
+            match d.get_mut(&path) {
+                Some(doc) => {
+                    doc.version = version;
+                    doc.text = text.clone();
+                }
+                None => {
+                    let language_id = lang_for_path(&path)
+                        .and_then(|l| {
+                            file_language(&l.eff.registry, &path).map(|x| x.lsp_id().to_string())
+                        })
+                        .unwrap_or_default();
+                    d.insert(
+                        path.clone(),
+                        OpenDoc {
+                            language_id,
+                            version,
+                            text: text.clone(),
+                        },
+                    );
+                }
+            }
+        }
         let uri = path_to_uri(&path);
         diag_stamps()
             .lock()
             .unwrap()
             .0
             .insert(uri.clone(), Instant::now());
+        let Some((session, opened)) = open_session(&map, &app, &path)? else { return Ok(()); };
+        if opened {
+            return Ok(()); // a server that had not seen the file got it whole in the didOpen
+        }
         session_notify(
             &session,
             "textDocument/didChange",
@@ -1299,7 +2275,7 @@ fn sessions_under(map: &SessionMap, root: &str) -> Vec<(String, Arc<Mutex<Sessio
     };
     m.iter()
         .filter_map(|(key, s)| {
-            let (lang, r) = key.split_once('\u{0}')?;
+            let (lang, r) = split_key(key)?;
             let ok = roots_overlap(root, r) && s.lock().map(|g| g.initialized).unwrap_or(false);
             ok.then(|| (lang.to_string(), s.clone()))
         })
@@ -1469,6 +2445,72 @@ pub async fn lsp_prepare_rename(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+// ── Resources (LSP P6, `lifecycle`): documents closed, folders closed, the live servers ──
+
+/// The editor closed a file (its tab, or the file was deleted or renamed): `didClose` to the
+/// servers that have it open, and it is forgotten (a server that starts later does not get it).
+#[tauri::command]
+pub async fn lsp_did_close(state: State<'_, LspState>, path: String) -> Result<(), String> {
+    let map = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        lifecycle::close_document(&map, &path);
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// The folder `root` was closed or another one opened: its servers are shut down (`shutdown`,
+/// `exit`, reaped), its documents and override files forgotten.
+#[tauri::command]
+pub async fn lsp_folder_closed(state: State<'_, LspState>, root: String) -> Result<(), String> {
+    let map = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        lifecycle::close_folder(&map, &root);
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// The live language servers (pid, root, open documents, idle time, memory) and the limits.
+#[tauri::command]
+pub async fn lsp_servers(state: State<'_, LspState>) -> Result<lifecycle::ServersView, String> {
+    let map = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        lifecycle::list(&map, lifecycle::Limits::current())
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// The log of one server (`key`) or of all of them: its stderr and `window/logMessage` (masked)
+/// and what happened to it (started, stopped, crashed), oldest first.
+#[tauri::command]
+pub async fn lsp_server_log(key: Option<String>) -> Result<Vec<lifecycle::LogLine>, String> {
+    Ok(lifecycle::log_of(key.as_deref()))
+}
+
+/// «Stop» in the list of servers: shut it down now; it starts again when a file needs it.
+#[tauri::command]
+pub async fn lsp_server_stop(state: State<'_, LspState>, key: String) -> Result<(), String> {
+    let map = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || lifecycle::stop_key(&map, &key))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// «Restart» in the list of servers: shut it down and start it again with the open documents.
+#[tauri::command]
+pub async fn lsp_server_restart(
+    app: AppHandle,
+    state: State<'_, LspState>,
+    key: String,
+) -> Result<(), String> {
+    let map = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || lifecycle::restart_key(&map, &emitter(&app), &key))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 // ── Diagnósticos em cache, para o agente (ferramenta `lsp_diagnostics`, ADR-0003 F7) ──
@@ -1806,7 +2848,11 @@ mod phase4_lang_tests {
             ("schema.sql", "sql", "sqls"),
         ] {
             let lang = lang_for_path(path).unwrap_or_else(|| panic!("{path}"));
-            assert_eq!((lang.id, lang.server_label), (id, label), "{path}");
+            assert_eq!(
+                (lang.id.as_str(), lang.server_label.as_str()),
+                (id, label),
+                "{path}"
+            );
         }
         assert!(lang_for_path("notes.txt").is_none());
     }
@@ -1828,5 +2874,493 @@ mod phase4_lang_tests {
         assert!(err.contains("não encontrado"), "{err}");
         // A shell existe em qualquer máquina: prova o caminho do PATH.
         assert!(native_server("sh", &[]).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod registry_resolution_tests {
+    use super::*;
+
+    fn host(home: &Path, path: &Path) -> Host {
+        Host {
+            home: Some(home.to_path_buf()),
+            path: path.as_os_str().to_os_string(),
+            var: Box::new(|_| None),
+            managed: None,
+        }
+    }
+
+    fn touch_exe(p: &Path) {
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, "#!/bin/sh\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+    }
+
+    fn rust() -> &'static Server {
+        langreg::registry().server("rust").unwrap()
+    }
+
+    #[test]
+    fn rust_analyzer_missing_from_path_and_toolchains_is_not_installed() {
+        // Antes caía num `rust-analyzer` solto e o aviso «servidor em falta» nunca aparecia.
+        let home = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        let err = resolve_server(rust(), &host(home.path(), bin.path())).unwrap_err();
+        assert!(
+            err.contains("rust-analyzer") && err.contains("não encontrado"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn dxtutors_own_folder_is_looked_in_first_and_an_env_override_still_wins() {
+        let home = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        let managed = tempfile::tempdir().unwrap();
+        let py = langreg::registry().server("python").unwrap();
+        touch_exe(&bin.path().join("pyright-langserver"));
+        let h = Host {
+            managed: Some(managed.path().to_path_buf()),
+            ..host(home.path(), bin.path())
+        };
+        assert_eq!(
+            resolve_server(py, &h).unwrap(),
+            bin.path().join("pyright-langserver").display().to_string()
+        );
+        // an npm install into <managed>/python (`--global --prefix`) puts it in bin/
+        let mine = managed.path().join("python/bin/pyright-langserver");
+        touch_exe(&mine);
+        assert_eq!(resolve_server(py, &h).unwrap(), mine.display().to_string());
+        // rust-analyzer: a release there beats the rustup toolchain; DXTUTOR_RUST_ANALYZER beats both
+        let ra = managed.path().join("rust/bin/rust-analyzer");
+        touch_exe(&ra);
+        touch_exe(
+            &home
+                .path()
+                .join(".rustup/toolchains/stable-x/bin/rust-analyzer"),
+        );
+        assert_eq!(
+            resolve_server(rust(), &h).unwrap(),
+            ra.display().to_string()
+        );
+        let mine_too = home.path().join("my-ra");
+        touch_exe(&mine_too);
+        let v = mine_too.display().to_string();
+        let he = Host {
+            var: Box::new(move |k| (k == "DXTUTOR_RUST_ANALYZER").then(|| v.clone())),
+            managed: Some(managed.path().to_path_buf()),
+            ..host(home.path(), bin.path())
+        };
+        assert_eq!(
+            resolve_server(rust(), &he).unwrap(),
+            mine_too.display().to_string()
+        );
+    }
+
+    #[test]
+    fn rust_analyzer_is_found_in_a_toolchain_or_on_path_but_never_as_the_rustup_proxy() {
+        let home = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        // só o proxy do rustup no PATH (uma ligação ao `rustup`): não conta
+        touch_exe(&bin.path().join("rustup-real"));
+        #[cfg(unix)]
+        {
+            std::fs::hard_link(bin.path().join("rustup-real"), bin.path().join("rustup")).unwrap();
+            std::fs::hard_link(bin.path().join("rustup"), bin.path().join("rust-analyzer"))
+                .unwrap();
+            assert!(is_rustup_proxy(
+                &host(home.path(), bin.path()),
+                &bin.path().join("rust-analyzer")
+            ));
+        }
+        // o `rustup` falso não responde a `which`: sem toolchain, não está instalado
+        std::fs::write(bin.path().join("rustup-real"), "#!/bin/sh\nexit 1\n").unwrap();
+        #[cfg(unix)]
+        assert!(resolve_server(rust(), &host(home.path(), bin.path())).is_err());
+        // uma toolchain com o componente resolve (a stable primeiro)
+        let nightly = home
+            .path()
+            .join(".rustup/toolchains/nightly-x/bin/rust-analyzer");
+        let stable = home
+            .path()
+            .join(".rustup/toolchains/stable-x/bin/rust-analyzer");
+        touch_exe(&nightly);
+        touch_exe(&stable);
+        assert_eq!(
+            resolve_server(rust(), &host(home.path(), bin.path())).unwrap(),
+            stable.display().to_string()
+        );
+        // um rust-analyzer verdadeiro no PATH (não ligado ao rustup) também serve
+        let home2 = tempfile::tempdir().unwrap();
+        let bin2 = tempfile::tempdir().unwrap();
+        touch_exe(&bin2.path().join("rust-analyzer"));
+        assert_eq!(
+            resolve_server(rust(), &host(home2.path(), bin2.path())).unwrap(),
+            bin2.path().join("rust-analyzer").display().to_string()
+        );
+    }
+
+    #[test]
+    fn an_env_override_wins_and_a_wrong_one_is_reported() {
+        let home = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        let ra = bin.path().join("my-ra");
+        touch_exe(&ra);
+        let ra_s = ra.display().to_string();
+        let mut h = host(home.path(), Path::new(""));
+        h.var = Box::new(move |k| (k == "DXTUTOR_RUST_ANALYZER").then(|| ra_s.clone()));
+        assert_eq!(
+            resolve_server(rust(), &h).unwrap(),
+            ra.display().to_string()
+        );
+        h.var = Box::new(|k| (k == "DXTUTOR_RUST_ANALYZER").then(|| "/no/such/ra".to_string()));
+        let err = resolve_server(rust(), &h).unwrap_err();
+        assert!(err.contains("DXTUTOR_RUST_ANALYZER=/no/such/ra"), "{err}");
+    }
+
+    #[test]
+    fn node_servers_come_from_the_newest_nvm_that_has_them_then_path() {
+        let reg = langreg::registry();
+        let ts = reg.server("typescript").unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let empty = tempfile::tempdir().unwrap();
+        assert!(resolve_server(ts, &host(home.path(), empty.path())).is_err());
+        // v9 < v25 numericamente; a v26 não tem o servidor
+        let nvm = home.path().join(".nvm/versions/node");
+        touch_exe(&nvm.join("v9.0.0/bin/typescript-language-server"));
+        touch_exe(&nvm.join("v25.0.0/bin/typescript-language-server"));
+        std::fs::create_dir_all(nvm.join("v26.1.0/bin")).unwrap();
+        let got = resolve_server(ts, &host(home.path(), empty.path())).unwrap();
+        assert!(
+            got.ends_with("v25.0.0/bin/typescript-language-server"),
+            "{got}"
+        );
+        // o NODE_PATH é o node_modules global ao lado do servidor
+        std::fs::create_dir_all(nvm.join("v25.0.0/lib/node_modules/typescript")).unwrap();
+        assert_eq!(
+            node_global_modules(&got).unwrap(),
+            nvm.join("v25.0.0/lib/node_modules").display().to_string()
+        );
+        // sem nvm, o PATH
+        let home2 = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        touch_exe(&bin.path().join("pyright-langserver"));
+        let py = reg.server("python").unwrap();
+        assert!(resolve_server(py, &host(home2.path(), bin.path())).is_ok());
+        // só o typescript-language-server precisa do NODE_PATH
+        assert!(ts.has_quirk("nodePath") && !py.has_quirk("nodePath"));
+    }
+
+    #[test]
+    fn path_entries_are_split_and_joined_the_platform_way_without_repeats() {
+        let sep = if cfg!(windows) { ";" } else { ":" };
+        let login = OsString::from(["/a", "/b"].join(sep));
+        let base = OsString::from(["/b", "/c", ""].join(sep));
+        let got = join_dirs(
+            vec![PathBuf::from("/x"), PathBuf::from("/a")],
+            Some(&login),
+            &base,
+        );
+        let dirs: Vec<PathBuf> = std::env::split_paths(&got).collect();
+        assert_eq!(dirs, ["/x", "/a", "/b", "/c"].map(PathBuf::from).to_vec());
+        // nenhuma versão do node fica escrita no código
+        assert!(!std::env::split_paths(&augmented_path(None))
+            .any(|d| d.to_string_lossy().contains("v25.0.0")));
+    }
+
+    #[test]
+    fn every_registry_server_is_a_session_group_with_its_markers_and_signal() {
+        let ids: Vec<String> = langs_for(None).into_iter().map(|l| l.id).collect();
+        assert_eq!(
+            ids,
+            [
+                "rust",
+                "go",
+                "typescript",
+                "python",
+                "cpp",
+                "swift",
+                "csharp",
+                "java",
+                "kotlin",
+                "sql"
+            ]
+        );
+        let ra = lang_for_path("/w/src/MAIN.RS").unwrap();
+        assert_eq!(
+            (ra.id.as_str(), ra.ready_signal.as_str()),
+            ("rust", "cachepriming")
+        );
+        assert_eq!(ra.markers, ["Cargo.toml".to_string()]);
+        assert_eq!(
+            lang_for_path("/w/a.mjs").unwrap().server_label,
+            "typescript-language-server"
+        );
+        assert!(
+            lang_for_path("/w/Dockerfile").is_none(),
+            "a language without a server"
+        );
+    }
+
+    #[test]
+    fn a_vsix_language_reaches_the_server_its_extension_names_and_goes_when_uninstalled() {
+        // the real `golang.go` VSIX's languages (part of them) and a VSIX that claims `.h`
+        let go = |id: &str, names: &[&str], exts: &[&str]| ContribLanguage {
+            id: id.into(),
+            filenames: names.iter().map(|x| x.to_string()).collect(),
+            extensions: exts.iter().map(|x| x.to_string()).collect(),
+            from: vec!["Golang.Go".into()],
+            ..Default::default()
+        };
+        set_contributions(vec![
+            go("go.mod", &["go.mod"], &[]),
+            go("go.asm", &[], &[".s"]),
+            ContribLanguage {
+                id: "objective-c".into(),
+                extensions: vec![".h".into()],
+                from: vec!["acme.objc".into()],
+                ..Default::default()
+            },
+        ]);
+        let gomod = lang_for_path("/p4-vsix/mod/go.mod").expect("gopls for go.mod");
+        assert_eq!(
+            (gomod.id.as_str(), gomod.server_label.as_str()),
+            ("go", "gopls")
+        );
+        let lang_id = file_language(&gomod.eff.registry, "/p4-vsix/mod/go.mod")
+            .map(|f| f.lsp_id().to_string());
+        assert_eq!(
+            lang_id.as_deref(),
+            Some("go.mod"),
+            "the VSIX id is the LSP languageId"
+        );
+        assert_eq!(
+            server_status("/p4-vsix/mod/go.mod").map(|s| s.language),
+            Some("go".into())
+        );
+        assert!(
+            lang_for_path("/p4-vsix/a.s").is_none(),
+            "gopls does not list go.asm"
+        );
+        assert_eq!(
+            lang_for_path("/p4-vsix/a.h").map(|l| l.id),
+            Some("cpp".into()),
+            "the registry wins"
+        );
+        set_contributions(Vec::new());
+        assert!(
+            lang_for_path("/p4-vsix/mod/go.mod").is_none(),
+            "uninstalled: gone"
+        );
+    }
+}
+
+#[cfg(test)]
+mod override_tests {
+    use super::*;
+
+    #[test]
+    fn workspace_configuration_answers_each_item_from_the_settings() {
+        let settings = langreg::normalize_settings(&json!({
+            "python.analysis.typeCheckingMode": "strict",
+            "gopls": { "staticcheck": true }
+        }));
+        let params = json!({ "items": [
+            { "section": "python.analysis" },
+            { "section": "gopls.staticcheck", "scopeUri": "file:///w" },
+            { "section": "java" },
+            {}
+        ] });
+        assert_eq!(
+            configuration_reply(&settings, &params),
+            json!([{ "typeCheckingMode": "strict" }, true, null, settings])
+        );
+        // no settings: one null per item, as before overrides
+        assert_eq!(
+            configuration_reply(&Value::Null, &params),
+            json!([null, null, null, null])
+        );
+        assert_eq!(configuration_reply(&settings, &json!({})), json!([]));
+    }
+
+    #[test]
+    fn a_session_restarts_when_how_it_starts_changes_not_when_its_settings_do() {
+        let base = langreg::registry().server("python").unwrap().clone();
+        let mut with_settings = base.clone();
+        with_settings.settings = json!({ "python": { "analysis": {} } });
+        assert_eq!(fingerprint(&base), fingerprint(&with_settings));
+        for change in [
+            |s: &mut Server| s.args.push("--verbose".into()),
+            |s: &mut Server| s.command = "basedpyright-langserver".into(),
+            |s: &mut Server| s.init_options = json!({ "a": 1 }),
+            |s: &mut Server| s.root_markers = vec!["x.toml".into()],
+            |s: &mut Server| s.search_dirs = vec!["/opt/bin".into()],
+        ] {
+            let mut other = base.clone();
+            change(&mut other);
+            assert_ne!(fingerprint(&base), fingerprint(&other));
+        }
+    }
+
+    fn project(files: &[(&str, &str)]) -> (tempfile::TempDir, String) {
+        let d = tempfile::tempdir().unwrap();
+        for (p, text) in files {
+            let f = d.path().join(p);
+            std::fs::create_dir_all(f.parent().unwrap()).unwrap();
+            std::fs::write(f, text).unwrap();
+        }
+        let root = register_root(&d.path().display().to_string());
+        (d, root)
+    }
+
+    #[test]
+    fn a_project_file_adds_a_language_for_its_own_folder_only() {
+        let (_d, root) = project(&[(
+            ".dxtutor/lsp.json",
+            r#"{ "languages": [ { "id": "markdown", "lspLanguageId": "markdown", "server": "sql" } ] }"#,
+        )]);
+        let inside = format!("{root}/README.md");
+        let lang = lang_for_path(&inside).expect("markdown has a server in this project");
+        assert_eq!(lang.id, "sql");
+        assert_eq!(lang.project.as_deref(), Some(root.as_str()));
+        // elsewhere the bundled registry: Markdown has no server
+        assert!(lang_for_path("/elsewhere/README.md").is_none());
+        // re-pointing a language to a trusted server needs no approval
+        assert!(lang.eff.project_launch_changes("sql").is_empty());
+        let view = config_view(Some(&root));
+        assert!(view.project_file.as_ref().unwrap().applied);
+        let sql = view.servers.iter().find(|s| s.entry.id == "sql").unwrap();
+        assert!(sql.approval.is_none() && sql.project_launch.is_empty());
+        assert!(view
+            .languages
+            .iter()
+            .any(|l| l.id == "markdown" && l.server.as_deref() == Some("sql")));
+    }
+
+    #[test]
+    fn project_settings_wait_for_approval_and_the_server_runs_with_the_trusted_ones() {
+        let (_d, root) = project(&[(
+            ".dxtutor/lsp.json",
+            r#"{ "servers": [ { "id": "sql", "settings": { "sqls": { "connections": [ { "driver": "x" } ] } },
+                               "initOptions": { "a": 1 } } ] }"#,
+        )]);
+        let lang = lang_for_path(&format!("{root}/q.sql")).unwrap();
+        // the effective entry has the project's settings…
+        assert_eq!(
+            lang.server.settings["sqls"]["connections"][0]["driver"],
+            "x"
+        );
+        let a = pending_approval(&lang, "/x/sqls", &root).expect("project settings need approval");
+        assert!(!a.blocks_start);
+        assert_eq!(a.changed, ["settings", "initOptions"]);
+        assert!(a.config.as_deref().unwrap().contains("\"driver\": \"x\""));
+        // …but until approved the server runs with the trusted ones (none for sqls)
+        let run = gate(&lang, "/x/sqls", &root).expect("it still starts");
+        assert!(run.server.settings.is_null() && run.server.init_options.is_null());
+        assert_ne!(fingerprint(&run.server), fingerprint(&lang.server));
+        // the view says so too
+        let view = config_view(Some(&root));
+        let sql = view.servers.iter().find(|s| s.entry.id == "sql").unwrap();
+        assert_eq!(sql.project_config, ["settings", "initOptions"]);
+        assert!(sql.project_launch.is_empty());
+        // a project command blocks the start
+        std::fs::write(
+            format!("{root}/.dxtutor/lsp.json"),
+            r#"{ "servers": [ { "id": "sql", "args": ["-x"], "settings": { "a": 1 } } ] }"#,
+        )
+        .unwrap();
+        conf().lock().unwrap().cache.remove(&root);
+        let lang = lang_for_path(&format!("{root}/q.sql")).unwrap();
+        assert!(matches!(gate(&lang, "/x/sqls", &root), Err(a) if a.blocks_start));
+    }
+
+    #[test]
+    fn a_session_key_carries_the_open_folder() {
+        let lang = lang_for_path("/nowhere/src/a.rs").unwrap();
+        assert_eq!(lang.project, None);
+        assert_eq!(session_key(&lang, "/nowhere"), "rust\u{0}/nowhere\u{0}");
+        assert_eq!(split_key("rust\u{0}/w\u{0}/w/p"), Some(("rust", "/w")));
+        assert_eq!(split_key("rust\u{0}/w"), Some(("rust", "/w")));
+        assert_eq!(split_key("bad"), None);
+        // the workspace-symbol search still sees the session root
+        assert!(roots_overlap(
+            "/w",
+            split_key("rust\u{0}/w/app\u{0}/w").unwrap().1
+        ));
+    }
+
+    #[test]
+    fn a_server_turned_off_for_its_language_is_not_warmed_up_nor_used() {
+        let (_d, root) = project(&[
+            (
+                ".dxtutor/lsp.json",
+                r#"{ "languages": [ { "id": "rust", "server": null } ] }"#,
+            ),
+            ("Cargo.toml", "[package]\nname = \"x\"\n"),
+        ]);
+        assert!(lang_for_path(&format!("{root}/src/main.rs")).is_none());
+        assert!(!langs_for(Some(&root)).iter().any(|l| l.id == "rust"));
+        assert!(langs_for(None).iter().any(|l| l.id == "rust"));
+    }
+
+    #[test]
+    fn a_project_command_waits_for_approval_and_an_invalid_file_is_reported() {
+        // `sh` exists everywhere: the project points the SQL server at it (a new command)
+        let (_d, root) = project(&[
+            (
+                ".dxtutor/lsp.json",
+                r#"{ "servers": [ { "id": "sql", "command": "sh", "args": ["-c", "echo pwned"] } ] }"#,
+            ),
+            ("q.sql", "select 1;"),
+        ]);
+        let st = server_status(&format!("{root}/q.sql")).unwrap();
+        assert!(st.installed, "{st:?}");
+        let a = st.approval.expect("the project's command needs approval");
+        assert_eq!(a.args, ["-c", "echo pwned"]);
+        assert!(a.program.ends_with("/sh"), "{}", a.program);
+        assert_eq!(a.command, format!("{} -c 'echo pwned'", a.program));
+        assert_eq!(a.project, root);
+        assert_eq!(a.cwd, root, "SQL has no marker: the open folder");
+        assert!(a.file.ends_with(".dxtutor/lsp.json"));
+        assert_eq!(a.changed, ["command", "args"]);
+        // the same in the config view
+        let view = config_view(Some(&root));
+        let sql = view.servers.iter().find(|s| s.entry.id == "sql").unwrap();
+        assert_eq!(sql.approval.as_ref().map(|x| &x.hash), Some(&a.hash));
+        assert_eq!(sql.sources, ["bundled", "project"]);
+
+        // an invalid project file: ignored and reported, the bundled entries stay
+        let (_d2, root2) = project(&[(
+            ".dxtutor/lsp.json",
+            r#"{ "servers": [ { "id": "sql", "comand": "sh" } ] }"#,
+        )]);
+        let view = config_view(Some(&root2));
+        let rep = view.project_file.unwrap();
+        assert!(rep.exists && !rep.applied);
+        assert!(rep.errors[0].contains("unknown field `comand`"), "{rep:?}");
+        assert!(server_status(&format!("{root2}/q.sql"))
+            .unwrap()
+            .approval
+            .is_none());
+    }
+
+    #[test]
+    fn the_override_files_open_with_a_template_when_missing() {
+        let (_d, root) = project(&[]);
+        let f = config_file("project", Some(&root)).unwrap();
+        assert!(!f.exists && f.text == lspconf::PROJECT_TEMPLATE);
+        assert!(f.path.ends_with(".dxtutor/lsp.json"));
+        std::fs::create_dir_all(format!("{root}/.dxtutor")).unwrap();
+        std::fs::write(format!("{root}/.dxtutor/lsp.json"), "{}").unwrap();
+        let f = config_file("project", Some(&root)).unwrap();
+        assert!(f.exists && f.text == "{}");
+        assert!(config_file("project", None).is_err());
+        assert!(config_file("other", Some(&root)).is_err());
+        // unit tests have no app config folder
+        assert!(config_file("user", None).is_err());
     }
 }

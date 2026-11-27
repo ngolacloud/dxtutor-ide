@@ -23,8 +23,9 @@ export interface EditorOverlay {
   view(path: string, real: string): OverlayView | null;
   /** The human changed the view to `next`: the new real content, or `null` to refuse. */
   edit(path: string, view: OverlayView, next: string, real: string): string | null;
-  /** After the editor painted `path` with `view`: add decorations. */
-  decorate(path: string, host: { wrap: HTMLElement; hl: HTMLElement; gut: HTMLElement }, view: OverlayView): void;
+  /** After the editor painted `path` with `view`: add decorations. `null`: the file is shown as it is (no
+   *  open hunks any more) — the overlay removes what it drew. */
+  decorate(path: string, host: { wrap: HTMLElement; hl: HTMLElement; gut: HTMLElement }, view: OverlayView | null): void;
 }
 
 let overlay: EditorOverlay | null = null;

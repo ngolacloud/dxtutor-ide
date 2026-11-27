@@ -5,56 +5,59 @@ import { bootApp } from "./harness";
  * nem fazer deploy; os erros reais (falta o compose, faltam Dockerfiles, falta deploy/k8s) ficam. */
 
 let w: any;
+let INF: any; // eslint-disable-line @typescript-eslint/no-explicit-any — o módulo da infra da cadeia do bootApp (U7p2)
 let SM: any; // eslint-disable-line @typescript-eslint/no-explicit-any — o módulo da cadeia do bootApp (U7e)
 const term = (): string => document.getElementById("term")?.textContent || "";
 
 beforeEach(async () => {
   w = await bootApp();
+  INF = await import("../src/features/infra");
   SM = await import("../src/features/studio");
-  w.ENVS.rtOn = false; w.ENVS.k8sOn = false; w.STACK = null; w.K8S = null;
+  w.ENVS.rtOn = false; w.ENVS.k8sOn = false; (await import("../src/features/stack")).setStackState(null); INF.setK8s(null);
 });
 
 describe("no browser", () => {
   it("ligar o cluster diz que precisa da app desktop e não liga", () => {
     const toast = vi.spyOn(w, "toast");
-    w.k8sConnect();
+    INF.k8sConnect();
     expect(w.ENVS.k8sOn).toBe(false);
     expect(toast).toHaveBeenCalledWith(expect.stringMatching(/needs the desktop app/));
   });
 
-  it("▶ RUN com um docker-compose.yml válido não inventa serviços a correr", () => {
+  it("▶ RUN com um docker-compose.yml válido não inventa serviços a correr", async () => {
     w.ENVS.rtOn = true; // mesmo «ligado» (estado antigo), o browser não arranca contentores
     w.FS[w.ROOT + "docker-compose.yml"] = { content: "services:\n  web:\n    image: nginx\n", orig: null };
-    const r = w.dxRun();
+    const r = (await import("../src/features/stack")).dxRun();
     expect(r).toMatchObject({ ok: false });
-    expect(w.STACK).toBe(null);
+    expect((await import("../src/features/stack")).stackState()).toBe(null);
     expect(term()).toMatch(/precisa da app desktop/);
     expect(term()).not.toMatch(/services up|simulated/);
   });
 
-  it("▶ RUN sem docker-compose.yml mostra o erro real do compose", () => {
+  it("▶ RUN sem docker-compose.yml mostra o erro real do compose", async () => {
     w.ENVS.rtOn = true;
     delete w.FS[w.ROOT + "docker-compose.yml"];
-    w.dxRun();
+    (await import("../src/features/stack")).dxRun();
     expect(term()).toMatch(/no configuration file provided/);
   });
 
   it("deploy: com manifestos, não finge um cluster — diz que precisa da app desktop", () => {
     w.ENVS.rtOn = true; w.ENVS.k8sOn = true;
-    w.FS[w.ROOT + "deploy/k8s/all.yaml"] = { content: w.k8sInfra(w.SD), orig: null };
+    w.FS[w.ROOT + "deploy/k8s/all.yaml"] = { content: INF.k8sInfra(w.SD), orig: null };
     for (const n of w.SD.nodes) { const d = w.ROOT + SM.appDir(n) + "/Dockerfile"; w.FS[d] = { content: "FROM scratch\n", orig: null }; }
-    const r = w.dxDeploy();
+    const r = INF.dxDeploy();
     expect(r).toMatchObject({ ok: false });
-    expect(w.K8S).toBe(null);
+    expect(INF.k8s()).toBe(null);
     expect(term()).toMatch(/The deploy needs the desktop app/);
     expect(term()).not.toMatch(/deployments ready|simulated/);
   });
 
-  it("o terminal emulado não responde com um cluster/contentor inventado", () => {
-    w.XC.kubectl(["get", "pods"]);
-    w.XC.devcontainer(["up"]);
+  it("o terminal emulado não responde com um cluster/contentor inventado", async () => {
+    const TMX = (await import("../src/features/terminal")).XC as Record<string, (a: string[]) => unknown>;
+    TMX.kubectl(["get", "pods"]);
+    TMX.devcontainer(["up"]);
     expect(term()).toMatch(/does not talk to the cluster/);
     expect(term()).toMatch(/does not start containers/);
-    expect(w.DEVC == null).toBe(true);
+    expect(INF.devc() == null).toBe(true);
   });
 });

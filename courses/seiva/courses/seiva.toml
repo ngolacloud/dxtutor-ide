@@ -1,0 +1,3802 @@
+# Seiva — the official dxtutor course for the Seiva backend framework (ngolacloud/seiva).
+#
+# A FRAMEWORK course graded in Rust. Every drill and challenge compiles against Seiva 0.2.0 and a
+# few crates around it, declared ONCE in [build] below. Grading never touches the network: the
+# Learning Track's «Prepare course» (or `dxt plugin prepare courses/seiva`) downloads these
+# dependencies once into a course cache, with the human's approval, and builds them; after that
+# every step compiles offline against that cache.
+#
+# SWITCHING TO CRATES.IO: when Seiva 0.2.0 is published there, change the ONE line under
+# [build.vars] to
+#
+#   seiva = 'version = "0.2.0"'
+#
+# Nothing else changes (every Seiva dependency below cites ${seiva}). The course cache sees the
+# new dependency set and asks to be prepared again.
+
+id = "seiva-basics"
+language = "rust"
+category = "framework"
+subject = "seiva"
+title = "Seiva: Backends That Keep Their Shape"
+level = "intermediate"
+summary = "Build a Seiva module from the domain up: rules, ports, transactional use cases, a versioned contract, generated HTTP routes and the five-crate layout."
+
+overview = '''
+**Seiva** (Delonix Seiva) is a Rust backend framework for robust, high-criticality systems. A Seiva
+backend is made of **modules that own their data**, and each module exposes **one versioned
+contract** — a trait — from which everything a client sees is derived: the HTTP routes, the
+permission checks, the OpenAPI 3.1 document and the gRPC proto. No reflection, no hidden magic: it is
+all known at compile time, and the compiler enforces the architecture.
+
+In this course you build one module, **`tasks`**, the way Seiva's own examples are built:
+
+1. **the domain** — an entity whose constructor enforces its rules;
+2. **the ports** — the traits a use case asks of the world (ids, time, transactions, events) and
+   the in-memory doubles that stand in for them in tests;
+3. **the use cases** — a service generic over the ports, one transaction per use case, events
+   published inside it;
+4. **the contract** — a `#[seiva::facade]` trait, wire DTOs, validation and permissions;
+5. **HTTP** — `#[seiva::controller]` turns the facade into an axum router;
+6. **the five crates** — the module split into domain, application, facade, infrastructure and
+   interface, wired by a composition root and served end to end.
+
+**What you need.** The Rust toolchain (`cargo`) and the basics of Rust: structs and enums,
+`Result` and `?`, traits and generics, and `async`/`.await`. No database and no server: everything
+runs on Seiva's in-memory adapters.
+
+**Prepare the course once.** The exercises compile against **Seiva 0.2.0** (from its Git repository,
+tag `v0.2.0`), `tokio`, `axum`, `tower` and `serde`. Grading never uses the network, so the first
+time you open the course, use **Prepare course**: it shows the exact commands, and after you approve
+them it downloads those dependencies into a cache of this course (not your `~/.cargo`) and builds
+them once (about a minute and roughly 650 MB on disk). After that every step compiles offline in a
+few seconds.
+
+**Official documentation:** https://ngolacloud.github.io/seiva/ — the "Seiva at a glance" page, the
+Architecture page and the shop tutorial go well with this course.
+'''
+
+[build]
+prepare = true
+# Each build of a step: a few seconds with the prepared cache (measured: 1–4 s on 22 cores; a
+# rebuild of every dependency after a toolchain update, offline: about 25 s). The limit leaves room
+# for slower machines.
+timeout_secs = 240
+dependencies = [
+  'seiva = { ${seiva}, default-features = false }',
+  'seiva-ports = { ${seiva} }',
+  'seiva-testing = { ${seiva} }',
+  'seiva-http = { ${seiva} }',
+  'tokio = { version = "1", features = ["rt", "macros"] }',
+  'axum = "0.8"',
+  'tower = { version = "0.5", features = ["util"] }',
+  'serde = { version = "1", features = ["derive"] }',
+  'serde_json = "1"',
+]
+
+[build.vars]
+# THE source of Seiva for the whole course (see the top of this file for the crates.io switch).
+seiva = 'git = "https://github.com/ngolacloud/seiva", tag = "v0.2.0"'
+
+
+[[unit]]
+id = "sv-u1-domain"
+title = "The domain: rules that cannot be skipped"
+level = "basic"
+difficulty = 1
+intro = "A Seiva module starts with its domain: the entities and the rules they keep, in plain Rust."
+concepts = '''
+A Seiva backend is built from **modules**, and every module starts with its **domain**: the
+entities of the business and the rules they must keep. In this course you build one module, `tasks`,
+and its domain is small on purpose — a `Task` has an id, a title and a `done` flag.
+
+**A rule lives in the constructor.** Seiva's examples never build an entity with a struct literal from
+outside: they call `Task::new(...)`, which returns `Result<Task, DomainError>`. If the title is empty,
+you do not get a `Task` at all — you get an error. That is the whole trick: a value of type `Task` is
+*proof* that the rules held when it was made. Code that receives a `Task` never re-checks the title.
+
+```rust
+pub fn new(id: u128, title: impl Into<String>) -> Result<Self, DomainError> {
+    let title = title.into().trim().to_string();
+    if title.is_empty() {
+        return Err(DomainError::EmptyTitle);
+    }
+    Ok(Self { id, title, done: false })
+}
+```
+
+**Errors are part of the domain's language.** `DomainError` is an `enum` with one variant per rule
+(`EmptyTitle`, `TitleTooLong { max }`, `AlreadyDone`). It implements `Display` (a message a person can
+read) and `std::error::Error`, so the layers above can carry it as a boxed error and still print it.
+State changes are rules too: `complete(&mut self)` refuses a task that is already done.
+
+**The domain depends on nothing.** In a real Seiva module the domain is its own crate whose
+`[dependencies]` table is empty: no framework, no HTTP, no database. The compiler then guarantees that
+no rule ever reaches for a request or a SQL connection. Everything in this unit is plain Rust — that
+is the point. Seiva arrives in the next unit, around the domain, never inside it.
+
+**Ids are `u128`.** Seiva's identifiers are 128-bit values (`seiva_ports::Id` is 16 bytes); the domain
+keeps them as `u128` and the wire turns them into strings, so no JavaScript client loses precision.
+
+Official docs: https://ngolacloud.github.io/seiva/ (Architecture, and the `examples/notes` module of the
+repository, which this unit follows).
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "sv-c1-domain"
+title = "Why the domain comes first"
+points = 5
+difficulty = 1
+intro = "Before any framework code: what an entity is, and why its constructor can say no."
+body = '''
+Open any module of the Seiva repository (`examples/notes`, `examples/shop/orders`) and you find
+the same five crates. The first one to read is always `domain`.
+
+- An **entity** is a type whose values are always valid. You get one only through `new()`, which
+  checks the rules and returns `Result<Entity, DomainError>`.
+- A **rule** that a state change must respect (a task is completed once) is a method that can fail.
+- The domain crate has **no dependencies**, so it can be tested with `cargo test` and nothing else.
+
+In this unit you write the `tasks` domain in plain Rust. Everything after it — ports, use cases,
+contract, HTTP — is built around it and never changes it.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "sv-d1-new"
+title = "A constructor that can say no"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = "Retype a tiny entity whose constructor trims the input and refuses an empty title."
+prompt = "Type the program. `Note::new` returns a `Result`: a valid note, or the reason it was refused."
+target = '''
+#[derive(Debug)]
+struct Note {
+    title: String,
+}
+
+impl Note {
+    fn new(title: &str) -> Result<Note, String> {
+        let title = title.trim();
+        if title.is_empty() {
+            return Err("a note needs a title".to_string());
+        }
+        Ok(Note {
+            title: title.to_string(),
+        })
+    }
+}
+
+fn main() {
+    println!("{:?}", Note::new("  buy milk "));
+    println!("{:?}", Note::new("   "));
+}
+'''
+line_comments = [
+  "`Debug` lets `main` print a whole note with `{:?}`.",
+  "The entity: one field, private to this program.",
+  "The title, already trimmed when the note exists.",
+  "End of the struct.",
+  "",
+  "The constructor lives in an `impl` block of the type.",
+  "`new` returns a `Result`: `Ok(Note)` or `Err(reason)` — never a half-valid note.",
+  "Normalise first: spaces around the title do not count.",
+  "The rule: an empty title is refused.",
+  "An early `return` with the error; no `Note` is built.",
+  "End of the rule.",
+  "Only now is the value built…",
+  "…with the cleaned-up title…",
+  "…and wrapped in `Ok`.",
+  "End of `new`.",
+  "End of the `impl` block.",
+  "",
+  "The program.",
+  "Prints `Ok(Note { title: \"buy milk\" })`.",
+  "Prints `Err(\"a note needs a title\")`.",
+  "End of `main`.",
+]
+explanation = "The caller cannot get a `Note` with a blank title: the type itself carries the guarantee. Seiva's `Note::new` in `examples/notes/domain` is this same shape, with an error enum instead of a `String`."
+run_command = "cargo run"
+
+[[unit.step]]
+kind = "drill"
+id = "sv-d1-errors"
+title = "A domain error people can read"
+points = 10
+difficulty = 2
+placeholder_policy = "shown"
+intro = "Give the domain its own error type: an enum with `Display` and `std::error::Error`."
+prompt = "Type the program. The error enum prints a sentence, and `?` carries it out of `main`."
+target = '''
+use std::fmt;
+
+#[derive(Debug, PartialEq)]
+enum DomainError {
+    EmptyTitle,
+}
+
+impl fmt::Display for DomainError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DomainError::EmptyTitle => write!(f, "a task needs a title"),
+        }
+    }
+}
+
+impl std::error::Error for DomainError {}
+
+fn check(title: &str) -> Result<String, DomainError> {
+    if title.trim().is_empty() {
+        return Err(DomainError::EmptyTitle);
+    }
+    Ok(title.trim().to_string())
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!("ok: {}", check(" write tests ")?);
+    let err = check("  ").unwrap_err();
+    println!("rejected: {err}");
+    Ok(())
+}
+'''
+line_comments = [
+  "`fmt` brings the `Display` machinery into scope.",
+  "",
+  "`PartialEq` lets tests compare errors with `assert_eq!`.",
+  "One variant per rule of the domain.",
+  "The only rule so far.",
+  "End of the enum.",
+  "",
+  "`Display` is the sentence a person reads.",
+  "The one method `Display` asks for.",
+  "Match on the variant…",
+  "…and write its message.",
+  "End of the match.",
+  "End of `fmt`.",
+  "End of the impl.",
+  "",
+  "`Error` (empty: `Display` + `Debug` are enough) makes it a real error type.",
+  "",
+  "A tiny rule check that returns the domain error.",
+  "The rule…",
+  "…refuses with the domain's own error, not a string.",
+  "End of the rule.",
+  "The cleaned title when it passes.",
+  "End of `check`.",
+  "",
+  "`main` can return any error: `Box<dyn Error>` accepts `DomainError` through `?`.",
+  "`?` unwraps the `Ok`; an `Err` would end `main` with that error.",
+  "This one fails on purpose; `unwrap_err` takes the error out.",
+  "`{err}` uses `Display`: prints `rejected: a task needs a title`.",
+  "`main` succeeded.",
+  "End of `main`.",
+]
+explanation = "Because `DomainError` implements `std::error::Error`, the layers above can box it (`Box<dyn Error + Send + Sync>`, which Seiva calls `BoxError`) and still print the domain's own sentence."
+run_command = "cargo run"
+
+[[unit.step]]
+kind = "challenge"
+id = "sv-ch1-task"
+title = "The task entity"
+points = 30
+difficulty = 3
+intro = "Write the two rules of the `tasks` domain: what a valid title is, and that a task is completed once."
+run_command = "cargo test"
+instructions = '''
+Implement `Task::new` and `Task::complete` (the types and the error messages are given).
+
+- `Task::new(id, title)` trims the title. An empty title is `DomainError::EmptyTitle`; a title with
+  more than `MAX_TITLE` (80) **characters** — count `chars()`, not bytes — is
+  `DomainError::TitleTooLong { max: MAX_TITLE }`. A valid task starts with `done = false`.
+- `task.complete()` sets `done = true`; completing a task that is already done is
+  `DomainError::AlreadyDone` (and leaves it done).
+'''
+entry = "Task"
+starter = '''
+use std::fmt;
+
+/// The longest title a task may have, in characters.
+pub const MAX_TITLE: usize = 80;
+
+/// A task. Build it with [`Task::new`], so its rules always hold.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Task {
+    pub id: u128,
+    pub title: String,
+    pub done: bool,
+}
+
+/// A rule of the domain said no.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DomainError {
+    EmptyTitle,
+    TitleTooLong { max: usize },
+    AlreadyDone,
+}
+
+impl fmt::Display for DomainError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DomainError::EmptyTitle => write!(f, "a task needs a title"),
+            DomainError::TitleTooLong { max } => {
+                write!(f, "a task title has at most {max} characters")
+            }
+            DomainError::AlreadyDone => write!(f, "the task is already done"),
+        }
+    }
+}
+
+impl std::error::Error for DomainError {}
+
+impl Task {
+    /// Creates an open task with a trimmed title of 1 to [`MAX_TITLE`] characters.
+    pub fn new(id: u128, title: impl Into<String>) -> Result<Self, DomainError> {
+        todo!("trim the title, check the two rules, then build the task")
+    }
+
+    /// Marks the task done; a task is completed only once.
+    pub fn complete(&mut self) -> Result<(), DomainError> {
+        todo!("refuse a task that is already done")
+    }
+}
+'''
+tests = '''
+use student::{DomainError, Task, MAX_TITLE};
+
+#[test]
+fn a_valid_task_is_open_and_trimmed() {
+    let t = Task::new(7, "  write the spec  ").unwrap();
+    assert_eq!(t, Task { id: 7, title: "write the spec".into(), done: false });
+}
+
+#[test]
+fn an_empty_title_is_refused() {
+    assert_eq!(Task::new(1, ""), Err(DomainError::EmptyTitle));
+    assert_eq!(Task::new(1, " \t "), Err(DomainError::EmptyTitle));
+}
+
+#[test]
+fn the_title_length_counts_characters() {
+    assert!(Task::new(1, "a".repeat(MAX_TITLE)).is_ok());
+    assert_eq!(
+        Task::new(1, "a".repeat(MAX_TITLE + 1)),
+        Err(DomainError::TitleTooLong { max: MAX_TITLE })
+    );
+    // 80 characters, 160 bytes: still valid
+    assert!(Task::new(1, "é".repeat(MAX_TITLE)).is_ok());
+    // the spaces around it do not count
+    assert!(Task::new(1, format!("  {}  ", "a".repeat(MAX_TITLE))).is_ok());
+}
+
+#[test]
+fn a_task_is_completed_once() {
+    let mut t = Task::new(1, "ship").unwrap();
+    assert_eq!(t.complete(), Ok(()));
+    assert!(t.done);
+    assert_eq!(t.complete(), Err(DomainError::AlreadyDone));
+    assert!(t.done);
+}
+
+#[test]
+fn the_errors_read_well() {
+    assert_eq!(DomainError::EmptyTitle.to_string(), "a task needs a title");
+    assert_eq!(
+        DomainError::TitleTooLong { max: 80 }.to_string(),
+        "a task title has at most 80 characters"
+    );
+}
+'''
+
+[unit.step.gabarito]
+solution = '''
+use std::fmt;
+
+/// The longest title a task may have, in characters.
+pub const MAX_TITLE: usize = 80;
+
+/// A task. Build it with [`Task::new`], so its rules always hold.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Task {
+    pub id: u128,
+    pub title: String,
+    pub done: bool,
+}
+
+/// A rule of the domain said no.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DomainError {
+    EmptyTitle,
+    TitleTooLong { max: usize },
+    AlreadyDone,
+}
+
+impl fmt::Display for DomainError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DomainError::EmptyTitle => write!(f, "a task needs a title"),
+            DomainError::TitleTooLong { max } => {
+                write!(f, "a task title has at most {max} characters")
+            }
+            DomainError::AlreadyDone => write!(f, "the task is already done"),
+        }
+    }
+}
+
+impl std::error::Error for DomainError {}
+
+impl Task {
+    /// Creates an open task with a trimmed title of 1 to [`MAX_TITLE`] characters.
+    pub fn new(id: u128, title: impl Into<String>) -> Result<Self, DomainError> {
+        let title = title.into().trim().to_string();
+        if title.is_empty() {
+            return Err(DomainError::EmptyTitle);
+        }
+        if title.chars().count() > MAX_TITLE {
+            return Err(DomainError::TitleTooLong { max: MAX_TITLE });
+        }
+        Ok(Self {
+            id,
+            title,
+            done: false,
+        })
+    }
+
+    /// Marks the task done; a task is completed only once.
+    pub fn complete(&mut self) -> Result<(), DomainError> {
+        if self.done {
+            return Err(DomainError::AlreadyDone);
+        }
+        self.done = true;
+        Ok(())
+    }
+}
+'''
+time = "O(n)"
+space = "O(n)"
+justification = "Trimming and counting the characters of the title is linear in its length; `complete` is constant time. The checks run in `new`, so every `Task` that exists already respects them — the layers above never re-validate a title."
+
+[[unit]]
+id = "sv-u2-ports"
+title = "Ports: what a use case asks of the world"
+level = "basic"
+difficulty = 2
+intro = "The application layer never calls a database, a clock or a broker directly: it asks for them through ports."
+concepts = '''
+A use case needs things from the outside world: a fresh id, the current time, a transaction, a way
+to announce what happened. Seiva gives each of those a **port** — a trait in the small crate
+`seiva-ports` — and the application layer codes against the traits only.
+
+| Port | What it does | In tests (`seiva-testing`) |
+|---|---|---|
+| `IdGenerator` | `new_id() -> Id` (16 bytes) | `SequenceIdGenerator` (1, 2, 3…) |
+| `Clock` | `now() -> SystemTime` | `FixedClock` (a fixed instant, `advance`) |
+| `EventPublisher` | `publish(topic, &[u8])` (async) | `RecordingEventPublisher` |
+| `UnitOfWork` | `transaction(scope, work)` | `InMemoryUnitOfWork` |
+
+**Why traits?** Because the composition root — not the use case — decides what is behind them. In
+production `UnitOfWork` is a database transaction (DORM, or an SQL adapter) and `EventPublisher` writes
+to a transactional outbox; in a unit test they are the in-memory doubles of `seiva-testing`, so the
+test needs no server, broker or database. The use case does not change.
+
+**Injecting by generics.** A function or a service takes the ports as type parameters:
+`fn new_task<G: IdGenerator, C: Clock>(ids: &G, clock: &C, ...)`. The compiler builds one version per
+concrete type — no dynamic dispatch, no reflection, nothing to configure at run time.
+
+**`Id` and `u128`.** `IdGenerator::new_id()` returns `seiva_ports::Id`, a newtype over `[u8; 16]`. The
+doubles write a counter big-endian into those bytes, so `u128::from_be_bytes(id.0)` turns it back into
+the number (1, 2, 3…), which is what the `tasks` domain stores.
+
+**`Scope`: the tenant, impossible to forget.** Every transaction runs under a `Scope`: either
+`Scope::Tenant(TenantId)` or the deliberate, audited `Scope::Global`. `Scope::tenant("acme")` returns
+`Option<Scope>` — `None` for an empty or blank name — so "no tenant" can never pass for a tenant.
+A request without a tenant must fail closed: it gets an error, never `Scope::Global`.
+
+**`SystemTime` to seconds.** `clock.now().duration_since(UNIX_EPOCH)` gives a `Duration`; `.as_secs()`
+is the Unix time. With `FixedClock::at_unix_secs(n)` that is exactly `n`.
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "sv-c2-ports"
+title = "Ports and doubles"
+points = 5
+difficulty = 2
+intro = "The four ports a use case uses most, and the test doubles that stand in for them."
+body = '''
+`seiva-ports` is deliberately tiny: traits and a few small types (`Id`, `Scope`, `TenantId`,
+`BoxError`, `PortResult`). It has no runtime, no macros and no data layer, so an `application` crate
+can depend on it without dragging in the framework.
+
+`seiva-testing` has one in-memory double per port. Each double is cheap to clone and **shares its
+recorded state**: keep one handle in the test, give a clone to the code under test, then read back
+what happened (`uow.outcomes()`, `events.topics()`).
+
+In this unit you call the ports directly; in the next one a use case is generic over them.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "sv-d2-ids"
+title = "Ids from a port"
+points = 10
+difficulty = 2
+placeholder_policy = "shown"
+intro = "Mint ids through `IdGenerator` with the deterministic test double."
+prompt = "Type the program. The double hands out 1, 2, 3… as 16-byte ids; `u128::from_be_bytes` turns one back into a number."
+target = '''
+use seiva_ports::IdGenerator;
+use seiva_testing::SequenceIdGenerator;
+
+fn main() {
+    let ids = SequenceIdGenerator::new();
+    let first = ids.new_id();
+    let second = ids.new_id();
+    println!("{first:?}");
+    let n = u128::from_be_bytes(second.0);
+    println!("second id as a number: {n}");
+}
+'''
+line_comments = [
+  "The port: a trait. Its method is only callable with the trait in scope.",
+  "The deterministic double from `seiva-testing`.",
+  "",
+  "The program.",
+  "A generator whose first id is 1.",
+  "`new_id()` returns a `seiva_ports::Id` (16 bytes).",
+  "The next one: 2.",
+  "`Id`'s `Debug` prints the 16 bytes in hex: `Id(000…001)`.",
+  "`.0` is the `[u8; 16]`; big-endian bytes back into a `u128`.",
+  "Prints `second id as a number: 2`.",
+  "End of `main`.",
+]
+explanation = "In production an `IdGenerator` hands out UUIDs or ULIDs; the use case does not care. In a test the sequence makes every id predictable, so assertions can say `assert_eq!(task.id, 1)`."
+run_command = "cargo run"
+
+[[unit.step]]
+kind = "drill"
+id = "sv-d2-clock-scope"
+title = "A clock you control, a tenant you cannot forget"
+points = 10
+difficulty = 2
+placeholder_policy = "shown"
+intro = "Read time through `Clock` and build a `Scope` that refuses a blank tenant."
+prompt = "Type the program. `FixedClock` only moves when you say so, and `Scope::tenant` returns `None` for a blank name."
+target = '''
+use std::time::{Duration, UNIX_EPOCH};
+
+use seiva_ports::{Clock, Scope};
+use seiva_testing::FixedClock;
+
+fn main() {
+    let clock = FixedClock::at_unix_secs(1_700_000_000);
+    clock.advance(Duration::from_secs(60));
+    let secs = clock.now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    println!("now: {secs}");
+    println!("{:?}", Scope::tenant("acme"));
+    println!("{:?}", Scope::tenant("   "));
+}
+'''
+line_comments = [
+  "`Duration` to move the clock; `UNIX_EPOCH` to turn a `SystemTime` into seconds.",
+  "",
+  "The `Clock` port and the tenant `Scope`.",
+  "The fixed clock double.",
+  "",
+  "The program.",
+  "A clock frozen at this Unix time.",
+  "Time passes only when the test says so: one minute.",
+  "`now()` is a `SystemTime`; since the epoch, in whole seconds.",
+  "Prints `now: 1700000060`.",
+  "`Some(Scope::Tenant(acme))`.",
+  "`None`: a blank name is not a tenant.",
+  "End of `main`.",
+]
+explanation = "Use cases that need the time take a `Clock`, so a test can freeze it. And because `Scope::tenant` returns an `Option`, the code that builds a scope from a request has to decide, explicitly, what happens when there is no tenant."
+run_command = "cargo run"
+
+[[unit.step]]
+kind = "challenge"
+id = "sv-ch2-ports"
+title = "Minting a task through the ports"
+points = 30
+difficulty = 3
+intro = "Write two small functions that are generic over the ports: one mints a new task, one builds the scope of a request."
+run_command = "cargo test"
+instructions = '''
+Implement both functions.
+
+- `new_task(ids, clock, title)` trims the title; an empty title is `Err` **before** an id is taken
+  (the generator must not move). Otherwise it returns a `NewTask` with the next id as a number
+  (`u128::from_be_bytes(id.0)`), the trimmed title and `created_at`, the clock's time in seconds since
+  the Unix epoch.
+- `scope_for(tenant)` is the scope a request runs under: `Some("acme")` gives the tenant scope of
+  `acme`; `None`, or a blank name, is `Err` (fail closed — never `Scope::Global`).
+'''
+entry = "new_task"
+starter = '''
+use std::time::UNIX_EPOCH;
+
+use seiva_ports::{Clock, IdGenerator, Scope};
+
+/// A task that was just minted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewTask {
+    pub id: u128,
+    pub title: String,
+    /// Seconds since the Unix epoch.
+    pub created_at: u64,
+}
+
+/// Mints a task: the next id, the trimmed title, and the time it was created.
+pub fn new_task<G: IdGenerator, C: Clock>(ids: &G, clock: &C, title: &str) -> Result<NewTask, String> {
+    todo!("refuse an empty title first; then take an id and read the clock")
+}
+
+/// The scope a request runs under: its tenant, or an error. Never `Scope::Global`.
+pub fn scope_for(tenant: Option<&str>) -> Result<Scope, String> {
+    todo!("Scope::tenant returns an Option")
+}
+'''
+tests = '''
+use seiva_ports::{IdGenerator, Scope};
+use seiva_testing::{FixedClock, SequenceIdGenerator};
+use student::{new_task, scope_for, NewTask};
+
+#[test]
+fn mints_with_the_next_id_and_the_clock() {
+    let ids = SequenceIdGenerator::starting_at(41);
+    let clock = FixedClock::at_unix_secs(1_000);
+    let t = new_task(&ids, &clock, "  plan  ").unwrap();
+    assert_eq!(t, NewTask { id: 41, title: "plan".into(), created_at: 1_000 });
+    clock.advance(std::time::Duration::from_secs(5));
+    let u = new_task(&ids, &clock, "review").unwrap();
+    assert_eq!((u.id, u.created_at), (42, 1_005));
+}
+
+#[test]
+fn an_empty_title_takes_no_id() {
+    let ids = SequenceIdGenerator::starting_at(7);
+    let clock = FixedClock::at_unix_secs(0);
+    assert!(new_task(&ids, &clock, "   ").is_err());
+    // the generator did not move
+    assert_eq!(u128::from_be_bytes(ids.new_id().0), 7);
+}
+
+#[test]
+fn the_scope_fails_closed() {
+    assert_eq!(scope_for(Some("acme")), Ok(Scope::tenant("acme").unwrap()));
+    assert!(scope_for(None).is_err());
+    assert!(scope_for(Some("  ")).is_err());
+    assert!(!matches!(scope_for(None), Ok(Scope::Global)));
+}
+'''
+
+[unit.step.gabarito]
+solution = '''
+use std::time::UNIX_EPOCH;
+
+use seiva_ports::{Clock, IdGenerator, Scope};
+
+/// A task that was just minted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewTask {
+    pub id: u128,
+    pub title: String,
+    /// Seconds since the Unix epoch.
+    pub created_at: u64,
+}
+
+/// Mints a task: the next id, the trimmed title, and the time it was created.
+pub fn new_task<G: IdGenerator, C: Clock>(ids: &G, clock: &C, title: &str) -> Result<NewTask, String> {
+    let title = title.trim();
+    if title.is_empty() {
+        return Err("a task needs a title".to_string());
+    }
+    let id = u128::from_be_bytes(ids.new_id().0);
+    let created_at = clock
+        .now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_secs();
+    Ok(NewTask {
+        id,
+        title: title.to_string(),
+        created_at,
+    })
+}
+
+/// The scope a request runs under: its tenant, or an error. Never `Scope::Global`.
+pub fn scope_for(tenant: Option<&str>) -> Result<Scope, String> {
+    tenant
+        .and_then(Scope::tenant)
+        .ok_or_else(|| "the caller has no tenant".to_string())
+}
+'''
+time = "O(n)"
+space = "O(n)"
+justification = "Trimming the title is linear in its length; the ports are called once each. Checking the title before calling `new_id` keeps the generator untouched when the command is refused. `Option::and_then(Scope::tenant)` collapses \"no tenant\" and \"blank tenant\" into one `None`, which `ok_or_else` turns into an error — the fail-closed rule in one expression."
+
+[[unit]]
+id = "sv-u3-use-case"
+title = "One use case, one transaction"
+level = "intermediate"
+difficulty = 3
+intro = "The application layer: a service generic over the ports, where each write use case is one transaction."
+concepts = '''
+The **application** layer holds the use cases. In Seiva it is a service struct that is *generic
+over the ports* — the repository port of the domain plus `IdGenerator`, `UnitOfWork` and
+`EventPublisher` from `seiva-ports`:
+
+```rust
+pub struct TasksService<R, G, U, E> { pub repository: R, pub ids: G, pub uow: U, pub events: E }
+
+impl<R, G, U, E> TasksService<R, G, U, E>
+where R: TaskRepository + Sync, G: IdGenerator, U: UnitOfWork, E: EventPublisher { … }
+```
+
+It names no transport (no HTTP types) and no database. That is what lets it run, unchanged, inside a
+monolith, a microservice or a unit test.
+
+**The repository port belongs to the domain.** Classic DDD: the domain says *what* it needs to keep
+its entities (`TaskRepository::save`, `find`), in its own error type (`RepositoryError`); the
+infrastructure layer implements it. The port returns `impl Future<…> + Send`, so a use case can await
+it inside a transaction on a multi-threaded runtime.
+
+**One use case = one transaction.** `UnitOfWork::transaction(scope, || async { … })` runs the body and
+**commits if it returns `Ok`, rolls back if it returns `Err`**. Everything the use case changes — the
+saved task *and* the event — happens inside that body. With the DORM gateway the event goes into a
+*transactional outbox* in the same database transaction, so "the task was saved but nobody was told"
+(or the opposite) cannot happen.
+
+**Order matters inside the body.** Save first, publish second. If the save fails, `?` returns early,
+the transaction rolls back and nothing was published.
+
+**Check the rule before opening the transaction.** `Task::new` can refuse the command; do that first,
+so a refused command never opens (and rolls back) a transaction.
+
+**Errors cross the boundary as `BoxError`.** Ports return `PortResult<T>` = `Result<T, BoxError>`, and
+`BoxError` is `Box<dyn std::error::Error + Send + Sync>`. `DomainError` and `RepositoryError` implement
+`Error`, so `?` (or `.map_err(BoxError::from)`) converts them, and their message survives.
+
+**Events are bytes.** `EventPublisher::publish(topic, payload)` moves bytes; the module chooses the
+envelope. Seiva's examples publish a small JSON object (`serde_json::to_vec(&json!({…}))`), with ids
+as strings so no consumer loses precision. Topic names are `<module>.<past-tense verb>`:
+`tasks.created`.
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "sv-c3-use-case"
+title = "Inside a use case"
+points = 5
+difficulty = 3
+intro = "The shape of a write use case in Seiva, step by step."
+body = '''
+A write use case has four moves, always in this order:
+
+1. **Mint and validate** — take an id from `IdGenerator`, build the entity with `Task::new` (this can
+   refuse the command, and then nothing else happens).
+2. **Prepare the event** — serialise the payload *before* the transaction, so a serialisation error
+   cannot leave a half-done transaction.
+3. **One transaction** — `self.uow.transaction(scope, || async { save; publish })`.
+4. **Return** what the caller needs (here the `Task`; the layer above turns it into a DTO).
+
+The tests of this unit use the in-memory doubles: `InMemoryUnitOfWork::outcomes()` tells whether the
+transaction committed or rolled back, `scopes()` under which tenant, and
+`RecordingEventPublisher::topics()` what was announced.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "sv-d3-uow"
+title = "Commit or roll back"
+points = 10
+difficulty = 3
+placeholder_policy = "shown"
+intro = "Run two transactions through the in-memory `UnitOfWork`: one body succeeds, one fails."
+prompt = "Type the program. The body's `Result` decides: `Ok` commits, `Err` rolls back — and the double remembers which."
+target = '''
+use seiva_ports::{BoxError, PortResult, Scope, UnitOfWork};
+use seiva_testing::InMemoryUnitOfWork;
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() {
+    let uow = InMemoryUnitOfWork::new();
+    let scope = Scope::tenant("acme").expect("a tenant");
+    let ok: PortResult<u32> = uow.transaction(scope.clone(), || async { Ok(7) }).await;
+    let failed: PortResult<u32> = uow
+        .transaction(scope, || async { Err(BoxError::from("the rule said no")) })
+        .await;
+    println!("{ok:?}");
+    println!("{}", failed.unwrap_err());
+    println!("{:?}", uow.outcomes());
+}
+'''
+line_comments = [
+  "The port (`UnitOfWork`), its result types and the tenant `Scope`.",
+  "The in-memory double that records each transaction's outcome.",
+  "",
+  "A single-threaded tokio runtime is enough for a small program.",
+  "`main` is async: transactions are awaited.",
+  "A fresh unit of work.",
+  "Every transaction is bound to a tenant; `expect` because \"acme\" is not blank.",
+  "A body that returns `Ok(7)`: the transaction commits and returns the value.",
+  "A second transaction…",
+  "…whose body fails: `BoxError::from` turns a message into the port error.",
+  "Await it.",
+  "Prints `Ok(7)`.",
+  "Prints `the rule said no`.",
+  "Prints `[Committed, RolledBack]`.",
+  "End of `main`.",
+]
+explanation = "The body is a closure that returns a future (`|| async { … }`): the unit of work decides when to run it and what to do with its result. A database-backed `UnitOfWork` keeps the same contract with a real `COMMIT`/`ROLLBACK`."
+run_command = "cargo run"
+
+[[unit.step]]
+kind = "drill"
+id = "sv-d3-events"
+title = "Publishing an event"
+points = 10
+difficulty = 3
+placeholder_policy = "shown"
+intro = "Publish a JSON event through `EventPublisher` and read it back from the recording double."
+prompt = "Type the program. The port moves bytes to a topic; the double keeps every event for the test to inspect."
+target = '''
+use seiva_ports::EventPublisher;
+use seiva_testing::RecordingEventPublisher;
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() {
+    let events = RecordingEventPublisher::new();
+    let payload = serde_json::to_vec(&serde_json::json!({ "id": "1", "title": "ship it" })).unwrap();
+    events.publish("tasks.created", &payload).await.unwrap();
+    println!("{:?}", events.topics());
+    let first = &events.events()[0];
+    println!("{}", String::from_utf8_lossy(&first.payload));
+}
+'''
+line_comments = [
+  "The port: `publish(topic, &[u8])`, async.",
+  "The recording double.",
+  "",
+  "A single-threaded runtime.",
+  "Async `main`.",
+  "A publisher that records instead of sending.",
+  "The envelope is the module's choice: a small JSON object, with the id as a string.",
+  "Publish to the topic `tasks.created` (module + past-tense verb).",
+  "Prints `[\"tasks.created\"]`.",
+  "The first `RecordedEvent` (topic + payload).",
+  "Prints the JSON back: `{\"id\":\"1\",\"title\":\"ship it\"}`.",
+  "End of `main`.",
+]
+explanation = "Other modules react to `tasks.created` without ever importing the `tasks` crates: in Seiva, modules cooperate through events, and only the composition root routes an event to a subscriber."
+run_command = "cargo run"
+
+[[unit.step]]
+kind = "challenge"
+id = "sv-ch3-create"
+title = "The create use case"
+points = 40
+difficulty = 4
+intro = "Write `TasksService::create`: validate, then save and publish in one transaction."
+run_command = "cargo test"
+instructions = '''
+A project step: `src/domain.rs` (the task, its rules and the repository port) and `src/lib.rs`
+are given and read-only. Implement `TasksService::create` in `src/application.rs`:
+
+1. take an id from `self.ids` (`u128::from_be_bytes(id.0)`) and build the task with `Task::new`;
+   a refused title returns the domain error **without opening a transaction**;
+2. serialise the event payload `{"id": "<id as a string>", "title": "<title>"}` with `serde_json`;
+3. in **one** `self.uow.transaction(scope, …)`: save the task, then publish it to `tasks.created`;
+4. return the task.
+
+The hidden tests check the committed transaction and its scope, the topic and the payload, that a
+refused command opens no transaction, and that a failed save rolls back and publishes nothing.
+'''
+
+[unit.step.project]
+main = "src/application.rs"
+readonly = [
+  "src/lib.rs",
+  "src/domain.rs",
+]
+explanation = "The rule is checked by `Task::new` before `transaction` is called, so a refused command costs nothing. Inside the transaction the save comes first: if it fails, `?` returns the error, the unit of work rolls back, and `publish` never runs. The payload is built before the transaction, so serialisation cannot fail half-way through it."
+
+[unit.step.project.starter]
+"src/lib.rs" = '''
+//! The `tasks` module in one crate for now: the domain and its use cases.
+//! (Unit 7 splits it into the five crates of a real Seiva module.)
+
+pub mod application;
+pub mod domain;
+'''
+"src/domain.rs" = '''
+//! The domain: the task, its rules and the repository port. It depends on nothing
+//! but the standard library.
+
+use std::fmt;
+use std::future::Future;
+
+/// The longest title a task may have, in characters.
+pub const MAX_TITLE: usize = 80;
+
+/// A task. Build it with [`Task::new`], so its rules always hold.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Task {
+    pub id: u128,
+    pub title: String,
+    pub done: bool,
+}
+
+/// A rule of the domain said no.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DomainError {
+    EmptyTitle,
+    TitleTooLong { max: usize },
+    AlreadyDone,
+}
+
+impl fmt::Display for DomainError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DomainError::EmptyTitle => write!(f, "a task needs a title"),
+            DomainError::TitleTooLong { max } => {
+                write!(f, "a task title has at most {max} characters")
+            }
+            DomainError::AlreadyDone => write!(f, "the task is already done"),
+        }
+    }
+}
+
+impl std::error::Error for DomainError {}
+
+impl Task {
+    /// Creates an open task with a trimmed title of 1 to [`MAX_TITLE`] characters.
+    pub fn new(id: u128, title: impl Into<String>) -> Result<Self, DomainError> {
+        let title = title.into().trim().to_string();
+        if title.is_empty() {
+            return Err(DomainError::EmptyTitle);
+        }
+        if title.chars().count() > MAX_TITLE {
+            return Err(DomainError::TitleTooLong { max: MAX_TITLE });
+        }
+        Ok(Self {
+            id,
+            title,
+            done: false,
+        })
+    }
+
+    /// Marks the task done; a task is completed only once.
+    pub fn complete(&mut self) -> Result<(), DomainError> {
+        if self.done {
+            return Err(DomainError::AlreadyDone);
+        }
+        self.done = true;
+        Ok(())
+    }
+}
+
+/// A repository operation failed. It speaks the domain's language, not the framework's.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepositoryError(pub String);
+
+impl fmt::Display for RepositoryError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for RepositoryError {}
+
+/// Where tasks are kept: a port the DOMAIN defines and the infrastructure implements.
+/// The futures are `Send`, so a use case can await them inside a transaction.
+pub trait TaskRepository {
+    /// Inserts the task, or replaces the one with the same id.
+    fn save(&self, task: &Task) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    /// The task with this id, if there is one.
+    fn find(&self, id: u128) -> impl Future<Output = Result<Option<Task>, RepositoryError>> + Send;
+}
+'''
+"src/application.rs" = '''
+use seiva_ports::{BoxError, EventPublisher, IdGenerator, PortResult, Scope, UnitOfWork};
+
+// The repository port is the domain's; re-exported so the layers above import it from here.
+pub use crate::domain::{RepositoryError, Task, TaskRepository};
+
+/// The `tasks` use cases. Generic over the ports: the composition root decides what is
+/// behind each one (in-memory doubles in a test, a database in production).
+pub struct TasksService<R, G, U, E> {
+    pub repository: R,
+    pub ids: G,
+    pub uow: U,
+    pub events: E,
+}
+
+impl<R, G, U, E> TasksService<R, G, U, E>
+where
+    R: TaskRepository + Sync,
+    G: IdGenerator,
+    U: UnitOfWork,
+    E: EventPublisher,
+{
+    /// Creates a task under `scope`: check the rule first (no transaction for a command the
+    /// domain refuses), then save the task AND publish `tasks.created` inside ONE
+    /// transaction, so both happen or neither does.
+    pub async fn create(&self, scope: Scope, title: &str) -> PortResult<Task> {
+        todo!("id → Task::new → event payload → uow.transaction(scope, save + publish)")
+    }
+}
+'''
+
+[unit.step.project.tests]
+"tests/create.rs" = '''
+use std::sync::{Arc, Mutex};
+
+use seiva_ports::Scope;
+use seiva_testing::{InMemoryUnitOfWork, RecordingEventPublisher, SequenceIdGenerator, TxOutcome};
+use student::application::TasksService;
+use student::domain::{RepositoryError, Task, TaskRepository};
+
+/// A repository double that can be told to fail.
+#[derive(Clone, Default)]
+struct Repo {
+    tasks: Arc<Mutex<Vec<Task>>>,
+    fail: bool,
+}
+
+impl TaskRepository for Repo {
+    async fn save(&self, task: &Task) -> Result<(), RepositoryError> {
+        if self.fail {
+            return Err(RepositoryError("the disk is full".into()));
+        }
+        let mut tasks = self.tasks.lock().unwrap();
+        tasks.retain(|t| t.id != task.id);
+        tasks.push(task.clone());
+        Ok(())
+    }
+
+    async fn find(&self, id: u128) -> Result<Option<Task>, RepositoryError> {
+        Ok(self.tasks.lock().unwrap().iter().find(|t| t.id == id).cloned())
+    }
+}
+
+type Svc = TasksService<Repo, SequenceIdGenerator, InMemoryUnitOfWork, RecordingEventPublisher>;
+
+fn service(repo: Repo) -> Svc {
+    TasksService {
+        repository: repo,
+        ids: SequenceIdGenerator::new(),
+        uow: InMemoryUnitOfWork::new(),
+        events: RecordingEventPublisher::new(),
+    }
+}
+
+fn acme() -> Scope {
+    Scope::tenant("acme").unwrap()
+}
+
+#[tokio::test]
+async fn create_saves_and_publishes_in_one_committed_transaction() {
+    let repo = Repo::default();
+    let svc = service(repo.clone());
+    let task = svc.create(acme(), "  write the spec ").await.unwrap();
+    assert_eq!(task, Task { id: 1, title: "write the spec".into(), done: false });
+    assert_eq!(repo.tasks.lock().unwrap().clone(), vec![task]);
+    assert_eq!(svc.uow.outcomes(), [TxOutcome::Committed]);
+    assert_eq!(svc.uow.scopes(), [acme()]);
+    assert_eq!(svc.events.topics(), ["tasks.created"]);
+    let payload: serde_json::Value = serde_json::from_slice(&svc.events.events()[0].payload).unwrap();
+    assert_eq!(payload, serde_json::json!({ "id": "1", "title": "write the spec" }));
+    let second = svc.create(acme(), "review").await.unwrap();
+    assert_eq!(second.id, 2);
+}
+
+#[tokio::test]
+async fn a_refused_command_opens_no_transaction() {
+    let repo = Repo::default();
+    let svc = service(repo.clone());
+    let err = svc.create(acme(), "   ").await.unwrap_err();
+    assert_eq!(err.to_string(), "a task needs a title");
+    assert!(svc.uow.outcomes().is_empty());
+    assert_eq!(svc.events.count(), 0);
+    assert!(repo.tasks.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_failed_save_rolls_back_and_publishes_nothing() {
+    let svc = service(Repo { fail: true, ..Repo::default() });
+    let err = svc.create(acme(), "ship").await.unwrap_err();
+    assert_eq!(err.to_string(), "the disk is full");
+    assert_eq!(svc.uow.outcomes(), [TxOutcome::RolledBack]);
+    assert_eq!(svc.events.count(), 0);
+}
+'''
+
+[unit.step.project.solution]
+"src/application.rs" = '''
+use seiva_ports::{BoxError, EventPublisher, IdGenerator, PortResult, Scope, UnitOfWork};
+
+// The repository port is the domain's; re-exported so the layers above import it from here.
+pub use crate::domain::{RepositoryError, Task, TaskRepository};
+
+/// The `tasks` use cases. Generic over the ports: the composition root decides what is
+/// behind each one (in-memory doubles in a test, a database in production).
+pub struct TasksService<R, G, U, E> {
+    pub repository: R,
+    pub ids: G,
+    pub uow: U,
+    pub events: E,
+}
+
+impl<R, G, U, E> TasksService<R, G, U, E>
+where
+    R: TaskRepository + Sync,
+    G: IdGenerator,
+    U: UnitOfWork,
+    E: EventPublisher,
+{
+    /// Creates a task under `scope`: the rule is checked first (no transaction for a
+    /// command the domain refuses), then the task is saved AND `tasks.created` is
+    /// published inside ONE transaction, so both happen or neither does.
+    pub async fn create(&self, scope: Scope, title: &str) -> PortResult<Task> {
+        let id = u128::from_be_bytes(self.ids.new_id().0);
+        let task = Task::new(id, title).map_err(BoxError::from)?;
+        let event = serde_json::to_vec(&serde_json::json!({
+            "id": task.id.to_string(),
+            "title": task.title,
+        }))
+        .map_err(BoxError::from)?;
+        self.uow
+            .transaction(scope, || async {
+                self.repository.save(&task).await?;
+                self.events.publish("tasks.created", &event).await
+            })
+            .await?;
+        Ok(task)
+    }
+}
+'''
+
+[[unit]]
+id = "sv-u4-change"
+title = "Changing state safely"
+level = "intermediate"
+difficulty = 4
+intro = "A second use case that loads, changes and saves an entity — and rolls back when anything fails."
+concepts = '''
+Creating is the easy case. Most use cases **change** something that already exists: load the
+entity, ask the domain to apply a rule, save it, announce it. In Seiva all four moves happen inside
+**one** `UnitOfWork::transaction`, because each of them can fail:
+
+| Failure | Where | Result |
+|---|---|---|
+| No task with that id | the repository returns `Ok(None)` | `NotFound` → rollback |
+| The task is already done | `Task::complete` | `DomainError::AlreadyDone` → rollback |
+| The save fails | the repository returns `Err` | `RepositoryError` → rollback |
+
+**`Option` to error.** `find` returns `Result<Option<Task>, RepositoryError>`: the `Result` says whether
+the *lookup* worked, the `Option` whether there *was* a task. Turn the `None` into an application
+error with `.ok_or_else(|| BoxError::from(NotFound(id)))?` — the use case decides that a missing task
+is an error, not the repository.
+
+**Application errors are types too.** `NotFound(u128)` is a small struct with `Display` ("no task 99")
+and `Error`. Because it travels as a `BoxError`, the layer above can still recognise it with
+`error.downcast_ref::<NotFound>()` and turn it into a `404` — while a domain error becomes a `422`.
+
+**Moving values into the body.** The transaction body is a closure returning a future. When it needs
+values owned by the caller (the `id`), write `|| async move { … }`: the `id` (a `Copy` `u128`) and the
+`&self` reference are moved into the future, which is what the `'a` bounds of `transaction` expect.
+The value the body returns (`Ok(task)`) is what `transaction(...).await` gives back.
+
+**Testing failure paths.** The in-memory doubles make every branch observable: after a failed
+`complete`, `uow.outcomes()` ends with `RolledBack` and `events.topics()` did not grow. A repository
+double with a `fail` switch proves that a failed save publishes nothing. These are exactly the
+checks the hidden tests run — and the ones you should write in your own modules
+(see "Testing" in the Seiva docs).
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "sv-c4-change"
+title = "Load, change, save, announce"
+points = 5
+difficulty = 4
+intro = "Why every move of a state change lives inside the same transaction."
+body = '''
+Compare the two use cases of the `tasks` module:
+
+- `create` validates **before** the transaction (there is nothing to load), then saves and publishes
+  inside it.
+- `complete` has nothing to validate up front: the rule (`AlreadyDone`) depends on the stored task. So
+  the load, the rule, the save and the publish all go **inside** the transaction body.
+
+Either way the guarantee is the same: when the use case returns an error, nothing was saved and
+nothing was published. In this unit you also implement your own repository adapter in a drill, to see
+the port from the other side.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "sv-d4-repo"
+title = "A repository adapter"
+points = 10
+difficulty = 4
+placeholder_policy = "on_demand"
+intro = "Implement a repository port in memory: the infrastructure side of the domain's trait."
+prompt = "Type the program. The trait declares `Send` futures; the impl writes plain `async fn`s. `save` replaces a task with the same id."
+target = '''
+use std::future::Future;
+use std::sync::Mutex;
+
+#[derive(Debug, Clone, PartialEq)]
+struct Task {
+    id: u128,
+    done: bool,
+}
+
+trait TaskRepository {
+    fn save(&self, task: &Task) -> impl Future<Output = Result<(), String>> + Send;
+    fn find(&self, id: u128) -> impl Future<Output = Result<Option<Task>, String>> + Send;
+}
+
+#[derive(Default)]
+struct InMemory {
+    tasks: Mutex<Vec<Task>>,
+}
+
+impl TaskRepository for InMemory {
+    async fn save(&self, task: &Task) -> Result<(), String> {
+        let mut tasks = self.tasks.lock().map_err(|_| "poisoned".to_string())?;
+        tasks.retain(|t| t.id != task.id);
+        tasks.push(task.clone());
+        Ok(())
+    }
+
+    async fn find(&self, id: u128) -> Result<Option<Task>, String> {
+        let tasks = self.tasks.lock().map_err(|_| "poisoned".to_string())?;
+        Ok(tasks.iter().find(|t| t.id == id).cloned())
+    }
+}
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() {
+    let repo = InMemory::default();
+    repo.save(&Task { id: 1, done: false }).await.unwrap();
+    repo.save(&Task { id: 1, done: true }).await.unwrap();
+    println!("{:?}", repo.find(1).await.unwrap());
+    println!("{:?}", repo.find(2).await.unwrap());
+}
+'''
+line_comments = [
+  "`Future` names the return type of the port's methods.",
+  "A `Mutex` makes the in-memory list safe to share between threads.",
+  "",
+  "`Debug` to print it, `Clone` to store a copy, `PartialEq` to compare.",
+  "A tiny task for this drill.",
+  "Its id…",
+  "…and its state.",
+  "End of the struct.",
+  "",
+  "The port, as the domain declares it.",
+  "`save` returns a future that is `Send`, so it can be awaited on any thread.",
+  "`find`: `Ok(None)` means \"looked, found nothing\".",
+  "End of the trait.",
+  "",
+  "`Default` builds an empty repository.",
+  "The adapter.",
+  "The tasks, behind a lock.",
+  "End of the struct.",
+  "",
+  "The infrastructure implements the domain's port.",
+  "An `async fn` satisfies `-> impl Future + Send` when its future is `Send`.",
+  "Take the lock; a poisoned lock becomes the port's error.",
+  "Replace: drop any task with the same id…",
+  "…and store the new version.",
+  "Saved.",
+  "End of `save`.",
+  "",
+  "The lookup.",
+  "Take the lock.",
+  "`Some(task)` if found, `None` if not.",
+  "End of `find`.",
+  "End of the impl.",
+  "",
+  "A single-threaded runtime.",
+  "Async `main`.",
+  "An empty repository.",
+  "Save task 1…",
+  "…then save it again, done: it replaces the first.",
+  "Prints `Some(Task { id: 1, done: true })`.",
+  "Prints `None`.",
+  "End of `main`.",
+]
+explanation = "No lock is held across an `.await`, so each future stays `Send`. A real adapter (DORM, SQL) has the same shape: it maps its own errors into the domain's `RepositoryError` at the boundary."
+run_command = "cargo run"
+
+[[unit.step]]
+kind = "drill"
+id = "sv-d4-rollback"
+title = "A missing entity rolls back"
+points = 10
+difficulty = 4
+placeholder_policy = "on_demand"
+intro = "Turn a `None` into an error inside a transaction and watch the unit of work roll back."
+prompt = "Type the program. The body fails before it publishes, so the transaction rolls back and the publisher stays empty."
+target = '''
+use seiva_ports::{BoxError, EventPublisher, Scope, UnitOfWork};
+use seiva_testing::{InMemoryUnitOfWork, RecordingEventPublisher};
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() {
+    let uow = InMemoryUnitOfWork::new();
+    let events = RecordingEventPublisher::new();
+    let scope = Scope::tenant("acme").expect("a tenant");
+    let result = uow
+        .transaction(scope, || async {
+            let found: Option<u128> = None;
+            let id = found.ok_or_else(|| BoxError::from("no task 7"))?;
+            events.publish("tasks.completed", id.to_string().as_bytes()).await
+        })
+        .await;
+    println!("{}", result.unwrap_err());
+    println!("{:?} {}", uow.outcomes(), events.count());
+}
+'''
+line_comments = [
+  "The ports this drill uses.",
+  "Their in-memory doubles.",
+  "",
+  "A single-threaded runtime.",
+  "Async `main`.",
+  "Records commits and rollbacks.",
+  "Records published events.",
+  "The tenant of this request.",
+  "Run a transaction…",
+  "…with a body that will fail.",
+  "Pretend the repository found nothing.",
+  "`None` becomes an error, and `?` leaves the body right here.",
+  "Never reached: nothing is published.",
+  "End of the body.",
+  "Await the transaction.",
+  "Prints `no task 7`.",
+  "Prints `[RolledBack] 0`.",
+  "End of `main`.",
+]
+explanation = "`?` inside the body is what makes the guarantee automatic: any failure leaves the body early with an `Err`, and the unit of work rolls back. Nothing after the failing line runs."
+run_command = "cargo run"
+
+[[unit.step]]
+kind = "challenge"
+id = "sv-ch4-complete"
+title = "The complete use case"
+points = 40
+difficulty = 5
+intro = "Write `TasksService::complete`: load, apply the rule, save and publish — all in one transaction."
+run_command = "cargo test"
+instructions = '''
+A project step. `src/domain.rs` and `src/lib.rs` are read-only; `create` and the `NotFound` error
+are already in `src/application.rs`. Implement `TasksService::complete(scope, id)`:
+
+- everything happens inside **one** `self.uow.transaction(scope, || async move { … })`;
+- `find` the task; `None` is `NotFound(id)` (as a `BoxError`);
+- apply `task.complete()` (a task that is already done is an error);
+- save the task, then publish `{"id": "<id as a string>"}` to `tasks.completed`;
+- return the completed task.
+
+When anything fails, the transaction rolls back and nothing is published.
+'''
+
+[unit.step.project]
+main = "src/application.rs"
+readonly = [
+  "src/lib.rs",
+  "src/domain.rs",
+]
+explanation = "The body moves `id` in (`async move`) and returns `Ok(task)`, which is what `transaction(...).await` hands back. Each failing step returns early through `?` — `find`'s repository error, the `NotFound` from `ok_or_else`, the domain's `AlreadyDone`, the save — so the publish only runs after every step succeeded, and any failure rolls the transaction back."
+
+[unit.step.project.starter]
+"src/lib.rs" = '''
+//! The `tasks` module in one crate for now: the domain and its use cases.
+//! (Unit 7 splits it into the five crates of a real Seiva module.)
+
+pub mod application;
+pub mod domain;
+'''
+"src/domain.rs" = '''
+//! The domain: the task, its rules and the repository port. It depends on nothing
+//! but the standard library.
+
+use std::fmt;
+use std::future::Future;
+
+/// The longest title a task may have, in characters.
+pub const MAX_TITLE: usize = 80;
+
+/// A task. Build it with [`Task::new`], so its rules always hold.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Task {
+    pub id: u128,
+    pub title: String,
+    pub done: bool,
+}
+
+/// A rule of the domain said no.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DomainError {
+    EmptyTitle,
+    TitleTooLong { max: usize },
+    AlreadyDone,
+}
+
+impl fmt::Display for DomainError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DomainError::EmptyTitle => write!(f, "a task needs a title"),
+            DomainError::TitleTooLong { max } => {
+                write!(f, "a task title has at most {max} characters")
+            }
+            DomainError::AlreadyDone => write!(f, "the task is already done"),
+        }
+    }
+}
+
+impl std::error::Error for DomainError {}
+
+impl Task {
+    /// Creates an open task with a trimmed title of 1 to [`MAX_TITLE`] characters.
+    pub fn new(id: u128, title: impl Into<String>) -> Result<Self, DomainError> {
+        let title = title.into().trim().to_string();
+        if title.is_empty() {
+            return Err(DomainError::EmptyTitle);
+        }
+        if title.chars().count() > MAX_TITLE {
+            return Err(DomainError::TitleTooLong { max: MAX_TITLE });
+        }
+        Ok(Self {
+            id,
+            title,
+            done: false,
+        })
+    }
+
+    /// Marks the task done; a task is completed only once.
+    pub fn complete(&mut self) -> Result<(), DomainError> {
+        if self.done {
+            return Err(DomainError::AlreadyDone);
+        }
+        self.done = true;
+        Ok(())
+    }
+}
+
+/// A repository operation failed. It speaks the domain's language, not the framework's.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepositoryError(pub String);
+
+impl fmt::Display for RepositoryError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for RepositoryError {}
+
+/// Where tasks are kept: a port the DOMAIN defines and the infrastructure implements.
+/// The futures are `Send`, so a use case can await them inside a transaction.
+pub trait TaskRepository {
+    /// Inserts the task, or replaces the one with the same id.
+    fn save(&self, task: &Task) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    /// The task with this id, if there is one.
+    fn find(&self, id: u128) -> impl Future<Output = Result<Option<Task>, RepositoryError>> + Send;
+}
+'''
+"src/application.rs" = '''
+use seiva_ports::{BoxError, EventPublisher, IdGenerator, PortResult, Scope, UnitOfWork};
+
+// The repository port is the domain's; re-exported so the layers above import it from here.
+pub use crate::domain::{RepositoryError, Task, TaskRepository};
+
+/// The `tasks` use cases. Generic over the ports: the composition root decides what is
+/// behind each one (in-memory doubles in a test, a database in production).
+pub struct TasksService<R, G, U, E> {
+    pub repository: R,
+    pub ids: G,
+    pub uow: U,
+    pub events: E,
+}
+
+impl<R, G, U, E> TasksService<R, G, U, E>
+where
+    R: TaskRepository + Sync,
+    G: IdGenerator,
+    U: UnitOfWork,
+    E: EventPublisher,
+{
+    /// Creates a task under `scope`: the rule is checked first (no transaction for a
+    /// command the domain refuses), then the task is saved AND `tasks.created` is
+    /// published inside ONE transaction, so both happen or neither does.
+    pub async fn create(&self, scope: Scope, title: &str) -> PortResult<Task> {
+        let id = u128::from_be_bytes(self.ids.new_id().0);
+        let task = Task::new(id, title).map_err(BoxError::from)?;
+        let event = serde_json::to_vec(&serde_json::json!({
+            "id": task.id.to_string(),
+            "title": task.title,
+        }))
+        .map_err(BoxError::from)?;
+        self.uow
+            .transaction(scope, || async {
+                self.repository.save(&task).await?;
+                self.events.publish("tasks.created", &event).await
+            })
+            .await?;
+        Ok(task)
+    }
+
+    /// Completes the task `id` under `scope`: load it, apply the domain rule, save it and
+    /// publish `tasks.completed` — all inside ONE transaction, so a missing task or a task
+    /// that is already done rolls everything back and publishes nothing.
+    pub async fn complete(&self, scope: Scope, id: u128) -> PortResult<Task> {
+        todo!("one transaction: find (or NotFound) → complete → save → publish")
+    }
+}
+
+/// No task has this id.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotFound(pub u128);
+
+impl std::fmt::Display for NotFound {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "no task {}", self.0)
+    }
+}
+
+impl std::error::Error for NotFound {}
+'''
+
+[unit.step.project.tests]
+"tests/complete.rs" = '''
+use std::sync::{Arc, Mutex};
+
+use seiva_ports::Scope;
+use seiva_testing::{InMemoryUnitOfWork, RecordingEventPublisher, SequenceIdGenerator, TxOutcome};
+use student::application::TasksService;
+use student::domain::{RepositoryError, Task, TaskRepository};
+
+/// A repository double that can be told to fail.
+#[derive(Clone, Default)]
+struct Repo {
+    tasks: Arc<Mutex<Vec<Task>>>,
+    fail: bool,
+}
+
+impl TaskRepository for Repo {
+    async fn save(&self, task: &Task) -> Result<(), RepositoryError> {
+        if self.fail {
+            return Err(RepositoryError("the disk is full".into()));
+        }
+        let mut tasks = self.tasks.lock().unwrap();
+        tasks.retain(|t| t.id != task.id);
+        tasks.push(task.clone());
+        Ok(())
+    }
+
+    async fn find(&self, id: u128) -> Result<Option<Task>, RepositoryError> {
+        Ok(self.tasks.lock().unwrap().iter().find(|t| t.id == id).cloned())
+    }
+}
+
+type Svc = TasksService<Repo, SequenceIdGenerator, InMemoryUnitOfWork, RecordingEventPublisher>;
+
+fn service(repo: Repo) -> Svc {
+    TasksService {
+        repository: repo,
+        ids: SequenceIdGenerator::new(),
+        uow: InMemoryUnitOfWork::new(),
+        events: RecordingEventPublisher::new(),
+    }
+}
+
+fn acme() -> Scope {
+    Scope::tenant("acme").unwrap()
+}
+
+#[tokio::test]
+async fn complete_loads_changes_saves_and_publishes() {
+    let repo = Repo::default();
+    let svc = service(repo.clone());
+    svc.create(acme(), "ship").await.unwrap();
+    let done = svc.complete(acme(), 1).await.unwrap();
+    assert!(done.done);
+    assert!(repo.tasks.lock().unwrap()[0].done, "the change was saved");
+    assert_eq!(svc.uow.outcomes(), [TxOutcome::Committed, TxOutcome::Committed]);
+    assert_eq!(svc.uow.scopes(), [acme(), acme()]);
+    assert_eq!(svc.events.topics(), ["tasks.created", "tasks.completed"]);
+    let payload: serde_json::Value = serde_json::from_slice(&svc.events.events()[1].payload).unwrap();
+    assert_eq!(payload, serde_json::json!({ "id": "1" }));
+}
+
+#[tokio::test]
+async fn a_missing_task_rolls_back() {
+    let svc = service(Repo::default());
+    let err = svc.complete(acme(), 99).await.unwrap_err();
+    assert_eq!(err.to_string(), "no task 99");
+    assert!(err.downcast_ref::<student::application::NotFound>().is_some());
+    assert_eq!(svc.uow.outcomes(), [TxOutcome::RolledBack]);
+    assert_eq!(svc.events.count(), 0);
+}
+
+#[tokio::test]
+async fn a_task_is_completed_once() {
+    let repo = Repo::default();
+    let svc = service(repo.clone());
+    svc.create(acme(), "ship").await.unwrap();
+    svc.complete(acme(), 1).await.unwrap();
+    let err = svc.complete(acme(), 1).await.unwrap_err();
+    assert_eq!(err.to_string(), "the task is already done");
+    assert_eq!(svc.uow.outcomes().last(), Some(&TxOutcome::RolledBack));
+    assert_eq!(svc.events.topics(), ["tasks.created", "tasks.completed"]);
+}
+
+#[tokio::test]
+async fn a_failed_save_while_completing_rolls_back() {
+    let repo = Repo::default();
+    let svc = service(repo.clone());
+    svc.create(acme(), "ship").await.unwrap();
+    let broken = TasksService {
+        repository: Repo { tasks: repo.tasks.clone(), fail: true },
+        ids: SequenceIdGenerator::new(),
+        uow: InMemoryUnitOfWork::new(),
+        events: RecordingEventPublisher::new(),
+    };
+    assert!(broken.complete(acme(), 1).await.is_err());
+    assert_eq!(broken.uow.outcomes(), [TxOutcome::RolledBack]);
+    assert_eq!(broken.events.count(), 0);
+    assert!(!repo.tasks.lock().unwrap()[0].done, "nothing was saved");
+}
+'''
+
+[unit.step.project.solution]
+"src/application.rs" = '''
+use seiva_ports::{BoxError, EventPublisher, IdGenerator, PortResult, Scope, UnitOfWork};
+
+// The repository port is the domain's; re-exported so the layers above import it from here.
+pub use crate::domain::{RepositoryError, Task, TaskRepository};
+
+/// The `tasks` use cases. Generic over the ports: the composition root decides what is
+/// behind each one (in-memory doubles in a test, a database in production).
+pub struct TasksService<R, G, U, E> {
+    pub repository: R,
+    pub ids: G,
+    pub uow: U,
+    pub events: E,
+}
+
+impl<R, G, U, E> TasksService<R, G, U, E>
+where
+    R: TaskRepository + Sync,
+    G: IdGenerator,
+    U: UnitOfWork,
+    E: EventPublisher,
+{
+    /// Creates a task under `scope`: the rule is checked first (no transaction for a
+    /// command the domain refuses), then the task is saved AND `tasks.created` is
+    /// published inside ONE transaction, so both happen or neither does.
+    pub async fn create(&self, scope: Scope, title: &str) -> PortResult<Task> {
+        let id = u128::from_be_bytes(self.ids.new_id().0);
+        let task = Task::new(id, title).map_err(BoxError::from)?;
+        let event = serde_json::to_vec(&serde_json::json!({
+            "id": task.id.to_string(),
+            "title": task.title,
+        }))
+        .map_err(BoxError::from)?;
+        self.uow
+            .transaction(scope, || async {
+                self.repository.save(&task).await?;
+                self.events.publish("tasks.created", &event).await
+            })
+            .await?;
+        Ok(task)
+    }
+
+    /// Completes the task `id` under `scope`: load it, apply the domain rule, save it and
+    /// publish `tasks.completed` — all inside ONE transaction, so a missing task or a task
+    /// that is already done rolls everything back and publishes nothing.
+    pub async fn complete(&self, scope: Scope, id: u128) -> PortResult<Task> {
+        self.uow
+            .transaction(scope, || async move {
+                let mut task = self
+                    .repository
+                    .find(id)
+                    .await?
+                    .ok_or_else(|| BoxError::from(NotFound(id)))?;
+                task.complete().map_err(BoxError::from)?;
+                self.repository.save(&task).await?;
+                let event = serde_json::to_vec(&serde_json::json!({ "id": task.id.to_string() }))
+                    .map_err(BoxError::from)?;
+                self.events.publish("tasks.completed", &event).await?;
+                Ok(task)
+            })
+            .await
+    }
+}
+
+/// No task has this id.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotFound(pub u128);
+
+impl std::fmt::Display for NotFound {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "no task {}", self.0)
+    }
+}
+
+impl std::error::Error for NotFound {}
+'''
+
+[[unit]]
+id = "sv-u5-contract"
+title = "The contract: a facade and its DTOs"
+level = "intermediate"
+difficulty = 5
+intro = "One versioned trait is the module's public contract; routes, OpenAPI and permissions are derived from it."
+concepts = '''
+Everything other modules and clients see of `tasks` is its **facade**: a trait marked with
+`#[seiva::facade(version = "v1")]`. Seiva's one big idea is that every transport is *derived* from
+this contract, never hand-written: the HTTP routes (`#[seiva::controller]`, next unit), the OpenAPI
+3.1 document, the permission checks and the proto3 service all read it.
+
+```rust
+#[facade(version = "v1")]
+pub trait Tasks {
+    #[requires("tasks.create")]
+    async fn create(&self, cmd: CreateTask) -> Result<TaskDto, TaskError>;
+    #[public]
+    async fn list(&self) -> Result<Vec<TaskDto>, TaskError>;
+}
+```
+
+**Fail-closed permissions.** Every method declares either `#[requires("permission")]` or `#[public]`.
+Leaving both out is a *compile error*: an endpoint is never public by accident.
+
+**The descriptor.** The macro keeps the trait and adds a zero-sized `TasksFacade` type implementing
+`seiva::contract::Facade`. Its `DESCRIPTOR` is plain data, known at compile time: `name` ("Tasks"),
+`version` ("v1") and `methods` — each with `name`, `requires` (`""` when public), `params` (name and
+type as written) and `output`. `descriptor.resource_segment()` is the URL segment, the name lowercased
+and pluralised (`Tasks` → `tasks`, `Inventory` → `inventories`). No reflection: this is how the
+controller and the OpenAPI generator learn the contract.
+
+**DTOs, never domain types.** The contract speaks in wire DTOs — `CreateTask`, `TaskDto` — not in
+`Task`. They derive `serde` (`Deserialize` for bodies, `Serialize` for responses) and `WireSchema`
+(`#[derive(WireSchema)]`, re-exported by `seiva`), which publishes their real shape into the OpenAPI
+document. The domain can change without breaking a client, and the version (`v1`) lets `v2` live next
+to it.
+
+**Validation at the edge.** A body DTO implements `seiva_http::Validate`
+(`fn validate(&self) -> Result<(), ValidationError>`). The HTTP layer runs it before the method is
+called: an invalid body never reaches a use case and becomes a `422` problem.
+
+**Errors as problems.** The facade's error type implements `From<TaskError> for Problem`
+(`seiva_http::Problem`, an RFC 9457 problem): `Problem::not_found(...)`, `Problem::forbidden(...)`,
+`Problem::unprocessable_entity(...)`. The module decides which status each error is.
+
+Docs: "Facades" and "Wire schema" in the Seiva documentation.
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "sv-c5-contract"
+title = "One contract, many transports"
+points = 5
+difficulty = 5
+intro = "What `#[seiva::facade]` keeps, what it adds, and why the methods must name a permission."
+body = '''
+The facade is the **inbound port** of the module — the one versioned, permission-guarded contract
+other modules and the transports see. (The name is Seiva's term for that role; it is not the GoF
+*Facade* pattern.)
+
+`#[seiva::facade]` does not hide anything: it keeps your trait as written and adds the `<Trait>Facade`
+descriptor. Every macro in Seiva has a documented hand-written equivalent — you could write the
+`DESCRIPTOR` yourself (`seiva::contract::{FacadeDescriptor, MethodDescriptor, Param}`).
+
+In this unit you write the `Tasks` contract and the validation of its `create` body. The tests read
+the generated descriptor, exactly as the controller and the OpenAPI generator do.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "sv-d5-descriptor"
+title = "Reading a descriptor"
+points = 10
+difficulty = 5
+placeholder_policy = "on_demand"
+intro = "Declare a small facade and print what the macro generated for it."
+prompt = "Type the program. `#[facade]` adds `NotesFacade`, whose `DESCRIPTOR` lists the version, the resource and each method's permission."
+target = '''
+#![allow(async_fn_in_trait)]
+
+use seiva::contract::Facade;
+use seiva::facade;
+
+#[facade(version = "v1")]
+pub trait Notes {
+    #[requires("notes.create")]
+    async fn create(&self, title: String) -> Result<u64, String>;
+    #[public]
+    async fn list(&self) -> Result<Vec<String>, String>;
+}
+
+fn main() {
+    let d = NotesFacade::DESCRIPTOR;
+    println!("{} {} -> /{}/{}", d.name, d.version, d.version, d.resource_segment());
+    for m in d.methods {
+        let who = if m.is_guarded() { m.requires } else { "anyone" };
+        println!("{}: {} -> {}", m.name, who, m.output);
+    }
+}
+'''
+line_comments = [
+  "Facade methods are `async fn` in a public trait; this silences the lint about it.",
+  "",
+  "The trait that carries `DESCRIPTOR`.",
+  "The attribute macro, re-exported by the `seiva` crate.",
+  "",
+  "Marks the trait as version `v1` of a public contract.",
+  "The contract of a tiny `notes` module.",
+  "This method needs the `notes.create` permission…",
+  "…to create a note.",
+  "This one is explicitly public (leaving both attributes out would not compile).",
+  "List every note.",
+  "End of the trait.",
+  "",
+  "The program.",
+  "The descriptor the macro generated: plain data, known at compile time.",
+  "Prints `Notes v1 -> /v1/notes`.",
+  "Each method, in declaration order.",
+  "A public method has `requires == \"\"`.",
+  "Prints `create: notes.create -> Result<u64, String>` and `list: anyone -> …`.",
+  "End of the loop.",
+  "End of `main`.",
+]
+explanation = "Nothing implements `Notes` here, and that is fine: the contract and its descriptor exist on their own. The controller, the OpenAPI document and the gRPC proto are generated from this same data."
+run_command = "cargo run"
+
+[[unit.step]]
+kind = "drill"
+id = "sv-d5-validate"
+title = "Validating a body"
+points = 10
+difficulty = 5
+placeholder_policy = "on_demand"
+intro = "Implement `Validate` for a body DTO and run it on two parsed bodies."
+prompt = "Type the program. `serde` parses the JSON into the DTO; `Validate` decides whether its content is acceptable."
+target = '''
+use seiva_http::{Validate, ValidationError};
+use serde::Deserialize;
+
+#[derive(Debug, Deserialize)]
+struct CreateTask {
+    title: String,
+}
+
+impl Validate for CreateTask {
+    fn validate(&self) -> Result<(), ValidationError> {
+        if self.title.trim().is_empty() {
+            return Err(ValidationError::new("title must not be empty"));
+        }
+        Ok(())
+    }
+}
+
+fn main() {
+    let good: CreateTask = serde_json::from_str(r#"{"title":"plan the sprint"}"#).unwrap();
+    let blank: CreateTask = serde_json::from_str(r#"{"title":"  "}"#).unwrap();
+    println!("{:?}", good.validate().is_ok());
+    println!("{:?}", blank.validate().map_err(|e| e.to_string()));
+}
+'''
+line_comments = [
+  "The validation trait and its error, re-exported by `seiva-http`.",
+  "`Deserialize` turns a JSON body into the DTO.",
+  "",
+  "A body DTO: what a client sends to create a task.",
+  "The wire type.",
+  "Its only field.",
+  "End of the struct.",
+  "",
+  "The rule of the WIRE (shape and sanity), checked before any use case.",
+  "The one method of the trait.",
+  "A blank title…",
+  "…is refused with a message the client will see.",
+  "End of the check.",
+  "Valid.",
+  "End of `validate`.",
+  "End of the impl.",
+  "",
+  "The program.",
+  "Parse a good body.",
+  "Parse a body that is well-formed JSON but not valid.",
+  "Prints `true`.",
+  "Prints `Err(\"title must not be empty\")`.",
+  "End of `main`.",
+]
+explanation = "The HTTP layer's `Valid<T>` extractor does exactly these two steps — parse, then `validate()` — and answers `422` when either fails. The domain still keeps its own rules: validation at the edge is about the request, the domain about the business."
+run_command = "cargo run"
+
+[[unit.step]]
+kind = "challenge"
+id = "sv-ch5-contract"
+title = "The tasks contract"
+points = 40
+difficulty = 5
+intro = "Write version 1 of the `Tasks` facade and the validation of its `create` body."
+run_command = "cargo test"
+instructions = '''
+The DTOs, the error type and its mapping to problems are given. Finish the contract:
+
+- the facade is **version `v1`**;
+- `create` requires `tasks.create`, `get` requires `tasks.read`, `complete` requires
+  `tasks.complete`; `list` stays `#[public]` (keep the methods in this order);
+- `CreateTask::validate` refuses a title that is blank, or longer than `MAX_TITLE` (80)
+  **characters** once trimmed.
+
+The tests read `TasksFacade::DESCRIPTOR` and call `validate()`.
+'''
+entry = "Tasks"
+starter = '''
+//! The contract of the `tasks` module: what other modules and the transports see.
+
+// Facade methods are `async fn` in a public trait.
+#![allow(async_fn_in_trait)]
+
+use seiva::{facade, WireSchema};
+use seiva_http::{Problem, Validate, ValidationError};
+use serde::{Deserialize, Serialize};
+
+/// The longest title a task may have, in characters.
+pub const MAX_TITLE: usize = 80;
+
+/// The body of `create`.
+#[derive(Debug, Clone, Deserialize, Serialize, WireSchema)]
+pub struct CreateTask {
+    pub title: String,
+}
+
+impl Validate for CreateTask {
+    fn validate(&self) -> Result<(), ValidationError> {
+        // TODO: a blank title, or one longer than MAX_TITLE characters (after trimming), is
+        // invalid: return `Err(ValidationError::new("…"))`.
+        Ok(())
+    }
+}
+
+/// The body of `complete`.
+#[derive(Debug, Clone, Deserialize, Serialize, WireSchema)]
+pub struct CompleteTask {
+    pub id: u64,
+}
+
+impl Validate for CompleteTask {
+    fn validate(&self) -> Result<(), ValidationError> {
+        Ok(())
+    }
+}
+
+/// What the contract returns: never a domain type.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, WireSchema)]
+pub struct TaskDto {
+    pub id: u64,
+    pub title: String,
+    pub done: bool,
+}
+
+/// The contract's error; the transports turn it into an RFC 9457 problem.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TaskError {
+    NotFound(u64),
+    Invalid(String),
+}
+
+impl From<TaskError> for Problem {
+    fn from(error: TaskError) -> Self {
+        match error {
+            TaskError::NotFound(id) => Problem::not_found(format!("no task {id}")),
+            TaskError::Invalid(why) => Problem::unprocessable_entity(why),
+        }
+    }
+}
+
+// TODO: the contract. Version `v1`; `create` needs `tasks.create`, `get` needs
+// `tasks.read`, `complete` needs `tasks.complete`, and `list` is public.
+#[facade(version = "v0")]
+pub trait Tasks {
+    #[public]
+    async fn create(&self, cmd: CreateTask) -> Result<TaskDto, TaskError>;
+
+    #[public]
+    async fn get(&self, id: u64) -> Result<TaskDto, TaskError>;
+
+    #[public]
+    async fn complete(&self, cmd: CompleteTask) -> Result<TaskDto, TaskError>;
+
+    #[public]
+    async fn list(&self) -> Result<Vec<TaskDto>, TaskError>;
+}
+'''
+tests = '''
+use axum::http::StatusCode;
+use seiva::contract::{Facade, Param};
+use seiva_http::{Problem, Validate};
+use student::{CreateTask, TaskError, TasksFacade, MAX_TITLE};
+
+#[test]
+fn the_contract_is_version_1_of_tasks() {
+    let d = TasksFacade::DESCRIPTOR;
+    assert_eq!(d.name, "Tasks");
+    assert_eq!(d.version, "v1");
+    assert_eq!(d.resource_segment(), "tasks");
+    let names: Vec<&str> = d.methods.iter().map(|m| m.name).collect();
+    assert_eq!(names, ["create", "get", "complete", "list"]);
+}
+
+#[test]
+fn every_write_needs_its_permission_and_list_is_public() {
+    let d = TasksFacade::DESCRIPTOR;
+    assert_eq!(d.method("create").unwrap().requires, "tasks.create");
+    assert_eq!(d.method("get").unwrap().requires, "tasks.read");
+    assert_eq!(d.method("complete").unwrap().requires, "tasks.complete");
+    assert!(!d.method("list").unwrap().is_guarded());
+    let create = d.method("create").unwrap();
+    assert_eq!(create.params, [Param { name: "cmd", ty: "CreateTask" }]);
+    assert_eq!(create.output, "Result<TaskDto, TaskError>");
+}
+
+#[test]
+fn a_title_is_validated_before_it_reaches_a_use_case() {
+    let cmd = |t: &str| CreateTask { title: t.to_string() };
+    assert!(cmd("plan the sprint").validate().is_ok());
+    assert!(cmd("").validate().is_err());
+    assert!(cmd("   ").validate().is_err());
+    assert!(cmd(&"a".repeat(MAX_TITLE)).validate().is_ok());
+    assert!(cmd(&"a".repeat(MAX_TITLE + 1)).validate().is_err());
+    assert!(cmd(&"é".repeat(MAX_TITLE)).validate().is_ok());
+    assert!(cmd(&format!(" {} ", "a".repeat(MAX_TITLE))).validate().is_ok());
+}
+
+#[test]
+fn errors_map_to_problems() {
+    assert_eq!(Problem::from(TaskError::NotFound(3)).status, StatusCode::NOT_FOUND);
+    assert_eq!(
+        Problem::from(TaskError::Invalid("no".into())).status,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+}
+'''
+
+[unit.step.gabarito]
+solution = '''
+//! The contract of the `tasks` module: what other modules and the transports see.
+
+// Facade methods are `async fn` in a public trait.
+#![allow(async_fn_in_trait)]
+
+use seiva::{facade, WireSchema};
+use seiva_http::{Problem, Validate, ValidationError};
+use serde::{Deserialize, Serialize};
+
+/// The longest title a task may have, in characters.
+pub const MAX_TITLE: usize = 80;
+
+/// The body of `create`.
+#[derive(Debug, Clone, Deserialize, Serialize, WireSchema)]
+pub struct CreateTask {
+    pub title: String,
+}
+
+impl Validate for CreateTask {
+    fn validate(&self) -> Result<(), ValidationError> {
+        let title = self.title.trim();
+        if title.is_empty() {
+            return Err(ValidationError::new("title must not be empty"));
+        }
+        if title.chars().count() > MAX_TITLE {
+            return Err(ValidationError::new(format!(
+                "title has at most {MAX_TITLE} characters"
+            )));
+        }
+        Ok(())
+    }
+}
+
+/// The body of `complete`.
+#[derive(Debug, Clone, Deserialize, Serialize, WireSchema)]
+pub struct CompleteTask {
+    pub id: u64,
+}
+
+impl Validate for CompleteTask {
+    fn validate(&self) -> Result<(), ValidationError> {
+        Ok(())
+    }
+}
+
+/// What the contract returns: never a domain type.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, WireSchema)]
+pub struct TaskDto {
+    pub id: u64,
+    pub title: String,
+    pub done: bool,
+}
+
+/// The contract's error; the transports turn it into an RFC 9457 problem.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TaskError {
+    NotFound(u64),
+    Invalid(String),
+}
+
+impl From<TaskError> for Problem {
+    fn from(error: TaskError) -> Self {
+        match error {
+            TaskError::NotFound(id) => Problem::not_found(format!("no task {id}")),
+            TaskError::Invalid(why) => Problem::unprocessable_entity(why),
+        }
+    }
+}
+
+/// The `tasks` module's public contract, version 1.
+#[facade(version = "v1")]
+pub trait Tasks {
+    #[requires("tasks.create")]
+    async fn create(&self, cmd: CreateTask) -> Result<TaskDto, TaskError>;
+
+    #[requires("tasks.read")]
+    async fn get(&self, id: u64) -> Result<TaskDto, TaskError>;
+
+    #[requires("tasks.complete")]
+    async fn complete(&self, cmd: CompleteTask) -> Result<TaskDto, TaskError>;
+
+    #[public]
+    async fn list(&self) -> Result<Vec<TaskDto>, TaskError>;
+}
+'''
+time = "O(n)"
+space = "O(1)"
+justification = "`validate` trims and counts the characters of the title once (linear in its length). The permissions are attributes read at compile time: the descriptor costs nothing at run time, and a method without `#[requires]` or `#[public]` would not compile — the contract cannot leave an endpoint open by accident."
+
+[[unit]]
+id = "sv-u6-http"
+title = "From contract to HTTP: the controller"
+level = "advanced"
+difficulty = 6
+intro = "`#[seiva::controller]` turns an implementation of the facade into an axum router — routes, guards and problems included."
+concepts = '''
+You never write a route in Seiva. You implement the facade and put `#[seiva::controller]` on the
+`impl`; the macro generates a builder `<trait>_router(service) -> axum::Router` (`Tasks` →
+`tasks_router`, `UserAccounts` → `user_accounts_router`).
+
+**The routing convention** — the method name picks the verb and the path, the resource and the
+version come from the descriptor:
+
+| method | HTTP | path | input | success |
+|---|---|---|---|---|
+| `create` | `POST` | `/v1/tasks` | the DTO body | `201` |
+| `get` | `GET` | `/v1/tasks/{id}` | the id from the path | `200` |
+| `list` | `GET` | `/v1/tasks` | (an optional query) | `200` |
+| any other | `POST` | `/v1/tasks/<method>` | the DTO body | `200` |
+
+**What each generated handler does.** It takes the service from the router's state, extracts the
+input — a body through `seiva_http::Valid<T>` (parse + `Validate`; failure = `422`), a path id
+through `axum::extract::Path` — calls your method, and serialises the `Ok` value to JSON. An `Err` is
+turned into a `Problem` (your `From<TaskError> for Problem`) and rendered as
+`application/problem+json`.
+
+**The permission guard.** Each route is wrapped in `seiva_http::permission_guard` with the method's
+`requires` read from the descriptor. A caller without the permission gets a `403` problem *before*
+your method runs; a `#[public]` method has no guard. Who the caller is comes from the request: the
+authentication layer puts an `Arc<Principal>` in the request extensions (in tests you put it there
+yourself: `.extension(Arc::new(Principal::new("ana", ["tasks.create"])))`).
+
+**What the service must be.** The router keeps the service as its state, so it must be
+`Clone + Send + Sync + 'static`. Shared mutable state goes behind `Arc<Mutex<…>>` (every clone sees
+the same tasks). The `<Trait>Facade` descriptor type must be in scope where the controller is used
+(import it next to the trait), and the crate needs `axum` and `seiva-http` as dependencies.
+
+**Testing without a server.** An `axum::Router` is a `tower::Service`: `router.oneshot(request)`
+sends one request in memory and returns the response. No port, no socket, no flakiness.
+
+Docs: "Controllers and routing", "Validation" and "Request and response" in the Seiva documentation.
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "sv-c6-http"
+title = "Routes you do not write"
+points = 5
+difficulty = 6
+intro = "How a facade implementation becomes routes, and what happens to a request on the way."
+body = '''
+A request to `POST /v1/tasks` goes through, in order:
+
+1. the **permission guard** — does the `Principal` hold `tasks.create`? If not: `403`, and your code
+   never runs;
+2. the **extractor** — `Valid<CreateTask>` parses the JSON and calls `validate()`; unknown fields and
+   invalid content are a `422`;
+3. **your method** — `create(&self, cmd)`;
+4. the **response** — `201` with the DTO as JSON, or the `Problem` your error maps to.
+
+In this unit you implement the facade over an in-memory store and let the controller do the rest.
+The hidden tests drive the router with `oneshot`, like Seiva's own controller tests.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "sv-d6-router"
+title = "A router from a facade"
+points = 15
+difficulty = 6
+placeholder_policy = "on_demand"
+intro = "Implement a one-method facade, generate its router, and send it a request in memory."
+prompt = "Type the program. `#[controller]` generates `pings_router`; `oneshot` sends one request without opening a port."
+target = '''
+#![allow(async_fn_in_trait)]
+
+use axum::body::Body;
+use axum::http::Request;
+use seiva::{controller, facade};
+use seiva_http::Problem;
+use tower::ServiceExt;
+
+#[derive(Debug)]
+pub struct PingError;
+
+impl From<PingError> for Problem {
+    fn from(_: PingError) -> Self {
+        Problem::internal("no pong")
+    }
+}
+
+#[facade(version = "v1")]
+pub trait Pings {
+    #[public]
+    async fn list(&self) -> Result<Vec<String>, PingError>;
+}
+
+#[derive(Clone)]
+struct PingService;
+
+#[controller]
+impl Pings for PingService {
+    async fn list(&self) -> Result<Vec<String>, PingError> {
+        Ok(vec!["pong".to_string()])
+    }
+}
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() {
+    let request = Request::builder().uri("/v1/pings").body(Body::empty()).unwrap();
+    let response = pings_router(PingService).oneshot(request).await.unwrap();
+    println!("{}", response.status());
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    println!("{}", String::from_utf8_lossy(&bytes));
+}
+'''
+line_comments = [
+  "Facade methods are `async fn` in a public trait.",
+  "",
+  "A request body (here, empty).",
+  "The request type.",
+  "The two macros: the contract and the routes.",
+  "The RFC 9457 problem the routes answer with on errors.",
+  "`oneshot` comes from this trait.",
+  "",
+  "The facade's error type.",
+  "A unit struct: there is only one way to fail here.",
+  "",
+  "How the error becomes a problem (the controller needs this).",
+  "The conversion…",
+  "…to a `500` problem.",
+  "End of `from`.",
+  "End of the impl.",
+  "",
+  "Version `v1` of the contract.",
+  "Resource `pings` (already plural).",
+  "Anyone may call it.",
+  "`list` → `GET /v1/pings`.",
+  "End of the trait.",
+  "",
+  "The service is the router's state: it must be `Clone`.",
+  "A service with no data.",
+  "",
+  "Generates `pings_router(service) -> axum::Router`.",
+  "Implement the facade as usual.",
+  "The method the route calls.",
+  "The `Ok` value becomes the JSON body.",
+  "End of `list`.",
+  "End of the impl.",
+  "",
+  "A single-threaded runtime.",
+  "Async `main`.",
+  "`GET /v1/pings`, no body.",
+  "Build the router and send it the request in memory.",
+  "Prints `200 OK`.",
+  "Read the whole body.",
+  "Prints `[\"pong\"]`.",
+  "End of `main`.",
+]
+explanation = "The path came from the descriptor (`v1` + `pings`), the verb from the method name (`list` → `GET`), and the `200` with a JSON array from the `Ok` value. Nothing about HTTP was written by hand."
+run_command = "cargo run"
+
+[[unit.step]]
+kind = "drill"
+id = "sv-d6-guard"
+title = "The permission guard"
+points = 15
+difficulty = 6
+placeholder_policy = "on_demand"
+intro = "Call a guarded route twice: without the permission, and with it."
+prompt = "Type the program. The guard reads `notes.create` from the descriptor and answers `403` before the method runs."
+target = '''
+#![allow(async_fn_in_trait)]
+
+use std::sync::Arc;
+
+use axum::body::Body;
+use axum::http::Request;
+use seiva::{controller, facade};
+use seiva_http::{Principal, Problem, Validate, ValidationError};
+use serde::{Deserialize, Serialize};
+use tower::ServiceExt;
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct NewNote {
+    pub title: String,
+}
+
+impl Validate for NewNote {
+    fn validate(&self) -> Result<(), ValidationError> {
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct NoteError;
+
+impl From<NoteError> for Problem {
+    fn from(_: NoteError) -> Self {
+        Problem::internal("failed")
+    }
+}
+
+#[facade(version = "v1")]
+pub trait Notes {
+    #[requires("notes.create")]
+    async fn create(&self, cmd: NewNote) -> Result<String, NoteError>;
+}
+
+#[derive(Clone)]
+struct NoteService;
+
+#[controller]
+impl Notes for NoteService {
+    async fn create(&self, cmd: NewNote) -> Result<String, NoteError> {
+        Ok(cmd.title)
+    }
+}
+
+fn request(principal: Option<Principal>) -> Request<Body> {
+    let mut r = Request::builder()
+        .method("POST")
+        .uri("/v1/notes")
+        .header("content-type", "application/json");
+    if let Some(p) = principal {
+        r = r.extension(Arc::new(p));
+    }
+    r.body(Body::from(r#"{"title":"hello"}"#)).unwrap()
+}
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() {
+    let anonymous = notes_router(NoteService).oneshot(request(None)).await.unwrap();
+    println!("anonymous: {}", anonymous.status());
+    let ana = Principal::new("ana", ["notes.create"]);
+    let allowed = notes_router(NoteService).oneshot(request(Some(ana))).await.unwrap();
+    println!("ana: {}", allowed.status());
+}
+'''
+line_comments = [
+  "Facade methods are `async fn` in a public trait.",
+  "",
+  "The principal travels in the request as an `Arc`.",
+  "",
+  "A request body.",
+  "The request type.",
+  "The contract and the routes.",
+  "Who is calling, the problem type, and body validation.",
+  "`serde` for the body DTO.",
+  "`oneshot`.",
+  "",
+  "The body of `create`.",
+  "A wire DTO.",
+  "Its only field.",
+  "End of the struct.",
+  "",
+  "A body must implement `Validate` (here, everything is valid).",
+  "The check.",
+  "Always valid.",
+  "End of `validate`.",
+  "End of the impl.",
+  "",
+  "The facade's error type.",
+  "A unit struct.",
+  "",
+  "Errors become problems.",
+  "The conversion…",
+  "…to a `500`.",
+  "End of `from`.",
+  "End of the impl.",
+  "",
+  "Version `v1`.",
+  "The `notes` contract.",
+  "Guarded: the caller needs `notes.create`.",
+  "`create` → `POST /v1/notes` with the body.",
+  "End of the trait.",
+  "",
+  "The router's state.",
+  "A service with no data.",
+  "",
+  "Generates `notes_router`.",
+  "The implementation.",
+  "Only reached when the guard let the request through.",
+  "Echo the title.",
+  "End of `create`.",
+  "End of the impl.",
+  "",
+  "Builds `POST /v1/notes`, with or without a principal.",
+  "A request builder…",
+  "…with the method…",
+  "…the path…",
+  "…and a JSON body type.",
+  "Only when there is a principal…",
+  "…put it in the extensions, where the guard looks for it.",
+  "End of the `if`.",
+  "The JSON body.",
+  "End of `request`.",
+  "",
+  "A single-threaded runtime.",
+  "Async `main`.",
+  "No principal: an anonymous caller.",
+  "Prints `anonymous: 403 Forbidden`.",
+  "A principal holding exactly the permission.",
+  "Send the same request as `ana`.",
+  "Prints `ana: 201 Created`.",
+  "End of `main`.",
+]
+explanation = "The permission was never written in the route: the guard read it from the descriptor. In a real service the authentication layer (`seiva_http::authn`, OIDC/JWT) builds the `Principal` from the token and puts it in the request."
+run_command = "cargo run"
+
+[[unit.step]]
+kind = "challenge"
+id = "sv-ch6-controller"
+title = "The tasks routes"
+points = 50
+difficulty = 6
+intro = "Implement the `Tasks` facade over an in-memory store and generate its routes with `#[seiva::controller]`."
+run_command = "cargo test"
+instructions = '''
+A project step. `src/facade.rs` (the contract from the previous unit) and `src/lib.rs` are
+read-only. In `src/interface.rs`, implement `Tasks` for `TasksApi` and put `#[seiva::controller]` on
+the impl, so `tasks_router(service)` exists:
+
+- `create`: the next id (1, 2, …), the **trimmed** title, `done: false`;
+- `get`: the task with that id, or `TaskError::NotFound(id)`;
+- `complete`: mark it done; a missing task is `NotFound`, a task already done is
+  `TaskError::Invalid(...)`;
+- `list`: every task.
+
+The hidden tests send requests to the router: `403` without the permission, `201` with the DTO,
+`422` for a blank title, `404` for a missing task, and a public `list`.
+'''
+
+[unit.step.project]
+main = "src/interface.rs"
+readonly = [
+  "src/lib.rs",
+  "src/facade.rs",
+]
+explanation = "The controller derived every route from the contract: `create` became `POST /v1/tasks` with `201`, `get` read the id from the path, `complete` became `POST /v1/tasks/complete`, and only `list` has no guard. The `422` for a blank title came from `CreateTask::validate` before `create` ran; the `404` from your `TaskError::NotFound` through `From<TaskError> for Problem`. The lock is never held across an `.await`, so each handler's future stays `Send`."
+
+[unit.step.project.starter]
+"src/lib.rs" = '''
+//! The `tasks` module's contract and its HTTP shell, in one crate for now.
+
+pub mod facade;
+pub mod interface;
+'''
+"src/facade.rs" = '''
+//! The contract of the `tasks` module: what other modules and the transports see.
+
+// Facade methods are `async fn` in a public trait.
+#![allow(async_fn_in_trait)]
+
+use seiva::{facade, WireSchema};
+use seiva_http::{Problem, Validate, ValidationError};
+use serde::{Deserialize, Serialize};
+
+/// The longest title a task may have, in characters.
+pub const MAX_TITLE: usize = 80;
+
+/// The body of `create`.
+#[derive(Debug, Clone, Deserialize, Serialize, WireSchema)]
+pub struct CreateTask {
+    pub title: String,
+}
+
+impl Validate for CreateTask {
+    fn validate(&self) -> Result<(), ValidationError> {
+        let title = self.title.trim();
+        if title.is_empty() {
+            return Err(ValidationError::new("title must not be empty"));
+        }
+        if title.chars().count() > MAX_TITLE {
+            return Err(ValidationError::new(format!(
+                "title has at most {MAX_TITLE} characters"
+            )));
+        }
+        Ok(())
+    }
+}
+
+/// The body of `complete`.
+#[derive(Debug, Clone, Deserialize, Serialize, WireSchema)]
+pub struct CompleteTask {
+    pub id: u64,
+}
+
+impl Validate for CompleteTask {
+    fn validate(&self) -> Result<(), ValidationError> {
+        Ok(())
+    }
+}
+
+/// What the contract returns: never a domain type.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, WireSchema)]
+pub struct TaskDto {
+    pub id: u64,
+    pub title: String,
+    pub done: bool,
+}
+
+/// The contract's error; the transports turn it into an RFC 9457 problem.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TaskError {
+    NotFound(u64),
+    Invalid(String),
+}
+
+impl From<TaskError> for Problem {
+    fn from(error: TaskError) -> Self {
+        match error {
+            TaskError::NotFound(id) => Problem::not_found(format!("no task {id}")),
+            TaskError::Invalid(why) => Problem::unprocessable_entity(why),
+        }
+    }
+}
+
+/// The `tasks` module's public contract, version 1.
+#[facade(version = "v1")]
+pub trait Tasks {
+    #[requires("tasks.create")]
+    async fn create(&self, cmd: CreateTask) -> Result<TaskDto, TaskError>;
+
+    #[requires("tasks.read")]
+    async fn get(&self, id: u64) -> Result<TaskDto, TaskError>;
+
+    #[requires("tasks.complete")]
+    async fn complete(&self, cmd: CompleteTask) -> Result<TaskDto, TaskError>;
+
+    #[public]
+    async fn list(&self) -> Result<Vec<TaskDto>, TaskError>;
+}
+'''
+"src/interface.rs" = '''
+//! The interface: the facade implemented over an in-memory store, turned into routes.
+
+use std::sync::{Arc, Mutex};
+
+use crate::facade::{CompleteTask, CreateTask, TaskDto, TaskError, Tasks, TasksFacade};
+
+/// The service behind the routes: the tasks in memory. Every clone shares the same list
+/// (the router keeps a clone as its state).
+#[derive(Clone, Default)]
+pub struct TasksApi {
+    tasks: Arc<Mutex<Vec<TaskDto>>>,
+}
+
+impl TasksApi {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+// TODO: implement the `Tasks` facade for `TasksApi`, and put `#[seiva::controller]` on that
+// impl so it generates `tasks_router(service) -> axum::Router`.
+//
+// - `create`: the next id (1, 2, …), the TRIMMED title, not done.
+// - `get`: the task with that id, or `TaskError::NotFound(id)`.
+// - `complete`: mark it done; a missing task is `NotFound`, a task already done is
+//   `TaskError::Invalid("the task is already done")`.
+// - `list`: every task.
+'''
+
+[unit.step.project.tests]
+"tests/http.rs" = '''
+use std::sync::Arc;
+
+use axum::body::Body;
+use axum::http::{Request, StatusCode};
+use seiva_http::{Principal, PROBLEM_JSON};
+use student::interface::{tasks_router, TasksApi};
+use tower::ServiceExt;
+
+fn post(path: &str, body: &str, perms: &[&str]) -> Request<Body> {
+    let mut r = Request::builder()
+        .method("POST")
+        .uri(path)
+        .header("content-type", "application/json");
+    if !perms.is_empty() {
+        r = r.extension(Arc::new(Principal::new("ana", perms.iter().copied())));
+    }
+    r.body(Body::from(body.to_string())).unwrap()
+}
+
+fn get(path: &str, perms: &[&str]) -> Request<Body> {
+    let mut r = Request::builder().uri(path);
+    if !perms.is_empty() {
+        r = r.extension(Arc::new(Principal::new("ana", perms.iter().copied())));
+    }
+    r.body(Body::empty()).unwrap()
+}
+
+async fn json(r: axum::response::Response) -> serde_json::Value {
+    let bytes = axum::body::to_bytes(r.into_body(), usize::MAX).await.unwrap();
+    serde_json::from_slice(&bytes).unwrap()
+}
+
+#[tokio::test]
+async fn create_needs_the_permission() {
+    let api = TasksApi::new();
+    let r = tasks_router(api.clone()).oneshot(post("/v1/tasks", r#"{"title":"x"}"#, &[])).await.unwrap();
+    assert_eq!(r.status(), StatusCode::FORBIDDEN);
+    assert_eq!(r.headers()["content-type"], PROBLEM_JSON);
+    let r = tasks_router(api.clone())
+        .oneshot(post("/v1/tasks", r#"{"title":"x"}"#, &["tasks.read"]))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn create_returns_201_with_the_dto() {
+    let api = TasksApi::new();
+    let r = tasks_router(api.clone())
+        .oneshot(post("/v1/tasks", r#"{"title":"  buy milk "}"#, &["tasks.create"]))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::CREATED);
+    assert_eq!(json(r).await, serde_json::json!({ "id": 1, "title": "buy milk", "done": false }));
+    let r = tasks_router(api.clone())
+        .oneshot(post("/v1/tasks", r#"{"title":"call ana"}"#, &["tasks.create"]))
+        .await
+        .unwrap();
+    assert_eq!(json(r).await["id"], 2);
+}
+
+#[tokio::test]
+async fn an_invalid_body_is_a_422_problem() {
+    let api = TasksApi::new();
+    let r = tasks_router(api.clone())
+        .oneshot(post("/v1/tasks", r#"{"title":"   "}"#, &["tasks.create"]))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(r.headers()["content-type"], PROBLEM_JSON);
+    let list = tasks_router(api).oneshot(get("/v1/tasks", &[])).await.unwrap();
+    assert_eq!(json(list).await, serde_json::json!([]));
+}
+
+#[tokio::test]
+async fn get_reads_the_id_from_the_path() {
+    let api = TasksApi::new();
+    tasks_router(api.clone())
+        .oneshot(post("/v1/tasks", r#"{"title":"one"}"#, &["tasks.create"]))
+        .await
+        .unwrap();
+    let r = tasks_router(api.clone()).oneshot(get("/v1/tasks/1", &["tasks.read"])).await.unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    assert_eq!(json(r).await["title"], "one");
+    let r = tasks_router(api.clone()).oneshot(get("/v1/tasks/9", &["tasks.read"])).await.unwrap();
+    assert_eq!(r.status(), StatusCode::NOT_FOUND);
+    let r = tasks_router(api).oneshot(get("/v1/tasks/1", &[])).await.unwrap();
+    assert_eq!(r.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn list_is_public_and_complete_is_once() {
+    let api = TasksApi::new();
+    tasks_router(api.clone())
+        .oneshot(post("/v1/tasks", r#"{"title":"one"}"#, &["tasks.create"]))
+        .await
+        .unwrap();
+    let done = || post("/v1/tasks/complete", r#"{"id":1}"#, &["tasks.complete"]);
+    let r = tasks_router(api.clone()).oneshot(done()).await.unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    assert_eq!(json(r).await["done"], true);
+    let r = tasks_router(api.clone()).oneshot(done()).await.unwrap();
+    assert_eq!(r.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let r = tasks_router(api.clone())
+        .oneshot(post("/v1/tasks/complete", r#"{"id":5}"#, &["tasks.complete"]))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::NOT_FOUND);
+    let r = tasks_router(api).oneshot(get("/v1/tasks", &[])).await.unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    assert_eq!(json(r).await[0]["done"], true);
+}
+'''
+
+[unit.step.project.solution]
+"src/interface.rs" = '''
+//! The interface: the facade implemented over an in-memory store, turned into routes.
+
+use std::sync::{Arc, Mutex};
+
+use crate::facade::{CompleteTask, CreateTask, TaskDto, TaskError, Tasks, TasksFacade};
+
+/// The service behind the routes: the tasks in memory. Every clone shares the same list
+/// (the router keeps a clone as its state).
+#[derive(Clone, Default)]
+pub struct TasksApi {
+    tasks: Arc<Mutex<Vec<TaskDto>>>,
+}
+
+impl TasksApi {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+#[seiva::controller]
+impl Tasks for TasksApi {
+    async fn create(&self, cmd: CreateTask) -> Result<TaskDto, TaskError> {
+        let mut tasks = self.tasks.lock().expect("tasks lock");
+        let dto = TaskDto {
+            id: tasks.len() as u64 + 1,
+            title: cmd.title.trim().to_string(),
+            done: false,
+        };
+        tasks.push(dto.clone());
+        Ok(dto)
+    }
+
+    async fn get(&self, id: u64) -> Result<TaskDto, TaskError> {
+        let tasks = self.tasks.lock().expect("tasks lock");
+        tasks
+            .iter()
+            .find(|t| t.id == id)
+            .cloned()
+            .ok_or(TaskError::NotFound(id))
+    }
+
+    async fn complete(&self, cmd: CompleteTask) -> Result<TaskDto, TaskError> {
+        let mut tasks = self.tasks.lock().expect("tasks lock");
+        let task = tasks
+            .iter_mut()
+            .find(|t| t.id == cmd.id)
+            .ok_or(TaskError::NotFound(cmd.id))?;
+        if task.done {
+            return Err(TaskError::Invalid("the task is already done".to_string()));
+        }
+        task.done = true;
+        Ok(task.clone())
+    }
+
+    async fn list(&self) -> Result<Vec<TaskDto>, TaskError> {
+        Ok(self.tasks.lock().expect("tasks lock").clone())
+    }
+}
+'''
+
+[[unit]]
+id = "sv-u7-module"
+title = "A module is five crates"
+level = "advanced"
+difficulty = 7
+intro = "The real shape of a Seiva module: five crates whose dependency graph enforces the architecture, plus a composition root."
+concepts = '''
+Until now the `tasks` module lived in one crate. A real Seiva module is **five crates**, one per
+layer, and the dependency rule between them is enforced by Cargo itself — code that breaks it does
+not compile:
+
+```
+interface ─▶ application ─▶ domain
+   │             │
+   └─▶ facade ◀──┘        infrastructure ─▶ domain
+```
+
+| crate | holds | may depend on |
+|---|---|---|
+| `tasks-domain` | `Task`, rules, the repository port | nothing |
+| `tasks-application` | `TasksService` (use cases) | domain, `seiva-ports` |
+| `tasks-facade` | the contract + DTOs | `seiva`, `seiva-http` (for `Ctx`) |
+| `tasks-infrastructure` | adapters (an in-memory repository) | domain |
+| `tasks-interface` | the facade over the service + `#[seiva::controller]` | application, facade |
+
+The interface **never** names the domain or the infrastructure: it imports the repository port from
+the application (which re-exports it). `seiva lint` checks these rules too, and
+`seiva module new <name>` scaffolds the five crates for you.
+
+**The composition root** (`tasks-api` here, `apps/<name>-api` in Seiva projects) is the only place that
+picks the adapters: the in-memory repository, the id generator, the unit of work, the event publisher —
+or, in production, the DORM gateway and a broker. Swapping them is a change in one file.
+
+**The tenant comes from the request, server-side.** Facade methods can take `&Ctx` (the request
+context: the authenticated `Principal`, its tenant and permissions). The controller injects it and
+keeps it **off the wire** — a client cannot send a tenant in the body. The interface turns it into a
+`Scope` *fail-closed*: `ctx.scope()` is `None` for a caller without a tenant, which must become an
+error (a `403`), never a global write.
+
+**Sharing the service with the router.** The controller needs a `Clone` service. The application
+service is not `Clone` (it owns its ports), so the interface keeps it behind an `Arc` and implements
+`Clone` by hand — a derived `Clone` would wrongly require every port type to be `Clone`.
+
+**From application errors to contract errors.** The use cases return `BoxError`. The interface
+recognises an application error by type (`error.downcast_ref::<NotFound>()`) and maps it to the
+contract (`TaskError::NotFound` → `404`); anything else is `TaskError::Invalid` (`422`).
+
+**One workspace.** The five crates (and the root) are members of one Cargo workspace. The library
+versions are declared once in `[workspace.dependencies]` and each crate says
+`seiva = { workspace = true }` — in this course dxtutor writes that table from the course's single
+dependency list, the same one every step has used.
+
+Docs: "Architecture", "Add a module" and the shop tutorial (part 1, "The modular monolith").
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "sv-c7-module"
+title = "Five crates and a composition root"
+points = 5
+difficulty = 7
+intro = "Why the layers are separate crates, and where the adapters are chosen."
+body = '''
+Splitting the module into crates turns the architecture into something the compiler checks:
+`tasks-domain` has no dependencies, so it *cannot* import the framework; `tasks-interface` does not
+depend on `tasks-infrastructure`, so it *cannot* reach for a concrete repository.
+
+The same five crates run as a modular monolith (the composition root mounts several modules' routers
+in one binary) or as a microservice (a root with one module). `seiva module split` turns one into the
+other by changing composition only — the module's code does not move.
+
+In the capstone you write the three pieces that are not given: the in-memory repository
+(infrastructure), the interface (scope from `&Ctx`, the controller) and the composition root.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "sv-d7-scope"
+title = "The tenant from the request context"
+points = 15
+difficulty = 7
+placeholder_policy = "on_demand"
+intro = "Derive the scope of a request from its `Ctx`, failing closed when the caller has no tenant."
+prompt = "Type the program. `Ctx::scope()` is `Some` only for a caller bound to a tenant; anything else is an error, never a global scope."
+target = '''
+use seiva_http::{Ctx, Principal};
+use seiva_ports::Scope;
+
+fn scope_of(ctx: &Ctx) -> Result<Scope, String> {
+    ctx.scope().ok_or_else(|| "the caller has no tenant".to_string())
+}
+
+fn main() {
+    let ana = Ctx::new(Principal::in_tenant("ana", "acme", ["tasks.create"]));
+    let bot = Ctx::new(Principal::new("bot", ["tasks.create"]));
+    println!("{} in {:?}: {}", ana.subject(), ana.tenant(), ana.has("tasks.create"));
+    println!("{:?}", scope_of(&ana));
+    println!("{:?}", scope_of(&bot));
+}
+'''
+line_comments = [
+  "The request context and the authenticated caller.",
+  "The scope a transaction runs under.",
+  "",
+  "The interface's rule: the tenant comes from the context, server-side.",
+  "No tenant → an error (fail closed), never `Scope::Global`.",
+  "End of `scope_of`.",
+  "",
+  "The program.",
+  "A caller bound to the tenant `acme`, holding one permission.",
+  "A caller with the permission but no tenant (a service account, say).",
+  "Prints `ana in Some(\"acme\"): true`.",
+  "Prints `Ok(Scope::Tenant(acme))`.",
+  "Prints `Err(\"the caller has no tenant\")`.",
+  "End of `main`.",
+]
+explanation = "In a module the controller builds the `Ctx` from the request (the `Principal` the authentication layer put there) and passes it to the facade method; the tenant is never read from the body, so a client cannot write into another tenant (OWASP API1)."
+run_command = "cargo run"
+
+[[unit.step]]
+kind = "drill"
+id = "sv-d7-compose"
+title = "A composition root in miniature"
+points = 15
+difficulty = 7
+placeholder_policy = "on_demand"
+intro = "Wire a use case to its adapters in `main`, run it, and look at what it announced."
+prompt = "Type the program. Only `main` chooses the adapters; the generic service would run the same against a database."
+target = '''
+use std::sync::Mutex;
+
+use seiva_ports::{EventPublisher, IdGenerator, Scope, UnitOfWork};
+use seiva_testing::{InMemoryUnitOfWork, RecordingEventPublisher, SequenceIdGenerator};
+
+struct Notes<G, U, E> {
+    ids: G,
+    uow: U,
+    events: E,
+    saved: Mutex<Vec<(u128, String)>>,
+}
+
+impl<G: IdGenerator, U: UnitOfWork, E: EventPublisher> Notes<G, U, E> {
+    async fn create(&self, scope: Scope, title: &str) -> seiva_ports::PortResult<u128> {
+        let id = u128::from_be_bytes(self.ids.new_id().0);
+        self.uow
+            .transaction(scope, || async {
+                self.saved.lock().expect("lock").push((id, title.to_string()));
+                self.events.publish("notes.created", id.to_string().as_bytes()).await
+            })
+            .await?;
+        Ok(id)
+    }
+}
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() {
+    let events = RecordingEventPublisher::new();
+    let notes = Notes {
+        ids: SequenceIdGenerator::new(),
+        uow: InMemoryUnitOfWork::new(),
+        events: events.clone(),
+        saved: Mutex::new(Vec::new()),
+    };
+    let scope = Scope::tenant("acme").expect("a tenant");
+    let id = notes.create(scope, "hello").await.unwrap();
+    println!("created {id}; events: {:?}", events.topics());
+}
+'''
+line_comments = [
+  "A tiny in-memory store for this drill.",
+  "",
+  "The ports the service is generic over.",
+  "The adapters this composition root picks.",
+  "",
+  "A service generic over its ports.",
+  "Ids.",
+  "Transactions.",
+  "Events.",
+  "What was saved (a real module would take a repository port).",
+  "End of the struct.",
+  "",
+  "The use case only needs the traits.",
+  "Create a note under a tenant.",
+  "Mint the id.",
+  "One transaction…",
+  "…bound to the scope.",
+  "Save (the lock is released before the await below).",
+  "Announce it inside the same transaction.",
+  "End of the body.",
+  "Await; `?` passes a failure on.",
+  "Return the id.",
+  "End of `create`.",
+  "End of the impl.",
+  "",
+  "A single-threaded runtime.",
+  "The composition root.",
+  "Keep a handle on the publisher to look at it afterwards.",
+  "Pick the adapters…",
+  "…ids from a sequence…",
+  "…an in-memory unit of work…",
+  "…a clone of the publisher (clones share what they record)…",
+  "…and an empty store.",
+  "End of the wiring.",
+  "The tenant of this call.",
+  "Run the use case.",
+  "Prints `created 1; events: [\"notes.created\"]`.",
+  "End of `main`.",
+]
+explanation = "This is what `apps/shop-api` does at a larger scale: build each module's service from adapters, wrap it in its interface, and merge the routers. Replacing `InMemoryUnitOfWork` by the DORM gateway changes this function and nothing else."
+run_command = "cargo run"
+
+[[unit.step]]
+kind = "challenge"
+id = "sv-ch7-module"
+title = "Capstone: the tasks module"
+points = 80
+difficulty = 8
+intro = "Assemble the `tasks` module as five crates and a composition root, and serve it over HTTP."
+run_command = "cargo test --workspace"
+instructions = '''
+A project step with a Cargo **workspace**: the root `Cargo.toml`, every crate's `Cargo.toml`, and the
+domain, application and facade crates are given (read-only). Write the three missing pieces:
+
+1. **`tasks-infrastructure/src/lib.rs`** — `InMemoryTaskRepository`: `save` inserts or replaces by
+   id, `find` returns the task or `None`, `list` returns every task in the order first saved.
+2. **`tasks-interface/src/lib.rs`** — `scope_of(ctx)` (fail closed: `TaskError::NoTenant`), a
+   `TasksApi<R, G, U, E>` holding the service in an `Arc` (with `new` and a hand-written `Clone`), and
+   `impl Tasks for TasksApi<…>` under `#[seiva::controller]` that derives the scope and delegates to
+   the service. Map a `tasks_application::NotFound` to `TaskError::NotFound`, any other error to
+   `TaskError::Invalid`.
+3. **`tasks-api/src/lib.rs`** — `compose()`: the in-memory repository and the `seiva-testing`
+   doubles, the service, `TasksApi::new`, and `tasks_router` — returned in `App` with the event
+   publisher.
+
+The hidden tests check the repository, then drive the composed router end to end: `201`/`200`, the
+events, a `403` for a caller without a permission **or without a tenant**, `422` and `404`.
+'''
+
+[unit.step.project]
+main = "tasks-interface/src/lib.rs"
+readonly = [
+  "Cargo.toml",
+  "tasks-domain/Cargo.toml",
+  "tasks-domain/src/lib.rs",
+  "tasks-application/Cargo.toml",
+  "tasks-application/src/lib.rs",
+  "tasks-facade/Cargo.toml",
+  "tasks-facade/src/lib.rs",
+  "tasks-infrastructure/Cargo.toml",
+  "tasks-interface/Cargo.toml",
+  "tasks-api/Cargo.toml",
+]
+explanation = "The crate graph did half of the work: `tasks-interface` could not reach the in-memory repository even by mistake, so the only place that names it is the composition root. The tenant came from the `Ctx` the controller injected (never from the body), and a caller without one was refused before any use case ran. The same `TasksService` you wrote in units 3 and 4 now serves HTTP unchanged."
+
+[unit.step.project.starter]
+"Cargo.toml" = '''
+[workspace]
+resolver = "2"
+members = [
+    "tasks-domain",
+    "tasks-application",
+    "tasks-facade",
+    "tasks-infrastructure",
+    "tasks-interface",
+    "tasks-api",
+]
+# The libraries (Seiva, tokio, axum, serde…) come from the course: dxtutor writes them
+# below this line as [workspace.dependencies], and each crate names the ones it uses
+# with `{ workspace = true }`.
+'''
+"tasks-domain/Cargo.toml" = '''
+[package]
+name = "tasks-domain"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+'''
+"tasks-domain/src/lib.rs" = '''
+//! tasks-domain: the task, its rules and the repository port. No dependencies at all:
+//! the crate graph is what keeps the framework, the transport and the database out.
+
+use std::fmt;
+use std::future::Future;
+
+/// The longest title a task may have, in characters.
+pub const MAX_TITLE: usize = 80;
+
+/// A task. Build it with [`Task::new`], so its rules always hold.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Task {
+    pub id: u128,
+    pub title: String,
+    pub done: bool,
+}
+
+/// A rule of the domain said no.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DomainError {
+    EmptyTitle,
+    TitleTooLong { max: usize },
+    AlreadyDone,
+}
+
+impl fmt::Display for DomainError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DomainError::EmptyTitle => write!(f, "a task needs a title"),
+            DomainError::TitleTooLong { max } => {
+                write!(f, "a task title has at most {max} characters")
+            }
+            DomainError::AlreadyDone => write!(f, "the task is already done"),
+        }
+    }
+}
+
+impl std::error::Error for DomainError {}
+
+impl Task {
+    /// Creates an open task with a trimmed title of 1 to [`MAX_TITLE`] characters.
+    pub fn new(id: u128, title: impl Into<String>) -> Result<Self, DomainError> {
+        let title = title.into().trim().to_string();
+        if title.is_empty() {
+            return Err(DomainError::EmptyTitle);
+        }
+        if title.chars().count() > MAX_TITLE {
+            return Err(DomainError::TitleTooLong { max: MAX_TITLE });
+        }
+        Ok(Self {
+            id,
+            title,
+            done: false,
+        })
+    }
+
+    /// Marks the task done; a task is completed only once.
+    pub fn complete(&mut self) -> Result<(), DomainError> {
+        if self.done {
+            return Err(DomainError::AlreadyDone);
+        }
+        self.done = true;
+        Ok(())
+    }
+}
+
+/// A repository operation failed. It speaks the domain's language, not the framework's.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepositoryError(pub String);
+
+impl fmt::Display for RepositoryError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for RepositoryError {}
+
+/// Where tasks are kept: a port the DOMAIN defines and the infrastructure implements.
+/// The futures are `Send`, so a use case can await them inside a transaction.
+pub trait TaskRepository {
+    /// Inserts the task, or replaces the one with the same id.
+    fn save(&self, task: &Task) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    /// The task with this id, if there is one.
+    fn find(&self, id: u128) -> impl Future<Output = Result<Option<Task>, RepositoryError>> + Send;
+    /// Every task, in the order they were first saved.
+    fn list(&self) -> impl Future<Output = Result<Vec<Task>, RepositoryError>> + Send;
+}
+'''
+"tasks-application/Cargo.toml" = '''
+[package]
+name = "tasks-application"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+tasks-domain = { path = "../tasks-domain" }
+seiva-ports = { workspace = true }
+serde_json = { workspace = true }
+'''
+"tasks-application/src/lib.rs" = '''
+//! tasks-application: the use cases, over the ports of `seiva-ports` and the repository
+//! port of the domain. No transport, no database, no `seiva` crate.
+
+use seiva_ports::{BoxError, EventPublisher, IdGenerator, PortResult, Scope, UnitOfWork};
+
+// The repository port is the domain's; re-exported so the layers above import it from here.
+pub use tasks_domain::{RepositoryError, Task, TaskRepository};
+
+/// The `tasks` use cases. Generic over the ports: the composition root decides what is
+/// behind each one (in-memory doubles in a test, a database in production).
+pub struct TasksService<R, G, U, E> {
+    pub repository: R,
+    pub ids: G,
+    pub uow: U,
+    pub events: E,
+}
+
+impl<R, G, U, E> TasksService<R, G, U, E>
+where
+    R: TaskRepository + Sync,
+    G: IdGenerator,
+    U: UnitOfWork,
+    E: EventPublisher,
+{
+    /// Creates a task under `scope`: the rule is checked first (no transaction for a
+    /// command the domain refuses), then the task is saved AND `tasks.created` is
+    /// published inside ONE transaction, so both happen or neither does.
+    pub async fn create(&self, scope: Scope, title: &str) -> PortResult<Task> {
+        let id = u128::from_be_bytes(self.ids.new_id().0);
+        let task = Task::new(id, title).map_err(BoxError::from)?;
+        let event = serde_json::to_vec(&serde_json::json!({
+            "id": task.id.to_string(),
+            "title": task.title,
+        }))
+        .map_err(BoxError::from)?;
+        self.uow
+            .transaction(scope, || async {
+                self.repository.save(&task).await?;
+                self.events.publish("tasks.created", &event).await
+            })
+            .await?;
+        Ok(task)
+    }
+
+    /// Completes the task `id` under `scope`: load it, apply the domain rule, save it and
+    /// publish `tasks.completed` — all inside ONE transaction, so a missing task or a task
+    /// that is already done rolls everything back and publishes nothing.
+    pub async fn complete(&self, scope: Scope, id: u128) -> PortResult<Task> {
+        self.uow
+            .transaction(scope, || async move {
+                let mut task = self
+                    .repository
+                    .find(id)
+                    .await?
+                    .ok_or_else(|| BoxError::from(NotFound(id)))?;
+                task.complete().map_err(BoxError::from)?;
+                self.repository.save(&task).await?;
+                let event = serde_json::to_vec(&serde_json::json!({ "id": task.id.to_string() }))
+                    .map_err(BoxError::from)?;
+                self.events.publish("tasks.completed", &event).await?;
+                Ok(task)
+            })
+            .await
+    }
+
+    /// Every task.
+    pub async fn list(&self) -> PortResult<Vec<Task>> {
+        Ok(self.repository.list().await?)
+    }
+}
+
+/// No task has this id.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotFound(pub u128);
+
+impl std::fmt::Display for NotFound {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "no task {}", self.0)
+    }
+}
+
+impl std::error::Error for NotFound {}
+'''
+"tasks-facade/Cargo.toml" = '''
+[package]
+name = "tasks-facade"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+seiva = { workspace = true }
+seiva-http = { workspace = true }
+serde = { workspace = true }
+'''
+"tasks-facade/src/lib.rs" = '''
+//! tasks-facade: the versioned contract and its wire DTOs. Each method takes the request
+//! context `&Ctx` (who is calling, in which tenant): the controller injects it and keeps it
+//! off the wire.
+
+// Facade methods are `async fn` in a public trait.
+#![allow(async_fn_in_trait)]
+
+use seiva::{facade, WireSchema};
+use seiva_http::{Ctx, Problem, Validate, ValidationError};
+use serde::{Deserialize, Serialize};
+
+/// The body of `create`.
+#[derive(Debug, Clone, Deserialize, Serialize, WireSchema)]
+pub struct CreateTask {
+    pub title: String,
+}
+
+impl Validate for CreateTask {
+    fn validate(&self) -> Result<(), ValidationError> {
+        if self.title.trim().is_empty() {
+            return Err(ValidationError::new("title must not be empty"));
+        }
+        Ok(())
+    }
+}
+
+/// The body of `complete`.
+#[derive(Debug, Clone, Deserialize, Serialize, WireSchema)]
+pub struct CompleteTask {
+    pub id: u64,
+}
+
+impl Validate for CompleteTask {
+    fn validate(&self) -> Result<(), ValidationError> {
+        Ok(())
+    }
+}
+
+/// What the contract returns: never a domain type.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, WireSchema)]
+pub struct TaskDto {
+    pub id: u64,
+    pub title: String,
+    pub done: bool,
+}
+
+/// The contract's error; the controller turns it into an RFC 9457 problem.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TaskError {
+    /// The caller has no tenant: fail closed, never a global write.
+    NoTenant,
+    NotFound(u64),
+    Invalid(String),
+}
+
+impl From<TaskError> for Problem {
+    fn from(error: TaskError) -> Self {
+        match error {
+            TaskError::NoTenant => Problem::forbidden("the caller has no tenant"),
+            TaskError::NotFound(id) => Problem::not_found(format!("no task {id}")),
+            TaskError::Invalid(why) => Problem::unprocessable_entity(why),
+        }
+    }
+}
+
+/// The `tasks` module's public contract, version 1.
+#[facade(version = "v1")]
+pub trait Tasks {
+    #[requires("tasks.create")]
+    async fn create(&self, ctx: &Ctx, cmd: CreateTask) -> Result<TaskDto, TaskError>;
+
+    #[requires("tasks.read")]
+    async fn list(&self, ctx: &Ctx) -> Result<Vec<TaskDto>, TaskError>;
+
+    #[requires("tasks.complete")]
+    async fn complete(&self, ctx: &Ctx, cmd: CompleteTask) -> Result<TaskDto, TaskError>;
+}
+'''
+"tasks-infrastructure/Cargo.toml" = '''
+[package]
+name = "tasks-infrastructure"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+tasks-domain = { path = "../tasks-domain" }
+
+[dev-dependencies]
+tokio = { workspace = true }
+'''
+"tasks-infrastructure/src/lib.rs" = '''
+//! tasks-infrastructure: the adapters of the ports. Here an in-memory repository; a real
+//! module would add a DORM-backed (or SQL) one behind the same port.
+
+use std::sync::Mutex;
+
+use tasks_domain::{RepositoryError, Task, TaskRepository};
+
+/// A [`TaskRepository`] in memory.
+#[derive(Default)]
+pub struct InMemoryTaskRepository {
+    tasks: Mutex<Vec<Task>>,
+}
+
+impl InMemoryTaskRepository {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl TaskRepository for InMemoryTaskRepository {
+    async fn save(&self, task: &Task) -> Result<(), RepositoryError> {
+        todo!("insert the task, or replace the one with the same id")
+    }
+
+    async fn find(&self, id: u128) -> Result<Option<Task>, RepositoryError> {
+        todo!("the task with this id, if any")
+    }
+
+    async fn list(&self) -> Result<Vec<Task>, RepositoryError> {
+        todo!("every task, in the order they were first saved")
+    }
+}
+'''
+"tasks-interface/Cargo.toml" = '''
+[package]
+name = "tasks-interface"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+tasks-application = { path = "../tasks-application" }
+tasks-facade = { path = "../tasks-facade" }
+seiva = { workspace = true }
+seiva-http = { workspace = true }
+seiva-ports = { workspace = true }
+axum = { workspace = true }
+'''
+"tasks-interface/src/lib.rs" = '''
+//! tasks-interface: the transport shell. It implements the facade over the application's
+//! service, derives the tenant from the request context, and `#[seiva::controller]` turns
+//! the impl into HTTP routes. It never names the domain or the infrastructure.
+
+use std::sync::Arc;
+
+use seiva_http::Ctx;
+use seiva_ports::{EventPublisher, IdGenerator, Scope, UnitOfWork};
+use tasks_application::{Task, TaskRepository, TasksService};
+use tasks_facade::{CompleteTask, CreateTask, TaskDto, TaskError, Tasks, TasksFacade};
+
+/// The tenant the request runs under, FAIL-CLOSED: a caller without a tenant gets
+/// [`TaskError::NoTenant`], never an unscoped or global write.
+pub fn scope_of(ctx: &Ctx) -> Result<Scope, TaskError> {
+    todo!("the tenant of the caller, or TaskError::NoTenant")
+}
+
+// TODO: a `TasksApi` over `Arc<TasksService<…>>` (with `new` and a hand-written `Clone`),
+// an `impl Tasks for TasksApi<…>` that derives the scope and delegates to the service,
+// and `#[seiva::controller]` on that impl so `tasks_router` exists.
+'''
+"tasks-api/Cargo.toml" = '''
+[package]
+name = "tasks-api"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+tasks-application = { path = "../tasks-application" }
+tasks-infrastructure = { path = "../tasks-infrastructure" }
+tasks-interface = { path = "../tasks-interface" }
+seiva-testing = { workspace = true }
+axum = { workspace = true }
+
+[dev-dependencies]
+seiva-http = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tower = { workspace = true }
+'''
+"tasks-api/src/lib.rs" = '''
+//! tasks-api: the composition root. The ONLY place that picks the adapters: the in-memory
+//! repository, and the in-memory doubles for ids, transactions and events (a production
+//! root would plug the DORM gateway and a broker in here instead).
+
+use seiva_testing::{InMemoryUnitOfWork, RecordingEventPublisher, SequenceIdGenerator};
+use tasks_application::TasksService;
+use tasks_infrastructure::InMemoryTaskRepository;
+use tasks_interface::{tasks_router, TasksApi};
+
+/// The composed application: the HTTP router, and the events it published (to look at).
+pub struct App {
+    pub router: axum::Router,
+    pub events: RecordingEventPublisher,
+}
+
+/// Wires the module: adapters → service → facade → routes.
+pub fn compose() -> App {
+    todo!("build the service from the adapters, wrap it in TasksApi, and make the router")
+}
+'''
+
+[unit.step.project.tests]
+"tasks-api/tests/compose.rs" = '''
+use axum::body::Body;
+use axum::http::{Request, StatusCode};
+use seiva_http::Principal;
+use std::sync::Arc;
+use tower::ServiceExt;
+
+fn post(path: &str, body: &str, who: Option<Principal>) -> Request<Body> {
+    let mut r = Request::builder()
+        .method("POST")
+        .uri(path)
+        .header("content-type", "application/json");
+    if let Some(p) = who {
+        r = r.extension(Arc::new(p));
+    }
+    r.body(Body::from(body.to_string())).unwrap()
+}
+
+fn get(path: &str, who: Principal) -> Request<Body> {
+    Request::builder()
+        .uri(path)
+        .extension(Arc::new(who))
+        .body(Body::empty())
+        .unwrap()
+}
+
+fn acme(perms: &[&str]) -> Principal {
+    Principal::in_tenant("ana", "acme", perms.iter().copied())
+}
+
+async fn json(r: axum::response::Response) -> serde_json::Value {
+    let bytes = axum::body::to_bytes(r.into_body(), usize::MAX).await.unwrap();
+    serde_json::from_slice(&bytes).unwrap()
+}
+
+#[tokio::test]
+async fn the_composed_module_creates_lists_and_completes() {
+    let app = tasks_api::compose();
+    let r = app
+        .router
+        .clone()
+        .oneshot(post("/v1/tasks", r#"{"title":"  wire the module "}"#, Some(acme(&["tasks.create"]))))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::CREATED);
+    let created = json(r).await;
+    assert_eq!(created["id"], 1);
+    assert_eq!(created["title"], "wire the module");
+    assert_eq!(created["done"], false);
+
+    let r = app.router.clone().oneshot(get("/v1/tasks", acme(&["tasks.read"]))).await.unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    let all = json(r).await;
+    assert_eq!(all.as_array().map(Vec::len), Some(1));
+
+    let r = app
+        .router
+        .clone()
+        .oneshot(post("/v1/tasks/complete", r#"{"id":1}"#, Some(acme(&["tasks.complete"]))))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    assert_eq!(json(r).await["done"], true);
+    assert_eq!(app.events.topics(), ["tasks.created", "tasks.completed"]);
+}
+
+#[tokio::test]
+async fn the_guard_and_the_tenant_fail_closed() {
+    let app = tasks_api::compose();
+    // no permission: the guard refuses before the handler runs
+    let r = app.router.clone().oneshot(post("/v1/tasks", r#"{"title":"x"}"#, None)).await.unwrap();
+    assert_eq!(r.status(), StatusCode::FORBIDDEN);
+    // the permission but no tenant: the interface refuses, nothing is written
+    let no_tenant = Principal::new("bot", ["tasks.create"]);
+    let r = app
+        .router
+        .clone()
+        .oneshot(post("/v1/tasks", r#"{"title":"x"}"#, Some(no_tenant)))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::FORBIDDEN);
+    assert!(app.events.topics().is_empty());
+    // a blank title never reaches the use case
+    let r = app
+        .router
+        .clone()
+        .oneshot(post("/v1/tasks", r#"{"title":"   "}"#, Some(acme(&["tasks.create"]))))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn completing_a_missing_or_finished_task_is_refused() {
+    let app = tasks_api::compose();
+    let r = app
+        .router
+        .clone()
+        .oneshot(post("/v1/tasks/complete", r#"{"id":9}"#, Some(acme(&["tasks.complete"]))))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::NOT_FOUND);
+    app.router
+        .clone()
+        .oneshot(post("/v1/tasks", r#"{"title":"once"}"#, Some(acme(&["tasks.create"]))))
+        .await
+        .unwrap();
+    let done = || post("/v1/tasks/complete", r#"{"id":1}"#, Some(acme(&["tasks.complete"])));
+    assert_eq!(app.router.clone().oneshot(done()).await.unwrap().status(), StatusCode::OK);
+    assert_eq!(
+        app.router.clone().oneshot(done()).await.unwrap().status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(app.events.topics(), ["tasks.created", "tasks.completed"]);
+}
+'''
+"tasks-infrastructure/tests/repository.rs" = '''
+use tasks_domain::{Task, TaskRepository};
+use tasks_infrastructure::InMemoryTaskRepository;
+
+#[tokio::test]
+async fn saves_replaces_finds_and_lists_in_order() {
+    let repo = InMemoryTaskRepository::new();
+    let mut a = Task::new(1, "a").unwrap();
+    repo.save(&a).await.unwrap();
+    repo.save(&Task::new(2, "b").unwrap()).await.unwrap();
+    a.complete().unwrap();
+    repo.save(&a).await.unwrap();
+    assert_eq!(repo.find(1).await.unwrap(), Some(a.clone()));
+    assert_eq!(repo.find(3).await.unwrap(), None);
+    let all = repo.list().await.unwrap();
+    assert_eq!(all.iter().map(|t| t.id).collect::<Vec<_>>(), [1, 2]);
+    assert!(all[0].done);
+}
+'''
+
+[unit.step.project.solution]
+"tasks-infrastructure/src/lib.rs" = '''
+//! tasks-infrastructure: the adapters of the ports. Here an in-memory repository; a real
+//! module would add a DORM-backed (or SQL) one behind the same port.
+
+use std::sync::Mutex;
+
+use tasks_domain::{RepositoryError, Task, TaskRepository};
+
+/// A [`TaskRepository`] in memory.
+#[derive(Default)]
+pub struct InMemoryTaskRepository {
+    tasks: Mutex<Vec<Task>>,
+}
+
+impl InMemoryTaskRepository {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+fn poisoned<T>(_: T) -> RepositoryError {
+    RepositoryError("the repository lock is poisoned".to_string())
+}
+
+impl TaskRepository for InMemoryTaskRepository {
+    async fn save(&self, task: &Task) -> Result<(), RepositoryError> {
+        let mut tasks = self.tasks.lock().map_err(poisoned)?;
+        match tasks.iter_mut().find(|t| t.id == task.id) {
+            Some(existing) => *existing = task.clone(),
+            None => tasks.push(task.clone()),
+        }
+        Ok(())
+    }
+
+    async fn find(&self, id: u128) -> Result<Option<Task>, RepositoryError> {
+        let tasks = self.tasks.lock().map_err(poisoned)?;
+        Ok(tasks.iter().find(|t| t.id == id).cloned())
+    }
+
+    async fn list(&self) -> Result<Vec<Task>, RepositoryError> {
+        Ok(self.tasks.lock().map_err(poisoned)?.clone())
+    }
+}
+'''
+"tasks-interface/src/lib.rs" = '''
+//! tasks-interface: the transport shell. It implements the facade over the application's
+//! service, derives the tenant from the request context, and `#[seiva::controller]` turns
+//! the impl into HTTP routes. It never names the domain or the infrastructure.
+
+use std::sync::Arc;
+
+use seiva_http::Ctx;
+use seiva_ports::{EventPublisher, IdGenerator, Scope, UnitOfWork};
+use tasks_application::{Task, TaskRepository, TasksService};
+use tasks_facade::{CompleteTask, CreateTask, TaskDto, TaskError, Tasks, TasksFacade};
+
+/// The tenant the request runs under, FAIL-CLOSED: a caller without a tenant gets
+/// [`TaskError::NoTenant`], never an unscoped or global write.
+pub fn scope_of(ctx: &Ctx) -> Result<Scope, TaskError> {
+    ctx.scope().ok_or(TaskError::NoTenant)
+}
+
+fn dto(task: Task) -> TaskDto {
+    TaskDto {
+        id: task.id as u64,
+        title: task.title,
+        done: task.done,
+    }
+}
+
+/// Turns an application error into the contract's: a missing task is `NotFound`, anything
+/// else (a rule the domain refused, a failed port) is `Invalid` with its message.
+fn contract_error(error: seiva_ports::BoxError, id: Option<u64>) -> TaskError {
+    match (error.downcast_ref::<tasks_application::NotFound>(), id) {
+        (Some(_), Some(id)) => TaskError::NotFound(id),
+        _ => TaskError::Invalid(error.to_string()),
+    }
+}
+
+/// The facade over the application service. The router keeps a clone as its state, so the
+/// service sits behind an `Arc`.
+pub struct TasksApi<R, G, U, E> {
+    service: Arc<TasksService<R, G, U, E>>,
+}
+
+impl<R, G, U, E> TasksApi<R, G, U, E> {
+    pub fn new(service: TasksService<R, G, U, E>) -> Self {
+        Self {
+            service: Arc::new(service),
+        }
+    }
+}
+
+impl<R, G, U, E> Clone for TasksApi<R, G, U, E> {
+    fn clone(&self) -> Self {
+        Self {
+            service: Arc::clone(&self.service),
+        }
+    }
+}
+
+#[seiva::controller]
+impl<R, G, U, E> Tasks for TasksApi<R, G, U, E>
+where
+    R: TaskRepository + Send + Sync + 'static,
+    G: IdGenerator + 'static,
+    U: UnitOfWork + 'static,
+    E: EventPublisher + 'static,
+{
+    async fn create(&self, ctx: &Ctx, cmd: CreateTask) -> Result<TaskDto, TaskError> {
+        let scope = scope_of(ctx)?;
+        let task = self
+            .service
+            .create(scope, &cmd.title)
+            .await
+            .map_err(|e| contract_error(e, None))?;
+        Ok(dto(task))
+    }
+
+    async fn list(&self, ctx: &Ctx) -> Result<Vec<TaskDto>, TaskError> {
+        scope_of(ctx)?;
+        let tasks = self
+            .service
+            .list()
+            .await
+            .map_err(|e| contract_error(e, None))?;
+        Ok(tasks.into_iter().map(dto).collect())
+    }
+
+    async fn complete(&self, ctx: &Ctx, cmd: CompleteTask) -> Result<TaskDto, TaskError> {
+        let scope = scope_of(ctx)?;
+        let task = self
+            .service
+            .complete(scope, u128::from(cmd.id))
+            .await
+            .map_err(|e| contract_error(e, Some(cmd.id)))?;
+        Ok(dto(task))
+    }
+}
+'''
+"tasks-api/src/lib.rs" = '''
+//! tasks-api: the composition root. The ONLY place that picks the adapters: the in-memory
+//! repository, and the in-memory doubles for ids, transactions and events (a production
+//! root would plug the DORM gateway and a broker in here instead).
+
+use seiva_testing::{InMemoryUnitOfWork, RecordingEventPublisher, SequenceIdGenerator};
+use tasks_application::TasksService;
+use tasks_infrastructure::InMemoryTaskRepository;
+use tasks_interface::{tasks_router, TasksApi};
+
+/// The composed application: the HTTP router, and the events it published (to look at).
+pub struct App {
+    pub router: axum::Router,
+    pub events: RecordingEventPublisher,
+}
+
+/// Wires the module: adapters → service → facade → routes.
+pub fn compose() -> App {
+    let events = RecordingEventPublisher::new();
+    let service = TasksService {
+        repository: InMemoryTaskRepository::new(),
+        ids: SequenceIdGenerator::new(),
+        uow: InMemoryUnitOfWork::new(),
+        events: events.clone(),
+    };
+    App {
+        router: tasks_router(TasksApi::new(service)),
+        events,
+    }
+}
+'''

@@ -7,6 +7,7 @@ import { bootApp } from "./harness";
  * onde os ler — e já não há séries semeadas nem logs sintéticos. */
 
 let w: any;
+let INF: any; // eslint-disable-line @typescript-eslint/no-explicit-any — o módulo da infra da cadeia do bootApp (U7p2)
 let desktopPorts: Record<string, any>;
 let host: HTMLElement;
 
@@ -22,11 +23,12 @@ const open = (env: string, name: string) => {
 beforeEach(async () => {
   localStorage.clear();
   w = await bootApp();
+  INF = await import("../src/features/infra");
   desktopPorts = (await import("../src/app/desktop")).desktopPorts as Record<string, any>;
   host = document.createElement("div"); document.body.appendChild(host);
-  Object.keys(w.OBS).forEach((k) => delete w.OBS[k]);
-  w.STACK = null; w.K8S = null; w.ENVS.k8sOn = false;
-  w.ENVX.ctx = { staging: "", production: "" }; w.ENVX.ns = { staging: "dx-stg", production: "dx" };
+  Object.keys(INF.OBS).forEach((k) => delete INF.OBS[k]);
+  (await import("../src/features/stack")).setStackState(null); INF.setK8s(null); w.ENVS.k8sOn = false;
+  INF.ENVX.ctx = { staging: "", production: "" }; INF.ENVX.ns = { staging: "dx-stg", production: "dx" };
 });
 
 afterEach(() => {
@@ -58,7 +60,7 @@ describe("no desktop (porta obs falsa)", () => {
   });
 
   it("um serviço do compose a correr: lê o stats e os logs dele e mostra-os", async () => {
-    w.STACK = [{ name: "db", src: "postgres:16", url: "internal", state: "running" }];
+    (await import("../src/features/stack")).setStackState([{ name: "db", src: "postgres:16", url: "internal", state: "running" }]);
     open("local", "db");
     expect(host.textContent).toMatch(/Reading the logs/);
     await vi.waitFor(() => expect(host.querySelectorAll(".ll").length).toBe(2));
@@ -71,7 +73,7 @@ describe("no desktop (porta obs falsa)", () => {
 
   it("staging: o Deployment no contexto/namespace do ambiente (não no do local)", async () => {
     w.ENVS.k8sOn = true; w.ENVS.ctx = "kind-local"; w.ENVS.ns = "dx";
-    w.ENVX.ctx.staging = "stg-ctx";
+    INF.ENVX.ctx.staging = "stg-ctx";
     open("staging", "api");
     await vi.waitFor(() => expect(obs.logs).toHaveBeenCalled());
     expect(obs.logs).toHaveBeenCalledWith({ via: "kubectl", env: "staging", n: "api", ctx: "stg-ctx", ns: "dx-stg" });
@@ -93,12 +95,12 @@ describe("no desktop (porta obs falsa)", () => {
   });
 
   it("«Clear» esconde as linhas até agora; «Follow in terminal» segue os logs do mesmo alvo", async () => {
-    w.STACK = [{ name: "db", src: "x", url: "internal", state: "running" }];
+    (await import("../src/features/stack")).setStackState([{ name: "db", src: "x", url: "internal", state: "running" }]);
     open("local", "db");
     await vi.waitFor(() => expect(host.querySelectorAll(".ll").length).toBe(2));
     click(host.querySelector('[data-action="obs-clear"]')!);
-    expect(w.OBS["local:db"].logs).toEqual([]);
-    expect(w.OBS["local:db"].clearedAt).toBe("2026-11-24T10:00:01.000Z");
+    expect(INF.OBS["local:db"].logs).toEqual([]);
+    expect(INF.OBS["local:db"].clearedAt).toBe("2026-11-24T10:00:01.000Z");
     click(host.querySelector('[data-action="obs-follow"]')!);
     expect(obs.follow).toHaveBeenCalledWith({ via: "compose", env: "local", n: "db" });
   });

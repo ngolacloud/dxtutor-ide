@@ -44,6 +44,15 @@
 //! test_cmd = "cc -O2 {test_file} -o testbin && ./testbin"  # CORRECTNESS: exit 0 == passed
 //! diag_cmd = "cc -fsyntax-only {file}"                   # DIAGNOSTICS: file:line:col: sev: msg
 //!
+//! # Optional: PROJECT steps (several files). The learner's whole tree and the hidden test
+//! # files are written as they are (no preludes) into the work dir, then this runs.
+//! # Extra placeholder: {main} → the project's main file. Without it, project steps in this
+//! # language are refused with a clear error.
+//! # project_test_cmd = "make test"
+//!
+//! # Optional: the command that prints the toolchain version, for `dxt plugin test`'s report.
+//! # version_cmd = "cc --version"
+//!
 //! # Optional: persistent package caches (mounted only in the container path).
 //! # [[cache_volumes]]
 //! # name = "dxtutor-npm"
@@ -87,6 +96,7 @@ use tutor_core::Phase;
 
 use crate::complexity::Sample;
 use crate::container::{current_engine, run_in_container, ContainerSpec, SandboxEngine};
+use crate::course_cache::{python_env, PythonEnv};
 use crate::lang::{Diagnostic, LanguageRunner, Severity};
 use crate::runner::{run_guarded, RunOutput};
 
@@ -154,6 +164,15 @@ pub struct LanguagePlugin {
     /// Shell script template to produce **diagnostics**. Optional. `file:line:col: sev: msg`.
     #[serde(default)]
     pub diag_cmd: Option<String>,
+    /// Shell script template to run the hidden tests of a **project** step (several files,
+    /// written as they are into the work dir). Exit 0 ⇒ passed. Optional: without it the
+    /// language does not grade project steps. Extra placeholder `{main}`.
+    #[serde(default)]
+    pub project_test_cmd: Option<String>,
+    /// Shell command that prints the toolchain version (first line used), for reports such as
+    /// `dxt plugin test`. Optional.
+    #[serde(default)]
+    pub version_cmd: Option<String>,
 
     /// Wall-clock timeout (seconds) on the host path.
     #[serde(default = "default_timeout_secs")]
@@ -307,8 +326,14 @@ impl PluginRunner {
     }
 
     /// Scaffold the student code (and, if `tests` is given and the plugin declares a `test_file`,
-    /// the phase tests) into a fresh temp dir. Returns the dir handle (kept alive by the caller).
-    fn scaffold(&self, code: &str, tests: Option<&str>) -> Result<tempfile::TempDir> {
+    /// the phase tests) into a fresh temp dir, then the course's read-only `support` files (see
+    /// [`write_support`]). Returns the dir handle (kept alive by the caller).
+    fn scaffold(
+        &self,
+        code: &str,
+        tests: Option<&str>,
+        support: &std::collections::BTreeMap<String, String>,
+    ) -> Result<tempfile::TempDir> {
         let dir = tempfile::Builder::new()
             .prefix("dxtutor-plugin-")
             .tempdir()
@@ -322,28 +347,80 @@ impl PluginRunner {
             std::fs::write(root.join(test_file), test_body)
                 .with_context(|| format!("write {test_file}"))?;
         }
+        let real = root.canonicalize().context("resolve plugin work dir")?;
+        write_support(&real, support)?;
         Ok(dir)
     }
 
-    /// Run a shell `script` in `dir`, host or container depending on [`current_engine`].
-    fn run_script(&self, dir: &Path, script: &str) -> Result<RunOutput> {
+    /// Scaffold a **project** tree (the learner's files plus the hidden `tests`) into a fresh
+    /// temp dir, each file at its relative path. Every path must pass
+    /// [`tutor_core::safe_project_path`] (no `..`, no root, no `\\`), every file is created new
+    /// (`create_new`: a test file can never overwrite a learner file, nor two entries the same
+    /// file), and each parent dir is checked to stay inside the work dir. The course's `support`
+    /// files come last, under the same rules (so they never replace a project file, nor the
+    /// reverse).
+    fn scaffold_tree(
+        &self,
+        tree: &std::collections::BTreeMap<String, String>,
+        tests: &std::collections::BTreeMap<String, String>,
+        support: &std::collections::BTreeMap<String, String>,
+    ) -> Result<tempfile::TempDir> {
+        let dir = tempfile::Builder::new()
+            .prefix("dxtutor-project-")
+            .tempdir()
+            .context("create project work dir")?;
+        let root = dir
+            .path()
+            .canonicalize()
+            .context("resolve project work dir")?;
+        for (rel, content) in tree.iter().chain(tests.iter()) {
+            write_new_file(&root, rel, content, "project")?;
+        }
+        write_support(&root, support)?;
+        Ok(dir)
+    }
+
+    /// The course environment of a run (`tutor_core::build`): a prepared Python course's venv
+    /// and its timeout. A course cache this descriptor cannot use, or one not prepared yet, is
+    /// refused before anything runs (`course_cache::NOT_PREPARED`).
+    fn course_env(&self, build: &tutor_core::BuildEnv) -> Result<PythonEnv> {
+        if let Some(cache) = &build.cache {
+            if tutor_core::CacheKind::of(&self.plugin.id) != Some(tutor_core::CacheKind::Pip) {
+                anyhow::bail!(
+                    "course `{}`: a prepared course cache is not available for courses graded in `{}`",
+                    cache.key,
+                    self.plugin.id
+                );
+            }
+        }
+        python_env(build)
+    }
+
+    /// Run a shell `script` in `dir`, host or container depending on [`current_engine`]. A
+    /// prepared course always runs on the host: its cache lives there.
+    fn run_script(&self, dir: &Path, script: &str, env: &PythonEnv) -> Result<RunOutput> {
         match current_engine() {
-            SandboxEngine::Host => self.run_host(dir, script),
+            _ if env.cache.is_some() => self.run_host(dir, script, env),
+            SandboxEngine::Host => self.run_host(dir, script, env),
             _ => self.run_container(dir, script),
         }
     }
 
     /// Host path: `sh -c "<script>"` with a minimal environment, own process group and a wall-clock
-    /// timeout — the same cheap hardening the native runners use for toolchain invocations.
-    fn run_host(&self, dir: &Path, script: &str) -> Result<RunOutput> {
+    /// timeout — the same cheap hardening the native runners use for toolchain invocations. In a
+    /// prepared Python course the course venv comes first on the `PATH` (and pip has no index),
+    /// with the course's timeout.
+    fn run_host(&self, dir: &Path, script: &str, env: &PythonEnv) -> Result<RunOutput> {
         use std::process::Command;
         let mut cmd = Command::new("sh");
         cmd.arg("-c").arg(script).current_dir(dir);
         cmd.env_clear();
-        cmd.env("PATH", self.plugin.host_path());
+        let path = self.plugin.host_path();
+        cmd.env("PATH", &path);
         cmd.env("HOME", dir);
         cmd.env("LANG", "C");
-        let timeout = self.plugin.host_timeout();
+        env.apply(&mut cmd, &path);
+        let timeout = env.timeout.unwrap_or_else(|| self.plugin.host_timeout());
         let outcome = run_guarded(cmd, dir, "plugin", timeout, None)
             .with_context(|| format!("run plugin `{}` command on host", self.plugin.id))?;
         if outcome.timed_out {
@@ -383,21 +460,77 @@ impl PluginRunner {
     /// Run a **complete** program (with its own entry point) and return its output — the drill path,
     /// analogous to [`crate::runner::run_rust_snippet`] / [`crate::go_runner::run_go_program`].
     pub fn run_program(&self, code: &str) -> Result<RunOutput> {
-        let dir = self.scaffold(code, None)?;
+        self.run_program_with(code, &Default::default())
+    }
+
+    /// [`PluginRunner::run_program`] with a course's read-only `support` files next to the code.
+    pub fn run_program_with(
+        &self,
+        code: &str,
+        support: &std::collections::BTreeMap<String, String>,
+    ) -> Result<RunOutput> {
+        self.run_course_program(code, support, &Default::default())
+    }
+
+    /// [`PluginRunner::run_program_with`] for a drill of a course with a `[build]`: a prepared
+    /// Python course runs in its course venv, with the course's timeout.
+    pub fn run_course_program(
+        &self,
+        code: &str,
+        support: &std::collections::BTreeMap<String, String>,
+        build: &tutor_core::BuildEnv,
+    ) -> Result<RunOutput> {
+        let env = self.course_env(build)?;
+        let dir = self.scaffold(code, None, support)?;
         let script = expand(&self.plugin.run_cmd, &self.plugin, "");
-        self.run_script(dir.path(), &script)
+        self.run_script(dir.path(), &script, &env)
     }
 }
 
 impl LanguageRunner for PluginRunner {
     /// Correctness = run `test_cmd` over the student code + phase tests. **Exit 0 ⇒ passed.**
     fn check_correctness(&self, phase: &Phase, student_code: &str) -> Result<crate::Correctness> {
-        let dir = self.scaffold(student_code, Some(&phase.tests))?;
+        let env = self.course_env(&phase.build)?;
+        let dir = self.scaffold(student_code, Some(&phase.tests), &phase.support)?;
         let script = expand(&self.plugin.test_cmd, &self.plugin, &phase.entry);
         let out = self
-            .run_script(dir.path(), &script)
+            .run_script(dir.path(), &script, &env)
             .with_context(|| format!("run plugin `{}` tests", self.plugin.id))?;
 
+        let mut raw = String::new();
+        raw.push_str(&out.stdout);
+        raw.push_str(&out.stderr);
+        let summary = summarize(&raw, out.ok);
+        Ok(crate::Correctness {
+            passed: out.ok,
+            summary,
+            raw,
+        })
+    }
+
+    /// Project correctness = write the learner's tree + the hidden test files, run
+    /// `project_test_cmd`. **Exit 0 ⇒ passed.** No `project_test_cmd` ⇒ a clear error.
+    fn check_project(
+        &self,
+        phase: &Phase,
+        tree: &std::collections::BTreeMap<String, String>,
+    ) -> Result<crate::Correctness> {
+        let Some(template) = self.plugin.project_test_cmd.as_deref() else {
+            anyhow::bail!(
+                "project steps are not supported for `{}` yet (its descriptor has no project_test_cmd)",
+                self.plugin.id
+            );
+        };
+        let project = phase
+            .project
+            .as_ref()
+            .with_context(|| format!("step `{}` is not a project step", phase.id))?;
+        let env = self.course_env(&phase.build)?;
+        let dir = self.scaffold_tree(tree, &project.tests, &phase.support)?;
+        let script = expand(template, &self.plugin, &phase.entry).replace("{main}", &project.main);
+        let out = self
+            .run_script(dir.path(), &script, &env)
+            .with_context(|| format!("run plugin `{}` project tests", self.plugin.id))?;
         let mut raw = String::new();
         raw.push_str(&out.stdout);
         raw.push_str(&out.stderr);
@@ -415,6 +548,11 @@ impl LanguageRunner for PluginRunner {
         Ok(Vec::new())
     }
 
+    /// Descriptors write the course's support files ([`write_support`]).
+    fn grades_support_files(&self) -> bool {
+        true
+    }
+
     /// Diagnostics = run `diag_cmd` over the student code alone and parse `file:line:col: sev: msg`.
     /// No `diag_cmd` ⇒ no diagnostics.
     fn diagnostics(&self, student_code: &str) -> Result<Vec<Diagnostic>> {
@@ -422,15 +560,55 @@ impl LanguageRunner for PluginRunner {
             Some(c) => c,
             None => return Ok(Vec::new()),
         };
-        let dir = self.scaffold(student_code, None)?;
+        let dir = self.scaffold(student_code, None, &Default::default())?;
         let script = expand(diag_cmd, &self.plugin, "");
         let out = self
-            .run_script(dir.path(), &script)
+            .run_script(dir.path(), &script, &PythonEnv::default())
             .with_context(|| format!("run plugin `{}` diagnostics", self.plugin.id))?;
         let mut diags = parse_cc_diagnostics(&out.stderr);
         diags.extend(parse_cc_diagnostics(&out.stdout));
         Ok(diags)
     }
+}
+
+// ── Writing files into the work dir ───────────────────────────────────────────────
+
+/// Create `rel` (a [`tutor_core::safe_project_path`]) under `root` with `content`: its parent
+/// folders are created and checked to stay inside `root` (canonical), and the file must not
+/// exist yet (`create_new`), so no entry ever replaces another.
+fn write_new_file(root: &Path, rel: &str, content: &str, what: &str) -> Result<()> {
+    use std::io::Write;
+    if !tutor_core::safe_project_path(rel) {
+        anyhow::bail!("unsafe {what} path `{rel}`");
+    }
+    let path = root.join(rel);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).with_context(|| format!("create folder for {rel}"))?;
+        let real = parent
+            .canonicalize()
+            .with_context(|| format!("resolve folder for {rel}"))?;
+        if !real.starts_with(root) {
+            anyhow::bail!("{what} path `{rel}` leaves the work dir");
+        }
+    }
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .with_context(|| format!("write {rel} (already exists or not a file path)"))?;
+    f.write_all(content.as_bytes())
+        .with_context(|| format!("write {rel}"))
+}
+
+/// Write a course's read-only **support** files (`tutor_core::support`) into the work dir
+/// `root` (canonical), after the step's own files: the same path rules as a project tree, and a
+/// clash with a file already written is an error, never an overwrite.
+fn write_support(root: &Path, support: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    for (rel, content) in support {
+        write_new_file(root, rel, content, "support")
+            .with_context(|| format!("course support file `{rel}`"))?;
+    }
+    Ok(())
 }
 
 // ── Output interpretation ─────────────────────────────────────────────────────────
@@ -506,6 +684,7 @@ run_cmd  = "cc -O2 -std=c11 {file} -o prog && ./prog"
 test_cmd = "cc -O2 -std=c11 {test_file} -o testbin && ./testbin"
 diag_cmd = "cc -std=c11 -fsyntax-only {file}"
 
+version_cmd = "cc --version"
 timeout_secs = 30
 "##;
 
@@ -529,12 +708,33 @@ test_prelude = "import unittest\nfrom student import *\n\n"
 
 run_cmd  = "python3 -B {file}"
 test_cmd = "python3 -B -m unittest -q test_student"
+# Project steps: every `test*.py` from the work dir down (packages need an `__init__.py`).
+# Fails on a failure, an error, or when no test ran — checked here, not left to unittest (only
+# Python 3.12+ exits non-zero when nothing ran; older hosts would pass an empty suite).
+# A project with a `manage.py` at its root is a Django project: Django's own test runner
+# (`manage.py test`, which sets up the test database and discovers the same `test*.py`), with the
+# same "no tests ran" check on its `Ran N tests` line.
+project_test_cmd = '''python3 -B -c 'import os, re, subprocess, sys, unittest
+if os.path.isfile("manage.py"):
+    run = subprocess.run([sys.executable, "-B", "manage.py", "test", "--noinput"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    sys.stdout.write(run.stdout)
+    ran = re.findall(r"^Ran (\d+) tests? in ", run.stdout, re.M)
+    if run.returncode == 0 and (not ran or int(ran[-1]) == 0):
+        print("no tests ran", file=sys.stderr)
+        sys.exit(1)
+    sys.exit(1 if run.returncode else 0)
+suite = unittest.defaultTestLoader.discover(".", pattern="test*.py", top_level_dir=".")
+result = unittest.TextTestRunner(verbosity=0).run(suite)
+if result.testsRun == 0:
+    print("no tests ran", file=sys.stderr)
+sys.exit(0 if result.wasSuccessful() and result.testsRun > 0 else 1)' '''
 diag_cmd = '''python3 -B -c 'import sys
 try:
     compile(open("student.py").read(), "student.py", "exec")
 except SyntaxError as e:
     print("student.py:%d:%d: error: %s" % (e.lineno or 0, e.offset or 0, e.msg))' '''
 
+version_cmd = "python3 --version"
 timeout_secs = 30
 "##;
 
@@ -625,6 +825,7 @@ run_cmd  = "g++ -std=c++20 -O2 -pthread {file} -o prog $(grep -qs sqlite3.h {fil
 test_cmd = "g++ -std=c++20 -O2 -pthread {test_file} -o testbin $(grep -qs sqlite3.h {file} {test_file} && echo -lsqlite3) && ./testbin"
 diag_cmd = "g++ -std=c++20 -fsyntax-only {file}"
 
+version_cmd = "g++ --version"
 timeout_secs = 60
 "##;
 
@@ -729,6 +930,8 @@ const dxt = (() => {
 
 run_cmd  = "printf '{\"type\":\"module\"}' > package.json && node --experimental-transform-types --no-warnings {file}"
 test_cmd = "printf '{\"type\":\"module\"}' > package.json && cat {file} {test_file} > run.ts && node --experimental-transform-types --no-warnings run.ts"
+project_test_cmd = '''[ -f package.json ] || printf '{"type":"module"}' > package.json; set -- $(find . -name node_modules -prune -o -type f -name '*.test.ts' -print | sort); if [ $# -eq 0 ]; then echo 'no hidden *.test.ts files'; exit 1; fi; node --experimental-transform-types --no-warnings --test --test-reporter=spec "$@"'''
+version_cmd = "node --version"
 diag_cmd = '''if command -v tsc >/dev/null 2>&1; then tsc --noEmit --pretty false --strict --target es2022 --module nodenext --allowImportingTsExtensions --skipLibCheck {file} | grep -v -e TS2307 -e TS2580 -e TS2591 | sed -E 's/^([^(]+)\(([0-9]+),([0-9]+)\): error (TS[0-9]+): (.*)$/\1:\2:\3: error: \5 (\4)/'; fi'''
 
 timeout_secs = 30
@@ -831,6 +1034,7 @@ for n, line in enumerate(src.splitlines(True), 1):
             print("student.sql:%d:1: error: %s" % (start, e))
             break' '''
 
+version_cmd = 'python3 -c "import sqlite3; print(\"SQLite\", sqlite3.sqlite_version)"'
 timeout_secs = 30
 "##;
 
@@ -956,6 +1160,7 @@ run_cmd  = "java -Xss16m {file}"
 test_cmd = "{ grep -h '^import ' {test_file} {file} | sort -u; grep -v '^import ' {test_file}; printf '\\n    }\\n}\\n\\n'; grep -v '^import ' {file}; } > Run.java && java -Xss16m Run.java"
 diag_cmd = "javac -Xlint:none -d .dxt-out {file} 2>&1 | sed -nE 's/^([^:]+[.]java):([0-9]+): (error|warning): (.*)$/\\1:\\2:0: \\3: \\4/p'"
 
+version_cmd = "java -version"
 timeout_secs = 60
 "##;
 
@@ -1075,6 +1280,7 @@ run_cmd  = '''CO=$(for d in /snap/kotlin/current/lib "$(dirname "$(readlink -f "
 test_cmd = '''{ grep -h '^import ' {test_file} {file} | sort -u; grep -v '^import ' {file}; grep -v '^import ' {test_file}; printf '\n}\n'; } > Run.kt && CO=$(for d in /snap/kotlin/current/lib "$(dirname "$(readlink -f "$(command -v kotlinc)")")/../lib"; do if [ -f "$d/kotlinx-coroutines-core-jvm.jar" ]; then echo "$d/kotlinx-coroutines-core-jvm.jar"; break; fi; done); kotlinc -J-XX:TieredStopAtLevel=1 -J-Xshare:auto -nowarn ${CO:+-cp "$CO"} Run.kt -include-runtime -d run.jar 2>&1 && java -Xss16m -cp "run.jar${CO:+:$CO}" RunKt'''
 diag_cmd = '''CO=$(for d in /snap/kotlin/current/lib "$(dirname "$(readlink -f "$(command -v kotlinc)")")/../lib"; do if [ -f "$d/kotlinx-coroutines-core-jvm.jar" ]; then echo "$d/kotlinx-coroutines-core-jvm.jar"; break; fi; done); kotlinc -J-XX:TieredStopAtLevel=1 -J-Xshare:auto -nowarn ${CO:+-cp "$CO"} {file} -d .dxt-out 2>&1'''
 
+version_cmd = "kotlinc -version"
 timeout_secs = 120
 "##;
 
@@ -1221,6 +1427,7 @@ run_cmd  = '''ROOT=$(dirname "$(readlink -f "$(command -v dotnet)")"); CSC=$(ls 
 test_cmd = '''{ grep -h '^using ' {test_file}; grep -v '^using ' {test_file}; printf '\n    }\n}\n'; } > Tests.cs && ROOT=$(dirname "$(readlink -f "$(command -v dotnet)")"); CSC=$(ls -d "$ROOT"/sdk/*/Roslyn/bincore/csc.dll | sort -V | tail -1); REF=$(ls -d "$ROOT"/packs/Microsoft.NETCore.App.Ref/*/ref/net*/ | sort -V | tail -1); FW=$(ls "$ROOT"/shared/Microsoft.NETCore.App | sort -V | tail -1); printf 'global using System;\nglobal using System.Collections.Generic;\nglobal using System.IO;\nglobal using System.Linq;\nglobal using System.Threading;\nglobal using System.Threading.Tasks;\n' > GlobalUsings.cs; printf '{"runtimeOptions":{"tfm":"net8.0","framework":{"name":"Microsoft.NETCore.App","version":"%s"}}}' "$FW" > run.runtimeconfig.json; dotnet "$CSC" -nologo -langversion:latest -nullable:enable -optimize+ -nowarn:CS8321 -main:DxtProgram -out:run.dll -target:exe $(for r in "$REF"*.dll; do printf -- '-r:%s ' "$r"; done) GlobalUsings.cs {file} Tests.cs && dotnet run.dll'''
 diag_cmd = '''ROOT=$(dirname "$(readlink -f "$(command -v dotnet)")"); CSC=$(ls -d "$ROOT"/sdk/*/Roslyn/bincore/csc.dll | sort -V | tail -1); REF=$(ls -d "$ROOT"/packs/Microsoft.NETCore.App.Ref/*/ref/net*/ | sort -V | tail -1); printf 'global using System;\nglobal using System.Collections.Generic;\nglobal using System.IO;\nglobal using System.Linq;\nglobal using System.Threading;\nglobal using System.Threading.Tasks;\n' > GlobalUsings.cs; dotnet "$CSC" -nologo -langversion:latest -nullable:enable -out:diag.dll -target:exe $(for r in "$REF"*.dll; do printf -- '-r:%s ' "$r"; done) GlobalUsings.cs {file} 2>&1 | grep -v CS5001 | sed -nE 's/^([^(]+)[(]([0-9]+),([0-9]+)[)]: (error|warning) (CS[0-9]+): (.*)$/\1:\2:\3: \4: \6 (\5)/p' '''
 
+version_cmd = "dotnet --version"
 timeout_secs = 60
 "##;
 
@@ -1309,6 +1516,7 @@ run_cmd  = "swiftc -O -swift-version 6 {file} -o prog 2>&1 && ./prog"
 test_cmd = "mv {file} Student.swift && { cat {test_file}; printf '\\n    }\\n}\\n'; } > main.swift && swiftc -O -swift-version 6 Student.swift main.swift -o testbin 2>&1 && ./testbin"
 diag_cmd = "swiftc -swift-version 6 -typecheck {file} 2>&1"
 
+version_cmd = "swiftc --version"
 timeout_secs = 120
 "##;
 
@@ -1340,14 +1548,84 @@ pub fn builtin_plugins() -> Vec<LanguagePlugin> {
 /// and Go (with their extra dependency lines), a registered declarative plugin for everything else
 /// (Python, C, user drop-ins), and Rust as the historical fallback.
 pub fn run_program(language: &str, code: &str, deps: &[String]) -> Result<RunOutput> {
-    match language.trim().to_ascii_lowercase().as_str() {
-        "go" | "golang" => crate::go_runner::run_go_program_with_deps(code, deps),
-        "rust" | "rs" => crate::runner::run_rust_snippet_with_deps(code, deps),
-        other => match find_plugin(other) {
-            Some(p) => PluginRunner::new(p).run_program(code),
-            None => crate::runner::run_rust_snippet_with_deps(code, deps),
-        },
+    run_course_program(
+        language,
+        code,
+        deps,
+        &Default::default(),
+        &Default::default(),
+    )
+}
+
+/// [`run_program`] with a course's read-only `support` files (`tutor_core::support`) written next
+/// to the program. Only descriptor-graded languages write them: for the native Rust/Go runners a
+/// non-empty `support` is an error, never silently dropped.
+pub fn run_program_with_support(
+    language: &str,
+    code: &str,
+    deps: &[String],
+    support: &std::collections::BTreeMap<String, String>,
+) -> Result<RunOutput> {
+    run_course_program(language, code, deps, support, &Default::default())
+}
+
+/// The drill path of a course step: [`run_program_with_support`] plus the course's `[build]`
+/// (`Step::build`): a Rust drill of a prepared course compiles offline against the course cache,
+/// a Python one runs in the course venv, each with the course's timeout (`tutor_core::build`).
+pub fn run_course_program(
+    language: &str,
+    code: &str,
+    deps: &[String],
+    support: &std::collections::BTreeMap<String, String>,
+    build: &tutor_core::BuildEnv,
+) -> Result<RunOutput> {
+    let lang = language.trim().to_ascii_lowercase();
+    // Um drill de um curso de ferramentas é um ficheiro YAML: «corrê-lo» é lê-lo (sem
+    // ferramentas, sem rede). Os ficheiros de apoio não entram num drill YAML.
+    if tutor_core::toolcheck::graded_by_checks(&lang) {
+        return Ok(crate::tool_runner::run_yaml_program(code));
     }
+    let plugin = match lang.as_str() {
+        "go" | "golang" | "rust" | "rs" => None,
+        other => find_plugin(other),
+    };
+    if plugin.is_none() && !support.is_empty() {
+        anyhow::bail!(
+            "course support files are not supported for `{language}` (only descriptor-graded languages write them)"
+        );
+    }
+    match (lang.as_str(), plugin) {
+        ("go" | "golang", _) => crate::go_runner::run_go_program_with_deps(code, deps),
+        (_, Some(p)) => PluginRunner::new(p).run_course_program(code, support, build),
+        _ => crate::runner::run_rust_snippet_in(code, deps, build),
+    }
+}
+
+/// The toolchain version a descriptor-graded language runs with — the first non-empty line its
+/// `version_cmd` prints (stdout, else stderr), run on the host like a grading run. `None` without
+/// a descriptor, without a `version_cmd`, off the host engine, or when the command fails.
+pub fn toolchain_version(language: &str) -> Option<String> {
+    let plugin = find_plugin(language)?;
+    let cmd = plugin.version_cmd.clone()?;
+    if current_engine() != SandboxEngine::Host || !plugin.host_available() {
+        return None;
+    }
+    let dir = tempfile::Builder::new()
+        .prefix("dxtutor-version-")
+        .tempdir()
+        .ok()?;
+    let out = PluginRunner::new(plugin)
+        .run_host(dir.path(), &cmd, &PythonEnv::default())
+        .ok()?;
+    if !out.ok {
+        return None;
+    }
+    out.stdout
+        .lines()
+        .chain(out.stderr.lines())
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .map(str::to_string)
 }
 
 /// The user plugin directory: `$XDG_CONFIG_HOME/dxtutor/plugins/` if set, else
@@ -1428,7 +1706,7 @@ fn bin_on_path(bin: &str) -> bool {
 }
 
 /// Where `bin` resolves on the caller's `PATH` (or itself, if absolute and present).
-fn find_on_path(bin: &str) -> Option<PathBuf> {
+pub(crate) fn find_on_path(bin: &str) -> Option<PathBuf> {
     let p = Path::new(bin);
     if p.is_absolute() {
         return p.is_file().then(|| p.to_path_buf());
@@ -1465,6 +1743,9 @@ mod tests {
             probe: None,
             hints: Vec::new(),
             dependencies: Vec::new(),
+            project: None,
+            support: Default::default(),
+            build: Default::default(),
         }
     }
 
@@ -1530,6 +1811,268 @@ mod tests {
         assert!(out.ok && out.stdout.trim() == "hi 42", "{out:?}");
         let d = runner.diagnostics("x = 1\ndef f(:\n    pass\n").unwrap();
         assert_eq!(d.first().map(|d| d.line), Some(2), "{d:?}");
+    }
+
+    fn files(pairs: &[(&str, &str)]) -> std::collections::BTreeMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    /// A Python project step across two modules of a package plus a read-only config module.
+    fn python_project_phase() -> Phase {
+        let mut phase = c_add_phase();
+        phase.language = "python".into();
+        phase.id = "py-project".into();
+        phase.project = Some(tutor_core::ProjectFiles {
+            main: "shop/cart.py".into(),
+            starter: files(&[
+                ("shop/__init__.py", ""),
+                ("shop/config.py", "VAT = 0.14\n"),
+                (
+                    "shop/prices.py",
+                    "def with_vat(amount):\n    raise NotImplementedError\n",
+                ),
+                (
+                    "shop/cart.py",
+                    "from shop.prices import with_vat\n\ndef total(items):\n    raise NotImplementedError\n",
+                ),
+            ]),
+            readonly: vec!["shop/__init__.py".into(), "shop/config.py".into()],
+            tests: files(&[(
+                "test_shop.py",
+                concat!(
+                    "import unittest\n",
+                    "from shop.cart import total\n",
+                    "from shop.prices import with_vat\n",
+                    "\n",
+                    "class T(unittest.TestCase):\n",
+                    "    def test_vat(self):\n",
+                    "        self.assertAlmostEqual(with_vat(100), 114.0)\n",
+                    "\n",
+                    "    def test_total(self):\n",
+                    "        self.assertAlmostEqual(total([(2, 50.0), (1, 100.0)]), 228.0)\n",
+                ),
+            )]),
+            solution: files(&[
+                (
+                    "shop/prices.py",
+                    "from shop.config import VAT\n\ndef with_vat(amount):\n    return round(amount * (1 + VAT), 2)\n",
+                ),
+                (
+                    "shop/cart.py",
+                    "from shop.prices import with_vat\n\ndef total(items):\n    return with_vat(sum(q * p for q, p in items))\n",
+                ),
+            ]),
+            explanation: "Prices live in one module.".into(),
+        });
+        phase
+    }
+
+    /// Real end-to-end on the host's `python3` (skipped where it is missing): a project step with
+    /// two learner modules and a read-only one. The solution files pass, the starter fails, a
+    /// half-done tree fails, a single `code` maps to the main file, and a read-only or unknown
+    /// file in a submission is refused before anything runs.
+    #[test]
+    fn python_project_step_grades_the_whole_tree_on_the_host() {
+        let py = builtin_plugins()
+            .into_iter()
+            .find(|p| p.id == "python")
+            .unwrap();
+        if !py.host_available() || current_engine() != SandboxEngine::Host {
+            return;
+        }
+        let phase = python_project_phase();
+        let project = phase.project.clone().unwrap();
+        assert!(project.check().is_empty(), "{:?}", project.check());
+
+        let good = crate::assess_project(&phase, &project.solution).unwrap();
+        assert!(good.correctness.passed, "{}", good.correctness.raw);
+        let starter = crate::assess_project(&phase, &files(&[])).unwrap();
+        assert!(!starter.correctness.passed);
+        assert!(
+            starter.correctness.raw.contains("NotImplementedError"),
+            "{}",
+            starter.correctness.raw
+        );
+        // Only one of the two modules done: still fails.
+        let half = files(&[(
+            "shop/prices.py",
+            project.solution["shop/prices.py"].as_str(),
+        )]);
+        assert!(
+            !crate::assess_project(&phase, &half)
+                .unwrap()
+                .correctness
+                .passed
+        );
+        // The single-`code` form grades the main file over the starter (prices.py still a stub).
+        let single = crate::assess(&phase, &project.solution["shop/cart.py"]).unwrap();
+        assert!(!single.correctness.passed);
+        // A read-only file (where cheating would go) or an unknown one is refused.
+        let ro = crate::assess_project(&phase, &files(&[("shop/config.py", "VAT = 1\n")]));
+        assert!(ro.unwrap_err().to_string().contains("read-only"));
+        let unknown = crate::assess_project(&phase, &files(&[("test_shop.py", "")]));
+        assert!(unknown.unwrap_err().to_string().contains("not a file"));
+        // Hidden tests that define no test case fail ("no tests ran"), they never pass by default.
+        let mut empty = phase.clone();
+        empty.project.as_mut().unwrap().tests = files(&[("test_shop.py", "# nothing\n")]);
+        let none = crate::assess_project(&empty, &project.solution).unwrap();
+        assert!(!none.correctness.passed, "{}", none.correctness.raw);
+    }
+
+    /// A Python project with a `manage.py` at its root is graded by Django's runner
+    /// (`manage.py test --noinput`): its exit code decides, and a run whose `Ran N tests` line
+    /// says 0 (or is missing) fails. A stand-in `manage.py` plays Django here (the real one runs
+    /// in the Django course: `dxt plugin test courses/django`).
+    #[test]
+    fn a_django_project_is_graded_by_manage_py_test() {
+        let py = builtin_plugins()
+            .into_iter()
+            .find(|p| p.id == "python")
+            .unwrap();
+        if !py.host_available() || current_engine() != SandboxEngine::Host {
+            return;
+        }
+        let manage = |ran: &str, code: i32| {
+            format!(
+                "import sys\nassert sys.argv[1:] == [\"test\", \"--noinput\"], sys.argv\nfrom app import ok\nprint(\"{ran}\", file=sys.stderr)\nsys.exit({code} if ok() else 1)\n"
+            )
+        };
+        let phase_with = |manage_py: String| {
+            let mut phase = c_add_phase();
+            phase.language = "python".into();
+            phase.id = "dj-project".into();
+            phase.project = Some(tutor_core::ProjectFiles {
+                main: "app/__init__.py".into(),
+                starter: files(&[
+                    ("manage.py", manage_py.as_str()),
+                    ("app/__init__.py", "def ok():\n    return False\n"),
+                ]),
+                readonly: vec!["manage.py".into()],
+                tests: files(&[("tests/__init__.py", "")]),
+                solution: files(&[("app/__init__.py", "def ok():\n    return True\n")]),
+                explanation: String::new(),
+            });
+            phase
+        };
+        let phase = phase_with(manage("Ran 3 tests in 0.010s", 0));
+        let solution = phase.project.as_ref().unwrap().solution.clone();
+        let good = crate::assess_project(&phase, &solution).unwrap();
+        assert!(good.correctness.passed, "{}", good.correctness.raw);
+        assert!(good.correctness.raw.contains("Ran 3 tests"));
+        let bad = crate::assess_project(&phase, &files(&[])).unwrap();
+        assert!(!bad.correctness.passed);
+        // Django's runner exits 0 when it found nothing: that never passes.
+        let none = phase_with(manage("Ran 0 tests in 0.000s", 0));
+        let r = crate::assess_project(&none, &solution).unwrap();
+        assert!(!r.correctness.passed);
+        assert!(
+            r.correctness.raw.contains("no tests ran"),
+            "{}",
+            r.correctness.raw
+        );
+        let silent = phase_with(manage("", 0));
+        assert!(
+            !crate::assess_project(&silent, &solution)
+                .unwrap()
+                .correctness
+                .passed
+        );
+        // A failing run fails, whatever it printed.
+        let failing = phase_with(manage("Ran 2 tests in 0.001s", 1));
+        assert!(
+            !crate::assess_project(&failing, &solution)
+                .unwrap()
+                .correctness
+                .passed
+        );
+    }
+
+    /// A prepared course cache only reaches the descriptor that can use it: a Python course's
+    /// venv, never a cargo cache, and never in another descriptor.
+    #[test]
+    fn a_course_cache_reaches_only_the_python_descriptor() {
+        let ts = PluginRunner::new(
+            builtin_plugins()
+                .into_iter()
+                .find(|p| p.id == "typescript")
+                .unwrap(),
+        );
+        let build = tutor_core::BuildEnv {
+            cache: Some(tutor_core::CourseCache {
+                key: "x".into(),
+                language: "python".into(),
+                dependencies: vec!["a==1 --hash=sha256:00".into()],
+            }),
+            timeout_secs: 0,
+        };
+        let e = ts
+            .run_course_program("console.log(1)", &Default::default(), &build)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            e.contains("not available for courses graded in `typescript`"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn project_scaffold_rejects_unsafe_paths_and_collisions() {
+        let runner = PluginRunner::new(
+            builtin_plugins()
+                .into_iter()
+                .find(|p| p.id == "python")
+                .unwrap(),
+        );
+        for bad in ["../escape.py", "/abs.py", "a/../../b.py", "a\\b.py"] {
+            let err = runner
+                .scaffold_tree(&files(&[(bad, "x")]), &files(&[]), &files(&[]))
+                .unwrap_err();
+            assert!(err.to_string().contains("unsafe"), "{bad}: {err}");
+        }
+        // A test file can never overwrite a learner file.
+        let err = runner
+            .scaffold_tree(
+                &files(&[("t.py", "learner")]),
+                &files(&[("t.py", "test")]),
+                &files(&[]),
+            )
+            .unwrap_err();
+        assert!(format!("{err:#}").contains("already exists"), "{err:#}");
+        // Nested folders are created inside the work dir.
+        let dir = runner
+            .scaffold_tree(
+                &files(&[("a/b/c.py", "x")]),
+                &files(&[("test_a.py", "y")]),
+                &files(&[]),
+            )
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("a/b/c.py")).unwrap(),
+            "x"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("test_a.py")).unwrap(),
+            "y"
+        );
+    }
+
+    #[test]
+    fn project_steps_need_a_project_test_cmd() {
+        let mut phase = python_project_phase();
+        phase.language = "c".into();
+        let err = crate::assess_project(&phase, &files(&[])).unwrap_err();
+        assert!(err.to_string().contains("not supported for `c`"), "{err}");
+        // A single-file phase is not a project.
+        let err = crate::assess_project(&c_add_phase(), &files(&[])).unwrap_err();
+        assert!(err.to_string().contains("not a project step"), "{err}");
+        assert!(builtin_plugins()
+            .iter()
+            .find(|p| p.id == "python")
+            .and_then(|p| p.project_test_cmd.as_deref())
+            .is_some_and(|c| c.contains("discover")));
     }
 
     /// Real end-to-end on the host's `g++` (skipped where it is missing): the mini test harness
@@ -1638,6 +2181,144 @@ mod tests {
         );
         let out = run_program("ts", "const n: number = 6 * 7;\nconsole.log(n);\n", &[]).unwrap();
         assert!(out.ok && out.stdout.trim() == "42", "{out:?}");
+    }
+
+    fn support(
+        pairs: &[(&str, &str)],
+    ) -> std::sync::Arc<std::collections::BTreeMap<String, String>> {
+        std::sync::Arc::new(files(pairs))
+    }
+
+    /// A tiny "library" that only exists as a course support file, under node_modules.
+    const LIB: &[(&str, &str)] = &[
+        (
+            "node_modules/minilib/package.json",
+            "{\"name\":\"minilib\",\"type\":\"module\",\"exports\":\"./index.js\"}",
+        ),
+        (
+            "node_modules/minilib/index.js",
+            "export const triple = (n) => n * 3;\n",
+        ),
+    ];
+
+    /// Support files are written next to a single-file challenge, a drill and a project step,
+    /// so the learner's code can import a library the registry does not have (real Node;
+    /// skipped where it is missing).
+    #[test]
+    fn typescript_grades_with_course_support_files() {
+        let ts = builtin_plugins()
+            .into_iter()
+            .find(|p| p.id == "typescript")
+            .unwrap();
+        if !ts.host_available() || current_engine() != SandboxEngine::Host {
+            return;
+        }
+        let runner = PluginRunner::new(ts);
+        let mut phase = c_add_phase();
+        phase.language = "typescript".into();
+        phase.tests = "dxt.test(\"triples\", () => { dxt.equal(times3(2), 6); });\n".into();
+        let code = "import { triple } from \"minilib\";\nexport const times3 = (n: number) => triple(n);\n";
+        // Without the support files the import fails, so the step cannot pass.
+        assert!(!runner.check_correctness(&phase, code).unwrap().passed);
+        phase.support = support(LIB);
+        let ok = runner.check_correctness(&phase, code).unwrap();
+        assert!(ok.passed, "{}", ok.raw);
+
+        let out = run_program_with_support(
+            "typescript",
+            "import { triple } from \"minilib\";\nconsole.log(triple(14));\n",
+            &[],
+            &files(LIB),
+        )
+        .unwrap();
+        assert!(out.ok && out.stdout.trim() == "42", "{out:?}");
+
+        // A project step graded with `node --test` over the hidden *.test.ts files.
+        phase.project = Some(tutor_core::ProjectFiles {
+            main: "src/calc.ts".into(),
+            starter: files(&[(
+                "src/calc.ts",
+                "export function nine(): number {\n  throw new Error(\"todo\");\n}\n",
+            )]),
+            tests: files(&[(
+                "calc.test.ts",
+                "import { test } from \"node:test\";\nimport assert from \"node:assert/strict\";\nimport { nine } from \"./src/calc.ts\";\ntest(\"nine\", () => assert.equal(nine(), 9));\n",
+            )]),
+            solution: files(&[(
+                "src/calc.ts",
+                "import { triple } from \"minilib\";\nexport function nine(): number {\n  return triple(3);\n}\n",
+            )]),
+            ..Default::default()
+        });
+        let project = phase.project.clone().unwrap();
+        let good = crate::assess_project(&phase, &project.solution).unwrap();
+        assert!(good.correctness.passed, "{}", good.correctness.raw);
+        let bad = crate::assess_project(&phase, &files(&[])).unwrap();
+        assert!(!bad.correctness.passed, "{}", bad.correctness.raw);
+        assert!(
+            bad.correctness.raw.contains("todo"),
+            "{}",
+            bad.correctness.raw
+        );
+
+        // A project with no hidden test file fails instead of passing vacuously.
+        let mut empty = phase.clone();
+        empty.project.as_mut().unwrap().tests = files(&[("notes.txt", "x")]);
+        let none = crate::assess_project(&empty, &project.solution).unwrap();
+        assert!(!none.correctness.passed && none.correctness.raw.contains("no hidden"));
+
+        assert!(toolchain_version("typescript").is_some_and(|v| v.starts_with('v')));
+    }
+
+    /// A support file never replaces a file of the step (nor the reverse), and the native runners
+    /// refuse a step with support files instead of grading it without them.
+    #[test]
+    fn support_files_never_overwrite_and_native_runners_refuse_them() {
+        let ts = builtin_plugins()
+            .into_iter()
+            .find(|p| p.id == "typescript")
+            .unwrap();
+        let runner = PluginRunner::new(ts.clone());
+        let clash = files(&[("student.ts", "// course copy")]);
+        let err = runner
+            .scaffold("// learner", None, &clash)
+            .map(|_| ())
+            .unwrap_err();
+        assert!(
+            format!("{err:#}").contains("course support file `student.ts`"),
+            "{err:#}"
+        );
+        let unsafe_path = files(&[("../escape.js", "x")]);
+        assert!(runner.scaffold("", None, &unsafe_path).is_err());
+        let tree = files(&[("node_modules/minilib/index.js", "learner")]);
+        let err = runner
+            .scaffold_tree(&tree, &files(&[]), &files(LIB))
+            .map(|_| ())
+            .unwrap_err();
+        assert!(format!("{err:#}").contains("already exists"), "{err:#}");
+
+        let mut phase = c_add_phase();
+        phase.language = "rust".into();
+        phase.support = support(LIB);
+        let refused = crate::assess(&phase, "pub fn add(a: i32, b: i32) -> i32 { a + b }")
+            .map(|_| ())
+            .unwrap_err();
+        assert!(
+            refused
+                .to_string()
+                .contains("support files are not supported"),
+            "{refused}"
+        );
+        let drill =
+            run_program_with_support("go", "package main\nfunc main() {}\n", &[], &files(LIB))
+                .map(|_| ())
+                .unwrap_err();
+        assert!(
+            drill
+                .to_string()
+                .contains("support files are not supported"),
+            "{drill}"
+        );
     }
 
     /// Real end-to-end with python3's SQLite (skipped where python3 is missing): a script runs and

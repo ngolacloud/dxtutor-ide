@@ -10,6 +10,10 @@
    The decision log is owned here (one source of truth) and re-published onto
    `window` by `codev.ts`. */
 
+import { architectureSession } from "./domain/session-kind";
+import { translator as streamTranslator } from "../../app/i18n";
+import { CODEV_STREAM_MESSAGES } from "./ui/stream-messages";
+const streamText = streamTranslator(CODEV_STREAM_MESSAGES);
 import * as bridge from "./infrastructure/legacy-bridge";
 import { paceCps } from "./domain/composer";
 import { pairState } from "../../app/pair-state";
@@ -29,6 +33,22 @@ import { editorOverlay } from "../../app/editor-overlay";
 import type { VView } from "./domain/hunk-overlay";
 import { makeHarness } from "./application/harness";
 import { makeHarnessView } from "./ui/harness-view";
+import { makeAgentMapStore } from "./application/agent-map";
+import { agentMapGateway } from "./infrastructure/agent-map-gateway";
+import { makeAgentMapView } from "./ui/agent-map-view";
+import { composerAsk, setAgentCount } from "./ui/composer";
+import { makeCodevSessions } from "./application/codev-sessions";
+import { makeSessionView } from "./ui/session-view";
+import { makeCodevsView } from "./ui/codevs-view";
+import { scopeOverlap } from "./infrastructure/scope-gateway";
+import { subscribeBacklogProposals } from "./infrastructure/backlog-gateway";
+import { bindBacklogActions } from "./ui/backlog-view";
+import { worktreeGateway } from "./infrastructure/worktree-gateway";
+import { makeWorktrees } from "./application/worktrees";
+import { CODEV_WORKTREE_MESSAGES } from "./application/worktree-messages";
+import { branchLabel, type WorktreeRef } from "./domain/worktrees";
+import { requestApproval } from "../../app/approval";
+import { auditClient } from "../../platform/tauri/audit";
 import { VIEW } from "../../app/store/registry";
 import type {
   Workspace,
@@ -46,6 +66,9 @@ import type {
 } from "./application/ports";
 import type { CommandRules } from "./domain/policy";
 import { currentLocale, translator } from "../../app/i18n";
+import { makeLocalProposals, type ProposalResult } from "./application/local-proposals";
+import { services } from "../../app/services";
+import { workspaceProjects } from "../../app/workspace-projects";
 import { CODEV_ENGINE_MESSAGES } from "./application/messages";
 
 /* os textos dos casos de uso na língua da interface, e a língua em que o modelo responde (i18n dos motores) */
@@ -135,7 +158,9 @@ const clock: Clock = {
 
 const mode = (): Mode => bridge.monolith.mode as Mode;
 /* ───── wire the use cases ───── */
-const doTool = makeDoTool({ workspace, terminal, providers, notifier, presenter, gate, clock, rules, mode, copy });
+const doTool = makeDoTool({ workspace, terminal, providers, notifier, presenter, gate, clock, rules, mode, copy,
+  /* em Manual/Assistido a edição é revista no editor, bloco a bloco */
+  proposals: { propose: (p, content, reason) => proposeInEditor(p, content, reason) } });
 
 const liveChat = makeLiveChat({
   replyLanguage,
@@ -172,9 +197,19 @@ export const hunkReview = makeHunkReview({
   recorded: () => changeSetsSignal.notify(),
   // RF-P03: in a PairCode session the navigator's decisions are refusals
   review: (s, call, d) =>
-    s === MIRROR
+    localProposals.isLocal(s)
+      ? localProposals.review(s, call, d)
+      : s === MIRROR
       ? Promise.reject(new Error("Estes hunks são do Co-Dev do anfitrião: decide-os quem conduz, do lado dele."))
       : agentGateway.review(s, call, pairState.canDrive() ? d : d.map((x) => ({ hunk: x.hunk, accept: false, reason: "na sessão PairCode só quem conduz aceita" }))),
+  // RF-A03/A04: the architect's override of a change that breaks the rules (the host's session only)
+  override: (s, call, adr) =>
+    s === MIRROR
+      ? Promise.reject(new Error("Estes hunks são do Co-Dev do anfitrião: o override é do lado dele."))
+      : agentGateway.override
+        ? agentGateway.override(s, call, adr)
+        : Promise.reject(new Error("o override só existe na app desktop")),
+  askAdr: (violations) => bridge.prompt(streamText("adrPrompt", { violations }), ""),
   flush: () => bridge.flushSave(),
   reloadFromDisk: () => bridge.reloadDisk(),
   editor: {
@@ -196,6 +231,21 @@ export const hunkReview = makeHunkReview({
   notify: (m) => bridge.toast(m),
   cancel: () => stopTurn(),
 });
+/* Whole-file proposals (the legacy live chat, the Explain / Code review panel) reviewed in the editor
+   with the same live hunks as the agent v2: only the changed lines, in place, Accept / Reject each. */
+export const localProposals = makeLocalProposals({
+  emit: (session, e) => hunkReview.sink.event(session, e),
+  read: (rel) => bridge.files()[bridge.root() + rel]?.content ?? null,
+  write: (rel, content) => bridge.writeFile(bridge.root() + rel, content),
+  flush: () => bridge.flushSave(),
+});
+/** Review `content` for the file `key` (an editor/FS key) in the editor, block by block. */
+export function proposeInEditor(key: string, content: string, reason: string): Promise<ProposalResult> {
+  const pre = bridge.root();
+  return localProposals.propose(key.startsWith(pre) ? key.slice(pre.length) : key, content, reason);
+}
+services.proposals = { proposeInEditor };
+
 /* RF-S09: in a PairCode session the guest mirrors the host's live hunks (read-only there: the
    decisions belong to the host's agent session) */
 pairState.onCodev((e) => {
@@ -240,52 +290,181 @@ export function openCodevRun(): void {
   bridge.openTab({ id: "codev-run", title: "Co-Dev run", kind: "codev-run" });
 }
 
-const agentChat = makeAgentChat({
-  copy,
-  gateway: agentGateway,
-  presenter,
-  gate,
-  verify,
-  workspace: { root: () => bridge.diskRoot() ?? "" },
-  reloadFromDisk: () => bridge.reloadDisk(),
-  provider: () => bridge.monolith.activeProvider,
-  effort: () => bridge.effort(),
-  model: () => {
-    const p = bridge.providers() as unknown as Record<string, { model?: string }>;
-    const active = p[bridge.monolith.activeProvider];
-    return (active && active.model) || "";
-  },
-  mode: () => bridge.monolith.mode,
-  speaker: () => bridge.agents()[bridge.monolith.activeAgent].n.toLowerCase() + " · agente",
-  nowSecs: () => Math.floor(Date.now() / 1000),
-  openDiff: (path, before, after, label) => bridge.openDiff(bridge.root() + path, before, after, label),
-  /* o uso de cada pedido do agente: o contador de uso (o custo medido das issues do Board) e o
-     `ctx` da barra de estado, como as voltas do chat ao vivo (ADR-0006, R3c) */
-  onUsage: (input, output) => {
-    const provider = bridge.monolith.activeProvider;
-    bridge.recordUsage(provider, input + output);
-    document.dispatchEvent(new CustomEvent("dx:llm-usage", { detail: { provider, input, output } }));
-  },
-  // RF-S09: the live hunks also go to a PairCode guest (same stream, same highlight)
-  hunks: {
-    ...hunkReview.sink,
-    event: (s, e) => {
-      hunkReview.sink.event(s, e);
-      pairState.codevOut(e);
-    },
-  },
-  flush: () => bridge.flushSave(),
-  run: { event: (s, e) => codevRun.event(s, e), turnStarted: () => codevRun.turnStarted() },
+/* ───── the Agent map: every agent session and its sub-agents (the composer's «● N agents» chip) ───── */
+export const agentMapStore = makeAgentMapStore({
+  gateway: agentMapGateway,
+  primary: () => sessionOf(),
+  now: () => Date.now(),
 });
-sessionOf = () => agentChat.sessionId();
-stopTurn = () => agentChat.cancel();
+export const agentMapView = makeAgentMapView(agentMapStore, {
+  base: () => bridge.agents()?.[bridge.monolith.activeAgent]?.n ?? "Co-Dev",
+  showInChat: (session) => {
+    // Multi Co-Dev: a sessão de outra issue mostra a conversa dela
+    if (session) codevSessions.selectSession(session);
+    presenter.scrollMsgs();
+    document.getElementById("ag-input")?.focus();
+  },
+  inChat: (session) => codevSessions.has(session),
+  openRun: () => openCodevRun(),
+  now: () => Date.now(),
+  every: (ms, f) => {
+    const id = setInterval(f, ms);
+    return () => clearInterval(id);
+  },
+});
+agentMapStore.onChange(() => setAgentCount(agentMapStore.working()));
+void agentMapStore.start();
+
+/* ───── Multi Co-Dev (fase 3): as worktrees do Co-Dev e as reservas de ficheiros ───── */
+const wtCopy = translator(CODEV_WORKTREE_MESSAGES);
+const audits = auditClient();
+export const worktrees = makeWorktrees({
+  copy: wtCopy,
+  gateway: worktreeGateway,
+  root: () => bridge.diskRoot(),
+  approve: (r) => requestApproval(r),
+  audit: (root, entry) => audits.record(root, entry),
+  guard: (f) => (services.protect ? services.protect.guard(f) : f()),
+  openReadOnly: (abs, before, after, label) => bridge.openDiff(abs, before, after, label),
+  ask: async (q, initial) => bridge.prompt(q, initial),
+  notify: (m) => bridge.toast(m),
+});
+/* ao abrir uma pasta: as worktrees de uma execução anterior (só na app desktop) */
+if (bridge.isDesktop()) document.addEventListener("dx:workspace", () => void worktrees.workspaceOpened());
+
+/* ───── Multi Co-Dev (fase 2): uma conversa por sessão; a à vista é a seleccionada ───── */
+let firstSession = true;
+export const codevSessions = makeCodevSessions({
+  copy,
+  make: (ctx) => {
+    const view = makeSessionView(
+      {
+        label: ctx.label,
+        notify: (label) => bridge.toast(copy("bgDecision", { label })),
+        changed: () => codevSessions.touch(),
+      },
+      firstSession,
+    );
+    firstSession = false;
+    const chat = makeAgentChat({
+      copy,
+      confirm: (m) => bridge.confirm(m),
+      gateway: agentGateway,
+      presenter: view.presenter,
+      gate: view.gate,
+      verify,
+      workspace: { root: () => bridge.diskRoot() ?? "" },
+      reloadFromDisk: () => bridge.reloadDisk(),
+      provider: () => bridge.monolith.activeProvider,
+      effort: () => bridge.effort(),
+      model: () => {
+        const p = bridge.providers() as unknown as Record<string, { model?: string }>;
+        const active = p[bridge.monolith.activeProvider];
+        return (active && active.model) || "";
+      },
+      mode: () => bridge.monolith.mode,
+      speaker: () => bridge.agents()[bridge.monolith.activeAgent].n.toLowerCase() + " · agente",
+      nowSecs: () => Math.floor(Date.now() / 1000),
+      openDiff: (path, before, after, label) => bridge.openDiff(bridge.root() + path, before, after, label),
+      /* o uso de cada pedido do agente: o contador de uso (o custo medido das issues do Board) e o
+         `ctx` da barra de estado, como as voltas do chat ao vivo (ADR-0006, R3c) — o `ctx` é o da
+         conversa à vista */
+      onUsage: (input, output, detail) => {
+        const provider = bridge.monolith.activeProvider;
+        bridge.recordUsage(provider, input + output);
+        if (ctx.selected()) document.dispatchEvent(new CustomEvent("dx:llm-usage", { detail: { provider, input, output, ...detail } }));
+      },
+      /* conjunto 9: só as sessões de arquitectura levam `arch_propose` */
+      architecture: (first) => architectureSession(bridge.studioOpen(), first),
+      project: () => {
+        const p = workspaceProjects.currentPath();
+        return p === "." ? null : p;
+      },
+      // RF-S09: the live hunks also go to a PairCode guest (same stream, same highlight)
+      hunks: {
+        ...hunkReview.sink,
+        event: (s, e) => {
+          hunkReview.sink.event(s, e);
+          pairState.codevOut(e);
+        },
+        // fase 3: os blocos de uma sessão numa worktree são de outra árvore — vêem-se só de leitura
+        open: (path) => {
+          const wt = ctx.worktree();
+          const session = chat.sessionId();
+          if (wt && session) void worktrees.openProposal(wt, path, (now) => hunkReview.proposal(session, path, now));
+          else hunkReview.sink.open(path);
+        },
+      },
+      /* fase 3: a revisão de hunks diz em que worktree a sessão trabalha */
+      where: () => {
+        const wt = ctx.worktree();
+        return wt ? `${branchLabel(wt)} · worktree` : null;
+      },
+      flush: () => bridge.flushSave(),
+      // the «Co-Dev run» tab follows the conversation on screen
+      run: {
+        event: (s, e) => {
+          if (ctx.selected()) codevRun.event(s, e);
+        },
+        turnStarted: () => {
+          if (ctx.selected()) codevRun.turnStarted();
+        },
+      },
+      agentMap: agentMapStore.sink,
+    });
+    return { chat, view };
+  },
+  overlap: async (key, running) => {
+    const root = bridge.diskRoot();
+    return root ? scopeOverlap(root, key, running) : [];
+  },
+  wtCopy,
+  // fase 3: só a app desktop tem worktrees (no browser não há agente v2)
+  ...(bridge.isDesktop() ? { worktree: { prepare: (key: string, needed: boolean) => worktrees.prepare(key, needed), sessionClosed: (ref: WorktreeRef) => void worktrees.sessionClosed(ref) } } : {}),
+  hunks: hunkReview,
+  confirm: (m) => bridge.confirm(m),
+  notify: (m) => bridge.toast(m),
+});
+/** A conversa à vista. */
+const agentChat = (): ReturnType<typeof makeAgentChat> => codevSessions.current();
+sessionOf = () => codevSessions.sessionId();
+stopTurn = () => agentChat().cancel();
+/** A faixa «Co-Devs» por cima da conversa (só com mais de uma sessão). */
+export const codevsView = makeCodevsView(codevSessions, agentMapStore, {
+  worktrees,
+  // fase 4: o painel «Rever e integrar» (features/integration avalia depois: lê-se no acto)
+  ...(bridge.isDesktop() ? { integrate: (key: string) => services.integration?.open(key) } : {}),
+  pick: (ph, items) => bridge.palette("", { ph, items: items.map((i) => ({ l: i.label, d: i.detail, run: i.run })) }),
+  now: () => Date.now(),
+  every: (ms, f) => {
+    const id = setInterval(f, ms);
+    return () => clearInterval(id);
+  },
+});
+
+/* Multi Co-Dev (fase 4): o painel de revisão corre o revisor com o provedor e o modelo do Co-Dev, e fecha a sessão
+   de uma issue integrada (as reservas voltam e a worktree sai se estiver limpa — as regras da fase 3) */
+services.codevReview = {
+  reviewer: () => {
+    const p = bridge.providers() as unknown as Record<string, { model?: string }>;
+    const provider = bridge.monolith.activeProvider;
+    return { provider, model: p[provider]?.model || "" };
+  },
+  closeSession: (session) => {
+    const slot = codevSessions.slots().find((s) => s.session === session);
+    if (!slot) return false;
+    codevSessions.close(slot.id);
+    return true;
+  },
+};
 
 /** Conversa livre: o agente v2 quando disponível (desktop + pasta real + Claude/Codex/
  *  Gemini/Ollama), senão o harness antigo (protótipo, a flag `dx2.codevLegacy`, ou um modelo
  *  sem tool calling nativo — descoberto no 1.º pedido, a mensagem é reenviada por aqui). */
 const chat = async (q: string): Promise<void> => {
-  if (!agentChat.available()) return liveChat(q);
-  if (await agentChat.send(q)) return;
+  const c = agentChat();
+  if (!c.available()) return liveChat(q);
+  if (await c.send(q)) return;
   return liveChat(q, { echoed: true }); // o agente já mostrou a mensagem
 };
 
@@ -294,22 +473,40 @@ export const codevEngine = {
   doTool: doTool as (t: RuntimeTool, host: ToolHost, role?: string, signal?: AbortSignal) => Promise<unknown>,
   liveChat,
   chat,
-  agentModeChanged: (mode: string): void => agentChat.modeChanged(mode),
-  agentReset: (): void => agentChat.reset(),
+  /** A modebar mudou: vale para todas as sessões abertas (o modo é um só). */
+  agentModeChanged: (mode: string): void => codevSessions.chats().forEach((c) => c.modeChanged(mode)),
+  agentReset: (): void => codevSessions.resetCurrent(),
   /** `/retomar`: lista e retoma uma conversa anterior do agente v2 (se disponível). */
-  agentResume: (): Promise<void> | null => (agentChat.available() ? agentChat.resumeMenu() : null),
+  agentResume: (): Promise<void> | null => (agentChat().available() ? agentChat().resumeMenu() : null),
   /** `/plano <pedido>` e `/reverter` (agente v2). */
-  agentPlan: (q: string): Promise<void> | null => (agentChat.available() ? agentChat.plan(q) : null),
-  agentRewind: (): Promise<void> | null => (agentChat.available() ? agentChat.rewindMenu() : null),
-  agentCommands: (): Promise<void> | null => (agentChat.available() ? agentChat.commandsMenu() : null),
+  agentPlan: (q: string): Promise<void> | null => (agentChat().available() ? agentChat().plan(q) : null),
+  agentRewind: (): Promise<void> | null => (agentChat().available() ? agentChat().rewindMenu() : null),
+  agentCommands: (): Promise<void> | null => (agentChat().available() ? agentChat().commandsMenu() : null),
   /** Board (opção 2): a issue vai ao agente em modo plano. `null` se o agente v2 não está disponível. */
   agentStory: (s: { id: string; title: string; type: string; pts: number; note?: string }): Promise<void> | null =>
-    agentChat.available() ? agentChat.story(s) : null,
-  agentAvailable: (): boolean => agentChat.available(),
-  /** F4: «Work on it with Co-Dev» sends the issue's exact prompt (from `project_issue_prompt`). */
+    agentChat().available() ? agentChat().story(s) : null,
+  agentAvailable: (): boolean => agentChat().available(),
+  /** F4: «Work on it with Co-Dev» sends the issue's exact prompt (from `project_issue_prompt`). Multi Co-Dev
+   *  (phase 2): another issue opens another session — only when its scope overlaps no running issue's. */
   agentIssue: (r: { key: string; text: string; scope: string[]; template: string }): Promise<boolean> | null =>
-    agentChat.available() ? agentChat.issue(r) : null,
+    agentChat().available() ? codevSessions.issue(r) : null,
+  /** `/backlog <contexto>` and `/project <contexto>` (toolset 11): a backlog session. `null` without the agent v2. */
+  agentBacklog: (q: string): Promise<boolean> | null => (agentChat().available() ? codevSessions.backlog(q) : null),
 };
+
+/* the proposals of `/backlog` and `/project` go to the conversation of the session that made them */
+subscribeBacklogProposals((p) => {
+  if (!codevSessions.showProposal(p)) codevSessions.current().showProposal(p);
+});
+/* the card's buttons: the draft opens in the editor; creating the Project and handing it an issue are the
+   Project's (it evaluates after this module: read at click time) */
+bindBacklogActions({
+  openFile: (rel) => void bridge.reloadDisk().then(() => bridge.openPath(bridge.root() + rel)),
+  prefill: (text) => composerAsk(text, [], false),
+  create: async (o) => (services.project ? services.project.createFromBacklog(o) : null),
+  openProject: () => services.project?.openProject("backlog"),
+  workOn: (key) => void services.project?.workOn(key),
+});
 
 /* ───── low-level transcript/run-control helpers, shared with board.ts ───── */
 export {

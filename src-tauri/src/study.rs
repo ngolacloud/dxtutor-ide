@@ -25,6 +25,8 @@
 //! Os DTOs serializáveis (`ProjectDto`, `AssessmentDto`, …) continuam em `lib.rs`
 //! `pub(crate)`: são a fronteira de serialização para o webview, partilhados entre grupos.
 
+use std::collections::BTreeMap;
+
 use tutor_core::{Course, Glossary, Level, Phase, Project, StepKind, StudyGuide};
 use tutor_eval::Assessment;
 use tutor_llm::policy::{policy_for, Mode, StudyPolicy};
@@ -102,10 +104,21 @@ pub enum StudyError {
     NotAChallenge(String),
     /// Não há curso para esta linguagem.
     NoCourse(String),
+    /// Não há curso para este framework/ferramenta (`subject`).
+    NoSubjectCourse(String),
+    /// Foram entregues ficheiros para um passo que não é de projecto.
+    NotAProject(String),
     /// Não há glossário para esta linguagem.
     NoGlossary(String),
     /// Não há guia de estudo para esta linguagem/unidade.
     NoStudyGuide { language: String, unit: String },
+    /// O curso avalia-se offline contra uma cache que ainda não foi preparada (ou cujas
+    /// dependências mudaram): a mensagem diz o que fazer e começa por `COURSE_NOT_PREPARED`.
+    NotPrepared(String),
+    /// Não há curso com este id.
+    NoCourseId(String),
+    /// O curso não tem nada a preparar (sem `[build] prepare`).
+    NothingToPrepare(String),
     /// A avaliação (`tutor_eval::assess`) falhou — erro cru anexado.
     Eval(String),
 }
@@ -118,9 +131,19 @@ impl std::fmt::Display for StudyError {
             StudyError::StepNotFound(id) => write!(f, "step `{id}` not found"),
             StudyError::NotAChallenge(id) => write!(f, "step `{id}` is not a challenge"),
             StudyError::NoCourse(lang) => write!(f, "no course for language `{lang}`"),
+            StudyError::NoSubjectCourse(s) => write!(f, "no course for `{s}`"),
+            StudyError::NotAProject(id) => write!(f, "step `{id}` is not a project step"),
             StudyError::NoGlossary(lang) => write!(f, "no glossary for language `{lang}`"),
             StudyError::NoStudyGuide { language, unit } => {
                 write!(f, "no study guide for language `{language}` unit `{unit}`")
+            }
+            StudyError::NotPrepared(m) => f.write_str(m),
+            StudyError::NoCourseId(id) => write!(f, "no course with id `{id}`"),
+            StudyError::NothingToPrepare(id) => {
+                write!(
+                    f,
+                    "course `{id}` has nothing to prepare (no `[build] prepare`)"
+                )
             }
             StudyError::Eval(e) => write!(f, "evaluation failed: {e}"),
         }
@@ -186,11 +209,35 @@ pub fn load_phase(phase_id: &str) -> Result<Phase, StudyError> {
 }
 
 /// Carrega o curso guiado de uma linguagem (ex. `"rust"`), ou [`StudyError::NoCourse`].
+/// Só cursos de LINGUAGEM: um curso de Django também se avalia em `python`, mas não é «o
+/// curso de Python».
 pub fn course(language: &str) -> Result<Course, StudyError> {
-    all_courses()
-        .into_iter()
-        .find(|c| c.language.eq_ignore_ascii_case(language.trim()))
-        .ok_or_else(|| StudyError::NoCourse(language.to_string()))
+    find_course(&all_courses(), language, None)
+}
+
+/// [`course`] ou, com `subject`, o curso do framework/ferramenta com esse id
+/// ([`StudyError::NoSubjectCourse`] quando não há).
+pub fn course_for(language: &str, subject: Option<&str>) -> Result<Course, StudyError> {
+    find_course(&all_courses(), language, subject)
+}
+
+fn find_course(
+    courses: &[Course],
+    language: &str,
+    subject: Option<&str>,
+) -> Result<Course, StudyError> {
+    match subject.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(sub) => courses
+            .iter()
+            .find(|c| c.category.has_subject() && c.subject.eq_ignore_ascii_case(sub))
+            .cloned()
+            .ok_or_else(|| StudyError::NoSubjectCourse(sub.to_string())),
+        None => courses
+            .iter()
+            .find(|c| !c.category.has_subject() && c.language.eq_ignore_ascii_case(language.trim()))
+            .cloned()
+            .ok_or_else(|| StudyError::NoCourse(language.to_string())),
+    }
 }
 
 /// Todos os cursos embutidos (um por currículo/linguagem), para o onboarding construir o
@@ -239,8 +286,38 @@ pub fn grade_step_in(
     language: Option<&str>,
     code: &str,
 ) -> Result<(Assessment, Phase), StudyError> {
+    grade_in(&all_courses(), step_id, language, Submission::Code(code))
+}
+
+/// Avalia um passo de PROJECTO com os ficheiros editáveis que o aluno entrega (caminho →
+/// conteúdo). Os que faltam ficam como no starter; um ficheiro só de leitura ou desconhecido
+/// é recusado (ver `tutor_core::ProjectFiles::learner_tree`). Um passo de um só ficheiro dá
+/// [`StudyError::NotAProject`].
+pub fn grade_step_files(
+    step_id: &str,
+    language: Option<&str>,
+    files: &BTreeMap<String, String>,
+) -> Result<(Assessment, Phase), StudyError> {
+    grade_in(&all_courses(), step_id, language, Submission::Files(files))
+}
+
+/// O que o aluno entrega: o código de um ficheiro (num passo de projecto, o ficheiro
+/// principal) ou os ficheiros de um passo de projecto.
+#[derive(Debug, Clone, Copy)]
+pub enum Submission<'a> {
+    Code(&'a str),
+    Files(&'a BTreeMap<String, String>),
+}
+
+/// A regra da avaliação sobre uma lista de cursos dada (testável sem o registo de plugins).
+pub fn grade_in(
+    courses: &[Course],
+    step_id: &str,
+    language: Option<&str>,
+    submission: Submission<'_>,
+) -> Result<(Assessment, Phase), StudyError> {
     let wanted = language.map(|l| l.trim().to_ascii_lowercase());
-    for course in all_courses() {
+    for course in courses {
         if wanted
             .as_deref()
             .is_some_and(|l| !course.language.eq_ignore_ascii_case(l))
@@ -248,8 +325,9 @@ pub fn grade_step_in(
             continue;
         }
         if let Some(step) = course.step(step_id) {
-            let phase = step
-                .as_phase(&course.language, Level::Basico)
+            // O `Phase` do curso: o passo com os ficheiros de apoio do curso (`[support]`).
+            let phase = course
+                .phase(step, Level::Basico)
                 .ok_or_else(|| StudyError::NotAChallenge(step_id.to_string()))?;
             // Sem avaliador para a linguagem, o `tutor_eval` cairia no Rust e compilaria o
             // desafio como Rust: melhor um erro honesto e claro.
@@ -259,12 +337,197 @@ pub fn grade_step_in(
                     course.language
                 )));
             }
-            let assessment =
-                tutor_eval::assess(&phase, code).map_err(|e| StudyError::Eval(e.to_string()))?;
+            // Um curso preparado uma vez avalia-se offline contra a sua cache: sem ela, a recusa
+            // diz o que fazer (preparar o curso), antes de compilar o que quer que seja.
+            if let Some(cache) = &phase.build.cache {
+                // Num curso de cluster só os passos ao vivo usam a cache (os outros são offline).
+                if tutor_core::livecheck::phase_needs_cache(&phase) {
+                    prepared_or_refuse(cache)?;
+                }
+            }
+            let assessment = match submission {
+                Submission::Code(code) => tutor_eval::assess(&phase, code),
+                Submission::Files(files) => {
+                    if phase.project.is_none() {
+                        return Err(StudyError::NotAProject(step_id.to_string()));
+                    }
+                    tutor_eval::assess_project(&phase, files)
+                }
+            }
+            .map_err(|e| StudyError::Eval(e.to_string()))?;
             return Ok((assessment, phase));
         }
     }
     Err(StudyError::StepNotFound(step_id.to_string()))
+}
+
+// ── Preparar um curso (Learn P1): a única porta para a rede, aprovada pelo humano ────────
+
+/// Recusa com [`StudyError::NotPrepared`] um curso cuja cache não está pronta.
+fn prepared_or_refuse(cache: &tutor_core::CourseCache) -> Result<(), StudyError> {
+    use tutor_eval::course_cache::{not_prepared_message, root, status, Status};
+    let root =
+        root().ok_or_else(|| StudyError::NotPrepared(not_prepared_message(&cache.key, false)))?;
+    match status(&root, cache).map_err(|e| StudyError::Eval(e.to_string()))? {
+        Status::Ready(_) => Ok(()),
+        Status::Missing => Err(StudyError::NotPrepared(not_prepared_message(
+            &cache.key, false,
+        ))),
+        Status::Stale(_) => Err(StudyError::NotPrepared(not_prepared_message(
+            &cache.key, true,
+        ))),
+    }
+}
+
+/// A cache de um curso (pelo seu id) que se prepara uma vez, ou `None` quando o curso não tem
+/// nada a preparar.
+pub fn course_cache_of(
+    courses: &[Course],
+    course_id: &str,
+) -> Result<Option<tutor_core::CourseCache>, StudyError> {
+    let course = courses
+        .iter()
+        .find(|c| c.id == course_id)
+        .ok_or_else(|| StudyError::NoCourseId(course_id.to_string()))?;
+    Ok(course
+        .units
+        .iter()
+        .flat_map(|u| &u.steps)
+        .find_map(|s| s.build.cache.clone()))
+}
+
+/// O estado da preparação de um curso, com o comando exacto a aprovar.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PrepareStatus {
+    /// O curso precisa de uma preparação (tem `[build] prepare`).
+    pub needed: bool,
+    /// `not-needed`, `missing`, `stale` ou `ready`.
+    pub state: &'static str,
+    /// O plano (comandos e pastas) quando há algo a preparar.
+    pub plan: Option<tutor_eval::course_cache::Plan>,
+    pub marker: Option<tutor_eval::course_cache::Marker>,
+    /// O tempo limite (s) de cada compilação deste curso.
+    pub timeout_secs: u64,
+}
+
+/// O estado da preparação do curso `course_id` em `root` (a raiz das caches).
+pub fn prepare_status_in(
+    courses: &[Course],
+    course_id: &str,
+    root: &std::path::Path,
+) -> Result<PrepareStatus, StudyError> {
+    use tutor_eval::course_cache::{plan, status, Status};
+    let timeout_secs = courses
+        .iter()
+        .find(|c| c.id == course_id)
+        .map(|c| c.build.timeout_secs)
+        .unwrap_or(0);
+    let Some(cache) = course_cache_of(courses, course_id)? else {
+        return Ok(PrepareStatus {
+            needed: false,
+            state: "not-needed",
+            plan: None,
+            marker: None,
+            timeout_secs,
+        });
+    };
+    fn eval(e: impl std::fmt::Display) -> StudyError {
+        StudyError::Eval(e.to_string())
+    }
+    let (state, marker) = match status(root, &cache).map_err(eval)? {
+        Status::Ready(m) => ("ready", Some(m)),
+        Status::Stale(m) => ("stale", Some(m)),
+        Status::Missing => ("missing", None),
+    };
+    Ok(PrepareStatus {
+        needed: true,
+        state,
+        plan: Some(plan(root, &cache).map_err(eval)?),
+        marker,
+        timeout_secs,
+    })
+}
+
+/// O plano de preparação do curso `course_id` que o humano aprovou: recusa quando o comando
+/// aprovado não é o plano de agora (o curso mudou entre o diálogo e o clique).
+pub fn approved_plan_in(
+    courses: &[Course],
+    course_id: &str,
+    root: &std::path::Path,
+    approved_command: &str,
+) -> Result<tutor_eval::course_cache::Plan, StudyError> {
+    let st = prepare_status_in(courses, course_id, root)?;
+    let plan = st
+        .plan
+        .ok_or_else(|| StudyError::NothingToPrepare(course_id.to_string()))?;
+    if plan.command != approved_command {
+        return Err(StudyError::Eval(
+            "the approved command is not this course's current preparation; ask again".into(),
+        ));
+    }
+    Ok(plan)
+}
+
+// ── O cluster de prática (Learn P3b) ─────────────────────────────────────────────────────
+
+/// `true` quando o curso tem passos que se verificam ao vivo no cluster de prática.
+pub fn course_is_live(course: &Course) -> bool {
+    course
+        .units
+        .iter()
+        .flat_map(|u| &u.steps)
+        .filter_map(|s| s.project.as_ref())
+        .any(tutor_core::livecheck::step_is_live)
+}
+
+/// O cluster de prática do curso `course_id` (`None` num curso sem passos ao vivo) e se a sua
+/// cache está pronta.
+pub fn cluster_of(
+    courses: &[Course],
+    course_id: &str,
+    root: &std::path::Path,
+) -> Result<Option<(tutor_eval::kindbox::Sandbox, bool)>, StudyError> {
+    let course = courses
+        .iter()
+        .find(|c| c.id == course_id)
+        .ok_or_else(|| StudyError::NoCourseId(course_id.to_string()))?;
+    if !course_is_live(course) {
+        return Ok(None);
+    }
+    let Some(cache) = course_cache_of(courses, course_id)? else {
+        return Ok(None);
+    };
+    fn err(e: impl std::fmt::Display) -> StudyError {
+        StudyError::Eval(e.to_string())
+    }
+    let sb = tutor_eval::course_cache::layout(root, &cache.key)
+        .map_err(err)?
+        .sandbox();
+    let ready = tutor_eval::course_cache::status(root, &cache)
+        .map_err(err)?
+        .is_ready();
+    Ok(Some((sb, ready)))
+}
+
+/// Uma vez por processo: de minuto a minuto, apaga os clusters de prática parados há 20 minutos e
+/// os que uma execução anterior deixou (só os `dxtutor-*` das caixas do dxtutor). A preparação do
+/// curso, aprovada, diz que é assim.
+pub fn start_cluster_reaper() {
+    static STARTED: std::sync::Once = std::sync::Once::new();
+    STARTED.call_once(|| {
+        std::thread::spawn(|| loop {
+            if let Some(root) = tutor_eval::course_cache::root() {
+                let idle = std::time::Duration::from_secs(tutor_eval::kindbox::IDLE_SECS);
+                for gone in tutor_eval::kindbox::cleanup(&root, idle) {
+                    eprintln!(
+                        "dxtutor: deleted the practice cluster {} of course {} (idle or left behind)",
+                        gone.cluster, gone.course
+                    );
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_secs(60));
+        });
+    });
 }
 
 // ── Sugestão (a regra offline curada; o provedor LLM fica no adaptador) ──────────────
@@ -328,6 +591,130 @@ mod tests {
         );
     }
 
+    fn fixture_course() -> Course {
+        let raw = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../crates/tutor-plugins/tests/fixtures/framework-project/courses/minishop.toml"
+        ))
+        .expect("fixture");
+        Course::parse(&raw, tutor_core::CourseFormat::Toml).unwrap()
+    }
+
+    #[test]
+    fn framework_courses_are_found_by_subject_never_as_the_language_course() {
+        let mut courses = vec![fixture_course()];
+        // Nem com o curso de framework PRIMEIRO na lista o «curso de Python» passa a ser ele.
+        courses.extend(tutor_core::builtin_courses());
+        assert_eq!(
+            find_course(&courses, "python", None).unwrap().id,
+            "python-basics"
+        );
+        assert_eq!(
+            find_course(&courses, "python", Some("minishop"))
+                .unwrap()
+                .id,
+            "minishop-fixture"
+        );
+        assert_eq!(
+            find_course(&courses, "python", Some("django")).unwrap().id,
+            "django-basics"
+        );
+        assert_eq!(
+            find_course(&courses, "python", Some("flask"))
+                .unwrap_err()
+                .to_string(),
+            "no course for `flask`"
+        );
+    }
+
+    #[test]
+    fn project_steps_grade_files_and_refuse_files_for_single_file_steps() {
+        // grading runs on the host here: hold the engine so a parallel test can't switch it
+        let _engine = crate::sandbox::EngineGuard::take();
+        crate::sandbox::set_engine("host").unwrap();
+        let courses = vec![fixture_course()];
+        let files = |pairs: &[(&str, &str)]| -> BTreeMap<String, String> {
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        };
+        // Ficheiros para um passo que não é de projecto: erro tipado, sem correr nada.
+        let mut single = fixture_course();
+        single.units[0].steps[2].project = None;
+        single.units[0].steps[2].gabarito = Some(tutor_core::Gabarito {
+            solution: String::new(),
+            time: String::new(),
+            space: String::new(),
+            justification: String::new(),
+        });
+        assert_eq!(
+            grade_in(
+                &[single],
+                "msf-p1-cart",
+                Some("python"),
+                Submission::Files(&files(&[]))
+            )
+            .unwrap_err(),
+            StudyError::NotAProject("msf-p1-cart".into())
+        );
+        // Um ficheiro só de leitura é recusado antes de avaliar.
+        let err = grade_in(
+            &courses,
+            "msf-p1-cart",
+            Some("python"),
+            Submission::Files(&files(&[("shop/config.py", "VAT = 0\n")])),
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("read-only"), "{err}");
+        // A linguagem que filtra é a do runtime (python), não o subject.
+        assert_eq!(
+            grade_in(
+                &courses,
+                "msf-p1-cart",
+                Some("minishop"),
+                Submission::Files(&files(&[]))
+            )
+            .unwrap_err(),
+            StudyError::StepNotFound("msf-p1-cart".into())
+        );
+        if !tutor_eval::find_plugin("python").is_some_and(|p| p.host_available()) {
+            return;
+        }
+        let project = courses[0]
+            .step("msf-p1-cart")
+            .unwrap()
+            .project
+            .clone()
+            .unwrap();
+        let (good, phase) = grade_in(
+            &courses,
+            "msf-p1-cart",
+            Some("python"),
+            Submission::Files(&project.solution),
+        )
+        .unwrap();
+        assert!(good.correctness.passed, "{}", good.correctness.raw);
+        assert!(phase.project.is_some());
+        let (bad, _) = grade_in(
+            &courses,
+            "msf-p1-cart",
+            Some("python"),
+            Submission::Files(&files(&[])),
+        )
+        .unwrap();
+        assert!(!bad.correctness.passed);
+        // A forma antiga (`code`) num passo de projecto: é o ficheiro principal.
+        let (main_only, _) = grade_in(
+            &courses,
+            "msf-p1-cart",
+            Some("python"),
+            Submission::Code(&project.solution["shop/cart.py"]),
+        )
+        .unwrap();
+        assert!(!main_only.correctness.passed, "prices.py is still the stub");
+    }
+
     #[test]
     fn step_classification_and_policy_follow_the_contract() {
         // Id desconhecido → autónomo (falha fechada) e linguagem por omissão "rust".
@@ -341,5 +728,176 @@ mod tests {
         let autonomous = serde_json::to_value(study_policy("tutor", Some("no-such-step"))).unwrap();
         let free = serde_json::to_value(study_policy("livre", None)).unwrap();
         assert!(autonomous.is_object() && free.is_object());
+    }
+
+    /// O curso Django embutido prepara-se com uma cache pip (Learn P2a): o estado diz o que
+    /// falta, o plano é o venv + `pip install --require-hashes` dos pacotes fixados, a lista dos
+    /// pacotes vai para o diálogo, e só o comando aprovado (o plano actual) corre.
+    #[test]
+    fn the_builtin_django_course_prepares_a_pip_cache() {
+        if tutor_eval::course_cache::host_python().is_none() {
+            return;
+        }
+        let courses = tutor_core::builtin_courses();
+        let django = find_course(&courses, "python", Some("django")).unwrap();
+        assert_eq!(django.id, "django-basics");
+        assert_eq!(
+            find_course(&courses, "python", None).unwrap().id,
+            "python-basics"
+        );
+        let tmp = tempfile::tempdir().unwrap();
+        let st = prepare_status_in(&courses, "django-basics", tmp.path()).unwrap();
+        assert!(st.needed);
+        assert_eq!(st.state, "missing");
+        assert_eq!(st.timeout_secs, 120);
+        let plan = st.plan.expect("a plan");
+        assert_eq!(plan.kind, tutor_core::CacheKind::Pip);
+        let names: Vec<String> = plan
+            .packages
+            .iter()
+            .map(|p| format!("{} {} {}", p.name, p.version, p.source))
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "Django 5.2.19 PyPI",
+                "asgiref 3.12.1 PyPI",
+                "sqlparse 0.6.1 PyPI"
+            ]
+        );
+        assert!(plan
+            .command
+            .contains("--require-hashes --only-binary=:all:"));
+        assert!(plan.command.contains("--index-url https://pypi.org/simple"));
+        assert!(plan.layout.dir.starts_with(tmp.path()));
+        // Only the command the human saw (the current plan) is accepted.
+        assert!(approved_plan_in(&courses, "django-basics", tmp.path(), &plan.command).is_ok());
+        let e = approved_plan_in(&courses, "django-basics", tmp.path(), "pip install evil")
+            .unwrap_err();
+        assert!(
+            e.to_string()
+                .contains("not this course's current preparation"),
+            "{e}"
+        );
+        // A course without a [build] has nothing to prepare.
+        let none = prepare_status_in(&courses, "python-basics", tmp.path()).unwrap();
+        assert_eq!((none.needed, none.state), (false, "not-needed"));
+    }
+
+    /// O curso Dxjs embutido avalia-se com os seus ficheiros de apoio: sem eles,
+    /// `import … from "@dxjs/core"` falhava e a solução nunca passava. Corre o Node real
+    /// (saltado onde não há Node ou fora do motor `Host`).
+    #[test]
+    fn the_builtin_dxjs_course_grades_with_its_support_files() {
+        let Some(ts) = tutor_eval::find_plugin("typescript") else {
+            return;
+        };
+        if !ts.host_available() || tutor_eval::current_engine() != tutor_eval::SandboxEngine::Host {
+            return;
+        }
+        let courses = tutor_core::builtin_courses();
+        let dxjs = find_course(&courses, "typescript", Some("dxjs")).unwrap();
+        assert_eq!(dxjs.id, "dxjs-basics");
+        // O «curso de TypeScript» continua a ser o de linguagem.
+        assert_eq!(
+            find_course(&courses, "typescript", None).unwrap().id,
+            "typescript-basics"
+        );
+
+        let step = dxjs.step("dxjs-u01-x1-counter").unwrap();
+        let solution = step.gabarito.as_ref().unwrap().solution.clone();
+        let (good, phase) = grade_in(
+            &courses,
+            "dxjs-u01-x1-counter",
+            Some("typescript"),
+            Submission::Code(&solution),
+        )
+        .unwrap();
+        assert!(good.correctness.passed, "{}", good.correctness.raw);
+        assert_eq!(phase.support.len(), dxjs.support.len());
+        let (bad, _) = grade_in(
+            &courses,
+            "dxjs-u01-x1-counter",
+            Some("typescript"),
+            Submission::Code(&step.starter),
+        )
+        .unwrap();
+        assert!(!bad.correctness.passed);
+
+        // Um passo de projecto com os ficheiros editáveis entregues.
+        let project = dxjs
+            .step("dxjs-u07-p1-todo-store")
+            .unwrap()
+            .project
+            .clone()
+            .unwrap();
+        let (ok, _) = grade_in(
+            &courses,
+            "dxjs-u07-p1-todo-store",
+            Some("typescript"),
+            Submission::Files(&project.solution),
+        )
+        .unwrap();
+        assert!(ok.correctness.passed, "{}", ok.correctness.raw);
+    }
+
+    /// Os cursos de ferramentas (Learn P2b) avaliam-se pelo `submit_step` normal: a linguagem é
+    /// `yaml`, os ids não chocam entre os dois cursos, e um passo só estrutural passa com a solução
+    /// e falha com os ficheiros iniciais sem precisar de nenhuma ferramenta. Um curso de
+    /// ferramenta nunca é «o curso» de uma linguagem.
+    #[test]
+    fn the_tool_courses_grade_through_submit_step() {
+        let courses = tutor_core::builtin_courses();
+        assert_eq!(
+            find_course(&courses, "yaml", Some("kubernetes"))
+                .unwrap()
+                .id,
+            "kubernetes-basics"
+        );
+        assert_eq!(
+            find_course(&courses, "yaml", Some("delonix")).unwrap().id,
+            "delonix-basics"
+        );
+        assert!(matches!(
+            find_course(&courses, "yaml", None),
+            Err(StudyError::NoCourse(_))
+        ));
+        let k8s = find_course(&courses, "yaml", Some("kubernetes")).unwrap();
+        let project = k8s
+            .step("k8s-p3-deployment")
+            .unwrap()
+            .project
+            .clone()
+            .unwrap();
+        let (ok, _) = grade_in(
+            &courses,
+            "k8s-p3-deployment",
+            Some("yaml"),
+            Submission::Files(&project.solution),
+        )
+        .unwrap();
+        assert!(ok.correctness.passed, "{}", ok.correctness.raw);
+        let (bad, _) = grade_in(
+            &courses,
+            "k8s-p3-deployment",
+            Some("yaml"),
+            Submission::Files(&Default::default()),
+        )
+        .unwrap();
+        assert!(!bad.correctness.passed);
+        assert!(bad
+            .correctness
+            .raw
+            .contains("✗ deployment.yaml › spec.replicas"));
+        // Um só ficheiro (o `code` antigo) é o ficheiro principal do passo de projecto.
+        let main = project.solution[&project.main].clone();
+        let (ok, _) = grade_in(
+            &courses,
+            "k8s-p3-deployment",
+            Some("yaml"),
+            Submission::Code(&main),
+        )
+        .unwrap();
+        assert!(ok.correctness.passed, "{}", ok.correctness.raw);
     }
 }
