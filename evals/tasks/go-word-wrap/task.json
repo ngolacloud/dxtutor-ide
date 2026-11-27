@@ -1,0 +1,9 @@
+{
+  "id": "go-word-wrap",
+  "title": "Wrap text for the CLI help",
+  "language": "go",
+  "category": "feature",
+  "prompt": "Implement `Wrap(text string, width int) []string` in text/wrap.go for the CLI's help output: words are separated by\nany whitespace and joined with single spaces; lines are as full as possible without exceeding `width` runes; a word\nlonger than `width` is split into chunks of `width` runes; empty or blank text gives no lines; width < 1 panics.\nCount runes, not bytes (\"ção\" is 3).",
+  "check": "go test ./... 2>&1",
+  "test": "go test ./..."
+}

@@ -1,0 +1,9 @@
+{
+  "id": "js-template",
+  "title": "Email templates are not escaped",
+  "language": "javascript",
+  "category": "bugfix",
+  "prompt": "`render(template, data)` in src/template.js fills `{{name}}` placeholders for notification emails, but it injects\nraw HTML (`<script>` from a user's name ends up in the email), fails on nested keys like `{{user.name}}` and prints\n`undefined` for missing values. Fix it: values are HTML-escaped (`& < > \" '`), dotted paths are followed, whitespace\ninside the braces is allowed (`{{ user.name }}`), missing values render as an empty string, and `{{{raw}}}` (three\nbraces) inserts the value without escaping.",
+  "check": "node --test 2>&1",
+  "test": "node --test"
+}

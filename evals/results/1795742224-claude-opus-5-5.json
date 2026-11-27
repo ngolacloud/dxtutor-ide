@@ -1,0 +1,924 @@
+{
+  "model": "claude-opus-5-5",
+  "provider": "claude",
+  "results": [
+    {
+      "agent_seconds": 72.549524253,
+      "category": "devops",
+      "check_output": "/tmp/dxtutor-eval-1795742224/projects/devops-dockerfile/check_dockerfile.py:4: ResourceWarning: unclosed file <_io.TextIOWrapper name='Dockerfile' mode='r' encoding='UTF-8'>\n  text = open(\"Dockerfile\").read()\nResourceWarning: Enable tracemalloc to get the object allocation traceback\n....\n----------------------------------------------------------------------\nRan 4 tests in 0.002s\n\nOK",
+      "check_seconds": 0.101000121,
+      "cost_usd": 0.1184018,
+      "id": "devops-dockerfile",
+      "language": "dockerfile",
+      "outcome": "done",
+      "refused": 1,
+      "requests": 11,
+      "solved": true,
+      "tokens": {
+        "cache_read": 72094,
+        "cache_write": 4879,
+        "input": 22,
+        "output": 3975
+      },
+      "tools": {
+        "bash": 6,
+        "read": 1,
+        "write": 3
+      },
+      "turns": 1
+    },
+    {
+      "agent_seconds": 27.137508468,
+      "category": "devops",
+      "check_output": "/tmp/dxtutor-eval-1795742224/projects/devops-makefile/check_make.py:20: ResourceWarning: unclosed file <_io.TextIOWrapper name='app/broken.py' mode='w' encoding='UTF-8'>\n  open(\"app/broken.py\", \"w\").write(\"def x(:\\n\")\nResourceWarning: Enable tracemalloc to get the object allocation traceback\n./tmp/dxtutor-eval-1795742224/projects/devops-makefile/check_make.py:10: ResourceWarning: unclosed file <_io.TextIOWrapper name='Makefile' mode='r' encoding='UTF-8'>\n  text = open(\"Makefile\").read()\nResourceWarning: Enable tracemalloc to get the object allocation traceback\n.\n----------------------------------------------------------------------\nRan 2 tests in 0.162s\n\nOK",
+      "check_seconds": 0.200904424,
+      "cost_usd": 0.071581,
+      "id": "devops-makefile",
+      "language": "make",
+      "outcome": "done",
+      "refused": 1,
+      "requests": 6,
+      "solved": true,
+      "tokens": {
+        "cache_read": 33940,
+        "cache_write": 2777,
+        "input": 12,
+        "output": 2543
+      },
+      "tools": {
+        "bash": 3,
+        "write": 1
+      },
+      "turns": 1
+    },
+    {
+      "agent_seconds": 23.313981174,
+      "category": "devops",
+      "check_output": "/tmp/dxtutor-eval-1795742224/projects/devops-strict-shell/check_backup.py:18: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpc5mzq8f4/my data/sub dir/a file.txt' mode='w' encoding='UTF-8'>\n  open(os.path.join(src, \"sub dir\", \"a file.txt\"), \"w\").write(\"x\")\nResourceWarning: Enable tracemalloc to get the object allocation traceback\n../tmp/dxtutor-eval-1795742224/projects/devops-strict-shell/check_backup.py:12: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/dxtutor-eval-1795742224/projects/devops-strict-shell/scripts/backup.sh' mode='r' encoding='UTF-8'>\n  self.assertIn(\"set -euo pipefail\", open(SCRIPT).read())\nResourceWarning: Enable tracemalloc to get the object allocation traceback\n.\n----------------------------------------------------------------------\nRan 3 tests in 0.019s\n\nOK",
+      "check_seconds": 0.101002321,
+      "cost_usd": 0.0722926,
+      "id": "devops-strict-shell",
+      "language": "shell",
+      "outcome": "done",
+      "refused": 1,
+      "requests": 6,
+      "solved": true,
+      "tokens": {
+        "cache_read": 32498,
+        "cache_write": 2937,
+        "input": 12,
+        "output": 2553
+      },
+      "tools": {
+        "bash": 1,
+        "grep": 1,
+        "read": 1,
+        "write": 1
+      },
+      "turns": 1
+    },
+    {
+      "agent_seconds": 46.57136111,
+      "category": "feature",
+      "check_output": "ok  \texample.com/task/retry\t0.003s",
+      "check_seconds": 0.201017081,
+      "cost_usd": 0.1583302,
+      "id": "go-backoff",
+      "language": "go",
+      "outcome": "done",
+      "refused": 0,
+      "requests": 6,
+      "solved": true,
+      "tokens": {
+        "cache_read": 42786,
+        "cache_write": 6573,
+        "input": 12,
+        "output": 5843
+      },
+      "tools": {
+        "bash": 1,
+        "edit": 1,
+        "read": 2,
+        "run_tests": 3,
+        "write": 4
+      },
+      "turns": 1
+    },
+    {
+      "agent_seconds": 31.198614862,
+      "category": "feature",
+      "check_output": "ok  \texample.com/task/server\t0.005s",
+      "check_seconds": 0.30104516,
+      "cost_usd": 0.10068039999999998,
+      "id": "go-healthz",
+      "language": "go",
+      "outcome": "done",
+      "refused": 0,
+      "requests": 7,
+      "solved": true,
+      "tokens": {
+        "cache_read": 44522,
+        "cache_write": 4108,
+        "input": 14,
+        "output": 3559
+      },
+      "tools": {
+        "bash": 3,
+        "read": 2,
+        "write": 3
+      },
+      "turns": 1
+    },
+    {
+      "agent_seconds": 30.883469779,
+      "category": "bugfix",
+      "check_output": "ok  \texample.com/task/config\t0.003s",
+      "check_seconds": 0.201322219,
+      "cost_usd": 0.0860936,
+      "id": "go-parse-kv",
+      "language": "go",
+      "outcome": "done",
+      "refused": 0,
+      "requests": 6,
+      "solved": true,
+      "tokens": {
+        "cache_read": 36028,
+        "cache_write": 3516,
+        "input": 12,
+        "output": 3063
+      },
+      "tools": {
+        "bash": 1,
+        "glob": 1,
+        "read": 2,
+        "run_tests": 1,
+        "write": 2
+      },
+      "turns": 1
+    },
+    {
+      "agent_seconds": 40.388136388,
+      "category": "bugfix",
+      "check_output": "ok  \texample.com/task/queue\t0.022s",
+      "check_seconds": 0.301142429,
+      "cost_usd": 0.1232744,
+      "id": "go-queue-empty",
+      "language": "go",
+      "outcome": "done",
+      "refused": 0,
+      "requests": 7,
+      "solved": true,
+      "tokens": {
+        "cache_read": 43017,
+        "cache_write": 5023,
+        "input": 14,
+        "output": 4475
+      },
+      "tools": {
+        "bash": 3,
+        "edit": 1,
+        "read": 2,
+        "write": 2
+      },
+      "turns": 1
+    },
+    {
+      "agent_seconds": 32.276261,
+      "category": "feature",
+      "check_output": "ok  \texample.com/task/text\t0.005s",
+      "check_seconds": 0.602091569,
+      "cost_usd": 0.1052636,
+      "id": "go-word-wrap",
+      "language": "go",
+      "outcome": "done",
+      "refused": 0,
+      "requests": 7,
+      "solved": true,
+      "tokens": {
+        "cache_read": 42963,
+        "cache_write": 4651,
+        "input": 14,
+        "output": 3668
+      },
+      "tools": {
+        "bash": 2,
+        "read": 2,
+        "run_tests": 1,
+        "write": 4
+      },
+      "turns": 1
+    },
+    {
+      "agent_seconds": 29.279189124,
+      "category": "feature",
+      "check_output": "✔ calls once after wait with the latest args (5.570059ms)\n✔ separate bursts produce separate calls (0.652314ms)\n✔ cancel drops the pending call (0.534142ms)\n✔ flush runs the pending call now, once (0.574968ms)\n✔ preserves this (2.230236ms)\n✔ defaults to global timers (30.930248ms)\n✔ returns a function (1.897774ms)\nℹ tests 9\nℹ suites 0\nℹ pass 9\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 163.235401",
+      "check_seconds": 0.301516925,
+      "cost_usd": 0.0989884,
+      "id": "js-debounce",
+      "language": "javascript",
+      "outcome": "done",
+      "refused": 0,
+      "requests": 6,
+      "solved": true,
+      "tokens": {
+        "cache_read": 34102,
+        "cache_write": 4120,
+        "input": 12,
+        "output": 3576
+      },
+      "tools": {
+        "bash": 1,
+        "read": 2,
+        "run_tests": 1,
+        "write": 3
+      },
+      "turns": 1
+    },
+    {
+      "agent_seconds": 24.650894617,
+      "category": "bugfix",
+      "check_output": "✔ primitives (3.255813ms)\n✔ dates compare by time (0.409731ms)\n✔ arrays vs objects are never equal (0.308143ms)\n✔ arrays (0.396953ms)\n✔ undefined-valued keys count (0.458704ms)\n✔ key order does not matter; nested (0.762652ms)\n✔ objects (3.121056ms)\nℹ tests 8\nℹ suites 0\nℹ pass 8\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 205.200267",
+      "check_seconds": 0.302079396,
+      "cost_usd": 0.0774636,
+      "id": "js-deep-equal",
+      "language": "javascript",
+      "outcome": "done",
+      "refused": 0,
+      "requests": 5,
+      "solved": true,
+      "tokens": {
+        "cache_read": 27943,
+        "cache_write": 3491,
+        "input": 10,
+        "output": 2719
+      },
+      "tools": {
+        "glob": 1,
+        "grep": 1,
+        "read": 2,
+        "run_tests": 1,
+        "write": 2
+      },
+      "turns": 1
+    },
+    {
+      "agent_seconds": 25.329111649,
+      "category": "feature",
+      "check_output": "✔ once listener does not re-run on a nested emit (0.865213ms)\n✔ once listeners don't cause the next listener to be skipped (3.694292ms)\n✔ removing itself during emit doesn't skip the next listener (0.854068ms)\n✔ a listener removed during emit is not called in that emit (0.68515ms)\n✔ listeners added during emit run only from the next emit (0.849005ms)\n✔ off removes one registration at a time (0.880922ms)\n✔ on and emit (6.081304ms)\nℹ tests 12\nℹ suites 0\nℹ pass 12\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 349.105935",
+      "check_seconds": 0.607482437,
+      "cost_usd": 0.078659,
+      "id": "js-emitter-once",
+      "language": "javascript",
+      "outcome": "done",
+      "refused": 0,
+      "requests": 5,
+      "solved": true,
+      "tokens": {
+        "cache_read": 27470,
+        "cache_write": 3433,
+        "input": 10,
+        "output": 2798
+      },
+      "tools": {
+        "glob": 1,
+        "read": 2,
+        "run_tests": 1,
+        "write": 2
+      },
+      "turns": 1
+    },
+    {
+      "agent_seconds": 26.54095163,
+      "category": "feature",
+      "check_output": "✔ exact multiple of size (0.81576ms)\n✔ empty list has one empty page (0.725968ms)\n✔ page past the last returns empty items with real pages (1.063665ms)\n✔ accepts numeric strings from the query string (4.585499ms)\n✔ rejects invalid page/size with RangeError (3.764322ms)\n✔ does not mutate the input (0.717792ms)\n✔ module loads (4.8017ms)\nℹ tests 10\nℹ suites 0\nℹ pass 10\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 520.313524",
+      "check_seconds": 0.811207404,
+      "cost_usd": 0.098524,
+      "id": "js-paginate",
+      "language": "javascript",
+      "outcome": "done",
+      "refused": 0,
+      "requests": 6,
+      "solved": true,
+      "tokens": {
+        "cache_read": 40780,
+        "cache_write": 6336,
+        "input": 12,
+        "output": 2932
+      },
+      "tools": {
+        "bash": 1,
+        "read": 2,
+        "run_tests": 2,
+        "write": 3
+      },
+      "turns": 1
+    },
+    {
+      "agent_seconds": 15.335167241,
+      "category": "bugfix",
+      "check_output": "✔ repeated keys, spaces and escapes (7.020706ms)\n✔ simple (8.170215ms)\nℹ tests 2\nℹ suites 0\nℹ pass 2\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 338.19051",
+      "check_seconds": 0.60358875,
+      "cost_usd": 0.045834,
+      "id": "js-query-string",
+      "language": "javascript",
+      "outcome": "done",
+      "refused": 0,
+      "requests": 3,
+      "solved": true,
+      "tokens": {
+        "cache_read": 15275,
+        "cache_write": 2095,
+        "input": 6,
+        "output": 1614
+      },
+      "tools": {
+        "bash": 1,
+        "grep": 1,
+        "read": 1,
+        "run_tests": 1,
+        "write": 1
+      },
+      "turns": 1
+    },
+    {
+      "agent_seconds": 51.729839006,
+      "category": "feature",
+      "check_output": "✔ comparators (0.19489ms)\n✔ comparators combined with spaces (AND) (0.150864ms)\n✔ alternatives with || (0.187161ms)\n✔ wildcard (0.142809ms)\n✔ invalid version throws TypeError (0.50805ms)\n✔ invalid range throws TypeError (0.425622ms)\n✔ module loads (1.795584ms)\nℹ tests 13\nℹ suites 0\nℹ pass 13\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 83.391597",
+      "check_seconds": 0.200924785,
+      "cost_usd": 0.1687886,
+      "id": "js-semver-range",
+      "language": "javascript",
+      "outcome": "done",
+      "refused": 0,
+      "requests": 7,
+      "solved": true,
+      "tokens": {
+        "cache_read": 45488,
+        "cache_write": 6663,
+        "input": 14,
+        "output": 6316
+      },
+      "tools": {
+        "bash": 2,
+        "read": 1,
+        "run_tests": 1,
+        "write": 3
+      },
+      "turns": 1
+    },
+    {
+      "agent_seconds": 23.479472423,
+      "category": "bugfix",
+      "check_output": "✔ simple (0.746278ms)\n✔ escapes HTML in values (0.111101ms)\n✔ dotted paths and whitespace inside braces (0.097056ms)\n✔ missing values render empty (0.117149ms)\n✔ falsy but present values render (0.603766ms)\n✔ triple braces insert raw (0.108506ms)\n✔ values are not re-scanned for placeholders (0.091091ms)\nℹ tests 8\nℹ suites 0\nℹ pass 8\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 60.4535",
+      "check_seconds": 0.100832454,
+      "cost_usd": 0.0633774,
+      "id": "js-template",
+      "language": "javascript",
+      "outcome": "done",
+      "refused": 0,
+      "requests": 4,
+      "solved": true,
+      "tokens": {
+        "cache_read": 20627,
+        "cache_write": 2776,
+        "input": 8,
+        "output": 2267
+      },
+      "tools": {
+        "edit": 1,
+        "glob": 1,
+        "read": 2,
+        "run_tests": 1,
+        "write": 1
+      },
+      "turns": 1
+    },
+    {
+      "agent_seconds": 57.825901797,
+      "category": "platform",
+      "check_output": "/tmp/dxtutor-eval-1795742224/projects/platform-tf-secret/check_tf.py:18: ResourceWarning: unclosed file <_io.TextIOWrapper name='main.tf' mode='r' encoding='UTF-8'>\n  self.tf = \"\".join(open(f).read() + \"\\n\" for f in sorted(os.listdir(\".\")) if f.endswith(\".tf\"))\nResourceWarning: Enable tracemalloc to get the object allocation traceback\n/tmp/dxtutor-eval-1795742224/projects/platform-tf-secret/check_tf.py:39: ResourceWarning: unclosed file <_io.TextIOWrapper name='terraform.tfvars.example' mode='r' encoding='UTF-8'>\n  ex = open(\"terraform.tfvars.example\").read()\nResourceWarning: Enable tracemalloc to get the object allocation traceback\n...\n----------------------------------------------------------------------\nRan 3 tests in 0.004s\n\nOK",
+      "check_seconds": 0.10084243,
+      "cost_usd": 0.0660936,
+      "id": "platform-tf-secret",
+      "language": "terraform",
+      "outcome": "done",
+      "refused": 1,
+      "requests": 6,
+      "solved": true,
+      "tokens": {
+        "cache_read": 36453,
+        "cache_write": 3215,
+        "input": 12,
+        "output": 2134
+      },
+      "tools": {
+        "bash": 2,
+        "edit": 2,
+        "git_status": 1,
+        "read": 1,
+        "suggest": 1,
+        "write": 2
+      },
+      "turns": 1
+    },
+    {
+      "agent_seconds": 63.118113873,
+      "category": "feature",
+      "check_output": "----------------------------------------------------------------------\nRan 12 tests in 0.002s\n\nOK",
+      "check_seconds": 0.203534535,
+      "cost_usd": 0.20112460000000001,
+      "id": "py-cron-next",
+      "language": "python",
+      "outcome": "done",
+      "refused": 0,
+      "requests": 7,
+      "solved": true,
+      "tokens": {
+        "cache_read": 51343,
+        "cache_write": 8032,
+        "input": 14,
+        "output": 7532
+      },
+      "tools": {
+        "bash": 3,
+        "read": 2,
+        "run_tests": 2,
+        "write": 4
+      },
+      "turns": 1
+    },
+    {
+      "agent_seconds": 69.315953415,
+      "category": "feature",
+      "check_output": "----------------------------------------------------------------------\nRan 13 tests in 0.000s\n\nOK",
+      "check_seconds": 0.101205559,
+      "cost_usd": 0.20484480000000002,
+      "id": "py-flatten",
+      "language": "python",
+      "outcome": "done",
+      "refused": 0,
+      "requests": 7,
+      "solved": true,
+      "tokens": {
+        "cache_read": 51394,
+        "cache_write": 7838,
+        "input": 14,
+        "output": 7766
+      },
+      "tools": {
+        "bash": 1,
+        "edit": 1,
+        "read": 2,
+        "run_tests": 1,
+        "write": 2
+      },
+      "turns": 1
+    },
+    {
+      "agent_seconds": 35.119501191,
+      "category": "sre",
+      "check_output": "----------------------------------------------------------------------\nRan 11 tests in 0.000s\n\nOK",
+      "check_seconds": 0.100986386,
+      "cost_usd": 0.1220978,
+      "id": "py-log-slo",
+      "language": "python",
+      "outcome": "done",
+      "refused": 0,
+      "requests": 6,
+      "solved": true,
+      "tokens": {
+        "cache_read": 41199,
+        "cache_write": 6474,
+        "input": 12,
+        "output": 4072
+      },
+      "tools": {
+        "bash": 1,
+        "read": 2,
+        "run_tests": 2,
+        "write": 3
+      },
+      "turns": 1
+    },
+    {
+      "agent_seconds": 12.597908517,
+      "category": "bugfix",
+      "check_output": "----------------------------------------------------------------------\nRan 8 tests in 0.000s\n\nOK",
+      "check_seconds": 0.100878328,
+      "cost_usd": 0.0379902,
+      "id": "py-merge-intervals",
+      "language": "python",
+      "outcome": "done",
+      "refused": 0,
+      "requests": 4,
+      "solved": true,
+      "tokens": {
+        "cache_read": 20766,
+        "cache_write": 1769,
+        "input": 8,
+        "output": 1248
+      },
+      "tools": {
+        "edit": 1,
+        "grep": 1,
+        "read": 2,
+        "run_tests": 1,
+        "write": 1
+      },
+      "turns": 1
+    },
+    {
+      "agent_seconds": 23.817177167,
+      "category": "feature",
+      "check_output": "----------------------------------------------------------------------\nRan 11 tests in 0.001s\n\nOK",
+      "check_seconds": 0.101088766,
+      "cost_usd": 0.0818924,
+      "id": "py-retry",
+      "language": "python",
+      "outcome": "done",
+      "refused": 0,
+      "requests": 5,
+      "solved": true,
+      "tokens": {
+        "cache_read": 28937,
+        "cache_write": 4221,
+        "input": 10,
+        "output": 2748
+      },
+      "tools": {
+        "bash": 3,
+        "read": 1,
+        "run_tests": 2,
+        "write": 2
+      },
+      "turns": 1
+    },
+    {
+      "agent_seconds": 25.360005477,
+      "category": "feature",
+      "check_output": "----------------------------------------------------------------------\nRan 4 tests in 0.027s\n\nOK",
+      "check_seconds": 0.201245831,
+      "cost_usd": 0.0814784,
+      "id": "py-roman",
+      "language": "python",
+      "outcome": "done",
+      "refused": 0,
+      "requests": 6,
+      "solved": true,
+      "tokens": {
+        "cache_read": 34227,
+        "cache_write": 3193,
+        "input": 12,
+        "output": 2931
+      },
+      "tools": {
+        "bash": 2,
+        "read": 2,
+        "run_tests": 1,
+        "write": 2
+      },
+      "turns": 1
+    },
+    {
+      "agent_seconds": 17.091299494,
+      "category": "bugfix",
+      "check_output": "----------------------------------------------------------------------\nRan 8 tests in 0.000s\n\nOK",
+      "check_seconds": 0.100796159,
+      "cost_usd": 0.0427468,
+      "id": "py-slugify",
+      "language": "python",
+      "outcome": "done",
+      "refused": 0,
+      "requests": 5,
+      "solved": true,
+      "tokens": {
+        "cache_read": 27184,
+        "cache_write": 1866,
+        "input": 10,
+        "output": 1397
+      },
+      "tools": {
+        "edit": 1,
+        "grep": 1,
+        "read": 2,
+        "run_tests": 1,
+        "write": 1
+      },
+      "turns": 1
+    },
+    {
+      "agent_seconds": 34.215107746,
+      "category": "bugfix",
+      "check_output": "----------------------------------------------------------------------\nRan 8 tests in 0.001s\n\nOK",
+      "check_seconds": 0.101181372,
+      "cost_usd": 0.10944820000000001,
+      "id": "py-split-bill",
+      "language": "python",
+      "outcome": "done",
+      "refused": 0,
+      "requests": 7,
+      "solved": true,
+      "tokens": {
+        "cache_read": 41636,
+        "cache_write": 4489,
+        "input": 14,
+        "output": 3931
+      },
+      "tools": {
+        "bash": 2,
+        "edit": 2,
+        "read": 2,
+        "run_tests": 2,
+        "write": 2
+      },
+      "turns": 1
+    },
+    {
+      "agent_seconds": 21.477759939,
+      "category": "bugfix",
+      "check_output": "\nrunning 2 tests\n..\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 5 tests\n.....\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n",
+      "check_seconds": 0.502273255,
+      "cost_usd": 0.06478439999999999,
+      "id": "rust-csv-quotes",
+      "language": "rust",
+      "outcome": "done",
+      "refused": 0,
+      "requests": 5,
+      "solved": true,
+      "tokens": {
+        "cache_read": 27372,
+        "cache_write": 2890,
+        "input": 10,
+        "output": 2241
+      },
+      "tools": {
+        "bash": 1,
+        "edit": 1,
+        "edit_lines": 1,
+        "grep": 1,
+        "read": 2,
+        "run_tests": 1
+      },
+      "turns": 1
+    },
+    {
+      "agent_seconds": 22.951458705,
+      "category": "feature",
+      "check_output": "\nrunning 2 tests\n..\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 1 test\n.\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n",
+      "check_seconds": 0.5018825,
+      "cost_usd": 0.0673318,
+      "id": "rust-env-config",
+      "language": "rust",
+      "outcome": "done",
+      "refused": 0,
+      "requests": 6,
+      "solved": true,
+      "tokens": {
+        "cache_read": 34044,
+        "cache_write": 2767,
+        "input": 12,
+        "output": 2332
+      },
+      "tools": {
+        "bash": 1,
+        "edit": 1,
+        "read": 2,
+        "run_tests": 1
+      },
+      "turns": 1
+    },
+    {
+      "agent_seconds": 21.281233568,
+      "category": "bugfix",
+      "check_output": "\nrunning 4 tests\n....\ntest result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 1 test\n.\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n",
+      "check_seconds": 0.40157264,
+      "cost_usd": 0.064462,
+      "id": "rust-lru-recency",
+      "language": "rust",
+      "outcome": "done",
+      "refused": 0,
+      "requests": 6,
+      "solved": true,
+      "tokens": {
+        "cache_read": 34395,
+        "cache_write": 3139,
+        "input": 12,
+        "output": 2092
+      },
+      "tools": {
+        "bash": 1,
+        "edit_lines": 1,
+        "grep": 1,
+        "read": 2,
+        "run_tests": 1
+      },
+      "turns": 1
+    },
+    {
+      "agent_seconds": 24.993067892,
+      "category": "feature",
+      "check_output": "\nrunning 2 tests\n..\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 3 tests\n...\ntest result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n",
+      "check_seconds": 0.501257558,
+      "cost_usd": 0.07730420000000002,
+      "id": "rust-parse-duration",
+      "language": "rust",
+      "outcome": "done",
+      "refused": 0,
+      "requests": 5,
+      "solved": true,
+      "tokens": {
+        "cache_read": 28021,
+        "cache_write": 3360,
+        "input": 10,
+        "output": 2743
+      },
+      "tools": {
+        "edit": 1,
+        "edit_lines": 1,
+        "grep": 1,
+        "read": 2,
+        "run_tests": 1
+      },
+      "turns": 1
+    },
+    {
+      "agent_seconds": 39.911807187,
+      "category": "feature",
+      "check_output": "\nrunning 3 tests\n...\ntest result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n",
+      "check_seconds": 0.401635279,
+      "cost_usd": 0.1049378,
+      "id": "rust-rate-limiter",
+      "language": "rust",
+      "outcome": "done",
+      "refused": 0,
+      "requests": 4,
+      "solved": true,
+      "tokens": {
+        "cache_read": 20804,
+        "cache_write": 4269,
+        "input": 8,
+        "output": 3970
+      },
+      "tools": {
+        "glob": 1,
+        "read": 2,
+        "run_tests": 1,
+        "write": 1
+      },
+      "turns": 1
+    },
+    {
+      "agent_seconds": 15.938603202,
+      "category": "bugfix",
+      "check_output": "\nrunning 2 tests\n..\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 3 tests\n...\ntest result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n",
+      "check_seconds": 0.602111443,
+      "cost_usd": 0.0474616,
+      "id": "rust-ring-buffer",
+      "language": "rust",
+      "outcome": "done",
+      "refused": 0,
+      "requests": 5,
+      "solved": true,
+      "tokens": {
+        "cache_read": 27183,
+        "cache_write": 2485,
+        "input": 10,
+        "output": 1478
+      },
+      "tools": {
+        "edit": 2,
+        "grep": 1,
+        "read": 2,
+        "run_tests": 1
+      },
+      "turns": 1
+    },
+    {
+      "agent_seconds": 41.146203491,
+      "category": "feature",
+      "check_output": "\nrunning 2 tests\n..\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 1 test\n.\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n",
+      "check_seconds": 0.601865101,
+      "cost_usd": 0.11676700000000001,
+      "id": "rust-semver-order",
+      "language": "rust",
+      "outcome": "done",
+      "refused": 0,
+      "requests": 7,
+      "solved": true,
+      "tokens": {
+        "cache_read": 41380,
+        "cache_write": 4659,
+        "input": 14,
+        "output": 4257
+      },
+      "tools": {
+        "bash": 1,
+        "outline": 1,
+        "read": 2,
+        "run_tests": 1,
+        "write": 1
+      },
+      "turns": 1
+    },
+    {
+      "agent_seconds": 21.972627578,
+      "category": "refactor",
+      "check_output": "\nrunning 2 tests\n..\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n",
+      "check_seconds": 0.401562189,
+      "cost_usd": 0.0695284,
+      "id": "rust-word-freq",
+      "language": "rust",
+      "outcome": "done",
+      "refused": 0,
+      "requests": 4,
+      "solved": true,
+      "tokens": {
+        "cache_read": 21782,
+        "cache_write": 3240,
+        "input": 8,
+        "output": 2447
+      },
+      "tools": {
+        "bash": 1,
+        "grep": 1,
+        "read": 2,
+        "run_tests": 1,
+        "write": 2
+      },
+      "turns": 1
+    }
+  ],
+  "summary": {
+    "agent_seconds": 1048.7972129629998,
+    "by_category": {
+      "bugfix": [
+        11,
+        11
+      ],
+      "devops": [
+        3,
+        3
+      ],
+      "feature": [
+        15,
+        15
+      ],
+      "platform": [
+        1,
+        1
+      ],
+      "refactor": [
+        1,
+        1
+      ],
+      "sre": [
+        1,
+        1
+      ]
+    },
+    "by_language": {
+      "dockerfile": [
+        1,
+        1
+      ],
+      "go": [
+        5,
+        5
+      ],
+      "javascript": [
+        7,
+        7
+      ],
+      "make": [
+        1,
+        1
+      ],
+      "python": [
+        8,
+        8
+      ],
+      "rust": [
+        8,
+        8
+      ],
+      "shell": [
+        1,
+        1
+      ],
+      "terraform": [
+        1,
+        1
+      ]
+    },
+    "cost_usd": 3.0278466,
+    "rate": 1.0,
+    "solved": 32,
+    "tasks": 32,
+    "tokens": {
+      "cache_read": 1127653,
+      "cache_write": 131284,
+      "input": 374,
+      "output": 107220
+    }
+  }
+}

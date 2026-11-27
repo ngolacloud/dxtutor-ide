@@ -1,0 +1,9 @@
+{
+  "id": "py-retry",
+  "title": "Retry with exponential backoff",
+  "language": "python",
+  "category": "feature",
+  "prompt": "Calls to the payment provider fail now and then. Implement the `retry` decorator in app/retry.py: it retries the\nwrapped function when it raises one of `exceptions` (default `(Exception,)`), up to `attempts` calls in total, waiting\n`base_delay * 2**n` seconds before the n-th retry (n from 0), capped at `max_delay`. The sleep function is injectable\n(`sleep=time.sleep`) so tests do not wait. Other exceptions propagate at once; after the last attempt the last error is\nre-raised. The wrapped function keeps its name and docstring.",
+  "check": "python3 -m unittest discover -s tests -q 2>&1",
+  "test": "python3 -m unittest discover -s tests -q"
+}

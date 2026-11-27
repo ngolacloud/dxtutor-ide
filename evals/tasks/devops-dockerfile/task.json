@@ -1,0 +1,8 @@
+{
+  "id": "devops-dockerfile",
+  "title": "Harden the service's Dockerfile",
+  "language": "dockerfile",
+  "category": "devops",
+  "prompt": "Security review of our Dockerfile: it uses `python:latest`, runs as root, has no health check and bakes the database\npassword into the image. Harden it: pin the base image to a specific tag (keep Python 3.12, slim), run as a non-root\nuser, add a `HEALTHCHECK` that hits `http://localhost:8000/healthz`, and remove the secret from the image (the password\ncomes from the environment at run time). The app must still start with `python app.py`.",
+  "check": "python3 check_dockerfile.py 2>&1"
+}

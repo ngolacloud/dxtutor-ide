@@ -1,0 +1,9 @@
+{
+  "id": "js-semver-range",
+  "title": "Check versions against ranges",
+  "language": "javascript",
+  "category": "feature",
+  "prompt": "The plugin installer must check a plugin's version against the range its manifest asks for. Implement\n`satisfies(version, range)` in src/semver.js for plain `MAJOR.MINOR.PATCH` versions and these ranges: an exact\nversion, `^x.y.z` (same major; for 0.y.z same minor), `~x.y.z` (same major and minor), comparators `>`, `>=`, `<`,\n`<=` combined with spaces (all must hold), `||` between alternatives, and `*`. Invalid input throws a `TypeError`.",
+  "check": "node --test 2>&1",
+  "test": "node --test"
+}

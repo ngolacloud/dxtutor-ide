@@ -1,0 +1,8 @@
+{
+  "id": "platform-tf-secret",
+  "title": "The database password lives in the Terraform code",
+  "language": "terraform",
+  "category": "platform",
+  "prompt": "The platform review flagged `main.tf`: the database password is a variable with a default value, not marked\nsensitive, and it is also printed by an output. Fix it: `db_password` has no default and is `sensitive = true` (with a\nvalidation that it is at least 16 characters), the `aws_db_instance` keeps using it, the output that exposed it goes\naway, and add a `terraform.tfvars.example` that shows the variable with a placeholder value (never a real password).\nKeep the other variables and resources as they are.",
+  "check": "python3 check_tf.py 2>&1"
+}
