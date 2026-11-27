@@ -604,15 +604,36 @@ impl Sandbox {
             return;
         }
         let unit = format!("{SLICE_PREFIX}{run}.slice");
-        let path = PathBuf::from(format!(
-            "/sys/fs/cgroup/user.slice/user-{0}.slice/user@{0}.service/dxtutor.slice/dxtutor-sbx.slice/{unit}",
+        let parent = PathBuf::from(format!(
+            "/sys/fs/cgroup/user.slice/user-{0}.slice/user@{0}.service/dxtutor.slice",
             uid()
         ));
+        let sbx = parent.join("dxtutor-sbx.slice");
+        let path = sbx.join(&unit);
         if path.is_dir() {
             let _ = std::fs::write(path.join("cgroup.kill"), "1");
         }
+        let mut units = vec![unit.clone()];
+        // As fatias-mãe (`dxtutor-sbx.slice`, `dxtutor.slice`) só se param vazias: nenhuma outra
+        // corrida (doutra raiz) tem lá uma fatia.
+        let has_other_slice = |dir: &Path, except: &str| {
+            std::fs::read_dir(dir)
+                .map(|rd| {
+                    rd.flatten().any(|e| {
+                        let n = e.file_name().to_string_lossy().into_owned();
+                        n.ends_with(".slice") && n != except && e.path().is_dir()
+                    })
+                })
+                .unwrap_or(false)
+        };
+        if !has_other_slice(&sbx, &unit) {
+            units.push("dxtutor-sbx.slice".into());
+            if !has_other_slice(&parent, "dxtutor-sbx.slice") {
+                units.push("dxtutor.slice".into());
+            }
+        }
         let mut cmd = Command::new("systemctl");
-        cmd.args(["--user", "stop", &unit]);
+        cmd.args(["--user", "stop"]).args(&units);
         self.configure(&mut cmd);
         let _ = run_guarded(
             cmd,
