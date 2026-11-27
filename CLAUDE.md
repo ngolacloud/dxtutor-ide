@@ -928,7 +928,9 @@ cpp, sql.
   utilizador nunca é lido); etiquetas `io.dxtutor.sandbox=<propósito>` + `io.dxtutor.run=<id>`; limpeza
   por etiqueta no fim de cada corrida e dos restos (`grade`) no início, com uma tranca `flock`; os limites
   (`ContainerLimits`: memória, pids, CPU, `--cap-drop=ALL`, `no-new-privileges`, `--pull=never`) confirmam-se
-  num contentor de prova antes de avaliar (precisa da sessão systemd; sem ela, recusa). As imagens base são o
+  num contentor de prova antes de avaliar (precisa da sessão systemd; sem ela, recusa). A sonda pergunta a versão
+  SEM as flags globais e recusa abaixo do Podman 4.4 com o que instalar (o 3.4.4 do Ubuntu 22.04, o do CI, não conhece
+  `--volumepath` nem `--network-config-dir`); os testes reais saltam com o motivo. As imagens base são o
   `[build] dependencies` (`registo/repo:tag@sha256`, `CacheKind::Images`): «Prepare course» faz `podman pull`
   pelo digest + `podman tag` no sandbox; a avaliação confirma o digest e nunca puxa. Os comandos vêm da
   gramática de `tutor_core::podcmd` (build/run/volume create/exec/healthcheck run/inspect/history/logs/stop

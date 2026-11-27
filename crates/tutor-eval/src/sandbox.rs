@@ -70,7 +70,9 @@ pub const LABEL_RUN: &str = "io.dxtutor.run";
 pub const PURPOSE_GRADE: &str = "grade";
 /// Aponta a raiz do sandbox (senão `<cache dos cursos>/.sandbox/podman`).
 pub const ROOT_ENV: &str = "DXTUTOR_SANDBOX_ROOT";
-/// A versão mínima do Podman (`--health-interval=disable`, `rm --filter`, montagens de imagem).
+/// A versão mínima do Podman. As flags globais do sandbox (`--volumepath`, `--network-config-dir`,
+/// as de netavark) não existem no Podman 3 (o 3.4.4 do Ubuntu 22.04 recusa-as); o sandbox foi
+/// validado no 4.9.3 e exige 4.4 ou mais recente ([`check_version`], antes de qualquer comando).
 pub const MIN_PODMAN: (u32, u32) = (4, 4);
 /// O prefixo das fatias systemd das corridas (a hierarquia é `dxtutor.slice/dxtutor-sbx.slice/…`).
 const SLICE_PREFIX: &str = "dxtutor-sbx-";
@@ -463,22 +465,41 @@ impl Sandbox {
 
     /// `podman --version` (sem tocar no armazenamento): `podman version 4.9.3`.
     pub fn version(&self) -> Result<String> {
-        self.ensure()?;
-        let out = self.exec(&["--version".to_string()], Duration::from_secs(15))?;
-        if !out.ok() {
-            bail!("`podman --version` failed: {}", out.stderr.trim());
-        }
-        let v = out.stdout.trim().to_string();
-        if let Some((major, minor)) = parse_version(&v) {
-            if (major, minor) < MIN_PODMAN {
-                bail!(
-                    "{v} is too old: the sandbox needs Podman {}.{} or newer ({})",
-                    MIN_PODMAN.0,
-                    MIN_PODMAN.1,
-                    install_hint()
-                );
+        // SEM as flags globais e sem a configuração do sandbox: um Podman antigo não as conhece
+        // (o 3.4 recusa `--volumepath` e `--network-config-dir`) e responderia com «unknown flag»
+        // em vez da versão. Só o ambiente mínimo, com o HOME do sandbox.
+        let out_dir = tempfile::Builder::new()
+            .prefix("dxtutor-sbx-ver-")
+            .tempdir()
+            .context("create the output folder")?;
+        let mut cmd = Command::new(&self.bin);
+        cmd.arg("--version").current_dir("/").env_clear();
+        for (k, v) in self.env() {
+            if matches!(k.as_str(), "PATH" | "LANG" | "XDG_RUNTIME_DIR") {
+                cmd.env(k, v);
             }
         }
+        // Um HOME vazio e temporário: nem o do utilizador nem o do sandbox (que ainda pode não existir).
+        cmd.env("HOME", out_dir.path());
+        let out = run_guarded(
+            cmd,
+            out_dir.path(),
+            "version",
+            Duration::from_secs(15),
+            None,
+        )
+        .with_context(|| format!("run {} --version", self.bin.display()))?;
+        if out.timed_out || !out.status.map(|s| s.success()).unwrap_or(false) {
+            bail!(
+                "`{} --version` failed: {}. The grading sandbox needs a working rootless Podman {}.{} or newer (https://podman.io/docs/installation).",
+                self.bin.display(),
+                out.stderr.trim(),
+                MIN_PODMAN.0,
+                MIN_PODMAN.1
+            );
+        }
+        let v = out.stdout.trim().to_string();
+        check_version(&v)?;
         Ok(v)
     }
 
@@ -749,6 +770,28 @@ impl Cleaned {
     }
 }
 
+/// Recusa um Podman abaixo de [`MIN_PODMAN`] (ou cuja versão não se lê) com o que instalar, antes
+/// de qualquer comando com as flags do sandbox.
+pub fn check_version(text: &str) -> Result<()> {
+    match parse_version(text) {
+        Some(v) if v >= MIN_PODMAN => Ok(()),
+        Some(_) => bail!(
+            "{} is too old for the grading sandbox: upgrade to Podman {}.{} or newer (validated with 4.9.3). {}",
+            text.trim(),
+            MIN_PODMAN.0,
+            MIN_PODMAN.1,
+            install_hint()
+        ),
+        None => bail!(
+            "cannot read the Podman version from `{}`: the grading sandbox needs Podman {}.{} or newer. {}",
+            text.trim(),
+            MIN_PODMAN.0,
+            MIN_PODMAN.1,
+            install_hint()
+        ),
+    }
+}
+
 /// `podman version 4.9.3` → `(4, 9)`.
 pub fn parse_version(text: &str) -> Option<(u32, u32)> {
     let v = text.split_whitespace().last()?;
@@ -868,10 +911,11 @@ pub mod testing {
             eprintln!("skip: no podman or no static busybox on this machine");
             return None;
         }
-        match Sandbox::at(root) {
+        // A mesma sonda que a avaliação faz primeiro: plataforma, utilizador, sessão systemd e versão.
+        match Sandbox::at(root).and_then(|sb| sb.version().map(|_| sb)) {
             Ok(sb) => Some(sb),
             Err(e) => {
-                eprintln!("skip: {e}");
+                eprintln!("skip: the sandbox cannot run here: {e}");
                 None
             }
         }
@@ -932,6 +976,20 @@ mod tests {
 
     #[test]
     fn versions_parse_and_old_ones_are_spotted() {
+        assert!(check_version("podman version 4.9.3").is_ok());
+        assert!(check_version("podman version 4.4.0").is_ok());
+        assert!(check_version("podman version 5.0.1").is_ok());
+        for old in ["podman version 3.4.4", "podman version 4.3.1"] {
+            let e = check_version(old).unwrap_err().to_string();
+            assert!(
+                e.contains("upgrade to Podman 4.4 or newer") && e.contains("podman.io"),
+                "{e}"
+            );
+        }
+        assert!(check_version("Error: unknown flag: --volumepath")
+            .unwrap_err()
+            .to_string()
+            .contains("4.4 or newer"));
         assert_eq!(parse_version("podman version 4.9.3"), Some((4, 9)));
         assert_eq!(parse_version("podman version 5.2.0-dev"), Some((5, 2)));
         assert_eq!(parse_version("nonsense"), None);
@@ -964,6 +1022,31 @@ mod tests {
     #[test]
     fn toml_strings_are_escaped() {
         assert_eq!(toml_string(r#"/a "b"\c"#), r#""/a \"b\"\\c""#);
+    }
+
+    /// Um Podman 3 (o do Ubuntu 22.04) recusa as flags globais com «unknown flag»: a sonda pergunta
+    /// a versão SEM elas e recusa com o que instalar, nunca com o erro cru do Podman.
+    #[test]
+    fn an_old_podman_is_refused_by_version_not_by_a_flag_error() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let fake = tmp.path().join("podman");
+        std::fs::write(
+            &fake,
+            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'podman version 3.4.4'; exit 0; fi\necho \"Error: unknown flag: $1\" >&2; exit 125\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let Ok(sb) = Sandbox::with_bin(&tmp.path().join("sbx"), &fake) else {
+            return; // sem sessão systemd (CI): `with_bin` já recusa antes, com a sua frase
+        };
+        let e = sb.version().unwrap_err().to_string();
+        assert!(
+            e.contains("podman version 3.4.4 is too old")
+                && e.contains("4.4 or newer")
+                && !e.contains("unknown flag"),
+            "{e}"
+        );
     }
 
     /// Com uma sessão systemd (como nesta máquina): a configuração escrita aponta tudo para a raiz

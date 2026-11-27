@@ -415,6 +415,8 @@ pub fn plan(root: &Path, cache: &CourseCache) -> Result<Plan> {
     if cache.kind() == Some(CacheKind::Images) {
         let l = layout(root, &cache.key)?;
         let sb = crate::sandbox::Sandbox::at(&l.sandbox)?;
+        // A mesma sonda da avaliação: um Podman antigo recusa-se aqui, com o que instalar.
+        sb.version()?;
         return plan_images(root, cache, &sb);
     }
     let python = match cache.kind() {
