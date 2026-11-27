@@ -756,3 +756,30 @@ fn a_human_opens_the_pull_request_with_the_approved_text_only() {
     // nothing autonomous happened
     assert!(events(&w).is_empty());
 }
+
+#[test]
+fn a_functional_approval_before_any_review_stops_at_the_gate() {
+    let w = World::new();
+    delegate(&w, &["review", "integrate"]);
+    w.approve();
+    let before = head(&w);
+    let s = integrate_now(
+        &rig(&w, None).rt,
+        &w.root,
+        &w.key,
+        Trigger::FunctionalApproved,
+    )
+    .unwrap();
+    assert_eq!(
+        (s.outcome.as_str(), s.code.as_str()),
+        ("stopped", "no_review")
+    );
+    assert!(
+        w.state().review.is_none(),
+        "integrating never requests a review"
+    );
+    assert_eq!(head(&w), before);
+    // a stop changes nothing and does not count for the rate
+    let st = ProjectStore::open(&w.db).unwrap();
+    assert_eq!(st.autonomy_actions_since(&w.root, 0).unwrap(), 0);
+}

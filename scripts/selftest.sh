@@ -11,7 +11,12 @@ printf 'fn main() {}\n' > "$T/main.rs"
 git -C "$T" add . && git -C "$T" commit -qm "chore: initial"
 git -C "$T" branch develop
 cargo build -q -p dxtutor-ide
-DXTUTOR_SELFTEST="$T/report.json" ./target/debug/dxtutor-ide "$T"
+# Multi Co-Dev phase 5: a fake gh for the app's pull requests (never the real GitHub): it logs any call and fails;
+# the «autonomy» step checks it was never reached (the gate stays closed without a model)
+G=$(mktemp -d)
+printf '#!/bin/sh\necho "$@" >> "%s/calls"\nexit 3\n' "$G" > "$G/gh"
+chmod +x "$G/gh"
+DXTUTOR_GH="$G/gh" DXTUTOR_SELFTEST="$T/report.json" ./target/debug/dxtutor-ide "$T"
 cat "$T/report.json"
 echo
 git -C "$T" log --all --oneline --graph
