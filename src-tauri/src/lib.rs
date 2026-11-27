@@ -19,6 +19,8 @@ mod bridge;
 pub mod codeintel;
 pub mod codev;
 pub mod codev_agent;
+mod codev_autonomy;
+mod codev_pr;
 mod codev_review;
 mod codev_worktree;
 mod commands;

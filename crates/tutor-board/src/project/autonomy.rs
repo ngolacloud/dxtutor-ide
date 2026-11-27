@@ -728,12 +728,14 @@ impl ProjectStore {
             .optional()?)
     }
 
-    /// How many autonomous actions the folder took since `since` (ms): the ones that did something
-    /// (`started`, `ok`, `failed`) — a stop changed nothing and does not count.
+    /// How many autonomous actions the folder began since `since` (ms): a review requested (its
+    /// `started` step, or a request that failed), an integration or a pull request tried (`ok` or
+    /// `failed`). A stop changed nothing and does not count; a review's end is the same action.
     pub fn autonomy_actions_since(&self, root: &str, since: i64) -> Result<u32, ProjectError> {
         Ok(self.conn.query_row(
-            "SELECT COUNT(*) FROM autonomy_events WHERE root = ?1 AND at >= ?2
-             AND action IN ('review', 'integrate', 'pr') AND outcome IN ('started', 'ok', 'failed')",
+            "SELECT COUNT(*) FROM autonomy_events WHERE root = ?1 AND at >= ?2 AND (
+                 (action = 'review' AND (outcome = 'started' OR code = 'request_failed'))
+              OR (action IN ('integrate', 'pr') AND outcome IN ('ok', 'failed')))",
             params![root, since],
             |r| r.get::<_, i64>(0),
         )? as u32)
