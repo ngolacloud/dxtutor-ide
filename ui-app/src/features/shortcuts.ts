@@ -29,6 +29,11 @@ interface ShortcutGlobals {
 }
 const G = window as unknown as ShortcutGlobals;
 
+/** O foco está no editor de um ficheiro (a textarea da vista `file`, com a chave em `data-path`): aí o Ctrl+Shift+A
+ *  é o Toggle Block Comment do editor (LSP P5), como no VS Code no Linux (noutro sítio abre o assistente), e o
+ *  Shift+Alt+F é do formatador do servidor de linguagem quando ele está ligado. */
+const inFileEditor = (e: KeyboardEvent): boolean => e.target instanceof HTMLTextAreaElement && e.target.id === "ed-ta" && !!e.target.dataset.path;
+
 /** Instante em que se carregou Ctrl+K (0 = sem acorde pendente). */
 let CHORD = 0;
 const chordLabel = (t: string): void => { ($("#st-chord") as HTMLElement).textContent = t; };
@@ -51,7 +56,10 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "F5") return go(() => startDebug()); if (e.key === "F10") return go(dbgStep); if (e.key === "F11") return go(dbgStepInto);
   if (e.key === "F9") { const t = G.tabOf(G.cur), ta = $("#ed-ta") as HTMLTextAreaElement | null; if (t && t.path && ta) go(() => toggleBp(t.path as string, ta.value.slice(0, ta.selectionStart).split("\n").length)); return; }
   if (c && e.shiftKey && k === "d") return go(() => G.goPane("debug")); if (c && e.shiftKey && k === "x") return go(() => G.goPane("ext")); if (c && e.shiftKey && k === "t") return go(() => G.goPane("tasks"));
-  if (e.shiftKey && e.altKey && k === "f") return go(() => G.vsxFmt()); /* Format Document do dxtutor, sempre (era só com o «Prettier» instalado — ADR-0006, R6b) */
+  /* Format Document do dxtutor, sempre (era só com o «Prettier» instalado — ADR-0006, R6b). No editor de um ficheiro, com o
+     formatador do servidor de linguagem ligado (desktop com pasta), a tecla é dele — que cai neste quando não há servidor
+     (LSP P5; antes corriam os dois: este primeiro, porque o listener dele vem depois deste no mesmo nó) */
+  if (e.shiftKey && e.altKey && k === "f") { if (inFileEditor(e) && services.lspFormat?.handles()) return; return go(() => G.vsxFmt()); }
 }, true);
 
 export {};
@@ -72,6 +80,6 @@ document.addEventListener('keydown',e=>{const k=e.key.toLowerCase(),c=e.ctrlKey|
   if(services.panel?.termOwnsKey(e))return;/* foco num terminal real (features/panel): a tecla é da shell */
   if(e.key==='Escape'){if($('#pal')!.classList.contains('show'))closePal();closeMenus();$('#notes')!.classList.remove('show');return;}
   if(e.key==='F1'||(c&&e.shiftKey&&k==='p'))go(()=>KW.palette('>'));else if(e.key==='F8')go(nextProblem);
-  else if(c&&e.shiftKey){if(k==='e')go(()=>KW.goPane('explorer'));else if(k==='f')go(cmd('Ver: Pesquisa'));else if(k==='g')go(()=>KW.goPane('scm'));else if(k==='m')go(()=>KW.setPanelTab('problems'));else if(k==='a')go(()=>KW.goPane('codev'));}
+  else if(c&&e.shiftKey){if(k==='e')go(()=>KW.goPane('explorer'));else if(k==='f')go(cmd('Ver: Pesquisa'));else if(k==='g')go(()=>KW.goPane('scm'));else if(k==='m')go(()=>KW.setPanelTab('problems'));else if(k==='a'&&!inFileEditor(e))go(()=>KW.goPane('codev'));}
   else if(c){if(k==='p')go(()=>KW.palette(''));else if(k==='b')go(KW.toggleSide);else if(k==='j')go(KW.togglePanel);else if(k==='`')go(()=>KW.setPanelTab('terminal'));else if(k===',')go(openSettings);else if(k==='l')go(()=>KW.focusAgent());else if(k==='g')go(()=>KW.palette(':'));else if(k==='s')go(()=>KW.toast('Auto Save activo — já está guardado'));}
 },true);

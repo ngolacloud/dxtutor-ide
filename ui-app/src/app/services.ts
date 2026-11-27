@@ -84,6 +84,9 @@ export interface Services {
   proposals: Pick<typeof CodevIndex, "proposeInEditor">;
   /** r23 F4c2: o deploy guiado (features/deploy, que avalia depois da infra): o «Promote»/«Redeploy» abrem-no */
   deploy: { open: (env: string) => void; recent: () => DeployRecord[] };
+  /** LSP P5: o Shift+Alt+F do editor é do formatador do servidor de linguagem (features/lsp, só desktop com pasta), que
+   *  cai no «Format Document» do dxtutor quando não há servidor; os atalhos globais, que avaliam antes, perguntam-lhe */
+  lspFormat: { handles: () => boolean };
   /** Multi Co-Dev (fase 4): o que o painel de revisão precisa do Co-Dev (features/codev/index.ts) — o provedor e o
    *  modelo com que o revisor corre, e fechar a sessão de uma issue integrada (as reservas e a worktree saem pelas
    *  regras da fase 3) */

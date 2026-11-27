@@ -115,6 +115,9 @@ export interface ExtDeps {
   /** Contribuições declarativas (temas, gramáticas, snippets…) — Fase 4. Opcional: sem
    *  ela o VSIX instala-se só com o manifesto, como antes. */
   contrib?: import("./contributions-engine").ContribEngine;
+  /** O «Format Document» sem servidor (LSP P5): só o que é seguro — espaços no fim, a indentação no
+   *  estilo do próprio ficheiro, a quebra de linha final — e a frase que diz o que fez. */
+  formatter: { format(path: string, text: string): { text: string; changed: boolean; message: string } };
 }
 
 /** A parte desktop das extensões (ADR-0004, U4h5b), injectada em `desktopPorts.ext`: o JSZip vem

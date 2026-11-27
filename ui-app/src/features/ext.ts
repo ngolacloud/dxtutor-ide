@@ -39,9 +39,11 @@ import { makeContribEngine } from "./ext/application/contributions-engine";
 import { isDesktop } from "../platform/tauri/core";
 import { fetchOpenVsx, searchOpenVsx } from "../platform/tauri/extensions";
 import { bindActions } from "./ext/ui/actions";
-import { languageConflicts, toggleBlockComment, toggleLineComment, type ExtensionContributions } from "./ext/domain/contributions";
+import { languageConflicts, toggleLineComment, type ExtensionContributions } from "./ext/domain/contributions";
 import { contributedServerOf, languageById, languageFor, serverOf, useContributed } from "./lsp/domain/registry";
 import { bus } from "../app/bus";
+import { toggleBlockComment, toggleLinesWithBlock } from "./lsp/domain/comments";
+import { formatFallback } from "./lsp/fallback";
 import {
   initExs,
   lsGet,
@@ -174,16 +176,22 @@ function vsxSnippet(ta: HTMLTextAreaElement, path: string): boolean {
   return true;
 }
 
-/** Ctrl+/ no editor: comenta/descomenta as linhas da selecção. `true` se mudou. */
-function vsxToggleComment(ta: HTMLTextAreaElement, path: string): boolean {
+/** Ctrl+/ no editor: comenta/descomenta as linhas da selecção; com `block` (Ctrl+Shift+A, LSP P5), o
+ *  Toggle Block Comment. `true` se mudou; `false` se a linguagem não tem esse comentário. */
+function vsxToggleComment(ta: HTMLTextAreaElement, path: string, block = false): boolean {
   /* a linguagem do ficheiro (pelo nome — `Dockerfile`, `Makefile` —, pela extensão ou pelo shebang; uma
-     linguagem de um VSIX também, LSP P4); o marcador do language-configuration de uma extensão instalada,
-     senão o do registo; sem comentário de linha, o de bloco do language-configuration */
+     linguagem de um VSIX também, LSP P4); os marcadores do language-configuration de uma extensão instalada,
+     senão os do registo (`lineComment`, `blockComment` — LSP P5) */
   const lang = fileLanguage(path, ta.value);
-  const marker = contrib.lineCommentFor(lang?.id ?? null) || lang?.lineComment;
-  const block = marker ? null : contrib.blockCommentFor(lang?.id ?? null);
-  if (!marker && !block) return false;
-  const r = marker ? toggleLineComment(ta.value, ta.selectionStart, ta.selectionEnd, marker) : toggleBlockComment(ta.value, ta.selectionStart, ta.selectionEnd, block!);
+  const id = lang?.id ?? null;
+  const marker = contrib.lineCommentFor(id) || lang?.lineComment;
+  const pair = contrib.blockCommentFor(id) || lang?.blockComment || null;
+  const r = block
+    ? pair ? toggleBlockComment(ta.value, ta.selectionStart, ta.selectionEnd, pair) : null
+    : marker
+      ? toggleLineComment(ta.value, ta.selectionStart, ta.selectionEnd, marker)
+      : pair ? toggleLinesWithBlock(ta.value, ta.selectionStart, ta.selectionEnd, pair) : null; // HTML, CSS: as linhas num bloco
+  if (!r) return false;
   ta.value = r.text;
   ta.setSelectionRange(r.selStart, r.selEnd);
   return true;
@@ -228,6 +236,8 @@ const engine = makeExtEngine({
   notifier: { toast: m => toast(m) },
   rerender: () => rerExt(),
   contrib,
+  /* LSP P5: o «Format Document» sem servidor só faz o que é seguro, e diz o quê */
+  formatter: { format: (path, text) => formatFallback(path, text) },
 });
 const { extAll, extOn, extCmds, saveExt, extInstall, extRemove, extToggle, loadVsix, formatDoc } = engine;
 

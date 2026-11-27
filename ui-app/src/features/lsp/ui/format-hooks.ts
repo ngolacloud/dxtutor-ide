@@ -1,8 +1,9 @@
 /* ═════════ feature `lsp` — formatação no editor (Shift+Alt+F) ═════════
    No editor, Shift+Alt+F formata pelo servidor de linguagem: o documento, ou só a selecção.
-   A tecla é apanhada na fase de CAPTURA do `document`, antes dos atalhos globais
-   (`features/shortcuts.ts`, que a ligam ao «Format Document» do dxtutor); quando não há
-   servidor, ou ele não formata o documento, corre esse formatador do dxtutor como antes.
+   A tecla é apanhada na fase de CAPTURA do `document`. Os atalhos globais (`features/shortcuts.ts`,
+   que a ligam ao «Format Document» do dxtutor) registam-se antes no mesmo nó, por isso correriam
+   primeiro: cedem-na quando `services.lspFormat` (a raiz de composição) diz que este está ligado
+   (LSP P5). Quando não há servidor, ou ele não formata o documento, corre o formatador do dxtutor.
    Não toca em `window`. */
 
 import type { FormatOutcome } from "../application/lsp-client";

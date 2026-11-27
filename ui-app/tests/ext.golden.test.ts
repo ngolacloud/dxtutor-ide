@@ -143,12 +143,18 @@ describe("o pane real (ADR-0006, R6b)", () => {
     expect(w.builtinOn("inline-diagnostics")).toBe(true);
   });
 
-  it("formatDoc (Format Document do dxtutor) apara espaços finais, normaliza indentação e a última linha", () => {
+  /* LSP P5 (mudança deliberada): a indentação passa a seguir o estilo do PRÓPRIO ficheiro (antes: tabs → 4 espaços
+     sempre). Aqui a única linha indentada usa um tab — o estilo do ficheiro —, por isso fica; num ficheiro de espaços,
+     o tab passa a espaços. O resto (espaços finais, a última linha) é como antes. */
+  it("formatDoc (Format Document do dxtutor) apara espaços finais, re-indenta no estilo do ficheiro e a última linha", () => {
     w.FS["scratch.ts"] = { content: "const a=1   \n\tb\n\n\n" };
     w.openTab({ id: "f:scratch.ts", path: "scratch.ts", kind: "file", title: "scratch.ts" }, false);
     (window as any).cur = "f:scratch.ts";
     w.formatDoc();
-    expect(w.FS["scratch.ts"].content).toBe("const a=1\n    b\n");
+    expect(w.FS["scratch.ts"].content).toBe("const a=1\n\tb\n");
+    w.FS["scratch.ts"].content = "if (x) {\n    a();\n    c();\n\tb();\n}";
+    w.formatDoc();
+    expect(w.FS["scratch.ts"].content).toBe("if (x) {\n    a();\n    c();\n    b();\n}\n");
   });
 
   it("formatDoc sem ficheiro aberto não altera nada nem rebenta (guarda)", () => {

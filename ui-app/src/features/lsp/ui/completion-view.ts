@@ -1,7 +1,8 @@
 /* ═════════ feature `lsp` — a lista de sugestões (completion) ═════════
    Dona do DOM de `#lsp-complete`: uma linha por sugestão (tipo, nome, detalhe), a escolhida
    realçada, e por baixo o detalhe/documentação da escolhida. Clicar numa linha escolhe-a (o
-   `mousedown` não tira o foco da textarea). A navegação por teclado é do `editor-hooks`.
+   `mousedown` não tira o foco da textarea). A navegação por teclado é do `editor-hooks`. Uma lista de
+   palavras (sem servidor, LSP P5) leva por cima uma linha a dizê-lo (`.lsp-c-note`).
    Não toca em `window`. */
 
 import { kindGlyph, type CompletionItem } from "../domain/completion";
@@ -9,6 +10,8 @@ import { kindGlyph, type CompletionItem } from "../domain/completion";
 let items: CompletionItem[] = [];
 let index = 0;
 let onPick: ((item: CompletionItem) => void) | null = null;
+/** a linha por cima da lista (a das palavras), ou nenhuma */
+let note: string | undefined;
 
 const el = (): HTMLElement | null => document.getElementById("lsp-complete");
 
@@ -56,12 +59,18 @@ function render(): void {
   doc.className = "lsp-c-doc";
   const cur = items[index];
   doc.textContent = cur ? [cur.detail, cur.documentation.split("\n")[0]].filter(Boolean).join(" — ") : "";
-  box.replaceChildren(list, doc);
+  if (note) {
+    const head = document.createElement("div");
+    head.className = "lsp-c-note";
+    head.textContent = note;
+    box.replaceChildren(head, list, doc);
+  } else box.replaceChildren(list, doc);
+  box.classList.toggle("lsp-words", !!note);
   list.children[index]?.scrollIntoView({ block: "nearest" });
 }
 
-/** Abre (ou actualiza) a lista junto a (x, y). */
-export function showCompletions(next: CompletionItem[], x: number, y: number, pick: (item: CompletionItem) => void): void {
+/** Abre (ou actualiza) a lista junto a (x, y); `wordsNote`: é uma lista de palavras (sem servidor), com esta linha por cima. */
+export function showCompletions(next: CompletionItem[], x: number, y: number, pick: (item: CompletionItem) => void, wordsNote?: string): void {
   let box = el();
   if (!box) {
     box = document.createElement("div");
@@ -75,6 +84,7 @@ export function showCompletions(next: CompletionItem[], x: number, y: number, pi
   items = next;
   index = Math.max(0, keep ? next.findIndex((i) => i.label === keep) : 0);
   onPick = pick;
+  note = wordsNote;
   box.style.left = `${x}px`;
   box.style.top = `${y}px`;
   render();

@@ -798,6 +798,39 @@ mod tests {
     }
 
     #[test]
+    fn an_override_may_give_a_language_its_block_comment_and_a_broken_one_is_refused() {
+        let (_d, user, root) = setup(
+            Some(
+                r#"{ "languages": [ { "id": "python", "blockComment": ["\"\"\"", "\"\"\""] } ] }"#,
+            ),
+            None,
+        );
+        let eff = Effective::load(registry(), Some(&user), Some(&root));
+        assert!(eff.user.as_ref().unwrap().applied, "{:?}", eff.user);
+        let py = eff.registry.language_for_name("/w/a.py").unwrap();
+        assert_eq!(
+            py.block_comment,
+            Some(vec!["\"\"\"".to_string(), "\"\"\"".to_string()])
+        );
+        assert_eq!(py.line_comment.as_deref(), Some("#"));
+        write(
+            &user,
+            r#"{ "languages": [ { "id": "toml", "blockComment": ["/*"] } ] }"#,
+        );
+        let eff = Effective::load(registry(), Some(&user), Some(&root));
+        let rep = eff.user.as_ref().unwrap();
+        assert!(!rep.applied);
+        assert!(
+            rep.errors
+                .iter()
+                .any(|e| e.contains("language `toml`: blockComment must be [open, close]")),
+            "{rep:?}"
+        );
+        let toml = eff.registry.language_for_name("/w/Cargo.toml").unwrap();
+        assert_eq!(toml.block_comment, None);
+    }
+
+    #[test]
     fn a_whole_new_language_and_server_can_be_added_and_a_server_turned_off() {
         let (_d, user, root) = setup(
             Some(
