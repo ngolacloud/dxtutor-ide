@@ -487,7 +487,7 @@ const DJANGO_BASICS: &str = include_str!("../../../courses/django/courses/django
 /// Kubernetes (ferramenta, avaliada por verificações — `crate::toolcheck`): só no backend. A parte
 /// offline: os manifestos lêem-se e o `kubectl kustomize` constrói-os sem cluster.
 const KUBERNETES_BASICS: &str = include_str!("../../../courses/kubernetes/courses/kubernetes.toml");
-/// Delonix Engine 0.2.0 (ferramenta, avaliada por verificações): só no backend, com os comandos
+/// Delonix Engine 0.2.1 (ferramenta, avaliada por verificações): só no backend, com os comandos
 /// do delonix que não tocam no motor (`manifest render`, `compose config`).
 const DELONIX_BASICS: &str = include_str!("../../../courses/delonix/courses/delonix.toml");
 /// Podman 4.9 (ferramenta, avaliada por verificações VIVAS no sandbox Podman rootless — Learn P3a):
@@ -1645,7 +1645,7 @@ mod tool_course_tests {
             &[crate::toolcheck::Tool::Delonix],
         );
         let c = load_course("delonix-basics").unwrap();
-        assert!(c.overview.contains("Delonix 0.2.0") && c.overview.contains("0.1.x"));
+        assert!(c.overview.contains("Delonix 0.2.1") && c.overview.contains("0.1.x"));
     }
 
     /// Os cursos de contentores (Learn P3a): `dockerfile`, comandos no sandbox Podman, imagens

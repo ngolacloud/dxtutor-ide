@@ -21,9 +21,10 @@ a comment on every line) and a project challenge.
 
 ## Version
 
-Written for **Delonix 0.2.0** (`delonix --version` → `delonix 0.2.0`, commit `edba10a1c`). The
+Written for **Delonix 0.2.1** (`delonix --version` → `delonix 0.2.1`, tag `v0.2.1` = `9f8745b7`). The
 Delonix README still describes the "0.1.x line" in places; where the two differ, the course follows the
-0.2.0 binary.
+0.2.1 binary. It also grades with 0.2.0: the only change between the two that a challenge can see is
+how a `depends_on` naming no service is refused, and dxtutor reports that one itself (below).
 
 ## How it is graded
 
@@ -38,21 +39,25 @@ commands from dxtutor's allow-list:
   project (container names, networks, ports, volumes), which the checks read.
 
 Both were proven host-free from the Delonix source at the commit of the 0.2.0 binary (`edba10a1c`) and
-measured with `strace` (no socket, no write): they read the file and nothing else. Grading runs them
+measured with `strace` (no socket, no write): they read the file and nothing else. Measured again with
+the 0.2.1 binary: between the two tags, the only change to these commands is the `depends_on`
+validation in `load_compose` (#1060). Grading runs them
 with a clean environment and a temporary `HOME`, `XDG_*` and `DELONIX_ROOT`. Two more rules close the
 gaps:
 
 - `compose config` picks a random free host port (it binds a socket) for a `ports` entry without a
   host port, so every graded port must say `"HOST:CONTAINER"`; a compose file with `$` variable
   interpolation is not graded either (its result would depend on the environment);
-- a `depends_on` naming no service is reported in words before running (Delonix 0.2.0 panics on it).
+- a `depends_on` naming no service is reported in words before running: Delonix 0.2.0 panics on it, and
+  0.2.1 refuses it (`service 'web' depends_on undefined service 'db'`); the check gives every learner
+  the same message, whichever of the two is installed.
 
 **Not used:** `delonix manifest validate`. It resolves references against the engine's stores and, on
 the way, sweeps empty cgroup leaves of the host — the course checks references itself, from the files.
 
 ## Requirements
 
-- **delonix 0.2.0** — https://ngolacloud.github.io/delonix/ (installer:
+- **delonix 0.2.1** (0.2.0 also works) — https://ngolacloud.github.io/delonix/ (installer:
   `https://github.com/ngolacloud/delonix/releases/latest/download/install.sh`). Without it, the
   challenges say what to install instead of failing.
 

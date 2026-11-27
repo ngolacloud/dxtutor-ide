@@ -51,9 +51,9 @@ describe("cursos de ferramentas", () => {
     expect(cards.find(c => c.subject.id === "docker")!.state).toBe("soon");
   });
 
-  test("o que instalar: kubectl para o Kubernetes, o delonix 0.2.0 para o Delonix, e nenhum cluster", () => {
+  test("o que instalar: kubectl para o Kubernetes, o delonix 0.2.1 para o Delonix, e nenhum cluster", () => {
     expect(findSubject("kubernetes", [])!.install).toMatch(/kubectl \(https:\/\/kubernetes\.io\/docs\/tasks\/tools\/\).*No cluster/);
-    expect(findSubject("delonix", [])!.install).toMatch(/delonix 0\.2\.0.*never touch the engine/);
+    expect(findSubject("delonix", [])!.install).toMatch(/delonix 0\.2\.1.*never touch the engine/);
     expect(FRAMEWORK_CATALOG.filter(f => f.id === "kubernetes" || f.id === "delonix").every(f => f.category === "tool")).toBe(true);
   });
 });

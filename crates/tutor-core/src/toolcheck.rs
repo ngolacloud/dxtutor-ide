@@ -494,7 +494,7 @@ impl Tool {
                  talks to a cluster and needs no kubeconfig."
             }
             Tool::Delonix => {
-                "delonix is not installed. Install the Delonix Engine 0.2.0 \
+                "delonix is not installed. Install the Delonix Engine 0.2.1 \
                  (https://ngolacloud.github.io/delonix/ — the installer is \
                  https://github.com/ngolacloud/delonix/releases/latest/download/install.sh) and open \
                  the course again. Grading only runs `delonix manifest render` and `delonix compose \

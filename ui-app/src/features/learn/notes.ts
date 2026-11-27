@@ -125,7 +125,7 @@ export const LEARN_NOTES: FeatureNotes = {
     {
       title: "Os cursos de Kubernetes e do Delonix: manifestos avaliados sem cluster",
       where: ["Learning Track › «Choose what to learn» › «Frameworks & tools» › Kubernetes ou Delonix Engine"],
-      what: "Dois cursos de ferramentas em que se escreve YAML: o de Kubernetes (11 unidades, dos objectos e Pods ao Kustomize) e o do Delonix Engine 0.2.0 (9 unidades, dos manifestos e Pods aos ficheiros compose e a um projecto inteiro num Stack). Cada desafio é avaliado na tua máquina, sem cluster e sem tocar no motor de contentores.",
+      what: "Dois cursos de ferramentas em que se escreve YAML: o de Kubernetes (11 unidades, dos objectos e Pods ao Kustomize) e o do Delonix Engine 0.2.1 (9 unidades, dos manifestos e Pods aos ficheiros compose e a um projecto inteiro num Stack). Cada desafio é avaliado na tua máquina, sem cluster e sem tocar no motor de contentores.",
       howTo: [
         "Escolhe o cartão Kubernetes ou Delonix Engine na secção «Frameworks & tools» e os níveis que queres.",
         "Lê os conceitos, escreve os drills linha a linha (o drill de YAML só confirma que o ficheiro se lê) e resolve os desafios: cada um é um pequeno projecto de ficheiros YAML.",
@@ -138,7 +138,7 @@ export const LEARN_NOTES: FeatureNotes = {
         "Correm sem shell, com o ambiente limpo, um `HOME` e um `KUBECONFIG` vazios numa pasta temporária (os teus contextos do kubectl nunca são lidos) e um tempo limite. Um kustomization que aponte para a rede ou use o Helm, ou uma porta de compose sem a porta do anfitrião, é recusado antes de correr.",
       ],
       tips: [
-        "Precisas do kubectl para as unidades de Kustomize e do delonix 0.2.0 para o curso do Delonix; sem eles, o desafio diz o que instalar em vez de falhar.",
+        "Precisas do kubectl para as unidades de Kustomize e do delonix 0.2.1 (ou 0.2.0) para o curso do Delonix; sem eles, o desafio diz o que instalar em vez de falhar.",
         "O relatório da avaliação mostra a saída do comando que falhou: é a mesma mensagem que verias no terminal.",
       ],
       limits: [
