@@ -79,7 +79,7 @@ function sameState(a: LineState | null, b: LineState | null): boolean {
   for (let i = 0; i < a.length; i++) {
     const x = a[i], y = b[i];
     if (x === y) continue;
-    if (x.rule !== y.rule || (x.end ? x.end.source : null) !== (y.end ? y.end.source : null) || x.scopes.join(" ") !== y.scopes.join(" ")) return false;
+    if (x.rule !== y.rule || (x.end ? x.end.src : null) !== (y.end ? y.end.src : null) || x.scopes.join(" ") !== y.scopes.join(" ")) return false;
   }
   return true;
 }

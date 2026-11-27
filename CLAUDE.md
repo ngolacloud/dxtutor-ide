@@ -1034,14 +1034,20 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
   com o `GEM_PATH`/`DOTNET_ROOT` de que precisa (`lspinstall::launch_env`). Testes: `cargo test -p tutor-eval langreg
   lspinstall` (gestores falsos num PATH temporário, servidor HTTP falso para o checksum) e `tests/lsp.install.test.ts`.
 - **Sem servidor de linguagem (LSP P5, `lsp/fallback.ts`; browser e app):**
-  - **Gramáticas do dxtutor:** `languages/grammars/` (Python/MagicPython e Dockerfile, 104 186 bytes) — o ficheiro EXACTO do
-    VS Code (tag 1.148.0), fixado por sha256 no `manifest.json`, licenças em `THIRD-PARTY-NOTICES.md`;
-    `npm run grammars:verify` descarrega e confere (`grammars:check` só os ficheiros). O `paintEd` pergunta primeiro ao
-    `vsxHighlight` (uma extensão ganha), depois ao `application/fallback-highlight.ts`: `import()` por gramática e realce
-    INCREMENTAL (HTML e estado do tokenizador por linha; ≤ 300 linhas por pintura, o resto em pedaços e repinta) — o
-    tokenizador custa ~0,25 ms/linha. Ficaram de fora Go, Java, C/C++, C#, Swift, Shell, Makefile, Ruby, Lua, Dart e CSS:
-    o «lite» não acaba regras em `\n` nem conhece o `\G` (um comentário pintava o resto do ficheiro). Gramática nova =
-    entrada no manifesto + linha no `infrastructure/grammars.ts` + teste num excerto real.
+  - **Gramáticas do dxtutor:** `languages/grammars/` (Python/MagicPython, Go, Java, Shell, Makefile e Dockerfile, 291 199
+    bytes, cada uma no seu pedaço do Vite) — o ficheiro EXACTO do VS Code (tag 1.148.0), fixado por sha256 no
+    `manifest.json`, licenças em `THIRD-PARTY-NOTICES.md`; `npm run grammars:verify` descarrega e confere
+    (`grammars:check` só os ficheiros). O `paintEd` pergunta primeiro ao `vsxHighlight` (uma extensão ganha), depois ao
+    `application/fallback-highlight.ts`: `import()` por gramática e realce INCREMENTAL (HTML e estado do tokenizador por
+    linha; ≤ 300 linhas por pintura, o resto em pedaços e repinta) — o tokenizador custa ~0,25 ms/linha. Gramática nova =
+    entrada no manifesto + linha no `infrastructure/grammars.ts` + teste num excerto real. De fora: C# e Swift (o «lite»
+    não os percebe), C++ (678 KB), CSS (`(?xi)`); Ruby, Lua, Dart e C funcionam mas ficaram de fora (conjunto pequeno).
+  - **Tokenizador** (`ext/domain/textmate.ts`, também para as extensões): cada linha vai com o seu `\n` (os tokens são
+    cortados no fim da linha) e o `$` do Oniguruma é «antes do `\n` final»; o `\G` só é verdadeiro na âncora (onde
+    acabou o `begin` da regra aberta, nessa linha; repõe-se ao fechar), por duas variantes compiladas (ancorada com a
+    flag `y`, e com o `\G` falso a partir da posição seguinte). Antes, uma regra que acaba em `\n` ou `(?!\G)` nunca
+    fechava (o comentário do Java/Perl pintava o resto do ficheiro). Uma correspondência vazia que muda o estado já não
+    salta um carácter.
   - **Palavras:** sem sugestões do servidor (ou sem servidor/pasta), os ganchos do completion pedem as palavras dos ficheiros
     abertos (`application/word-completion.ts`, `domain/words.ts`): a mesma lista e teclas, com a linha `.lsp-c-note`;
     nunca misturadas com as do servidor; não abre sozinha em Markdown/sem linguagem.

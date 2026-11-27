@@ -32,14 +32,15 @@ describe("o manifesto das gramáticas", () => {
       expect(bytes.length, g.file).toBe(g.bytes);
       expect(raw(g.file).scopeName).toBe(g.scopeName);
       expect(languageById(g.language), g.language).not.toBeNull();
-      expect(["MIT", "Apache-2.0"]).toContain(g.license);
+      expect(["MIT", "Apache-2.0", "TextMate-Bundle"]).toContain(g.license);
     }
     expect(bundledGrammarFiles.files().sort()).toEqual(GRAMMAR_MANIFEST.grammars.map((g) => g.file).sort());
   });
 
-  it("pequeno de propósito: duas gramáticas, ~100 KB, cada uma com o seu aviso de licença", () => {
+  it("pequeno de propósito: seis gramáticas, ~290 KB (cada uma no seu pedaço), cada uma com o seu aviso de licença", () => {
     const total = GRAMMAR_MANIFEST.grammars.reduce((n, g) => n + g.bytes, 0);
-    expect(total).toBeLessThan(150_000);
+    expect(GRAMMAR_MANIFEST.grammars.map((g) => g.language)).toEqual(["python", "dockerfile", "go", "java", "shellscript", "makefile"]);
+    expect(total).toBe(291_199);
     const notices = readFileSync(resolve(DIR, "THIRD-PARTY-NOTICES.md"), "utf8");
     for (const g of GRAMMAR_MANIFEST.grammars) {
       expect(notices).toContain(g.file);
@@ -48,12 +49,18 @@ describe("o manifesto das gramáticas", () => {
     expect(notices).toContain("Copyright (c) 2015-present MagicStack Inc.");
     expect(notices).toContain("Apache License");
     expect(notices).toContain("Copyright (c) 2015 - present Microsoft Corporation");
+    expect(notices).toContain("Copyright (c) 2023 Furkan Ozalp");
+    expect(notices).toContain("Copyright (c) 2014 GitHub Inc.");
+    expect(notices).toContain("Copyright (c) 2019 Jeff Hykin");
+    expect(notices).toContain("Copyright (c) textmate-make.tmbundle project authors");
   });
 
   it("a gramática de uma linguagem do registo (e nenhuma para as que o tokenizador não faz bem)", () => {
     expect(bundledGrammarFor("python")?.file).toBe("python.tmLanguage.json");
     expect(bundledGrammarFor("dockerfile")?.file).toBe("dockerfile.tmLanguage.json");
-    for (const left of ["go", "java", "c", "cpp", "csharp", "swift", "shellscript", "makefile", "ruby", "lua", "rust", "typescript"]) expect(bundledGrammarFor(left)).toBeNull();
+    expect(bundledGrammarFor("go")?.file).toBe("go.tmLanguage.json");
+    expect(bundledGrammarFor("makefile")?.file).toBe("makefile.tmLanguage.json");
+    for (const left of ["c", "cpp", "csharp", "swift", "css", "ruby", "lua", "dart", "rust", "typescript"]) expect(bundledGrammarFor(left)).toBeNull();
     expect(bundledGrammarFor(null)).toBeNull();
   });
 
@@ -120,6 +127,106 @@ describe("o tokenizador «lite» num excerto real", () => {
     expect(classOf(html[6], "\"production\"")).toBe("str");
     expect(classOf(html[7], "CMD")).toBe("kw");
     expect(classOf(html[7], "\"node\"")).toBe("str");
+  });
+});
+
+describe("o tokenizador «lite»: o `\\n` do fim da linha e o `\\G`", () => {
+  /** As classes de cada linha (texto → classe) com uma gramática pequena. */
+  const hl = (g: RawGrammar, lines: string[]) => highlightLines(loadGrammar(g), lines).map(spans);
+
+  it("uma regra que acaba em `\\n` fecha no fim da linha (o comentário `#` do Perl não passa para a seguinte)", () => {
+    const perl: RawGrammar = {
+      scopeName: "source.perl",
+      patterns: [
+        { begin: "#", end: "\\n", name: "comment.line.number-sign.perl" },
+        { match: "\\b(my|sub)\\b", name: "keyword.control.perl" },
+      ],
+    };
+    expect(hl(perl, ["my $x; # note", "sub f { }"])).toEqual([[["my", "kw"], ["# note", "cm"]], [["sub", "kw"]]]);
+  });
+
+  it("`(?!\\G)` fecha a regra logo depois da âncora (o comentário de linha do Java)", () => {
+    const java: RawGrammar = {
+      scopeName: "source.j",
+      patterns: [
+        // como o `comments-inline` do Java: abre antes do `//` (lookahead) e fecha quando já não está na âncora
+        { begin: "(^[ \\t]+)?(?=//)", end: "(?!\\G)", patterns: [{ begin: "//", end: "\\n", name: "comment.line.double-slash.j" }] },
+        { match: "\\bint\\b", name: "storage.type.j" },
+      ],
+    };
+    expect(hl(java, ["  // nota", "int x;", "int y; // fim", "int z;"])).toEqual([
+      [["// nota", "cm"]],
+      [["int", "kw"]],
+      [["int", "kw"], ["// fim", "cm"]],
+      [["int", "kw"]],
+    ]);
+  });
+
+  it("`\\G` à cabeça de um padrão só casa onde o `begin` acabou, nessa linha", () => {
+    const g: RawGrammar = {
+      scopeName: "source.g",
+      patterns: [{ begin: "@", end: "(?=\\s)|$", patterns: [{ match: "\\G\\w+", name: "entity.name.function.g" }, { match: "\\w+", name: "string.g" }] }],
+    };
+    expect(hl(g, ["@name more", "@a.b"])).toEqual([[["name", "fn"]], [["a", "fn"], ["b", "str"]]]);
+  });
+
+  it("o `$` é o fim da linha (antes do `\\n`), e um padrão não escapa para a linha seguinte", () => {
+    const g: RawGrammar = { scopeName: "source.s", patterns: [{ match: "x.*$", name: "string.s" }, { begin: "<<", end: "^END$", name: "string.h" }] };
+    expect(hl(g, ["a xyz", "<<", "END", "x"])).toEqual([[["xyz", "str"]], [["<<", "str"]], [["END", "str"]], [["x", "str"]]]);
+  });
+});
+
+describe("as outras gramáticas num excerto real", () => {
+  const html = (file: string, src: string[]) => highlightLines(loadGrammar(raw(file)), src);
+
+  it("Go: palavras-chave, tipos, comentários de linha e de bloco, strings e números — e o resto não fica comentário", () => {
+    const h = html("go.tmLanguage.json", ["package main", "// Greeter says hello.", "type Greeter struct{}", "/* block", "   comment */", "func (g *Greeter) Hello(n int) string {", '	return fmt.Sprintf("%d", 0x1f)', "}"]);
+    expect(classOf(h[0], "package")).toBe("kw");
+    expect(classOf(h[1], " Greeter says hello.")).toBe("cm");
+    expect(classOf(h[2], "type")).toBe("kw");
+    expect(classOf(h[2], "Greeter")).toBe("ty");
+    expect(classOf(h[4], "*/")).toBe("cm");
+    expect(classOf(h[5], "func")).toBe("kw");
+    expect(classOf(h[5], "Hello")).toBe("fn");
+    expect(classOf(h[6], "return")).toBe("kw");
+    expect(classOf(h[6], "\"")).toBe("str");
+    expect(spans(h[7])).toEqual([]);
+  });
+
+  it("Java: um comentário `//` acaba na sua linha (era o bug do `(?!\\G)`), Javadoc, classes e chamadas", () => {
+    const h = html("java.tmLanguage.json", ["/** Javadoc. */", "public final class Main extends Base {", "    // line comment", "    public static void main(String[] args) {", '        System.out.println("hi" + 1);', "    }", "}"]);
+    expect(classOf(h[0], "/**")).toBe("cm");
+    expect(classOf(h[1], "public")).toBe("kw");
+    expect(classOf(h[1], "Main")).toBe("ty");
+    expect(classOf(h[2], " line comment")).toBe("cm");
+    expect(classOf(h[3], "public")).toBe("kw");
+    expect(classOf(h[3], "void")).toBe("kw");
+    expect(classOf(h[3], "main")).toBe("fn");
+    expect(classOf(h[4], "println")).toBe("fn");
+    expect(classOf(h[4], "hi")).toBe("str");
+    expect(classOf(h[4], "1")).toBe("num");
+  });
+
+  it("Shell: comandos, palavras-chave, strings com variáveis, comentários", () => {
+    const h = html("shellscript.tmLanguage.json", ["#!/usr/bin/env bash", "# comment", 'NAME="world"', "greet() {", '  if [[ -n "$1" ]]; then echo "hi $1"; fi', "}"]);
+    expect(classOf(h[1], " comment")).toBe("cm");
+    expect(classOf(h[2], "world")).toBe("str");
+    expect(classOf(h[3], "greet")).toBe("fn");
+    expect(classOf(h[4], "if")).toBe("kw");
+    expect(classOf(h[4], "then")).toBe("kw");
+    expect(classOf(h[4], "echo")).toBe("fn");
+    expect(classOf(h[4], "hi ")).toBe("str");
+    expect(classOf(h[4], "fi")).toBe("kw");
+  });
+
+  it("Makefile: comentários, alvos, variáveis automáticas e condicionais (o `#` numa receita é da shell)", () => {
+    const h = html("makefile.tmLanguage.json", ["# Build rules", "CC := gcc", "all: app", "app: main.o", "	$(CC) -o $@ $^", "	rm -f *.o # tidy", "ifeq ($(OS),Windows_NT)", "endif"]);
+    expect(classOf(h[0], " Build rules")).toBe("cm");
+    expect(classOf(h[2], "all")).toBe("fn");
+    expect(classOf(h[4], "$@")).toBe("kw");
+    expect(spans(h[5]).some(([, c]) => c === "cm")).toBe(false);
+    expect(classOf(h[6], "ifeq")).toBe("kw");
+    expect(classOf(h[7], "endif")).toBe("kw");
   });
 });
 

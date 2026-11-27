@@ -872,7 +872,7 @@ Corre a suite do projecto e mostra-a a acontecer: spinner, barra de progresso, c
 
 ## Servidor de linguagem (LSP)
 
-Na app desktop, o editor fala com o servidor de linguagem de cada ficheiro (rust-analyzer, typescript-language-server, pyright, gopls, jdtls…) para os diagnósticos ao vivo, o hover, o «ir para a definição», o rename e o completion. Que linguagem é cada ficheiro (pela extensão, sem distinguir maiúsculas, pelo nome inteiro como `Dockerfile` e `Makefile`, ou pelo shebang) e que servidor a serve diz um só ficheiro de dados, `languages/registry.json`, lido pelo editor e pelo backend. O teu `lsp.json` e o `.dxtutor/lsp.json` de cada projecto acrescentam linguagens e servidores e mudam o comando, os argumentos e as definições de cada servidor; o comando que um projecto pede só corre depois de o aprovares. Quando o servidor não está instalado, o editor diz qual falta e instala-o depois de aprovares o comando exacto, para a pasta do próprio dxtutor. Os servidores não ficam a gastar a máquina: um servidor sem ficheiros abertos pára sozinho ao fim de algum tempo, há um limite de servidores ao mesmo tempo, e a paleta mostra os que estão a correr, com o registo de cada um. Sem servidor (ou no browser), o editor continua útil: realce pelas gramáticas que vêm com o dxtutor (Python, Dockerfile), completion pelas palavras dos ficheiros abertos, comentários de bloco e um «Format Document» que só arruma os espaços.
+Na app desktop, o editor fala com o servidor de linguagem de cada ficheiro (rust-analyzer, typescript-language-server, pyright, gopls, jdtls…) para os diagnósticos ao vivo, o hover, o «ir para a definição», o rename e o completion. Que linguagem é cada ficheiro (pela extensão, sem distinguir maiúsculas, pelo nome inteiro como `Dockerfile` e `Makefile`, ou pelo shebang) e que servidor a serve diz um só ficheiro de dados, `languages/registry.json`, lido pelo editor e pelo backend. O teu `lsp.json` e o `.dxtutor/lsp.json` de cada projecto acrescentam linguagens e servidores e mudam o comando, os argumentos e as definições de cada servidor; o comando que um projecto pede só corre depois de o aprovares. Quando o servidor não está instalado, o editor diz qual falta e instala-o depois de aprovares o comando exacto, para a pasta do próprio dxtutor. Os servidores não ficam a gastar a máquina: um servidor sem ficheiros abertos pára sozinho ao fim de algum tempo, há um limite de servidores ao mesmo tempo, e a paleta mostra os que estão a correr, com o registo de cada um. Sem servidor (ou no browser), o editor continua útil: realce pelas gramáticas que vêm com o dxtutor (Python, Go, Java, Shell, Makefile, Dockerfile), completion pelas palavras dos ficheiros abertos, comentários de bloco e um «Format Document» que só arruma os espaços.
 
 <sub>Código: `languages/registry.json`, `crates/tutor-eval/src/langreg.rs`, `crates/tutor-eval/src/lspconf.rs`, `ui-app/src/features/lsp/application/overrides.ts`, `ui-app/src/features/lsp/ui/config-view.ts`, `docs/lsp/overrides.md`, `ui-app/src/features/lsp/domain/registry.ts`, `ui-app/src/features/lsp/application/lsp-client.ts`, `ui-app/src/features/lsp/domain/server-status.ts`, `crates/tutor-eval/src/lspinstall.rs`, `src-tauri/src/commands/lsp_install.rs`, `src-tauri/src/lsp.rs`, `src-tauri/src/lsp/lifecycle.rs`, `ui-app/src/features/lsp/application/servers.ts`, `ui-app/src/features/lsp/ui/servers-view.ts`, `ui-app/src/features/panel/domain/lsp-log.ts`, `languages/grammars/manifest.json`, `scripts/fetch-grammars.mjs`, `ui-app/src/features/lsp/fallback.ts`, `ui-app/src/features/lsp/application/fallback-highlight.ts`, `ui-app/src/features/lsp/application/word-completion.ts`, `ui-app/src/features/lsp/domain/comments.ts`, `ui-app/src/features/lsp/domain/safe-format.ts` · revisto em 2026-11-27</sub>
 
@@ -1095,11 +1095,11 @@ Fechar um ficheiro avisa o servidor (`didClose`). Um servidor sem ficheiros aber
 
 **Onde:** editor (automático)
 
-Um ficheiro Python ou um Dockerfile tem realce de sintaxe a sério (palavras-chave, strings, comentários, números) mesmo sem nenhuma extensão instalada: o dxtutor traz as gramáticas TextMate dessas linguagens, copiadas tal e qual do VS Code. A gramática de uma extensão instalada para a mesma linguagem ganha sempre. As outras linguagens ficam com o realce de sempre.
+Um ficheiro Python, Go, Java, Shell, Makefile ou Dockerfile tem realce de sintaxe a sério (palavras-chave, strings, comentários, números) mesmo sem nenhuma extensão instalada: o dxtutor traz as gramáticas TextMate dessas linguagens, copiadas tal e qual do VS Code. A gramática de uma extensão instalada para a mesma linguagem ganha sempre. As outras linguagens ficam com o realce de sempre.
 
 **Como usar**
 
-1. Abre um `.py`, um `Dockerfile` ou um script com `#!/usr/bin/env python3`: o realce chega logo que a gramática carrega (a primeira vez, um instante).
+1. Abre um `.py`, `.go`, `.java`, `.sh`, um `Makefile`, um `Dockerfile` ou um script com `#!/usr/bin/env python3`: o realce chega logo que a gramática carrega (a primeira vez, um instante).
 2. Queres outro realce para a linguagem? Instala uma extensão do Open VSX que traga a gramática: passa a ser a dela.
 
 **Fluxo (por dentro)**
@@ -1107,11 +1107,12 @@ Um ficheiro Python ou um Dockerfile tem realce de sintaxe a sério (palavras-cha
 1. `languages/grammars/manifest.json` diz que gramática serve que linguagem do registo e fixa cada ficheiro pelo sha256 (repositório do VS Code, tag 1.148.0); `npm run grammars:verify` descarrega-os de novo e confere-os. As licenças estão em `languages/grammars/THIRD-PARTY-NOTICES.md`.
 2. O editor (`paintEd`) pergunta primeiro às extensões (`vsxHighlight`); sem resposta, a `lsp/application/fallback-highlight.ts`: carrega a gramática por um `import()` próprio e tokeniza com o mesmo tokenizador «lite» das extensões.
 3. O realce é incremental: guarda o HTML e o estado do tokenizador de cada linha e só volta a tokenizar as linhas que mudaram (no máximo 300 de cada vez); o resto de um ficheiro grande faz-se em pedaços e o editor repinta quando acaba.
+4. O tokenizador (`ext/domain/textmate.ts`) passou a ler cada linha com o seu `\n` e a dar ao `\G` a âncora certa (onde acabou o `begin` da regra aberta, nessa linha), como o `vscode-textmate`: antes, uma regra que acaba em `\n` ou num `(?!\G)` nunca fechava, e um comentário pintava o resto do ficheiro — também nas gramáticas das extensões (o Perl, por exemplo).
 
 **Limites**
 
-- Só Python e Dockerfile. Go, Java, C/C++, C#, Swift, Shell, Makefile, Ruby, Lua, Dart e CSS ficaram de fora: o tokenizador «lite» não termina as regras que acabam no fim da linha (`\n`) nem conhece o `\G`, e com eles um comentário pintava o resto do ficheiro.
-- No Python, uma docstring de várias linhas logo no início de um bloco não fica toda como string (o mesmo limite do tokenizador).
+- Só estas seis. C# e Swift ficaram de fora (o tokenizador «lite» não percebe parte das expressões deles: no C# um comentário `///` pintava o resto do ficheiro), C++ é grande demais (678 KB), o CSS perde metade dos padrões; Ruby, Lua, Dart e C já funcionam, mas ficaram de fora para o conjunto continuar pequeno.
+- O tokenizador «lite» não faz `include` de outras gramáticas: o SQL dentro de uma string, por exemplo, fica sem realce.
 
 <sub>Cobre: `lsp:bundled-grammars`</sub>
 

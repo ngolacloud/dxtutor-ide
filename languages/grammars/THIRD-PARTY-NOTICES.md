@@ -10,6 +10,10 @@ grammar from its upstream project, so both licences apply.
 |---|---|---|---|
 | `python.tmLanguage.json` (VS Code `extensions/python/syntaxes/MagicPython.tmLanguage.json`) | https://github.com/MagicStack/MagicPython | `7d0f2b22a5ad8fccbd7341bc7b7a715169283044` | MIT |
 | `dockerfile.tmLanguage.json` (VS Code `extensions/docker/syntaxes/docker.tmLanguage.json`) | https://github.com/moby/moby (`contrib/syntax/textmate/Docker.tmbundle`) | `bea959c7b793b32a893820b97c4eadc7c87fabb0` | Apache-2.0 |
+| `go.tmLanguage.json` (VS Code `extensions/go/syntaxes/go.tmLanguage.json`) | https://github.com/worlpaker/go-syntax (derived from jeff-hykin/better-go-syntax) | `4a9b120a52c30e209133ab69e868e13c980be40e` | MIT |
+| `java.tmLanguage.json` (VS Code `extensions/java/syntaxes/java.tmLanguage.json`) | https://github.com/redhat-developer/vscode-java (`language-support/java`, derived from atom/language-java) | `28e59628a8ea73b35cf96ad018d929f8a10eabe4` | MIT (as declared by VS Code's `cgmanifest.json`) |
+| `shellscript.tmLanguage.json` (VS Code `extensions/shellscript/syntaxes/shell-unix-bash.tmLanguage.json`) | https://github.com/jeff-hykin/better-shell-syntax | `35020b0bd79a90d3b262b4c13a8bb0b33adc1f45` | MIT |
+| `makefile.tmLanguage.json` (VS Code `extensions/make/syntaxes/make.tmLanguage.json`) | https://github.com/fadeevab/make.tmbundle | `1d4c0b541959995db098df751ffc129da39a294b` | TextMate Bundle License |
 
 ## Visual Studio Code — MIT
 
@@ -61,6 +65,112 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
+```
+
+## go-syntax (`go.tmLanguage.json`) — MIT
+
+```text
+MIT License
+
+Copyright (c) 2023 Furkan Ozalp
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## language-java via vscode-java (`java.tmLanguage.json`) — MIT, as recorded in VS Code's `extensions/java/cgmanifest.json`
+
+```text
+Copyright (c) 2014 GitHub Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+--------------------------------------------------------------------
+
+This package was derived from a TextMate bundle located at
+https://github.com/textmate/java.tmbundle and distributed under the following
+license, located in `README.mdown`:
+
+Permission to copy, use, modify, sell and distribute this
+software is granted. This software is provided "as is" without
+express or implied warranty, and with no claim as to its
+suitability for any purpose.
+```
+
+## better-shell-syntax (`shellscript.tmLanguage.json`) — MIT
+
+```text
+MIT License
+
+Copyright (c) 2019 Jeff Hykin
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## make.tmbundle (`makefile.tmLanguage.json`) — TextMate Bundle License, as recorded in VS Code's `extensions/make/cgmanifest.json`
+
+```text
+Copyright (c) textmate-make.tmbundle project authors
+
+If not otherwise specified (see below), files in this repository fall under the following license:
+
+Permission to copy, use, modify, sell and distribute this
+software is granted. This software is provided "as is" without
+express or implied warranty, and with no claim as to its
+suitability for any purpose.
+
+An exception is made for files in readable text which contain their own license information,
+or files where an accompanying file exists (in the same directory) with a "-license" suffix added
+to the base-name name of the original file, and an extension of txt, html, or similar. For example
+"tidy" is accompanied by "tidy-license.txt".
 ```
 
 ## Moby / Docker (`dockerfile.tmLanguage.json`) — Apache-2.0

@@ -9,6 +9,10 @@ import type { GrammarFiles } from "../application/fallback-highlight";
 const FILES: Record<string, () => Promise<unknown>> = {
   "python.tmLanguage.json": () => import("../../../../../languages/grammars/python.tmLanguage.json").then((m) => m.default),
   "dockerfile.tmLanguage.json": () => import("../../../../../languages/grammars/dockerfile.tmLanguage.json").then((m) => m.default),
+  "go.tmLanguage.json": () => import("../../../../../languages/grammars/go.tmLanguage.json").then((m) => m.default),
+  "java.tmLanguage.json": () => import("../../../../../languages/grammars/java.tmLanguage.json").then((m) => m.default),
+  "shellscript.tmLanguage.json": () => import("../../../../../languages/grammars/shellscript.tmLanguage.json").then((m) => m.default),
+  "makefile.tmLanguage.json": () => import("../../../../../languages/grammars/makefile.tmLanguage.json").then((m) => m.default),
 };
 
 export const bundledGrammarFiles: GrammarFiles & { files(): string[] } = {

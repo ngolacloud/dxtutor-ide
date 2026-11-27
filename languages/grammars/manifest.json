@@ -28,6 +28,50 @@
       "upstream": "https://github.com/moby/moby",
       "upstreamCommit": "bea959c7b793b32a893820b97c4eadc7c87fabb0",
       "license": "Apache-2.0"
+    },
+    {
+      "language": "go",
+      "scopeName": "source.go",
+      "file": "go.tmLanguage.json",
+      "path": "extensions/go/syntaxes/go.tmLanguage.json",
+      "bytes": 77114,
+      "sha256": "bd69348f63e984ea1d8e1f8641270356b08e7d027842e2fda0f3794ee0cc84cc",
+      "upstream": "https://github.com/worlpaker/go-syntax",
+      "upstreamCommit": "4a9b120a52c30e209133ab69e868e13c980be40e",
+      "license": "MIT"
+    },
+    {
+      "language": "java",
+      "scopeName": "source.java",
+      "file": "java.tmLanguage.json",
+      "path": "extensions/java/syntaxes/java.tmLanguage.json",
+      "bytes": 40357,
+      "sha256": "d9aa80381e174f56cc78760f1d8ec94473b5e3509c98715a6fc8fc3b47cbabad",
+      "upstream": "https://github.com/redhat-developer/vscode-java",
+      "upstreamCommit": "28e59628a8ea73b35cf96ad018d929f8a10eabe4",
+      "license": "MIT"
+    },
+    {
+      "language": "shellscript",
+      "scopeName": "source.shell",
+      "file": "shellscript.tmLanguage.json",
+      "path": "extensions/shellscript/syntaxes/shell-unix-bash.tmLanguage.json",
+      "bytes": 56349,
+      "sha256": "838a597b9bbc29bcfc89ca0190118550ae57517ec3e4b4baa1f8500edcf601d1",
+      "upstream": "https://github.com/jeff-hykin/better-shell-syntax",
+      "upstreamCommit": "35020b0bd79a90d3b262b4c13a8bb0b33adc1f45",
+      "license": "MIT"
+    },
+    {
+      "language": "makefile",
+      "scopeName": "source.makefile",
+      "file": "makefile.tmLanguage.json",
+      "path": "extensions/make/syntaxes/make.tmLanguage.json",
+      "bytes": 13193,
+      "sha256": "09c59caddf7731489e43c03f3aaa117785618753dd37f53c023590c531f12379",
+      "upstream": "https://github.com/fadeevab/make.tmbundle",
+      "upstreamCommit": "1d4c0b541959995db098df751ffc129da39a294b",
+      "license": "TextMate-Bundle"
     }
   ]
 }
