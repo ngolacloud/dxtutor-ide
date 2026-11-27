@@ -263,3 +263,125 @@ fn a_review_reads_only_and_is_posted_on_the_pr() {
     );
     assert!(posted.contains("request changes") && posted.contains("Co-Dev review"));
 }
+
+/// H6c: a scheduled agent — `add` writes the person's schedule and a systemd user timer (a fake `systemctl` here,
+/// which keeps its arguments), `run` (what the timer calls) runs it read-only, keeps the outcome and notifies (a fake
+/// `notify-send`), `list` shows the last run, `remove` takes the timer away.
+#[cfg(unix)]
+#[test]
+fn a_scheduled_agent_is_installed_run_read_only_kept_and_removed() {
+    use std::os::unix::fs::PermissionsExt;
+    let (port, _seen) = fake_ollama(vec![
+        serde_json::json!({"role": "assistant", "content": "", "tool_calls": [
+            {"function": {"name": "write", "arguments": {"path": "x.txt", "content": "no\n"}}}
+        ]}),
+        serde_json::json!({"role": "assistant", "content": "Nothing new since yesterday."}),
+    ]);
+    let home = tempfile::tempdir().unwrap();
+    let proj = tempfile::tempdir().unwrap();
+    let bin = home.path().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let log = home.path().join("calls.txt");
+    for name in ["systemctl", "notify-send"] {
+        std::fs::write(
+            bin.join(name),
+            format!("#!/bin/sh\necho \"{name} $@\" >> '{}'\n", log.display()),
+        )
+        .unwrap();
+        std::fs::set_permissions(bin.join(name), std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let run = |args: &[&str]| {
+        Command::new(bin_path())
+            .arg("agent")
+            .arg("schedule")
+            .args(args)
+            .env_clear()
+            .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+            .env("HOME", home.path())
+            .env("XDG_CONFIG_HOME", home.path().join("xdg"))
+            .env("DXTUTOR_CONFIG_DIR", home.path().join("cfg"))
+            .env("DXTUTOR_DATA_DIR", home.path().join("data"))
+            .env("DXTUTOR_SYSTEMCTL", bin.join("systemctl"))
+            .env("OLLAMA_HOST", format!("http://127.0.0.1:{port}"))
+            .env("DXTUTOR_KEYCHAIN_SERVICE", "dxtutor-headless-test")
+            .output()
+            .unwrap()
+    };
+    let cwd = proj.path().display().to_string();
+    let add = run(&[
+        "add",
+        "--name",
+        "morning",
+        "--when",
+        "daily@07:30",
+        "--cwd",
+        &cwd,
+        "-p",
+        "what changed?",
+        "--provider",
+        "ollama",
+        "--model",
+        "fake",
+    ]);
+    assert_eq!(
+        add.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&add.stderr)
+    );
+    let units = home.path().join("xdg/systemd/user");
+    let timer = std::fs::read_dir(&units)
+        .unwrap()
+        .flatten()
+        .find(|e| e.path().extension().is_some_and(|x| x == "timer"))
+        .unwrap()
+        .path();
+    let t = std::fs::read_to_string(&timer).unwrap();
+    assert!(t.contains("OnCalendar=*-*-* 07:30:00"), "{t}");
+    let service = std::fs::read_to_string(timer.with_extension("service")).unwrap();
+    assert!(service.contains("agent schedule run morning-"), "{service}");
+    let calls = std::fs::read_to_string(&log).unwrap();
+    assert!(calls.contains("systemctl --user daemon-reload"));
+    assert!(calls.contains("systemctl --user enable --now dxtutor-agent-morning-"));
+    // a second one with the same name is refused
+    assert_eq!(
+        run(&["add", "--name", "morning", "--when", "hourly", "--cwd", &cwd, "-p", "x"])
+            .status
+            .code(),
+        Some(1)
+    );
+    // what the timer runs: read-only (the write is refused by the plan mode), kept, notified
+    let r = run(&["run", "morning"]);
+    assert_eq!(
+        r.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&r.stderr)
+    );
+    assert!(String::from_utf8_lossy(&r.stdout).contains("Nothing new since yesterday."));
+    assert!(!proj.path().join("x.txt").exists());
+    assert!(std::fs::read_to_string(&log)
+        .unwrap()
+        .contains("notify-send dxtutor · morning — done"));
+    let list = run(&["list"]);
+    let l = String::from_utf8_lossy(&list.stdout);
+    assert!(
+        l.contains("daily@07:30") && l.contains("read-only") && l.contains(": done"),
+        "{l}"
+    );
+    // removed: the timer goes, the kept runs stay
+    let rm = run(&["remove", "morning"]);
+    assert_eq!(rm.status.code(), Some(0));
+    assert!(!timer.exists());
+    assert!(std::fs::read_to_string(&log)
+        .unwrap()
+        .contains("systemctl --user disable --now dxtutor-agent-morning-"));
+    assert!(String::from_utf8_lossy(&run(&["list"]).stdout).contains("no scheduled agents"));
+    assert!(home
+        .path()
+        .join("data/schedules")
+        .read_dir()
+        .unwrap()
+        .next()
+        .is_some());
+}
