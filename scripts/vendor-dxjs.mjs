@@ -1,19 +1,19 @@
 #!/usr/bin/env node
 // vendor-dxjs.mjs — rebuilds the support files of the Dxjs course (courses/dxjs/support/), so the
 // evaluator grades offline against the REAL library: dxjs is not on npm, its releases are GitHub
-// release tarballs (https://github.com/ngolacloud/dxjs/releases/tag/v1.2.0).
+// release tarballs (https://github.com/ngolacloud/dxjs/releases/tag/v1.3.0).
 //
 // Usage:  node scripts/vendor-dxjs.mjs <dxjs checkout> <folder with the release tarballs> [--check]
 //
-//   gh release download v1.2.0 -R ngolacloud/dxjs -D /tmp/dxjs-rel \
+//   gh release download v1.3.0 -R ngolacloud/dxjs -D /tmp/dxjs-rel \
 //     -p 'dxjs-core-*' -p 'dxjs-dom-*' -p 'dxjs-component-*' -p 'dxjs-ui-*' -p 'dxjs-query-*' -p 'dxjs-forms-*'
 //
 // Inputs, all pinned:
 //   - the six release tarballs the cdn bundle is made of (sha256 below);
-//   - cdn/dxjs.entry.ts of the tag (`git show v1.2.0:…`, read-only on the checkout);
+//   - cdn/dxjs.entry.ts of the tag (`git show v1.3.0:…`, read-only on the checkout);
 //   - esbuild 0.28.2 and happy-dom 15.11.7 from the checkout's node_modules (its package-lock.json).
 // It writes:
-//   support/dxjs-1.2.0.js            the cdn bundle: cdn/dxjs.entry.ts over the released packages,
+//   support/dxjs-1.3.0.js            the cdn bundle: cdn/dxjs.entry.ts over the released packages,
 //                                    with the options of dxjs's scripts/build.mjs. Its sha256 must
 //                                    equal DXJS_SHA256 (the same bytes as dxjs's own cdn/dxjs.js)
 //   support/<pkg>/index.js           one shim per @dxjs package the course imports: exactly the
@@ -30,17 +30,17 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const TAG = "v1.2.0";
-const VERSION = "1.2.0";
+const TAG = "v1.3.0";
+const VERSION = "1.3.0";
 const TARBALLS = {
-  core: "3d50f7dc569148af972c1d3fc48f040e3b7962818de55e7a87242f233280462a",
-  dom: "fdc5a14965e045cf561941fd4ec10237c9895bf2fbc11360180d364936b32146",
-  component: "3589bbb29c9ac940045412b1d3957ead997354aeed0ac70669f69369fe8d85bc",
-  ui: "aacc7330855b1ebcaeed65f2746580a916a09b242e1c1c0341a21b20ea6c7443",
-  query: "a3d963450c9830cdddb0516e416c8f501571320b881fc32c8642c335b18c8101",
-  forms: "be2b2a9c49513f6478fad0495222bd2845ba44536cf7f3b4ad8dab58e338ff95",
+  core: "6dec569bb4bcb276e5372afb58780195a343043704ef68d2c96d01064c5b2369",
+  dom: "b0d5b923b773c8248143706d534ba73fedeeaf58d31c4115707b3ed0677953f1",
+  component: "7b3d2b3c1c4c6be94ee0df2e2d07d5fd4e602a91841ab3f06e68a67dfdbae0bc",
+  ui: "565820fe744d1288a6a30c5b0e603cf27f3c0b8610c5f4e84ae48800452e0e87",
+  query: "cb04b037e59b1ff8d504af9f197ef0579921d404c4bf4d92f597f8e0327ef7e7",
+  forms: "c8341441d6d545d353c001e41ef89de5153ff8530d0cc5291ae66bf383ec72d1",
 };
-const DXJS_SHA256 = "0bdd70f4ab3c44527dfa069a1c52bf17cdf8bc6853a896116caa98eb3138c49a";
+const DXJS_SHA256 = "5c6501507df4a8379b1771e0765acd7573306a6614a2b0f6bede9ac5072fb2f1";
 const ESBUILD_VERSION = "0.28.2";
 const HD_VERSION = "15.11.7";
 /** The packages the course imports (`ui` is in the bundle but no step uses it). */
@@ -107,6 +107,10 @@ const exported = new Set(
 function runtimeExports(file) {
   const ts = readFileSync(file, "utf8").replace(/\/\/.*$/gm, "");
   const names = new Set();
+  // `export * from "./async.ts"` (the async helpers of @dxjs/dom 1.3.0): that file's names too.
+  for (const m of ts.matchAll(/export\s*\*\s*from\s*["'](\.[^"']+)["']/g)) {
+    for (const n of runtimeExports(join(dirname(file), m[1]))) names.add(n);
+  }
   for (const m of ts.matchAll(/export\s+(?:async\s+)?(?:function\*?|const|let|class)\s+([A-Za-z_$][\w$]*)/g)) names.add(m[1]);
   for (const m of ts.matchAll(/export\s*\{([^}]*)\}/g)) {
     for (const part of m[1].split(",")) {

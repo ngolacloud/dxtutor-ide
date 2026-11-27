@@ -863,15 +863,18 @@ cpp, sql.
   passo, sem nunca substituir nada (`create_new`). Os runners nativos (Rust/Go) recusam-nos. Nunca vão
   para o webview. Use SEMPRE `course.phase(step, …)` (não `step.as_phase`) onde se avalia.
 - **Curso Dxjs** (`courses/dxjs/`, o 1.º framework oficial, embutido só no backend, avaliado pelo
-  descritor TypeScript): o dxjs não está no npm, por isso o `support/` traz o `cdn/dxjs.js` 1.2.0
-  (reconstruído dos tarballs da release, sha256 fixo), um shim por pacote `@dxjs/*`, o happy-dom 15.11.7
+  descritor TypeScript): o dxjs não está no npm, por isso o `support/` traz o `cdn/dxjs.js` 1.3.0
+  (reconstruído dos tarballs da release e do `cdn/dxjs.entry.ts` da tag, sha256 fixo, igual byte a byte
+  ao do `npm run build` na tag), um shim por pacote `@dxjs/*` (os nomes do `src/index.ts`, seguindo os
+  `export * from "./…"`: o `asyncView`/`awaitBlock`/`asyncList` do `@dxjs/dom`), o happy-dom 15.11.7
   num só ficheiro e o `@dxtutor/dom` (DOM no `globalThis`, como os testes do dxjs). Regenerar/verificar
   com `node scripts/vendor-dxjs.mjs <checkout dxjs> <tarballs> --check`. Os passos de projecto TS correm
   `node --test` sobre os `*.test.ts` ocultos; os desafios de um ficheiro importam por alias
-  (`effect as effectForTest`) para não chocar com os nomes do aluno. GOTCHA (dxjs 1.2.0): uma ligação
-  reactiva dentro de uma linha de `list` morre na 1.ª mudança da lista (os efeitos da linha pertencem
-  ao efeito da lista): o curso põe na chave o que muda (`t.id + ":" + t.done`). O `dxt plugin test`
-  diz a versão da ferramenta (`version_cmd` dos descritores).
+  (`effect as effectForTest`) para não chocar com os nomes do aluno. O 1.3.0 corrigiu as linhas de
+  `list`: cada uma tem a sua raiz e as ligações vivem enquanto a linha existe (no 1.2.0 morriam na 1.ª
+  mudança da lista); a unidade 11 chaveia pelo `id` e liga o que muda, e um teste dela falha com o 1.2.0.
+  O `@dxjs/stream` não está no bundle cdn nem tem shim. O `dxt plugin test` diz a versão da ferramenta
+  (`version_cmd` dos descritores).
 - **Curso Seiva e cache preparada (Learn P1):** `courses/seiva/` (framework, avaliado em `rust`,
   embutido só no backend como o Python e o Dxjs; sem ficheiros de apoio). As dependências vivem UMA vez na `[build]` do curso
   (`tutor_core::build`): `[build.vars]` tem a origem do Seiva (`git … tag = "v0.2.0"`; passar ao

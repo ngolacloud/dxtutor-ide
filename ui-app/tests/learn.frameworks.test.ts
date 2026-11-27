@@ -140,7 +140,7 @@ describe("o curso Dxjs embutido (Learn P1)", () => {
     LM.ltOpen("dxjs-u01-c1-signal");
     await vi.waitFor(() => expect(res().textContent).toMatch(/About Dxjs/));
     expect(res().querySelector<HTMLAnchorElement>(".lt-sub a")!.getAttribute("href")).toBe("https://ngolacloud.github.io/dxjs/");
-    expect(res().textContent).toContain("Node.js 22.18 or newer. dxjs 1.2.0 itself comes with the course");
+    expect(res().textContent).toContain("Node.js 22.18 or newer. dxjs 1.3.0 itself comes with the course");
   });
 });
 

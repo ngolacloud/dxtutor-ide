@@ -77,7 +77,7 @@ export const LEARN_NOTES: FeatureNotes = {
     {
       title: "O curso Dxjs: da primeira signal a uma pequena app",
       where: ["Learning Track › «Choose what to learn» › «Frameworks & tools» › Dxjs"],
-      what: "O curso oficial do dxjs, o motor de interfaces reactivas da NgolaCloud: 12 unidades, das signals, computeds e effects ao `@dxjs/query`, ao `@dxjs/forms`, aos templates `html`, aos componentes e a uma app de tarefas. Os exercícios escrevem-se em TypeScript e correm contra o dxjs 1.2.0 verdadeiro.",
+      what: "O curso oficial do dxjs, o motor de interfaces reactivas da NgolaCloud: 12 unidades, das signals, computeds e effects ao `@dxjs/query`, ao `@dxjs/forms`, aos templates `html`, aos componentes e a uma app de tarefas. Os exercícios escrevem-se em TypeScript e correm contra o dxjs 1.3.0 verdadeiro.",
       howTo: [
         "Escolhe o cartão Dxjs na secção «Frameworks & tools» e os níveis que queres.",
         "Lê o texto de conceitos de cada unidade, escreve os drills linha a linha e resolve os desafios; quatro deles são projectos de vários ficheiros.",
@@ -85,16 +85,16 @@ export const LEARN_NOTES: FeatureNotes = {
       ],
       flow: [
         "O curso vem embutido no backend (`courses/dxjs/`, `include_str!`), na categoria `framework`, avaliado pelo descritor de TypeScript (Node com remoção de tipos).",
-        "O dxjs não está no npm: o curso declara ficheiros de apoio (`[support]`), só de leitura — o bundle `cdn/dxjs.js` da versão 1.2.0, um módulo por pacote `@dxjs/*` e um DOM para o Node (happy-dom) — que o avaliador escreve ao lado dos ficheiros de cada passo. A avaliação corre sem rede.",
+        "O dxjs não está no npm: o curso declara ficheiros de apoio (`[support]`), só de leitura — o bundle `cdn/dxjs.js` da versão 1.3.0, um módulo por pacote `@dxjs/*` e um DOM para o Node (happy-dom) — que o avaliador escreve ao lado dos ficheiros de cada passo. A avaliação corre sem rede.",
         "Um ficheiro de apoio nunca substitui um ficheiro do passo, nem o contrário; os ficheiros de apoio nunca vão para a interface.",
       ],
       tips: [
         "Precisa do Node.js 22.18 ou mais recente (também o encontrado pelo nvm, Volta ou fnm).",
         "No primeiro passo, «About» leva à documentação oficial, em ngolacloud.github.io/dxjs.",
+        "Numa lista com chave (`list`), cada linha é desenhada uma vez por chave e as suas ligações reactivas continuam vivas enquanto a linha existir: a unidade 11 ensina a chavear pelo `id` e a ligar o que muda na linha (corrigido no dxjs 1.3.0; no 1.2.0 essas ligações paravam na primeira mudança da lista).",
       ],
       limits: [
         "Só na app desktop; no browser o cartão fica «Coming soon».",
-        "No dxjs 1.2.0, uma ligação reactiva dentro de uma linha de `list` deixa de actualizar depois da primeira mudança da lista: o curso ensina a pôr na chave o que muda na linha.",
       ],
       covers: ["lt-pick", "submit_step"],
     },

@@ -4,7 +4,7 @@ category = "framework"
 subject = "dxjs"
 title = "Dxjs: Reactive UIs from Signals Up"
 level = "intermediate"
-summary = "Learn dxjs, NgolaCloud's fine-grained reactive UI engine, the way it is built: from a single signal to computeds, effects, batching and the owner tree, then cached queries, forms, safe html templates and components, and finally a small app. Every exercise runs against the real dxjs 1.2.0."
+summary = "Learn dxjs, NgolaCloud's fine-grained reactive UI engine, the way it is built: from a single signal to computeds, effects, batching and the owner tree, then cached queries, forms, safe html templates and components, and finally a small app. Every exercise runs against the real dxjs 1.3.0."
 overview = '''
 ## What dxjs is
 
@@ -48,7 +48,7 @@ reads a signal, `() => count()`, not the value `count()`.
 ## How grading works
 
 You write TypeScript, which Node.js runs directly by stripping the types, so you need
-**Node.js 22.18 or newer**. The course brings dxjs 1.2.0 with it (the official `cdn/dxjs.js`
+**Node.js 22.18 or newer**. The course brings dxjs 1.3.0 with it (the official `cdn/dxjs.js`
 bundle, built from the release), so `import { signal } from "@dxjs/core"` works offline,
 exactly as in a real project. The DOM units also get a browser-like DOM for Node from
 [happy-dom](https://github.com/capricorn86/happy-dom), the same one dxjs's own tests use.
@@ -61,7 +61,7 @@ official TypeScript course covers all of it.
 # Read-only files written next to every step's files when grading (path in the work folder ->
 # file of this plugin). See support/README.md for where each one comes from.
 [support]
-"node_modules/.dxjs/dxjs.js" = "support/dxjs-1.2.0.js"
+"node_modules/.dxjs/dxjs.js" = "support/dxjs-1.3.0.js"
 "node_modules/@dxjs/core/package.json" = "support/core/package.json"
 "node_modules/@dxjs/core/index.js" = "support/core/index.js"
 "node_modules/@dxjs/dom/package.json" = "support/dom/package.json"
@@ -3935,15 +3935,24 @@ A new key renders a new row; a key that disappears disposes its row; a key that 
 
 ## What is special or tricky
 
-- **A row renders once per key.** When a todo with the same id comes back as a new object
-  (`{ ...t, done: true }`), its row is *not* rendered again. So put what can change inside a row
-  into the **key**: `(t) => t.id + ":" + t.done` gives a toggled todo a fresh row, while every
-  other row keeps its node.
-- **Known limitation of dxjs 1.2.0:** a reactive binding *inside* a row (say
-  `class=${() => color()}`) updates only until the list itself changes for the first time.
-  The row's bindings belong to the list's effect, which disposes them when it re-runs, even for
-  rows it keeps. Event handlers (`@click`) are not affected. Until that is fixed, keep rows
-  static and let the key decide when a row is rebuilt.
+- **A row renders once per key, then its bindings keep it current.** When a todo with the same
+  id comes back as a new object (`{ ...t, done: true }`), `render` is *not* called again: the
+  row keeps its node, and the `t` it was built with is the old object. So key rows by identity
+  only (`(t) => t.id`) and bind what can change with arrows that read live state, for example
+  the current todo looked up by id in a `computed` map:
+
+  ```ts
+  const byId = computed(() => new Map(todos().map((t) => [t.id, t])));
+  list(() => todos(), (t) => t.id, (t) => {
+    const todo = computed(() => byId().get(t.id) ?? t);   // this row's live todo
+    return html`<li class=${() => (todo().done ? "done" : null)}>${() => todo().text}</li>`;
+  });
+  ```
+
+- **Kept rows update on their own.** Each row is built inside its own root, which lives exactly
+  as long as the row: its bindings survive every insert, removal and reorder of the list, and are
+  disposed with the row. (dxjs 1.2.0 tied them to the list's effect, so they stopped updating
+  after the list's first change; 1.3.0 fixed it.)
 - **Pass accessors, not values.** `count: () => total()` stays live; `count: total()` freezes the
   child at construction.
 - **Outputs are callbacks.** A child never writes its parent's signals directly; it calls
@@ -3983,9 +3992,10 @@ subscription.
 ## Rows keep their identity
 
 `list(source, key, render)` remembers one DOM row per key. Appending a todo adds one `<li>`;
-removing one deletes one node; reordering moves nodes. Because a row is rendered once per key,
-the key must change when the row's content does: key a todo by `id` and `done` together, and
-toggling it renders that one row again.
+removing one deletes one node; reordering moves nodes. A row is rendered once per key, so the
+key is the todo's `id` alone, and what can change inside the row (done, text) is bound with
+arrows. Toggling a todo keeps its node and updates only that row's class and checkbox, even after
+other rows were added or removed: each row owns its bindings for as long as it lives.
 '''
 
 [[unit.step]]
@@ -4156,11 +4166,12 @@ instructions = '''
 </ul>
 ```
 
-- one `<li>` per todo, in order, rendered with `list` and keyed by **`t.id + ":" + t.done`**: a
-  row keeps its DOM node while the todo's id and done-ness stay, and a toggled todo gets a fresh
-  row (a row is rendered once per key, see the reading text);
+- one `<li>` per todo, in order, rendered with `list` and keyed by **`t.id`**: a row keeps its
+  DOM node for as long as its todo is in the list, through toggles, inserts and removals;
 - the `<li>` has the class `done` when the todo is done (and no `class` when not), and the
-  checkbox's `checked` **property** matches `done`;
+  checkbox's `checked` **property** matches `done`, and both **follow the todo**: a toggled todo
+  (a new object with the same id) updates its kept row in place (a row is rendered once per key,
+  so bind them to the current todo, see the reading text);
 - the checkbox's `change` event calls `onToggle(id)`, the button's `click` calls `onRemove(id)`;
 - the text is shown as text (escaped).
 '''
@@ -4171,10 +4182,11 @@ main = "src/todo-list.ts"
 readonly = ["src/types.ts"]
 explanation = '''
 `Counter` owns its signal and reads `props.step()` inside the click handler, so a changed step
-applies to the next click. `TodoList` renders each row once per key with `list`, which is what
-keeps the nodes of the rows that did not change. Putting `done` into the key makes a toggled
-todo render a fresh row with the right class and checkbox, without any reactive binding inside
-the row (which dxjs 1.2.0 would stop updating after the list's first change). Clicks leave the
+applies to the next click. `TodoList` renders each row once per id with `list`, which is what
+keeps every row's node. Inside a row, the class, the checkbox and the text are bindings over a
+per-row `computed` that looks the todo up by id, so a toggle updates that one row in place, and
+only that row: the other todos are the same objects, so their computeds do not change. The row's
+bindings live as long as the row, whatever happens to the rest of the list. Clicks leave the
 component only through the callback props.
 '''
 
@@ -4203,7 +4215,7 @@ type Props = {
   onRemove: (id: number) => void;
 };
 
-// A keyed list of todos: a row is rendered once per id + done.
+// A keyed list of todos: one row per id, whose bindings follow the current todo.
 export const TodoList = component((props: Props) => {
   throw new Error("not implemented");
 });
@@ -4312,20 +4324,36 @@ test("change and click report through the callbacks", () => {
   assert.deepEqual(removed, [2]);
 });
 
-test("a toggled todo gets a fresh row; the others keep theirs", () => {
+test("a toggled todo updates its row in place; the others keep theirs", () => {
   const { todos, rows } = setup(two);
   const [first, second] = rows();
   todos.update((ts) => ts.map((t) => (t.id === 1 ? { ...t, done: true } : t)));
   const now = rows()[0];
   assert.equal(now.getAttribute("data-id"), "1");
-  assert.notEqual(now, first, "a new key renders a new row");
+  assert.equal(now, first, "the row is keyed by id: same node");
   assert.equal(now.classList.contains("done"), true);
   assert.equal((now.querySelector("input") as HTMLInputElement).checked, true);
   assert.equal(rows()[1], second, "the untouched row keeps its node");
   todos.update((ts) => ts.map((t) => (t.id === 1 ? { ...t, done: false } : t)));
-  assert.equal(rows()[0].classList.contains("done"), false);
+  assert.equal(rows()[0], first);
+  assert.equal(rows()[0].hasAttribute("class"), false);
   assert.equal((rows()[0].querySelector("input") as HTMLInputElement).checked, false);
   assert.equal(rows().length, 2);
+});
+
+test("a kept row's bindings still update after the list changed", () => {
+  const { todos, rows } = setup(two);
+  const [first, second] = rows();
+  todos.update((ts) => [...ts, { id: 3, text: "ship it", done: false }]); // the list changes
+  todos.update((ts) => ts.filter((t) => t.id !== 3)); // and changes back
+  todos.update((ts) => ts.map((t) => (t.id === 1 ? { ...t, done: true, text: "wrote a signal" } : t)));
+  assert.equal(rows()[0], first, "row 1 was kept");
+  assert.equal(first.classList.contains("done"), true, "its class follows the todo");
+  assert.equal((first.querySelector("input") as HTMLInputElement).checked, true, "so does its checkbox");
+  assert.equal(first.querySelector("span")!.textContent, "wrote a signal", "and its text");
+  todos.update((ts) => ts.map((t) => (t.id === 2 ? { ...t, done: false } : t)));
+  assert.equal(rows()[1], second, "row 2 was kept");
+  assert.equal(second.hasAttribute("class"), false, "and its class follows the todo");
 });
 
 test("rows are keyed: inserts and removals keep the other nodes", () => {
@@ -4369,6 +4397,7 @@ export const Counter = component((props: { start: number; step: () => number }) 
 });
 '''
 "src/todo-list.ts" = '''
+import { computed } from "@dxjs/core";
 import { html, list } from "@dxjs/dom";
 import { component } from "@dxjs/component";
 import type { Todo } from "./types.ts";
@@ -4379,17 +4408,21 @@ type Props = {
   onRemove: (id: number) => void;
 };
 
-// A keyed list of todos: a row is rendered once per id + done.
+// A keyed list of todos: one row per id, whose bindings follow the current todo.
 export const TodoList = component((props: Props) => {
+  const byId = computed(() => new Map(props.todos().map((t) => [t.id, t])));
   return html`<ul class="todos">
     ${list(
       () => props.todos(),
-      (t) => t.id + ":" + t.done,
-      (t) => html`<li data-id=${t.id} class=${t.done ? "done" : null}>
-        <input type="checkbox" .checked=${t.done} @change=${() => props.onToggle(t.id)} />
-        <span>${t.text}</span>
-        <button class="remove" @click=${() => props.onRemove(t.id)}>×</button>
-      </li>`,
+      (t) => t.id,
+      (t) => {
+        const todo = computed(() => byId().get(t.id) ?? t);
+        return html`<li data-id=${t.id} class=${() => (todo().done ? "done" : null)}>
+          <input type="checkbox" .checked=${() => todo().done} @change=${() => props.onToggle(t.id)} />
+          <span>${() => todo().text}</span>
+          <button class="remove" @click=${() => props.onRemove(t.id)}>×</button>
+        </li>`;
+      },
     )}
   </ul>`;
 });
@@ -4688,6 +4721,7 @@ export function createTodoStore(initial: Todo[] = []) {
 }
 '''
 "src/todo-list.ts" = '''
+import { computed } from "@dxjs/core";
 import { html, list } from "@dxjs/dom";
 import { component } from "@dxjs/component";
 import type { Todo } from "./types.ts";
@@ -4698,17 +4732,21 @@ type Props = {
   onRemove: (id: number) => void;
 };
 
-// A keyed list of todos: a row is rendered once per id + done.
+// A keyed list of todos: one row per id, whose bindings follow the current todo.
 export const TodoList = component((props: Props) => {
+  const byId = computed(() => new Map(props.todos().map((t) => [t.id, t])));
   return html`<ul class="todos">
     ${list(
       () => props.todos(),
-      (t) => t.id + ":" + t.done,
-      (t) => html`<li data-id=${t.id} class=${t.done ? "done" : null}>
-        <input type="checkbox" .checked=${t.done} @change=${() => props.onToggle(t.id)} />
-        <span>${t.text}</span>
-        <button class="remove" @click=${() => props.onRemove(t.id)}>×</button>
-      </li>`,
+      (t) => t.id,
+      (t) => {
+        const todo = computed(() => byId().get(t.id) ?? t);
+        return html`<li data-id=${t.id} class=${() => (todo().done ? "done" : null)}>
+          <input type="checkbox" .checked=${() => todo().done} @change=${() => props.onToggle(t.id)} />
+          <span>${() => todo().text}</span>
+          <button class="remove" @click=${() => props.onRemove(t.id)}>×</button>
+        </li>`;
+      },
     )}
   </ul>`;
 });
