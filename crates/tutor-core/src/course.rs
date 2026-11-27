@@ -484,6 +484,12 @@ const SEIVA_BASICS: &str = include_str!("../../../courses/seiva/courses/seiva.to
 /// fixado (versão e sha256) no `[build]` do curso, instalado uma vez num venv do curso e avaliado
 /// offline com o `manage.py test` do próprio Django.
 const DJANGO_BASICS: &str = include_str!("../../../courses/django/courses/django.toml");
+/// Kubernetes (ferramenta, avaliada por verificações — `crate::toolcheck`): só no backend. A parte
+/// offline: os manifestos lêem-se e o `kubectl kustomize` constrói-os sem cluster.
+const KUBERNETES_BASICS: &str = include_str!("../../../courses/kubernetes/courses/kubernetes.toml");
+/// Delonix Engine 0.2.0 (ferramenta, avaliada por verificações): só no backend, com os comandos
+/// do delonix que não tocam no motor (`manifest render`, `compose config`).
+const DELONIX_BASICS: &str = include_str!("../../../courses/delonix/courses/delonix.toml");
 
 /// Todos os cursos guiados embebidos no binário.
 pub fn builtin_courses() -> Vec<Course> {
@@ -501,6 +507,8 @@ pub fn builtin_courses() -> Vec<Course> {
         with_support(parse("dxjs-basics", DXJS_BASICS), DXJS_SUPPORT),
         parse("seiva-basics", SEIVA_BASICS),
         parse("django-basics", DJANGO_BASICS),
+        parse("kubernetes-basics", KUBERNETES_BASICS),
+        parse("delonix-basics", DELONIX_BASICS),
     ]
 }
 
@@ -1455,5 +1463,129 @@ justification = "j"
         // Clonar o curso partilha os ficheiros (Arc), não os copia.
         let clone = c.clone();
         assert!(Arc::ptr_eq(&clone.support_files, &c.support_files));
+    }
+}
+
+#[cfg(test)]
+mod tool_course_tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    /// A forma dos cursos de ferramentas (Learn P2b): categoria `tool`, avaliados por verificações
+    /// (`yaml`), ids com o prefixo do curso, níveis por blocos, e cada unidade conceito + drills +
+    /// um desafio de projecto cujo `checks.toml` é válido.
+    fn tool_course(
+        id: &str,
+        subject: &str,
+        prefix: &str,
+        units: usize,
+        tools: &[crate::toolcheck::Tool],
+    ) {
+        let c = load_course(id).unwrap_or_else(|| panic!("curso {id}"));
+        assert_eq!(
+            (
+                c.language.as_str(),
+                c.category,
+                c.subject.as_str(),
+                c.track()
+            ),
+            ("yaml", CourseCategory::Tool, subject, subject)
+        );
+        assert!(crate::toolcheck::graded_by_checks(&c.language));
+        assert!(c.overview.len() > 1500, "overview");
+        assert!(c.support.is_empty(), "sem ficheiros de apoio");
+        assert_eq!(c.units.len(), units);
+        let levels: Vec<&str> = c.units.iter().map(|u| u.level.as_str()).collect();
+        let rank = |l: &str| {
+            ["basic", "intermediate", "advanced"]
+                .iter()
+                .position(|x| *x == l)
+                .unwrap()
+        };
+        assert!(
+            levels.windows(2).all(|w| rank(w[0]) <= rank(w[1])),
+            "{levels:?}"
+        );
+        assert_eq!(
+            levels.iter().copied().collect::<BTreeSet<_>>(),
+            BTreeSet::from(["basic", "intermediate", "advanced"])
+        );
+        for (n, u) in c.units.iter().enumerate() {
+            assert_eq!(u.difficulty as usize, n + 1, "{}", u.id);
+            assert!(u.concepts.len() > 1000, "{}: concepts", u.id);
+            assert!(
+                u.concepts.contains("https://"),
+                "{}: a link to the official docs",
+                u.id
+            );
+            let kinds: Vec<StepKind> = u.steps.iter().map(|s| s.kind).collect();
+            assert_eq!(
+                kinds,
+                [
+                    StepKind::Concept,
+                    StepKind::Drill,
+                    StepKind::Drill,
+                    StepKind::Challenge
+                ],
+                "{}",
+                u.id
+            );
+            for s in &u.steps {
+                assert!(s.id.starts_with(prefix), "{}", s.id);
+                assert!(s.points > 0, "{}", s.id);
+            }
+            for d in u.steps.iter().filter(|s| s.kind == StepKind::Drill) {
+                let lines: Vec<&str> = d.target.trim_end_matches('\n').split('\n').collect();
+                assert_eq!(
+                    d.line_comments.len(),
+                    lines.len(),
+                    "{}: um comentário por linha",
+                    d.id
+                );
+                for (line, comment) in lines.iter().zip(&d.line_comments) {
+                    assert_eq!(
+                        line.trim().is_empty(),
+                        comment.trim().is_empty(),
+                        "{}: {line:?}",
+                        d.id
+                    );
+                }
+            }
+            let ch = u.steps.last().unwrap();
+            let p = ch.project.as_ref().expect("desafio de projecto");
+            assert!(p.check().is_empty(), "{}: {:?}", ch.id, p.check());
+            let errs = crate::toolcheck::check_step(p);
+            assert!(errs.is_empty(), "{}: {errs:?}", ch.id);
+            assert!(c.phase(ch, Level::Basico).is_some());
+        }
+        let used: Vec<crate::toolcheck::Tool> =
+            crate::toolcheck::course_tools(&c).into_iter().collect();
+        assert_eq!(used, tools);
+    }
+
+    #[test]
+    fn kubernetes_is_a_tool_course_graded_by_checks() {
+        tool_course(
+            "kubernetes-basics",
+            "kubernetes",
+            "k8s-",
+            11,
+            &[crate::toolcheck::Tool::Kubectl],
+        );
+        let c = load_course("kubernetes-basics").unwrap();
+        assert!(c.overview.contains("kubectl v1.36"));
+    }
+
+    #[test]
+    fn delonix_is_a_tool_course_graded_by_checks() {
+        tool_course(
+            "delonix-basics",
+            "delonix",
+            "dlx-",
+            9,
+            &[crate::toolcheck::Tool::Delonix],
+        );
+        let c = load_course("delonix-basics").unwrap();
+        assert!(c.overview.contains("Delonix 0.2.0") && c.overview.contains("0.1.x"));
     }
 }

@@ -54,6 +54,7 @@ pub mod testbins;
 pub mod testnav;
 pub mod testrun;
 pub mod textdiff;
+pub mod tool_runner;
 pub mod tracer;
 
 pub use advisor::advise;

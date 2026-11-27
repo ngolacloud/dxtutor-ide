@@ -17,7 +17,7 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 - [Platform — a minha fila, revisão de PR de infra e incidentes](#platform-a-minha-fila-revisao-de-pr-de-infra-e-incidentes) — 3 acções
 - [Vault — segredos, sessão e credenciais dinâmicas](#vault-segredos-sessao-e-credenciais-dinamicas) — 3 acções
 - [Deploy guiado — staging e produção](#deploy-guiado-staging-e-producao) — 3 acções
-- [Learning Track](#learning-track) — 5 acções
+- [Learning Track](#learning-track) — 6 acções
 - [Novo projecto: um projecto completo a partir dos templates do Delonix](#novo-projecto-um-projecto-completo-a-partir-dos-templates-do-delonix) — 1 acção
 
 ---
@@ -1731,6 +1731,7 @@ Percursos guiados para aprender uma linguagem, um framework ou uma ferramenta: l
 | [Passo de projecto: vários ficheiros](#passo-de-projecto-varios-ficheiros) | Learning Track › um desafio com a lista de ficheiros por cima do editor |
 | [O curso Dxjs: da primeira signal a uma pequena app](#o-curso-dxjs-da-primeira-signal-a-uma-pequena-app) | Learning Track › «Choose what to learn» › «Frameworks & tools» › Dxjs |
 | [O curso Django: de uma vista a uma pequena app de leituras](#o-curso-django-de-uma-vista-a-uma-pequena-app-de-leituras) | Learning Track › «Choose what to learn» › «Frameworks & tools» › Django |
+| [Os cursos de Kubernetes e do Delonix: manifestos avaliados sem cluster](#os-cursos-de-kubernetes-e-do-delonix-manifestos-avaliados-sem-cluster) | Learning Track › «Choose what to learn» › «Frameworks & tools» › Kubernetes ou Delonix Engine |
 | [Preparar um curso (Seiva, Django): descarregar as dependências uma vez](#preparar-um-curso-seiva-django-descarregar-as-dependencias-uma-vez) | Learning Track › um passo do curso Seiva ou Django › cartão «Prepare this course» |
 
 ### Escolher o que aprender: linguagens e «Frameworks & tools»
@@ -1760,7 +1761,7 @@ Mostra as 10 linguagens oficiais e, numa secção à parte, os frameworks e as f
 **Limites**
 
 - No browser só há os cursos embutidos de Rust e Go: os frameworks ficam todos «Coming soon».
-- Dos frameworks e ferramentas oficiais, o Dxjs e o Seiva têm curso (embutidos na app); os outros chegam em fases próximas.
+- Dos frameworks e ferramentas oficiais, o Dxjs, o Seiva, o Kubernetes e o Delonix Engine têm curso (embutidos na app); os outros chegam em fases próximas.
 
 <sub>Cobre: `lt-pick`, `lt-onboard`, `lt-install`, `lt-remove`</sub>
 
@@ -1853,6 +1854,38 @@ O curso oficial de Django 5.2 LTS: 9 unidades — vistas e URLs, modelos e migra
 
 - Só na app desktop; no browser o cartão fica «Coming soon».
 - Não se criam ficheiros novos: uma migração a escrever já vem no passo, vazia.
+
+<sub>Cobre: `lt-pick`, `submit_step`</sub>
+
+### Os cursos de Kubernetes e do Delonix: manifestos avaliados sem cluster
+
+**Onde:** Learning Track › «Choose what to learn» › «Frameworks & tools» › Kubernetes ou Delonix Engine
+
+Dois cursos de ferramentas em que se escreve YAML: o de Kubernetes (11 unidades, dos objectos e Pods ao Kustomize) e o do Delonix Engine 0.2.0 (9 unidades, dos manifestos e Pods aos ficheiros compose e a um projecto inteiro num Stack). Cada desafio é avaliado na tua máquina, sem cluster e sem tocar no motor de contentores.
+
+**Como usar**
+
+1. Escolhe o cartão Kubernetes ou Delonix Engine na secção «Frameworks & tools» e os níveis que queres.
+2. Lê os conceitos, escreve os drills linha a linha (o drill de YAML só confirma que o ficheiro se lê) e resolve os desafios: cada um é um pequeno projecto de ficheiros YAML.
+3. Carrega em «Submit»: o resultado lista cada verificação, ✓ ou ✗, com o que se esperava e o que se encontrou.
+
+**Fluxo (por dentro)**
+
+1. Os cursos vêm embutidos no backend (`courses/kubernetes/`, `courses/delonix/`), na categoria `tool`, e escrevem-se e avaliam-se em `yaml`.
+2. Cada desafio traz, nos ficheiros ocultos, um `checks.toml`: verificações sobre o YAML (um caminho e uma afirmação — igual, corresponde a, só estas chaves, um selector que escolhe as etiquetas de outro documento, um nome que existe noutro ficheiro) e, às vezes, um comando de uma ferramenta.
+3. Os comandos só podem ser os da lista do backend (`tutor_core::toolcheck`): `kubectl kustomize <pasta>`, `delonix manifest render -f <ficheiro>` e `delonix compose config -f <ficheiro> -p <projecto>`. Nenhum vai à rede, a um cluster ou ao motor de contentores.
+4. Correm sem shell, com o ambiente limpo, um `HOME` e um `KUBECONFIG` vazios numa pasta temporária (os teus contextos do kubectl nunca são lidos) e um tempo limite. Um kustomization que aponte para a rede ou use o Helm, ou uma porta de compose sem a porta do anfitrião, é recusado antes de correr.
+
+**Dicas**
+
+- Precisas do kubectl para as unidades de Kustomize e do delonix 0.2.0 para o curso do Delonix; sem eles, o desafio diz o que instalar em vez de falhar.
+- O relatório da avaliação mostra a saída do comando que falhou: é a mesma mensagem que verias no terminal.
+
+**Limites**
+
+- Só na app desktop; no browser os cartões ficam «Coming soon».
+- Esta é a parte offline: correr os manifestos num cluster local (kind sobre Podman sem root) fica para uma fase seguinte.
+- O `delonix manifest validate` não é usado na avaliação: lê o estado do motor (e mexe nos cgroups do anfitrião); as referências entre documentos são verificadas pelo curso, a partir dos teus ficheiros.
 
 <sub>Cobre: `lt-pick`, `submit_step`</sub>
 
