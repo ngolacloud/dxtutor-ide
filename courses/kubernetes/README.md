@@ -66,7 +66,7 @@ configuration and kubeconfig, on an **internal** network: it never reads `~/.kub
 touches the learner's containers or images, and cannot download anything while grading. «Prepare
 course» (or `dxt plugin prepare courses/kubernetes`) downloads, once and with approval, the kind
 release (checked by its SHA-256), the node image and the three images (by digest), about 1 GB. The
-cluster is created when a live step is first graded (about 45 s; about 600 MB of memory), and deleted
+cluster is created when a live step is first graded (about a minute; about 900 MB of memory), and deleted
 after 20 minutes without use, with «Delete cluster», or at the end of `dxt plugin test`.
 
 ## Requirements

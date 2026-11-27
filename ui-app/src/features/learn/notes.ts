@@ -182,7 +182,7 @@ export const LEARN_NOTES: FeatureNotes = {
       what: "As sete últimas unidades do curso de Kubernetes aplicam os teus manifestos num Kubernetes a sério — um cluster de um nó (Kubernetes v1.36.4) feito com o kind sobre o Podman sem root, só deste curso — e verificam o que o Kubernetes fez: um rollout, Pods prontos, um Job completo, um Service com endpoints, um contentor morto por passar o limite de memória.",
       howTo: [
         "Num passo ao vivo, prepara o curso uma vez («Prepare course»): o diálogo mostra o kind, a imagem do nó e as três imagens que as unidades usam, cada uma fixada pelo digest (cerca de 1 GB).",
-        "Carrega em «Submit»: na primeira vez o cluster é criado (cerca de 45 segundos); depois é reutilizado.",
+        "Carrega em «Submit»: na primeira vez o cluster é criado (cerca de um minuto); depois é reutilizado.",
         "O cartão «Practice cluster» diz se o cluster está a correr, a memória que usa e a que horas é apagado se ninguém o usar. «Start practice cluster» arranca-o antes de submeteres; «Delete cluster» apaga-o já.",
       ],
       flow: [
@@ -196,7 +196,7 @@ export const LEARN_NOTES: FeatureNotes = {
       ],
       tips: [
         "Na linha de comandos: `dxt plugin prepare courses/kubernetes` e `dxt plugin test courses/kubernetes` (cria o cluster, mede os tempos e a memória e apaga-o no fim).",
-        "O cluster ocupa uns 600 MB de memória enquanto corre; apaga-o quando acabares.",
+        "O cluster ocupa uns 900 MB de memória enquanto corre; apaga-o quando acabares.",
       ],
       limits: [
         "Só na app desktop, com o Podman 4.9 ou mais recente sem root, cgroup v2 com os controladores cpu, memory e pids delegados, user namespaces e a sessão D-Bus do utilizador. Sem isso, o cartão diz o que falta e as unidades offline continuam a ser avaliadas.",

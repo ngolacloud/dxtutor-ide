@@ -2239,7 +2239,7 @@ As sete últimas unidades do curso de Kubernetes aplicam os teus manifestos num 
 **Como usar**
 
 1. Num passo ao vivo, prepara o curso uma vez («Prepare course»): o diálogo mostra o kind, a imagem do nó e as três imagens que as unidades usam, cada uma fixada pelo digest (cerca de 1 GB).
-2. Carrega em «Submit»: na primeira vez o cluster é criado (cerca de 45 segundos); depois é reutilizado.
+2. Carrega em «Submit»: na primeira vez o cluster é criado (cerca de um minuto); depois é reutilizado.
 3. O cartão «Practice cluster» diz se o cluster está a correr, a memória que usa e a que horas é apagado se ninguém o usar. «Start practice cluster» arranca-o antes de submeteres; «Delete cluster» apaga-o já.
 
 **Fluxo (por dentro)**
@@ -2255,7 +2255,7 @@ As sete últimas unidades do curso de Kubernetes aplicam os teus manifestos num 
 **Dicas**
 
 - Na linha de comandos: `dxt plugin prepare courses/kubernetes` e `dxt plugin test courses/kubernetes` (cria o cluster, mede os tempos e a memória e apaga-o no fim).
-- O cluster ocupa uns 600 MB de memória enquanto corre; apaga-o quando acabares.
+- O cluster ocupa uns 900 MB de memória enquanto corre; apaga-o quando acabares.
 
 **Limites**
 

@@ -929,7 +929,7 @@ cpp, sql.
   cluster) e o `CacheKind::Cluster` (`yaml`: linhas `registo/repo:tag@sha256:…`). Num namespace novo por avaliação
   (`dxt-<passo>-…`, apagado no fim); as `[[check]]` que não lêem saídas ao vivo correm antes e, falhando, o cluster
   nem é tocado. Só os passos ao vivo precisam da cache (`livecheck::phase_needs_cache`). O cluster nasce na
-  primeira avaliação (≈45 s, ≈600 MB) ou por «Start practice cluster», sai por «Delete cluster» (os dois aprovados e
+  primeira avaliação (≈1 min, ≈900 MB) ou por «Start practice cluster», sai por «Delete cluster» (os dois aprovados e
   auditados: `learn_cluster_start`/`_delete`; `learn_cluster_status` só lê) e ao fim de 20 min sem uso
   (`study::start_cluster_reaper`, que também limpa os `dxtutor-*` deixados por outra execução) — a aprovação do
   «Prepare course» diz que é assim. Sem Podman/cgroup v2/delegação/user namespaces/D-Bus: `kindbox::probe` diz o

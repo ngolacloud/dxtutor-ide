@@ -545,7 +545,9 @@ pub fn download_checked(d: &Download, fetch: crate::lspinstall::Fetch) -> Result
 /// A sandbox command (`podman` or `kind`) with the sandbox's environment and nothing else.
 pub fn command(sb: &Sandbox, program: &Path, args: &[String], online: bool) -> Command {
     let mut cmd = Command::new(program);
-    cmd.args(args).env_clear().current_dir(&sb.dir);
+    // From the sandbox home: Podman and conmon drop a few files in the working folder.
+    let _ = std::fs::create_dir_all(&sb.home);
+    cmd.args(args).env_clear().current_dir(&sb.home);
     let podman_dir = podman_program().and_then(|p| p.parent().map(Path::to_path_buf));
     for (k, v) in podman::env(sb, podman_dir.as_deref(), online) {
         cmd.env(k, v);

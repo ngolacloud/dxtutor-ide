@@ -66,7 +66,7 @@ Podman**. Each check applies your files to a fresh namespace, waits for what you
 rollout, Pods ready, a Job complete, a Service with endpoints, a container killed for using too much
 memory — and reads the result with `kubectl get`. Prepare the course once («Prepare course»: it
 downloads kind, the node image and the three images the units use, about 1 GB); the cluster is then
-created when you first check a live step (about 45 seconds), uses about 600 MB of memory, and is
+created when you first check a live step (about a minute), uses about 900 MB of memory, and is
 deleted after 20 minutes without use or with «Delete cluster». It never uses your kubeconfig or your
 containers, and it cannot download anything while grading. Live units need **Podman 4.9+** (rootless,
 cgroup v2); without it, units 1–11 still work.
@@ -3736,7 +3736,7 @@ Before the cluster is touched, the same structural checks as in the offline unit
 mistake you could see without a cluster is reported at once, and the live part only runs when they
 pass.
 
-The first live check creates the cluster (about 45 seconds); later checks reuse it.
+The first live check creates the cluster (about a minute); later checks reuse it.
 '''
 
 [[unit.step]]
