@@ -1717,7 +1717,10 @@ mod odoo_tests {
         let images = crate::toolcheck::course_images(&c);
         assert_eq!(images.len(), 4, "odoo 18, 19, 20 and postgres");
         for series in ["18.0", "19.0", "20.0"] {
-            assert!(crate::odootest::odoo_image(&images, series).is_some(), "{series}");
+            assert!(
+                crate::odootest::odoo_image(&images, series).is_some(),
+                "{series}"
+            );
         }
         assert!(crate::odootest::postgres_image(&images).is_some());
         let mut by_series: std::collections::BTreeMap<String, usize> = Default::default();
@@ -1730,7 +1733,11 @@ mod odoo_tests {
                 assert!(errs.is_empty(), "{}: {errs:?}", s.id);
                 let checks = crate::toolcheck::Checks::parse(&p.tests["checks.toml"]).unwrap();
                 let odoo = checks.odoo.expect("[odoo] table");
-                assert!(s.id.starts_with(&format!("odoo{}-", &odoo.version[..2])), "{}", s.id);
+                assert!(
+                    s.id.starts_with(&format!("odoo{}-", &odoo.version[..2])),
+                    "{}",
+                    s.id
+                );
                 *by_series.entry(odoo.version.clone()).or_default() += 1;
                 enterprise += usize::from(odoo.enterprise);
                 assert!(c.phase(s, Level::Basico).is_some());

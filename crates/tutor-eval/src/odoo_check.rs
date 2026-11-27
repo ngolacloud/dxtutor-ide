@@ -597,8 +597,7 @@ pub fn run_odoo_drill(code: &str) -> crate::runner::RunOutput {
             stderr: o
                 .stderr
                 .lines()
-                .filter(|l| !l.trim().is_empty())
-                .last()
+                .rfind(|l| !l.trim().is_empty())
                 .unwrap_or_default()
                 .to_string(),
         },
