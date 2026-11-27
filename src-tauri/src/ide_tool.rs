@@ -3,9 +3,12 @@
 //! action would be dozens, and would change the request prefix whenever an action is added); the built-in skills
 //! say which actions fit which work.
 //!
-//! This phase has only READ actions (the board, an issue, git and GitHub, dependencies, the codebase map, the
-//! architect's rules, SLOs, the workspace's projects). Actions that change something come in H4, each with its
-//! level: a proposal the human accepts, or the shared approval and the audit log — never silently.
+//! Toolset 13 has only READ actions (the board, an issue, git and GitHub, dependencies, the codebase map, the
+//! architect's rules, SLOs, the workspace's projects). Toolset 14 (H4, `ops`) adds Platform, SRE and DevOps — each
+//! action with its level (read, reviewed, act, human: see [`ops`]). A session keeps the tool of its toolset: the
+//! description and the schema of 13 stay byte for byte, so its request prefix never changes.
+
+mod ops;
 
 use std::path::{Path, PathBuf};
 
@@ -30,11 +33,24 @@ pub const ACTIONS: &[(&str, &str)] = &[
     ("slo.status", "the project's SLOs and error budgets from its Prometheus (.dxtutor/slo.json, metrics.json)"),
 ];
 
-/// `ide`, for one session: `root` is the project's folder (the Project's key), `db` the Project store.
+/// `ide`, for one session: `root` is the project's folder (the Project's key), `db` the Project store, `ops` the
+/// actions of toolset 14 (false: exactly the tool of toolset 13).
 pub struct IdeTool {
     pub root: PathBuf,
     pub db: Option<PathBuf>,
+    pub ops: bool,
 }
+
+const DESCRIPTION_13: &str = "Read what the IDE knows about this project, by action: workspace.projects, project.board, project.issue, \
+     git.refs, git.log, gh.prs, gh.runs, deps.report, codebase.map, arch.conformance, slo.status. Every action \
+     here only reads. The built-in skills say which actions fit which work; load one with `skill` first.";
+
+const DESCRIPTION_14: &str = "What the IDE knows and does for this project, by action (the built-in skills say which \
+     actions fit which work: load one with `skill` first). Most actions only read and run at once. These always ask \
+     the person and are audited: incident.open, incident.add, incident.metrics, iac.plan, deploy.plan; runbook.check \
+     asks too when the runbook is not the reviewed one (committed, unchanged, pushed). Never yours — say the exact \
+     command or the place in the IDE: runbook action steps, mitigating or resolving an incident, applying IaC, \
+     rolling out, approving a PR, Vault secrets, changing a cluster.";
 
 fn clip(s: String) -> String {
     if s.len() <= MAX_OUTPUT {
@@ -65,6 +81,15 @@ fn project_dir(root: &Path, args: &Value) -> Result<PathBuf, String> {
 }
 
 impl IdeTool {
+    /// The actions of this session's toolset, with their arguments.
+    fn actions(&self) -> Vec<(&'static str, &'static str)> {
+        let mut v = ACTIONS.to_vec();
+        if self.ops {
+            v.extend(ops::ACTIONS.iter().map(|(a, _, d)| (*a, *d)));
+        }
+        v
+    }
+
     /// The Project of `dir`, if it has one — never created by a read.
     fn project(&self, dir: &Path) -> Result<tutor_board::project::Project, String> {
         let db = self
@@ -174,15 +199,17 @@ impl Tool for IdeTool {
         IDE_TOOL
     }
     fn description(&self) -> &str {
-        "Read what the IDE knows about this project, by action: workspace.projects, project.board, project.issue, \
-         git.refs, git.log, gh.prs, gh.runs, deps.report, codebase.map, arch.conformance, slo.status. Every action \
-         here only reads. The built-in skills say which actions fit which work; load one with `skill` first."
+        if self.ops {
+            DESCRIPTION_14
+        } else {
+            DESCRIPTION_13
+        }
     }
     fn input_schema(&self) -> Value {
         json!({
             "type": "object",
             "properties": {
-                "action": {"type": "string", "enum": ACTIONS.iter().map(|a| a.0).collect::<Vec<_>>()},
+                "action": {"type": "string", "enum": self.actions().iter().map(|a| a.0).collect::<Vec<_>>()},
                 "args": {"type": "object", "description": "the action's arguments (see the skill), e.g. {\"key\": \"SHOP-12\"}"}
             },
             "required": ["action"],
@@ -190,7 +217,18 @@ impl Tool for IdeTool {
         })
     }
     fn read_only(&self) -> bool {
-        true
+        !self.ops
+    }
+    fn read_only_for(&self, input: &Value) -> bool {
+        !self.ops
+            || ops::read_only_for(
+                self,
+                input["action"].as_str().unwrap_or_default(),
+                input.get("args").unwrap_or(&Value::Null),
+            )
+    }
+    fn mutates_files(&self) -> bool {
+        false // records of the project store, never the project's files
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> ToolOutput {
         let action = input["action"].as_str().unwrap_or_default();
@@ -232,14 +270,17 @@ impl Tool for IdeTool {
                 crate::commands::metrics::store(),
                 &self.root,
             )),
-            other => Err(format!(
-                "unknown action «{other}». Actions:\n{}",
-                ACTIONS
-                    .iter()
-                    .map(|(a, d)| format!("- {a}: {d}"))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            )),
+            other => match self.ops.then(|| self.run_ops(other, &args, ctx)).flatten() {
+                Some(r) => r,
+                None => Err(format!(
+                    "unknown action «{other}». Actions:\n{}",
+                    self.actions()
+                        .iter()
+                        .map(|(a, d)| format!("- {a}: {d}"))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                )),
+            },
         };
         match r {
             Ok(s) => ToolOutput::ok(clip(s)),
@@ -288,6 +329,7 @@ mod tests {
         let tool = IdeTool {
             root: root.clone(),
             db: Some(db.clone()),
+            ops: false,
         };
         assert!(tool.read_only());
         let out = tool.run(&json!({"action": "project.board"}), &ctx(&root));
@@ -351,6 +393,7 @@ mod tests {
         let tool = IdeTool {
             root: r.to_path_buf(),
             db: None,
+            ops: false,
         };
         let log = tool.run(&json!({"action": "git.log", "args": {"n": 5}}), &ctx(r));
         assert!(log.content.contains("first commit"), "{}", log.content);

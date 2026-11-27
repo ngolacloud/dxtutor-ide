@@ -30,7 +30,7 @@ pub struct TargetArg {
 }
 
 impl TargetArg {
-    fn target(self) -> Result<Target, String> {
+    pub(crate) fn target(self) -> Result<Target, String> {
         let vault = match self
             .vault_addr
             .as_deref()
@@ -58,7 +58,7 @@ impl TargetArg {
     }
 }
 
-fn tools() -> Tools<'static> {
+pub(crate) fn tools() -> Tools<'static> {
     Tools {
         cmd: &crate::shellenv::command,
         has: &crate::shellenv::has,

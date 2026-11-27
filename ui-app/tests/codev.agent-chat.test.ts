@@ -250,6 +250,10 @@ test("rótulos, resumos e custo", () => {
   expect(describeCall("edit", { path: "src/a.rs" })).toBe("src/a.rs");
   expect(describeCall("grep", { pattern: "TODO", glob: "*.ts" })).toBe("/TODO/ *.ts");
   expect(describeCall("bash", {}, "cargo test")).toBe("$ cargo test");
+  // H3/H4: an `ide` call names its action and what it is about
+  expect(describeCall("ide", { action: "project.issue", args: { key: "SHOP-3" } })).toBe("project.issue SHOP-3");
+  expect(describeCall("ide", { action: "runbook.check", args: { path: "runbooks/checkout.md", step: 2 } })).toBe("runbook.check runbooks/checkout.md 2");
+  expect(describeCall("ide", { action: "incident.open", args: { title: "checkout 500s", severity: "SEV-2" } })).toBe("incident.open checkout 500s SEV-2");
   expect(summarizeResult("\nlinha 1\nlinha 2\n")).toBe("linha 1 (+1 linhas)");
   // Opus 5.5: $4/M entrada, $20/M saída, $0.20/M leitura de cache, escrita 1.25×
   expect(costUSD("claude-opus-5-5", u(1_000_000, 0))).toBeCloseTo(4);

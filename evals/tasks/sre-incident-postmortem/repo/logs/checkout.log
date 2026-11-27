@@ -1,0 +1,131 @@
+2026-11-27T09:55:05Z POST /api/checkout 200 262ms upstream=payments-gw
+2026-11-27T09:55:25Z POST /api/checkout 200 218ms upstream=payments-gw
+2026-11-27T09:55:45Z POST /api/checkout 200 281ms upstream=payments-gw
+2026-11-27T09:56:05Z POST /api/checkout 200 346ms upstream=payments-gw
+2026-11-27T09:56:25Z POST /api/checkout 200 192ms upstream=payments-gw
+2026-11-27T09:56:45Z POST /api/checkout 200 198ms upstream=payments-gw
+2026-11-27T09:57:05Z POST /api/checkout 200 390ms upstream=payments-gw
+2026-11-27T09:57:25Z POST /api/checkout 200 317ms upstream=payments-gw
+2026-11-27T09:57:45Z POST /api/checkout 200 204ms upstream=payments-gw
+2026-11-27T09:58:05Z POST /api/checkout 200 273ms upstream=payments-gw
+2026-11-27T09:58:25Z POST /api/checkout 200 329ms upstream=payments-gw
+2026-11-27T09:58:45Z POST /api/checkout 200 194ms upstream=payments-gw
+2026-11-27T09:59:05Z POST /api/checkout 200 412ms upstream=payments-gw
+2026-11-27T09:59:25Z POST /api/checkout 200 309ms upstream=payments-gw
+2026-11-27T09:59:45Z POST /api/checkout 200 234ms upstream=payments-gw
+2026-11-27T10:00:05Z POST /api/checkout 200 189ms upstream=payments-gw
+2026-11-27T10:01:05Z POST /api/checkout 200 202ms upstream=payments-gw
+2026-11-27T10:00:25Z POST /api/checkout 200 291ms upstream=payments-gw
+2026-11-27T10:01:25Z POST /api/checkout 200 287ms upstream=payments-gw
+2026-11-27T10:00:45Z POST /api/checkout 200 197ms upstream=payments-gw
+2026-11-27T10:01:45Z POST /api/checkout 200 241ms upstream=payments-gw
+2026-11-27T10:02:03Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:02:13Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:02:23Z POST /api/checkout 200 157ms upstream=payments-gw
+2026-11-27T10:02:33Z POST /api/checkout 200 190ms upstream=payments-gw
+2026-11-27T10:02:43Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:02:53Z POST /api/checkout 200 186ms upstream=payments-gw
+2026-11-27T10:03:03Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:03:13Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:03:23Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:03:33Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:03:43Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:03:53Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:04:03Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:04:13Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:04:23Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:04:33Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:04:43Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:04:53Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:05:03Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:05:13Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:05:23Z POST /api/checkout 200 186ms upstream=payments-gw
+2026-11-27T10:05:33Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:05:43Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:05:53Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:06:03Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:06:13Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:06:23Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:06:33Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:06:43Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:06:53Z POST /api/checkout 200 194ms upstream=payments-gw
+2026-11-27T10:06:58Z POST /api/checkout 500 35ms upstream=stock error="503"
+2026-11-27T10:07:03Z POST /api/checkout 200 155ms upstream=payments-gw
+2026-11-27T10:07:13Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:07:23Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:07:33Z POST /api/checkout 200 196ms upstream=payments-gw
+2026-11-27T10:07:43Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:07:53Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:08:03Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:08:13Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:08:23Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:08:33Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:08:43Z POST /api/checkout 200 176ms upstream=payments-gw
+2026-11-27T10:08:53Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:09:03Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:09:13Z POST /api/checkout 200 186ms upstream=payments-gw
+2026-11-27T10:09:23Z POST /api/checkout 200 170ms upstream=payments-gw
+2026-11-27T10:09:33Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:09:43Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:09:53Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:10:03Z POST /api/checkout 200 154ms upstream=payments-gw
+2026-11-27T10:10:13Z POST /api/checkout 200 167ms upstream=payments-gw
+2026-11-27T10:10:23Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:10:33Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:10:43Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:10:53Z POST /api/checkout 200 191ms upstream=payments-gw
+2026-11-27T10:11:03Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:11:13Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:11:23Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:11:33Z POST /api/checkout 200 192ms upstream=payments-gw
+2026-11-27T10:11:43Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:11:53Z POST /api/checkout 200 172ms upstream=payments-gw
+2026-11-27T10:12:03Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:12:13Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:12:23Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:12:33Z POST /api/checkout 200 158ms upstream=payments-gw
+2026-11-27T10:12:43Z POST /api/checkout 200 175ms upstream=payments-gw
+2026-11-27T10:12:53Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:13:03Z POST /api/checkout 200 155ms upstream=payments-gw
+2026-11-27T10:13:13Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:13:23Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:13:33Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:13:43Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:13:53Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:14:03Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:14:13Z POST /api/checkout 200 172ms upstream=payments-gw
+2026-11-27T10:14:23Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:14:33Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:14:43Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:14:53Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:14:58Z POST /api/checkout 500 35ms upstream=stock error="503"
+2026-11-27T10:15:03Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:15:13Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:15:23Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:15:33Z POST /api/checkout 200 161ms upstream=payments-gw
+2026-11-27T10:15:43Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:15:53Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:16:03Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:16:13Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:16:23Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:16:33Z POST /api/checkout 200 194ms upstream=payments-gw
+2026-11-27T10:16:43Z POST /api/checkout 200 189ms upstream=payments-gw
+2026-11-27T10:16:53Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:17:03Z POST /api/checkout 200 179ms upstream=payments-gw
+2026-11-27T10:17:13Z POST /api/checkout 200 199ms upstream=payments-gw
+2026-11-27T10:17:23Z POST /api/checkout 200 193ms upstream=payments-gw
+2026-11-27T10:17:33Z POST /api/checkout 200 175ms upstream=payments-gw
+2026-11-27T10:17:43Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:17:53Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:18:03Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:18:13Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:18:23Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:18:33Z POST /api/checkout 200 178ms upstream=payments-gw
+2026-11-27T10:18:43Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:18:53Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:19:03Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:19:13Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:19:23Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:19:33Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:19:43Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"
+2026-11-27T10:19:53Z POST /api/checkout 500 201ms upstream=payments-gw error="timeout after 200ms"

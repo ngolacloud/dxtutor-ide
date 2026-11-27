@@ -68,8 +68,10 @@ pub struct StartSpec {
     /// Toolset 11: as ferramentas das sessões de backlog (`backlog_propose`, `project_propose`),
     /// só nas sessões com `backlog`.
     pub host_tools_v11: Vec<Arc<dyn Tool>>,
-    /// Toolset 13 (H3): the host tools of every session from this version (`ide`).
+    /// Toolset 13 (H3): the host tools of the sessions of exactly this version (`ide` with its reads).
     pub host_tools_v13: Vec<Arc<dyn Tool>>,
+    /// Toolset 14 (H4): in their place from this version (`ide` with the Platform/SRE/DevOps actions).
+    pub host_tools_v14: Vec<Arc<dyn Tool>>,
     /// Ficheiro de confiança (hooks/MCP do projecto). `None` = nada é confiado (o adaptador
     /// passa `~/.config/dxtutor/trusted.json`).
     pub trust_store: Option<PathBuf>,
@@ -1103,13 +1105,16 @@ fn session_host_tools(spec: &StartSpec, meta: &SessionMeta) -> Vec<Arc<dyn Tool>
     // toolset 11: only the sessions that started as backlog sessions (never an older one)
     let backlog = toolset >= 11 && meta.scopes.iter().any(|s| s == session::SCOPE_BACKLOG);
     let v11 = spec.host_tools_v11.iter().filter(|_| backlog);
-    let v13 = spec.host_tools_v13.iter().filter(|_| toolset >= 13);
+    // H4: from 14, `ide` of 14 takes the place of 13's (same position: the order is fixed)
+    let v13 = spec.host_tools_v13.iter().filter(|_| toolset == 13);
+    let v14 = spec.host_tools_v14.iter().filter(|_| toolset >= 14);
     spec.host_tools
         .iter()
         .chain(v4)
         .chain(v8)
         .chain(v11)
         .chain(v13)
+        .chain(v14)
         .cloned()
         .collect()
 }
@@ -1519,7 +1524,23 @@ pub fn send(
             })
             .collect();
         e.lines = (!ranges.is_empty()).then(|| ranges.join(","));
-        e.command = call.command.clone();
+        e.command = call.command.clone().or_else(|| {
+            // H4: an `ide` call keeps its action and arguments (compact) in the log
+            (call.name == crate::ide_tool::IDE_TOOL).then(|| {
+                let a = call.input["action"].as_str().unwrap_or("?");
+                let mut s = format!(
+                    "ide {a} {}",
+                    call.input
+                        .get("args")
+                        .map(|v| v.to_string())
+                        .unwrap_or_default()
+                );
+                if s.chars().count() > 500 {
+                    s = s.chars().take(499).collect::<String>() + "…";
+                }
+                s.trim_end().to_string()
+            })
+        });
         let (verdict_s, reason) = match &verdict {
             Verdict::Allow => ("allow", None),
             Verdict::Ask { reason, .. } => ("ask", Some(reason.clone())),
@@ -3527,6 +3548,7 @@ mod tests {
                 Arc::new(T("project_propose")),
             ],
             host_tools_v13: vec![Arc::new(T("ide"))],
+            host_tools_v14: vec![Arc::new(T("ide14"))],
             backlog: true,
             ..Default::default()
         };
@@ -3553,6 +3575,17 @@ mod tests {
         assert_eq!(names(5, &[]), ["lsp_diagnostics"]);
         // H3: `ide` in every session from toolset 13 (an older one resumes without it)
         assert_eq!(names(13, &[]), ["lsp_diagnostics", "ide"]);
+        // H4: from 14, the `ide` of 14 in the same place (13's never next to it)
+        assert_eq!(names(14, &[]), ["lsp_diagnostics", "ide14"]);
+        assert_eq!(
+            names(14, &["backlog"]),
+            [
+                "lsp_diagnostics",
+                "backlog_propose",
+                "project_propose",
+                "ide14"
+            ]
+        );
         assert_eq!(
             names(13, &["backlog"]),
             [

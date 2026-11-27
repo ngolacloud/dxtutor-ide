@@ -44,6 +44,10 @@ pub struct Task {
     /// Seconds the check may take (default 300).
     #[serde(default)]
     pub timeout: Option<u64>,
+    /// The task's commit is pushed to a local bare remote (`origin`): what is in it counts as reviewed (H4: a
+    /// runbook's checks run without asking).
+    #[serde(default)]
+    pub pushed: bool,
     #[serde(skip)]
     pub dir: PathBuf,
 }
@@ -134,6 +138,16 @@ pub fn prepare(t: &Task, into: &Path, with_solution: bool) -> Result<PathBuf, St
         && git(&dir, &["commit", "-q", "-m", "task"]);
     if !ok {
         return Err(format!("{}: git init failed", t.id));
+    }
+    if t.pushed {
+        let remote = into.join(format!("{}.remote.git", t.id));
+        let r = remote.display().to_string();
+        let ok = git(into, &["init", "-q", "--bare", &r])
+            && git(&dir, &["remote", "add", "origin", &r])
+            && git(&dir, &["push", "-q", "-u", "origin", "main"]);
+        if !ok {
+            return Err(format!("{}: the push to its remote failed", t.id));
+        }
     }
     Ok(dir)
 }
@@ -303,6 +317,13 @@ pub fn run_task(t: &Task, cfg: &RunConfig) -> TaskResult {
         host_tools_v13: vec![std::sync::Arc::new(crate::ide_tool::IdeTool {
             root: dir.clone(),
             db: None,
+            ops: false,
+        })],
+        // H4: an evaluation has its own Project store (incidents, runbook runs), in its scratch folder
+        host_tools_v14: vec![std::sync::Arc::new(crate::ide_tool::IdeTool {
+            root: dir.clone(),
+            db: Some(cfg.scratch.join("board.sqlite3")),
+            ops: true,
         })],
         ollama_host: Some(tutor_llm::chat::ollama_host()),
         lang: Some("en".into()),

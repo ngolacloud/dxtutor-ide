@@ -645,7 +645,7 @@ impl Agent {
                 id: c.id.clone(),
                 name: c.name.clone(),
                 input: c.input.clone(),
-                read_only: tool.read_only(),
+                read_only: tool.read_only_for(&c.input),
                 command: tool.command_preview(&c.input),
                 hunks: plan.as_ref().map(|p| p.ids()).unwrap_or_default(),
             };
@@ -759,11 +759,11 @@ impl Agent {
                 }
                 break;
             }
-            let ro = runnable[k].1.read_only();
+            let ro = runnable[k].1.read_only_for(&calls[runnable[k].0].input);
             let end = if ro {
                 runnable[k..]
                     .iter()
-                    .position(|(_, t)| !t.read_only())
+                    .position(|(i, t)| !t.read_only_for(&calls[*i].input))
                     .map(|p| k + p)
                     .unwrap_or(runnable.len())
             } else {
