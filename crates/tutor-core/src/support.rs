@@ -8,7 +8,7 @@
 //!
 //! ```toml
 //! [support]                                     # caminho na pasta de trabalho → ficheiro do plugin
-//! "node_modules/.dxjs/dxjs.js" = "support/dxjs-1.2.0.js"
+//! "node_modules/.dxjs/dxjs.js" = "support/dxjs-1.3.0.js"
 //! "node_modules/@dxjs/core/index.js" = "support/core/index.js"
 //! ```
 //!

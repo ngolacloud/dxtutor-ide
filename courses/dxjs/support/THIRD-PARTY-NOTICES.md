@@ -2,7 +2,7 @@
 
 The support files of the Dxjs course include code from these projects, under their licenses.
 
-## dxjs 1.2.0 (`dxjs-1.2.0.js`, the package shims) — MIT OR Apache-2.0, used here under MIT
+## dxjs 1.3.0 (`dxjs-1.3.0.js`, the package shims) — MIT OR Apache-2.0, used here under MIT
 
 ```text
 MIT License

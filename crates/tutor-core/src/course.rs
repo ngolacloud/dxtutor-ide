@@ -417,8 +417,8 @@ const DXJS_BASICS: &str = include_str!("../../../courses/dxjs/courses/dxjs.toml"
 /// verifica as duas coisas).
 const DXJS_SUPPORT: &[(&str, &str)] = &[
     (
-        "support/dxjs-1.2.0.js",
-        include_str!("../../../courses/dxjs/support/dxjs-1.2.0.js"),
+        "support/dxjs-1.3.0.js",
+        include_str!("../../../courses/dxjs/support/dxjs-1.3.0.js"),
     ),
     (
         "support/core/package.json",
@@ -1359,10 +1359,10 @@ mod dxjs_tests {
             "cada fonte do [support] tem de estar embutida, e só essas"
         );
         assert_eq!(c.support_files.len(), c.support.len());
-        // O bundle é o cdn/dxjs.js do dxjs 1.2.0 (67 125 bytes; o sha256 está em
+        // O bundle é o cdn/dxjs.js do dxjs 1.3.0 (68 888 bytes; o sha256 está em
         // courses/dxjs/support/README.md e é verificado por scripts/vendor-dxjs.mjs --check).
         let bundle = &c.support_files["node_modules/.dxjs/dxjs.js"];
-        assert_eq!(bundle.len(), 67_125);
+        assert_eq!(bundle.len(), 68_888);
         assert!(bundle.contains("export{"));
         // Cada shim reexporta do bundle pelo caminho relativo que o [support] cria.
         for pkg in ["core", "dom", "component", "query", "forms"] {
