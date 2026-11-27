@@ -44,6 +44,7 @@ mod pty;
 pub mod review;
 pub mod roles;
 pub mod sandbox;
+pub mod schedule;
 pub mod search;
 mod shell_integration;
 pub mod shellenv;

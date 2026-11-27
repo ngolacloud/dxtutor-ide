@@ -9,7 +9,7 @@ use std::process::Command;
 use std::sync::{Arc, Mutex};
 
 /// The IDE's binary: Cargo's path when it gives one, else next to this test's (`target/<profile>/`).
-fn bin() -> std::path::PathBuf {
+fn bin_path() -> std::path::PathBuf {
     if let Some(p) = option_env!("CARGO_BIN_EXE_dxtutor-ide") {
         return p.into();
     }
@@ -94,7 +94,7 @@ fn a_headless_run_writes_refuses_what_needs_a_human_and_answers() {
     let home = tempfile::tempdir().unwrap();
     let proj = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(proj.path().join("build")).unwrap();
-    let out = Command::new(bin())
+    let out = Command::new(bin_path())
         .args([
             "agent",
             "-p",
@@ -152,11 +152,236 @@ fn a_headless_run_writes_refuses_what_needs_a_human_and_answers() {
 #[test]
 fn usage_errors_exit_2() {
     let home = tempfile::tempdir().unwrap();
-    let out = Command::new(bin())
+    let out = Command::new(bin_path())
         .args(["agent", "--mode", "yolo", "-p", "x"])
         .env("HOME", home.path())
         .output()
         .unwrap();
     assert_eq!(out.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&out.stderr).contains("--mode"));
+}
+
+/// H6b: `agent review` reads the branch's changes, cannot change anything (a write the model tries is refused by the
+/// plan mode), and `--post` comments the answer on the PR through `gh` (a fake one here, that keeps what it got).
+#[cfg(unix)]
+#[test]
+fn a_review_reads_only_and_is_posted_on_the_pr() {
+    use std::os::unix::fs::PermissionsExt;
+    let (port, seen) = fake_ollama(vec![
+        serde_json::json!({"role": "assistant", "content": "", "tool_calls": [
+            {"function": {"name": "write", "arguments": {"path": "a.rs", "content": "fn a() {}\n"}}}
+        ]}),
+        serde_json::json!({"role": "assistant", "content": "## Summary\nMakes a call unsafe.\n## Findings\n- **high** `a.rs:1` — unsafe_thing is not defined — it does not compile — define it\n## Verdict\nrequest changes"}),
+    ]);
+    let home = tempfile::tempdir().unwrap();
+    let proj = tempfile::tempdir().unwrap();
+    let p = proj.path();
+    let g = |a: &[&str]| {
+        let o = Command::new("git")
+            .arg("-C")
+            .arg(p)
+            .args(a)
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@e")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@e")
+            .output()
+            .unwrap();
+        assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    };
+    g(&["init", "-q", "--initial-branch=main"]);
+    std::fs::write(p.join("a.rs"), "fn a() {}\n").unwrap();
+    g(&["add", "-A"]);
+    g(&["commit", "-q", "-m", "base"]);
+    g(&["checkout", "-q", "-b", "feat"]);
+    std::fs::write(p.join("a.rs"), "fn a() { unsafe_thing() }\n").unwrap();
+    g(&["commit", "-qam", "make a unsafe"]);
+    // a fake gh that keeps its arguments and the comment
+    let bin = home.path().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let got = home.path().join("gh-got.txt");
+    std::fs::write(
+        bin.join("gh"),
+        format!(
+            "#!/bin/sh\necho \"$@\" > '{0}'\ncat >> '{0}'\n",
+            got.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(bin.join("gh"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let out = Command::new(bin_path())
+        .args([
+            "agent",
+            "review",
+            "--base",
+            "main",
+            "--post",
+            "42",
+            "--provider",
+            "ollama",
+            "--model",
+            "fake",
+        ])
+        .current_dir(p)
+        .env_clear()
+        .env("PATH", path)
+        .env("HOME", home.path())
+        .env("DXTUTOR_CONFIG_DIR", home.path().join("cfg"))
+        .env("DXTUTOR_DATA_DIR", home.path().join("data"))
+        .env("OLLAMA_HOST", format!("http://127.0.0.1:{port}"))
+        .env("DXTUTOR_KEYCHAIN_SERVICE", "dxtutor-headless-test")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stdout: {stdout}\nstderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(stdout.contains("## Verdict") && stdout.contains("Co-Dev review"));
+    // nothing changed: the write the model tried was refused by the plan mode
+    assert_eq!(
+        std::fs::read_to_string(p.join("a.rs")).unwrap(),
+        "fn a() { unsafe_thing() }\n"
+    );
+    // the request held the branch's diff
+    let seen = seen.lock().unwrap();
+    assert!(seen[0]["messages"]
+        .to_string()
+        .contains("+fn a() { unsafe_thing() }"));
+    // posted on PR 42
+    let posted = std::fs::read_to_string(&got).unwrap();
+    assert!(
+        posted.starts_with("pr comment 42 --body-file -"),
+        "{posted}"
+    );
+    assert!(posted.contains("request changes") && posted.contains("Co-Dev review"));
+}
+
+/// H6c: a scheduled agent — `add` writes the person's schedule and a systemd user timer (a fake `systemctl` here,
+/// which keeps its arguments), `run` (what the timer calls) runs it read-only, keeps the outcome and notifies (a fake
+/// `notify-send`), `list` shows the last run, `remove` takes the timer away.
+#[cfg(unix)]
+#[test]
+fn a_scheduled_agent_is_installed_run_read_only_kept_and_removed() {
+    use std::os::unix::fs::PermissionsExt;
+    let (port, _seen) = fake_ollama(vec![
+        serde_json::json!({"role": "assistant", "content": "", "tool_calls": [
+            {"function": {"name": "write", "arguments": {"path": "x.txt", "content": "no\n"}}}
+        ]}),
+        serde_json::json!({"role": "assistant", "content": "Nothing new since yesterday."}),
+    ]);
+    let home = tempfile::tempdir().unwrap();
+    let proj = tempfile::tempdir().unwrap();
+    let bin = home.path().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let log = home.path().join("calls.txt");
+    for name in ["systemctl", "notify-send"] {
+        std::fs::write(
+            bin.join(name),
+            format!("#!/bin/sh\necho \"{name} $@\" >> '{}'\n", log.display()),
+        )
+        .unwrap();
+        std::fs::set_permissions(bin.join(name), std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let run = |args: &[&str]| {
+        Command::new(bin_path())
+            .arg("agent")
+            .arg("schedule")
+            .args(args)
+            .env_clear()
+            .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+            .env("HOME", home.path())
+            .env("XDG_CONFIG_HOME", home.path().join("xdg"))
+            .env("DXTUTOR_CONFIG_DIR", home.path().join("cfg"))
+            .env("DXTUTOR_DATA_DIR", home.path().join("data"))
+            .env("DXTUTOR_SYSTEMCTL", bin.join("systemctl"))
+            .env("OLLAMA_HOST", format!("http://127.0.0.1:{port}"))
+            .env("DXTUTOR_KEYCHAIN_SERVICE", "dxtutor-headless-test")
+            .output()
+            .unwrap()
+    };
+    let cwd = proj.path().display().to_string();
+    let add = run(&[
+        "add",
+        "--name",
+        "morning",
+        "--when",
+        "daily@07:30",
+        "--cwd",
+        &cwd,
+        "-p",
+        "what changed?",
+        "--provider",
+        "ollama",
+        "--model",
+        "fake",
+    ]);
+    assert_eq!(
+        add.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&add.stderr)
+    );
+    let units = home.path().join("xdg/systemd/user");
+    let timer = std::fs::read_dir(&units)
+        .unwrap()
+        .flatten()
+        .find(|e| e.path().extension().is_some_and(|x| x == "timer"))
+        .unwrap()
+        .path();
+    let t = std::fs::read_to_string(&timer).unwrap();
+    assert!(t.contains("OnCalendar=*-*-* 07:30:00"), "{t}");
+    let service = std::fs::read_to_string(timer.with_extension("service")).unwrap();
+    assert!(service.contains("agent schedule run morning-"), "{service}");
+    let calls = std::fs::read_to_string(&log).unwrap();
+    assert!(calls.contains("systemctl --user daemon-reload"));
+    assert!(calls.contains("systemctl --user enable --now dxtutor-agent-morning-"));
+    // a second one with the same name is refused
+    assert_eq!(
+        run(&["add", "--name", "morning", "--when", "hourly", "--cwd", &cwd, "-p", "x"])
+            .status
+            .code(),
+        Some(1)
+    );
+    // what the timer runs: read-only (the write is refused by the plan mode), kept, notified
+    let r = run(&["run", "morning"]);
+    assert_eq!(
+        r.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&r.stderr)
+    );
+    assert!(String::from_utf8_lossy(&r.stdout).contains("Nothing new since yesterday."));
+    assert!(!proj.path().join("x.txt").exists());
+    assert!(std::fs::read_to_string(&log)
+        .unwrap()
+        .contains("notify-send dxtutor · morning — done"));
+    let list = run(&["list"]);
+    let l = String::from_utf8_lossy(&list.stdout);
+    assert!(
+        l.contains("daily@07:30") && l.contains("read-only") && l.contains(": done"),
+        "{l}"
+    );
+    // removed: the timer goes, the kept runs stay
+    let rm = run(&["remove", "morning"]);
+    assert_eq!(rm.status.code(), Some(0));
+    assert!(!timer.exists());
+    assert!(std::fs::read_to_string(&log)
+        .unwrap()
+        .contains("systemctl --user disable --now dxtutor-agent-morning-"));
+    assert!(String::from_utf8_lossy(&run(&["list"]).stdout).contains("no scheduled agents"));
+    assert!(home
+        .path()
+        .join("data/schedules")
+        .read_dir()
+        .unwrap()
+        .next()
+        .is_some());
 }

@@ -10,9 +10,14 @@
 //!
 //! ```text
 //! dxtutor-ide agent -p "fix the failing test" [--cwd DIR] [--provider claude] [--model M] [--effort high]
-//!                   [--mode auto|assist|manual] [--resume ID] [--output text|json|stream-json]
+//!                   [--mode auto|assist|manual] [--resume ID] [--plan] [--output text|json|stream-json]
 //! echo "explain src/lib.rs" | dxtutor-ide agent
+//! dxtutor-ide agent review [--base origin/develop] [--post 42]
 //! ```
+//! H6b: `review` reads the branch's changes since it left the base (`base...HEAD`) in a read-only run (the plan mode,
+//! where not even a plan is approved) against the project's rules, and answers with Summary / Findings / Verdict;
+//! `--post N` comments it on PR N with `gh` (the CI's `codev-review` workflow does that on each PR, when the repository
+//! has a model key).
 //! Exit codes: 0 the turn finished; 1 it could not run (no key, no folder, provider error); 2 usage; 3 it stopped
 //! before finishing (iteration limit, refusal, cancelled).
 
@@ -30,8 +35,10 @@ option, and finish the task.";
 
 const USAGE: &str =
     "usage: dxtutor-ide agent [-p] <request> [--cwd DIR] [--provider claude|codex|gemini|ollama] \
-[--model M] [--effort low|medium|high|xhigh|max] [--mode auto|assist|manual] [--resume ID] \
-[--output text|json|stream-json]   (without a request, it is read from stdin)";
+[--model M] [--effort low|medium|high|xhigh|max] [--mode auto|assist|manual] [--resume ID] [--plan] \
+[--output text|json|stream-json]   (without a request, it is read from stdin)\n\
+       dxtutor-ide agent review [--base REF] [--post PR] [the options above]\n\
+       dxtutor-ide agent schedule add|list|run|remove …";
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Args {
@@ -43,6 +50,11 @@ pub struct Args {
     pub mode: String,
     pub resume: Option<String>,
     pub output: String,
+    /// read-only: the plan mode, and here not even a plan is approved (`--plan`; a review always)
+    pub plan: bool,
+    /// H6b, `review`: the base the branch is compared with, and the PR to comment on
+    pub base: Option<String>,
+    pub post: Option<u64>,
 }
 
 /// The arguments after `agent`.
@@ -71,6 +83,15 @@ pub fn parse(args: &[String]) -> Result<Args, String> {
             "--mode" => a.mode = value(k)?,
             "--resume" => a.resume = Some(value(k)?),
             "--output" | "--output-format" => a.output = value(k)?,
+            "--plan" | "--read-only" => a.plan = true,
+            "--base" => a.base = Some(value(k)?),
+            "--post" => {
+                let v = value(k)?;
+                a.post = Some(
+                    v.parse()
+                        .map_err(|_| format!("--post needs a PR number, not {v}"))?,
+                )
+            }
             "-h" | "--help" => return Err(USAGE.into()),
             s if s.starts_with('-') && s.len() > 1 => {
                 return Err(format!("unknown option {s}\n{USAGE}"))
@@ -95,7 +116,7 @@ pub fn parse(args: &[String]) -> Result<Args, String> {
 }
 
 /// The IDE's folders, as the app has them (`ao.ngolacloud.dxtutor-ide`): the keys' and the Project store's.
-fn config_dir() -> PathBuf {
+pub(crate) fn config_dir() -> PathBuf {
     std::env::var_os("DXTUTOR_CONFIG_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
@@ -108,7 +129,7 @@ fn config_dir() -> PathBuf {
         })
 }
 
-fn data_dir() -> PathBuf {
+pub(crate) fn data_dir() -> PathBuf {
     std::env::var_os("DXTUTOR_DATA_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
@@ -231,6 +252,14 @@ pub fn run(a: &Args, prompt: &str, emit: &mut dyn FnMut(&Value)) -> Outcome {
         }
     };
     out.session_id = id.clone();
+    if a.plan {
+        if let Err(e) = codev_agent::set_plan(&id, true) {
+            out.outcome = format!("error: {e}");
+            codev_agent::close(&id);
+            return out;
+        }
+    }
+    let read_only = a.plan;
     let model = codev_agent::resolve_model(&provider, a.model.as_deref());
     let (mut cost, mut priced) = (0.0, true);
     let mut text = Some(prompt.to_string());
@@ -271,8 +300,9 @@ pub fn run(a: &Args, prompt: &str, emit: &mut dyn FnMut(&Value)) -> Outcome {
                 }
             },
             &mut |req| {
-                // nobody at the keyboard: the plan goes ahead; anything else the policy asks is refused
-                let allow = req.call.name == "exit_plan";
+                // nobody at the keyboard: the plan goes ahead (never in a read-only run); anything else the
+                // policy asks is refused
+                let allow = req.call.name == "exit_plan" && !read_only;
                 if !allow {
                     refused.push(format!("{}: {}", req.call.name, req.reason));
                 }
@@ -308,18 +338,154 @@ pub fn run(a: &Args, prompt: &str, emit: &mut dyn FnMut(&Value)) -> Outcome {
     out
 }
 
+fn git(root: &std::path::Path, args: &[&str]) -> Result<String, String> {
+    let o = std::process::Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(args)
+        .output()
+        .map_err(|e| format!("git: {e}"))?;
+    if !o.status.success() {
+        return Err(String::from_utf8_lossy(&o.stderr).trim().to_string());
+    }
+    Ok(String::from_utf8_lossy(&o.stdout).to_string())
+}
+
+const REVIEW_DIFF_MAX: usize = 80_000;
+
+/// H6b: the request of a review — the branch's changes since it left `base` (`base...HEAD`), and how to answer.
+pub fn review_prompt(root: &std::path::Path, base: Option<&str>) -> Result<String, String> {
+    let base = match base {
+        Some(b) => b.to_string(),
+        None => ["origin/HEAD", "origin/develop", "origin/main", "main"]
+            .iter()
+            .find(|b| git(root, &["rev-parse", "--verify", "--quiet", b]).is_ok())
+            .map(|b| b.to_string())
+            .ok_or("no base to compare with: pass --base <ref>")?,
+    };
+    let range = format!("{base}...HEAD");
+    let stat = git(root, &["diff", "--stat", &range])?;
+    if stat.trim().is_empty() {
+        return Err(format!("nothing to review: no changes in {range}"));
+    }
+    let log = git(
+        root,
+        &[
+            "log",
+            "--oneline",
+            "--no-decorate",
+            &format!("{base}..HEAD"),
+        ],
+    )?;
+    let mut diff = git(root, &["diff", "--no-color", &range])?;
+    if diff.len() > REVIEW_DIFF_MAX {
+        let mut cut = REVIEW_DIFF_MAX;
+        while !diff.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        diff.truncate(cut);
+        diff.push_str("\n… (the diff goes on: read the changed files for the rest)");
+    }
+    Ok(format!(
+        "Review the changes of this branch against {base} as this project's reviewer. You only read: nothing is \
+changed and no plan is approved.\n\n\
+Check them against the project's own rules (its CLAUDE.md/AGENTS.md instructions above; `ide` action \
+`arch.conformance` for the architect's rules when the project has them) and look for real defects: logic errors, \
+edge cases, regressions, security risks (secrets, injection, permissions), missing or weakened tests, broken \
+invariants. Read the changed files around each change before judging it; do not report style the tools would fix, \
+and do not invent problems — if you find none that matter, say so.\n\n\
+Answer in Markdown, exactly with these sections:\n\
+## Summary — two or three sentences on what the change does.\n\
+## Findings — one line each: `- **high|medium|low** `path:line` — the problem — why it matters — the fix`.\n\
+## Verdict — `approve` or `request changes`, and why in one sentence.\n\n\
+Commits:\n{log}\nFiles:\n{stat}\n```diff\n{diff}\n```"
+    ))
+}
+
+/// H6b: `dxtutor-ide agent review` — a read-only review of the branch; with `--post N`, the answer becomes a comment
+/// on PR N (`gh pr comment`).
+fn review(mut a: Args) -> i32 {
+    a.plan = true;
+    let root = a
+        .cwd
+        .clone()
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    let prompt = match review_prompt(&root, a.base.as_deref()) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("{e}");
+            return 1;
+        }
+    };
+    let out = run(&a, &prompt, &mut |_| {});
+    for n in &out.notices {
+        eprintln!("· {n}");
+    }
+    if out.outcome != "done" {
+        eprintln!("the review did not finish: {}", out.outcome);
+        return exit_code(&out.outcome);
+    }
+    let model = codev_agent::resolve_model(
+        a.provider.as_deref().unwrap_or("claude"),
+        a.model.as_deref(),
+    );
+    let body = format!(
+        "{}\n\n---\n_Co-Dev review (`dxtutor-ide agent review`, {model}): advisory; read-only, nothing was changed._",
+        out.result.trim()
+    );
+    if a.output == "json" {
+        println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
+    } else {
+        println!("{body}");
+    }
+    if let Some(pr) = a.post {
+        let mut child = match std::process::Command::new("gh")
+            .args(["pr", "comment", &pr.to_string(), "--body-file", "-"])
+            .current_dir(&root)
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("gh: {e}");
+                return 1;
+            }
+        };
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(body.as_bytes());
+        }
+        match child.wait() {
+            Ok(s) if s.success() => {}
+            _ => {
+                eprintln!("the review was not posted on PR {pr}");
+                return 1;
+            }
+        }
+    }
+    0
+}
+
 /// `dxtutor-ide agent …`: `None` when the arguments are not for it (the app starts as usual).
 pub fn from_args(args: &[String]) -> Option<i32> {
     if args.get(1).map(String::as_str) != Some("agent") {
         return None;
     }
-    let mut a = match parse(&args[2..]) {
+    // H6c: scheduled agents
+    if args.get(2).map(String::as_str) == Some("schedule") {
+        return Some(crate::schedule::cli(&args[3..]));
+    }
+    let is_review = args.get(2).map(String::as_str) == Some("review");
+    let rest = if is_review { &args[3..] } else { &args[2..] };
+    let mut a = match parse(rest) {
         Ok(a) => a,
         Err(e) => {
             eprintln!("{e}");
             return Some(2);
         }
     };
+    if is_review {
+        return Some(review(a));
+    }
     if a.prompt.is_none() && !std::io::stdin().is_terminal() {
         let mut s = String::new();
         if std::io::stdin().read_to_string(&mut s).is_ok() && !s.trim().is_empty() {
@@ -390,6 +556,12 @@ mod tests {
             .unwrap_err()
             .contains("unknown option"));
         assert!(parse(&s(&["-p"])).unwrap_err().contains("needs a value"));
+        let r = parse(&s(&["--base", "origin/develop", "--post", "42", "--plan"])).unwrap();
+        assert_eq!(
+            (r.base.as_deref(), r.post, r.plan),
+            (Some("origin/develop"), Some(42), true)
+        );
+        assert!(parse(&s(&["--post", "x"])).is_err());
         assert_eq!(exit_code("done"), 0);
         assert_eq!(exit_code("error: no key"), 1);
         assert_eq!(exit_code("iteration_limit"), 3);
@@ -400,6 +572,42 @@ mod tests {
             from_args(&s(&["dxtutor-ide", "agent", "--mode", "x"])),
             Some(2)
         );
+    }
+
+    /// H6b: the review's request — the branch's commits, files and diff since the base; nothing to review is said.
+    #[test]
+    fn the_review_prompt_holds_the_branch_changes() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path();
+        let g = |a: &[&str]| {
+            let o = std::process::Command::new("git")
+                .arg("-C")
+                .arg(p)
+                .args(a)
+                .env("GIT_AUTHOR_NAME", "t")
+                .env("GIT_AUTHOR_EMAIL", "t@e")
+                .env("GIT_COMMITTER_NAME", "t")
+                .env("GIT_COMMITTER_EMAIL", "t@e")
+                .output()
+                .unwrap();
+            assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+        };
+        g(&["init", "-q", "--initial-branch=main"]);
+        std::fs::write(p.join("a.rs"), "fn a() {}\n").unwrap();
+        g(&["add", "-A"]);
+        g(&["commit", "-q", "-m", "base"]);
+        assert!(review_prompt(p, Some("main"))
+            .unwrap_err()
+            .contains("nothing to review"));
+        g(&["checkout", "-q", "-b", "feat"]);
+        std::fs::write(p.join("a.rs"), "fn a() { unsafe_thing() }\n").unwrap();
+        g(&["commit", "-qam", "make a unsafe"]);
+        let q = review_prompt(p, Some("main")).unwrap();
+        assert!(q.contains("against main") && q.contains("make a unsafe") && q.contains("a.rs"));
+        assert!(q.contains("+fn a() { unsafe_thing() }"));
+        assert!(q.contains("## Findings") && q.contains("## Verdict"));
+        // no base given: the first that exists (here `main`)
+        assert!(review_prompt(p, None).unwrap().contains("against main"));
     }
 
     /// A folder that does not exist: said, exit 1, no session, no event.
