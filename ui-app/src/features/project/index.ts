@@ -74,6 +74,9 @@ services.project = {
     projectService.select(key);
     await projectService.work(key);
   },
+  refresh: () => {
+    if (projectService.state().status !== "idle") void projectService.open();
+  },
 };
 
 const sel = (): string | null => projectService.state().selected;
@@ -190,6 +193,8 @@ const table: ActionTable = {
   /* Multi Co-Dev (the integration gate): the functional approval of the selected issue */
   "pj-functional-approve": { click: () => { const k = sel(); if (k) void projectService.approveFunctional(k); } },
   "pj-functional-revoke": { click: () => { const k = sel(); if (k) void projectService.revokeFunctional(k); } },
+  /* Multi Co-Dev (fase 4): o painel «Rever e integrar» da issue (features/integration, no acto) */
+  "pj-integration": { click: () => { const k = sel(); if (k) services.integration?.open(k); } },
   "pj-audit": { click: () => { const k = sel(); if (k) void projectService.exportAudit(k); } },
   "pj-diff": { click: (e) => openDiff(e.on) },
   /* RF-A05: the drift of the rules in the issue's files */

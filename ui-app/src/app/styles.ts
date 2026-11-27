@@ -50,3 +50,5 @@ import "../features/deploy/styles.css";
 import "../features/comments/styles.css";
 /* A10: Dependencies e Onboarding (prefixo cb-); a posição não decide nada */
 import "../features/codebase/styles.css";
+/* Multi Co-Dev fase 4: o painel «Rever e integrar» (prefixo ig-, por cima de tudo menos o #approval); a posição não decide nada */
+import "../features/integration/styles.css";

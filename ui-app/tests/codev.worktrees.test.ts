@@ -311,6 +311,29 @@ describe("the Co-Devs strip with worktrees", () => {
     await vi.waitFor(() => expect(picks).toEqual([["b.rs"]]));
   });
 
+  it("phase 4: an issue with a branch (a session or a kept worktree) opens «Review & integrate» — only where the panel exists", async () => {
+    const t = fakes(worktreeFor);
+    await t.s.issue(t.run("DX-1"));
+    await t.s.issue(t.run("DX-2"));
+    const left: ListedWorktree[] = [{ key: "DX-8", path: "/wt/DX-8", dir: "/wt/DX-8", branch: "feature/dx-8", head: "d", prunable: false, dirty: [], changed: [], session: null, remove: "git -C /p worktree remove -- /wt/DX-8" }];
+    const u = useCase(gateway({ list: vi.fn(async () => left) }));
+    await u.w.refresh();
+    const map = { snapshot: () => ({ sessions: [] }), onChange: () => () => undefined } as unknown as AgentMapStore;
+    const opened: string[] = [];
+    const view = makeCodevsView(t.s, map, { now: () => 0, every: () => () => undefined, worktrees: u.w, integrate: (k) => opened.push(k) });
+    view.render();
+    const host = document.getElementById("ag-codevs")!;
+    const keys = [...host.querySelectorAll('[data-action="codevs-integrate"]')].map((b) => b.getAttribute("data-on"));
+    // DX-1 works in the main tree (no branch of its own here): no button
+    expect(keys).toEqual(["DX-2", "DX-8"]);
+    view.actions()["codevs-integrate"].run({ on: "DX-2" } as never);
+    expect(opened).toEqual(["DX-2"]);
+    // the browser (no panel): no button
+    document.getElementById("ag-codevs")!.remove();
+    makeCodevsView(t.s, map, { now: () => 0, every: () => () => undefined, worktrees: u.w }).render();
+    expect(document.querySelector('[data-action="codevs-integrate"]')).toBeNull();
+  });
+
   it("stays away with one session in the main tree (as in phase 2)", () => {
     const t = fakes(worktreeFor);
     const map = { snapshot: () => ({ sessions: [] }), onChange: () => () => undefined } as unknown as AgentMapStore;
