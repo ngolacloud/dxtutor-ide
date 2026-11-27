@@ -233,9 +233,12 @@ pub fn matches(expect: &str, output: &str) -> Option<bool> {
     None
 }
 
-/// A `/pattern/` expectation, when it compiles; else it is not machine-checkable.
+/// A `/pattern/` expectation, when it compiles; else it is not machine-checkable. The output's final line break
+/// is not part of it (a command's output ends with one: `/^[0-9]+$/` is meant to match `grep -c`'s `3`).
 fn regex_lite(pattern: &str, output: &str) -> Option<bool> {
-    regex::Regex::new(pattern).ok().map(|r| r.is_match(output))
+    regex::Regex::new(pattern)
+        .ok()
+        .map(|r| r.is_match(output.trim_end_matches(['\n', '\r'])))
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]

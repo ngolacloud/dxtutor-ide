@@ -1608,19 +1608,36 @@ pastas de build saltam), ou o que o `.dxtutor/workspace.json` diz (`projects: [{
 - Testes: `cargo test -p tutor-agent workspace::`, `cargo test -p dxtutor-ide a_session_in_a_project`,
   `tests/workspace-projects.test.ts` (inclui o adaptador do Co-Dev a mandar `backlog` e `project` ao backend).
 
-## A ferramenta `ide` e as skills do IDE (H3, `src-tauri/src/ide_tool.rs`, `tutor_agent::extensions`)
+## A ferramenta `ide` e as skills do IDE (H3/H4, `src-tauri/src/ide_tool.rs`, `ide_tool/ops.rs`, `tutor_agent::extensions`)
 
-Decisão D4: o Co-Dev chega ao que o IDE sabe por UMA ferramenta, `ide` (conjunto 13, em todas as sessões novas),
-com `action` e `args`, decidida no Rust. Uma ferramenta por acção custaria dezenas de definições em cada pedido e
-mudaria o prefixo sempre que uma acção nascesse. Nesta fase só há LEITURAS: `workspace.projects`, `project.board`,
-`project.issue` (o Project nunca é criado por uma leitura), `git.refs`, `git.log`, `gh.prs`, `gh.runs`,
-`deps.report`, `codebase.map`, `arch.conformance`, `slo.status`. As que mudam algo (H4) terão nível próprio:
-proposta que o humano aceita, ou aprovação partilhada + auditoria; segredos do Vault e rollout de produção nunca.
+Decisão D4: o Co-Dev chega ao que o IDE sabe por UMA ferramenta, `ide`, com `action` e `args`, decidida no Rust. Uma
+ferramenta por acção custaria dezenas de definições em cada pedido e mudaria o prefixo sempre que uma acção nascesse.
+- **Conjunto 13 (H3), só leituras:** `workspace.projects`, `project.board`, `project.issue` (o Project nunca é criado
+  por uma leitura), `git.refs`, `git.log`, `gh.prs`, `gh.runs`, `deps.report`, `codebase.map`, `arch.conformance`,
+  `slo.status`. Uma sessão do 13 retoma com esta ferramenta byte a byte (`IdeTool { ops: false }`, `DESCRIPTION_13`;
+  `StartSpec.host_tools_v13` só para `toolset == 13`, o `host_tools_v14` toma-lhe o lugar a partir do 14).
+- **Conjunto 14 (H4), Platform/SRE/DevOps, cada acção com o seu NÍVEL (`ops::ACTIONS`, decidido no Rust):**
+  - *leitura* (corre logo): `runbook.list`/`show`, `incident.list`/`show`, `queue.items`, `sources.status`,
+    `iac.dirs`, `kube.state`/`history` — sempre com o kubeconfig do humano, nunca um que o modelo indique (um
+    kubeconfig pode correr um programa pelo `exec`);
+  - *revisto*: `runbook.check` corre um passo `check` (a regra do runbook: só comandos de leitura) logo só quando o
+    runbook é o revisto — no git, igual ao HEAD, a última mudança num ramo remoto, não uma ligação (`ops::reviewed`);
+    senão pergunta (o modelo pode tê-lo escrito). Fica nas execuções do runbook com o actor `Co-Dev (<pessoa>)`;
+  - *acção* (pergunta SEMPRE, em todos os modos, sem «permitir sempre», e vai para o registo com a acção e os
+    argumentos): `incident.open`/`add`/`metrics`, `iac.plan` e `deploy.plan` (o `plan` corre programas do projecto
+    — um `data "external"` — com as credenciais do humano);
+  - *humana* (`ops::HUMAN`, a resposta diz onde no IDE): passos `action`/`decision`, mitigar/resolver, `iac apply`,
+    rollout, aprovar um PR, Vault, mudar o cluster.
+  O loop pergunta à ferramenta POR CHAMADA (`Tool::read_only_for`, que o paralelismo também usa) e o
+  `permissions::decide` pergunta ao humano por qualquer `ide` que não seja leitura (`ide_action_reason`).
 - **Skills embutidas** (`extensions::BUILTIN_SKILLS`, sempre no índice do system prompt; um
   `.dxtutor/skills/<nome>/SKILL.md` com o mesmo nome substitui-as): `workspace`, `project-board`, `source-control`,
-  `dependencies`, `architecture`, `codebase-onboarding`, `sre-slo` — cada uma diz que acções usar e o que nunca fazer
-  sem o humano.
-- Testes: `cargo test -p dxtutor-ide ide_tool backlog_tools_enter`, `cargo test -p tutor-agent extensions::`.
+  `dependencies`, `architecture`, `codebase-onboarding`, `sre-slo` e, do 14, `incidents`, `runbooks`,
+  `platform-queue`, `iac-pipeline`, `kubernetes-ops`, `guided-deploy` — cada uma diz que acções usar e o que nunca
+  fazer sem o humano. O postmortem é um `write` em `docs/postmortems/INC-n.md` (proposta revista no editor).
+- Testes: `cargo test -p dxtutor-ide ide_tool backlog_tools_enter` (a aceitação da H4: um incidente do fixture aberto,
+  métricas tentadas, os `check` do runbook corridos e gravados, a cronologia), `cargo test -p tutor-agent extensions::
+  permissions::`.
 
 ## Medir o harness do Co-Dev (H0, `src-tauri/src/eval.rs`, `evals/`)
 

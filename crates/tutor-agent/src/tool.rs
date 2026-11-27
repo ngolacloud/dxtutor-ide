@@ -53,6 +53,11 @@ pub trait Tool: Send + Sync {
     fn description(&self) -> &str;
     fn input_schema(&self) -> Value;
     fn read_only(&self) -> bool;
+    /// H4: whether THIS call only reads — for a tool whose actions differ (`ide`: reads run, the actions that
+    /// change a record go to the approval). By default, the tool's [`Tool::read_only`].
+    fn read_only_for(&self, _input: &Value) -> bool {
+        self.read_only()
+    }
     /// Pode alterar ficheiros do projecto? (antes da primeira destas num turno, o loop cria
     /// um checkpoint). Por omissão: tudo o que não é só leitura.
     fn mutates_files(&self) -> bool {
