@@ -279,7 +279,7 @@ pub fn packages(kind: CacheKind, deps: &[String]) -> Result<Vec<Package>> {
                 Ok(Package {
                     name: i.repo(),
                     version: i.tag.clone(),
-                    source: format!("{} ({})", i.registry, i.digest),
+                    source: i.digest.clone(),
                     pinned: true,
                 })
             }

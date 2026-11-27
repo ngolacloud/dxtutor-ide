@@ -29,6 +29,11 @@ export const LEARN_TRACK_MESSAGES = {
     preparePackages: "Packages it downloads",
     preparePackagesCargo: "Cargo also downloads the crates these depend on; a version without = is a requirement and takes the newest compatible release. The exact versions are kept in the course's Cargo.lock.",
     preparePackagesPip: "Exact versions, each checked against its sha256 hash, wheels only. Nothing else is installed: pip refuses any package the course did not pin.",
+    prepareBodyImages: "The exercises build and run containers from base images that are not in dxtutor's container sandbox yet. Grading never uses the network, so pull them once, pinned by digest, into the sandbox (a private rootless Podman storage; your own images are not touched). You see the images and the exact commands before anything runs.",
+    prepareTitleImages: "Prepare the {course} course: pull its base images into the container sandbox",
+    preparingImages: "Preparing: pulling the base images…",
+    prepareDoneImages: "Prepared (pull {fetch} s). Grading now runs offline, in the sandbox.",
+    preparePackagesImages: "Each image is pulled by its sha256 digest, so exactly that image is used. Grading never pulls anything else.",
   },
   ptAO: {
     frameworksAndTools: "Frameworks e ferramentas",
@@ -56,5 +61,10 @@ export const LEARN_TRACK_MESSAGES = {
     preparePackages: "Pacotes que descarrega",
     preparePackagesCargo: "O cargo descarrega também os crates de que estes dependem; uma versão sem = é um requisito e leva a versão compatível mais recente. As versões exactas ficam no Cargo.lock do curso.",
     preparePackagesPip: "Versões exactas, cada uma verificada pelo seu hash sha256, só rodas (wheels). Nada mais é instalado: o pip recusa qualquer pacote que o curso não tenha fixado.",
+    prepareBodyImages: "Os exercícios constroem e correm contentores a partir de imagens base que ainda não estão no sandbox de contentores do dxtutor. A avaliação nunca usa a rede, por isso puxa-as uma vez, fixadas pelo digest, para o sandbox (um armazenamento Podman rootless só do dxtutor; as tuas imagens não são tocadas). Vês as imagens e os comandos exactos antes de alguma coisa correr.",
+    prepareTitleImages: "Preparar o curso {course}: puxar as imagens base para o sandbox de contentores",
+    preparingImages: "A preparar: a puxar as imagens base…",
+    prepareDoneImages: "Preparado (download {fetch} s). A avaliação corre agora offline, no sandbox.",
+    preparePackagesImages: "Cada imagem é puxada pelo seu digest sha256, por isso é exactamente essa imagem que se usa. A avaliação nunca puxa mais nada.",
   },
 } satisfies Messages<string>;

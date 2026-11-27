@@ -23,7 +23,7 @@ const gateway = (list: CourseSummary[]): CourseGateway => ({
 
 describe("cursos de ferramentas", () => {
   test("o YAML é uma linguagem de avaliação, não uma linguagem do catálogo", () => {
-    expect(EVALUATION_LANGUAGES.map(l => l.id)).toEqual(["yaml"]);
+    expect(EVALUATION_LANGUAGES.map(l => l.id)).toEqual(["yaml", "dockerfile"]);
     expect(LANGUAGE_CATALOG.some(l => l.id === "yaml")).toBe(false);
     expect(LANGUAGE_CATALOG).toHaveLength(MAX_OFFICIAL_LANGUAGES);
     // O editor tira daqui a extensão e a indentação (2 espaços, a convenção dos manifestos).
@@ -52,5 +52,33 @@ describe("cursos de ferramentas", () => {
     expect(findSubject("kubernetes", [])!.install).toMatch(/kubectl \(https:\/\/kubernetes\.io\/docs\/tasks\/tools\/\).*No cluster/);
     expect(findSubject("delonix", [])!.install).toMatch(/delonix 0\.2\.0.*never touch the engine/);
     expect(FRAMEWORK_CATALOG.filter(f => f.id === "kubernetes" || f.id === "delonix").every(f => f.category === "tool")).toBe(true);
+  });
+});
+
+describe("cursos de contentores (Learn P3a)", () => {
+  const containerCourse = (subject: string): Course => ({ ...toolCourse(subject), language: "dockerfile" });
+  const gw: CourseGateway = {
+    ...gateway([
+      { id: "docker-basics", language: "dockerfile", category: "tool", subject: "docker" },
+      { id: "podman-basics", language: "dockerfile", category: "tool", subject: "podman" },
+    ]),
+    getCourse: async (language, subject) => {
+      if (language !== "dockerfile" || !subject) throw new Error(`unexpected ${language}/${subject}`);
+      return containerCourse(subject);
+    },
+  };
+
+  test("Docker e Podman escrevem-se em Dockerfile e ficam «Available»", async () => {
+    expect(findLanguage("dockerfile", [])).toMatchObject({ extension: "dockerfile", indent: "    " });
+    expect(LANGUAGE_CATALOG.some(l => l.id === "dockerfile")).toBe(false);
+    const st = await loadCatalog(gw, {});
+    expect(st.problems).toEqual([]);
+    const cards = subjectCards(st.courses, st.plugins);
+    for (const id of ["docker", "podman"]) expect(cards.find(c => c.subject.id === id)!.state).toBe("available");
+  });
+
+  test("o que instalar diz a verdade: Podman rootless, nunca o daemon do Docker", () => {
+    expect(findSubject("docker", [])!.install).toMatch(/Podman 4\.4.*never through the Docker daemon/);
+    expect(findSubject("podman", [])!.install).toMatch(/rootless.*your own images and containers are not touched/);
   });
 });

@@ -23,9 +23,11 @@ export const LANGUAGE_CATALOG: readonly Language[] = [
 
 /** Linguagens em que um curso se ESCREVE e se avalia sem serem linguagens do catálogo (não contam
  *  para o tecto de 10 nem aparecem como cartões): o YAML dos cursos de ferramentas (Kubernetes,
- *  Delonix), avaliado por verificações no backend. Dão a extensão e a indentação do editor. */
+ *  Delonix) e o Dockerfile dos de contentores (Docker, Podman), avaliados por verificações no
+ *  backend. Dão a extensão e a indentação do editor. */
 export const EVALUATION_LANGUAGES: readonly Language[] = [
   { id: "yaml", name: "YAML", icon: "📄", extension: "yaml", indent: "  " },
+  { id: "dockerfile", name: "Dockerfile", icon: "📦", extension: "dockerfile", indent: "    " },
 ];
 
 /** `"tab"` → tabulação; `"4"` → quatro espaços; qualquer outra coisa → quatro espaços. */
@@ -77,8 +79,8 @@ export const FRAMEWORK_CATALOG: readonly Subject[] = [
   { id: "seiva", name: "Seiva", icon: "🌿", category: "framework", docs: "https://ngolacloud.github.io/seiva/", install: "The Rust toolchain (rustup, cargo).", repo: official("seiva") },
   { id: "django", name: "Django", icon: "🎸", category: "framework", docs: "https://docs.djangoproject.com/en/5.2/", install: "Python 3.10 or newer with its venv module. «Prepare course» installs Django 5.2 LTS for the course only, not into your Python.", repo: official("django") },
   { id: "delonix", name: "Delonix Engine", icon: "🌺", category: "tool", docs: "https://ngolacloud.github.io/delonix/", install: "The delonix 0.2.0 binary from its official releases. Grading runs only delonix manifest render and delonix compose config, which read your files and never touch the engine.", repo: official("delonix") },
-  { id: "docker", name: "Docker", icon: "🐳", category: "tool", docs: "https://docs.docker.com/", install: "Docker Engine.", repo: official("docker") },
-  { id: "podman", name: "Podman", icon: "🦭", category: "tool", docs: "https://docs.podman.io/", install: "Podman, rootless.", repo: official("podman") },
+  { id: "docker", name: "Docker", icon: "🐳", category: "tool", docs: "https://docs.docker.com/", install: "To grade: Podman 4.4 or newer, rootless, on Linux (https://podman.io/docs/installation). The course teaches Docker's syntax and CLI but grades in dxtutor's private rootless Podman sandbox, never through the Docker daemon. «Prepare course» pulls the base images once.", repo: official("docker") },
+  { id: "podman", name: "Podman", icon: "🦭", category: "tool", docs: "https://docs.podman.io/en/v4.9.3/", install: "Podman 4.4 or newer, rootless, on Linux with a systemd user session (https://podman.io/docs/installation). Grading runs in a private sandbox: your own images and containers are not touched. «Prepare course» pulls the base images once.", repo: official("podman") },
   { id: "kubernetes", name: "Kubernetes", icon: "☸️", category: "tool", docs: "https://kubernetes.io/docs/", install: "kubectl (https://kubernetes.io/docs/tasks/tools/), for the Kustomize units. No cluster: grading is offline and never reads your kubeconfig. Running the manifests on kind with rootless Podman is a later part.", repo: official("kubernetes") },
   { id: "odoo", name: "Odoo", icon: "🟪", category: "framework", docs: "https://www.odoo.com/documentation/", install: "Odoo 18 to 20, Community edition, with PostgreSQL. Enterprise only with an Odoo licence.", repo: official("odoo") },
 ];

@@ -110,8 +110,9 @@ export interface PrepareStatus {
   state: "not-needed" | "missing" | "stale" | "ready";
   /** Os comandos exactos a aprovar (vêm do backend). */
   command: string;
-  /** O gestor de pacotes da cache: `cargo` (compila) ou `pip` (venv do curso). */
-  kind: "cargo" | "pip" | "";
+  /** O gestor da cache: `cargo` (compila), `pip` (venv do curso) ou `images` (imagens base no
+   *  sandbox de contentores, Learn P3a). */
+  kind: "cargo" | "pip" | "images" | "";
   /** Os pacotes que a preparação descarrega, para o diálogo de aprovação. */
   packages: CoursePackage[];
   /** A pasta da cache do curso. */
