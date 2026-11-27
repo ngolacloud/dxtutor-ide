@@ -383,6 +383,21 @@ pub fn guard_commit_as(
     ))
 }
 
+/// [`guard_commit_as`] for what an autonomous action (Multi Co-Dev, phase 5) brings: the scan
+/// reads `dir`, and a finding always blocks — a human's override waiting for the project is never
+/// taken (it was given for that human's own commit, not for the autonomy). Blocked, the text starts
+/// with [`BLOCKED`], like a human's.
+pub fn guard_strict(dir: &Path, scope: &Scope) -> Result<(), String> {
+    let report = scan(dir, scope)?;
+    if report.findings.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "{BLOCKED}{}",
+        serde_json::to_string(&report).unwrap_or_default()
+    ))
+}
+
 /// A blocked commit's error as a line a person (or an agent) reads: the findings, never the
 /// secrets. Other errors come back as they are.
 pub fn summary(err: &str) -> String {
@@ -617,6 +632,18 @@ mod tests {
             None
         );
         assert!(scan(root, &Scope::Between("--output=x", &head)).is_err());
+        // Multi Co-Dev, phase 5: the autonomy's guard never takes a human's override
+        allow_once(root, "a human's own commit").unwrap();
+        let e = guard_strict(root, &Scope::Between(&base, &head)).unwrap_err();
+        assert!(e.starts_with(BLOCKED) && !e.contains("u:p@"), "{e}");
+        // ... which is still there for the human
+        assert_eq!(
+            guard_commit(root, &Scope::Between(&base, &head))
+                .unwrap()
+                .as_deref(),
+            Some("a human's own commit")
+        );
+        assert!(guard_strict(root, &Scope::Between(&head, &head)).is_ok());
     }
 
     /// Measured with gitleaks 8.30: it has no rule for a URL with a password. With gitleaks

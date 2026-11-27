@@ -19,6 +19,8 @@ mod bridge;
 pub mod codeintel;
 pub mod codev;
 pub mod codev_agent;
+mod codev_autonomy;
+mod codev_pr;
 mod codev_review;
 mod codev_worktree;
 mod commands;
@@ -76,6 +78,10 @@ use commands::codev_agent::{
     codev_agent_permissions, codev_agent_review, codev_agent_rewind, codev_agent_save_permissions,
     codev_agent_send, codev_agent_sessions, codev_agent_set_mode, codev_agent_set_plan,
     codev_agent_start, codev_agent_trust,
+};
+use commands::codev_autonomy::{
+    codev_autonomy_grant, codev_autonomy_pause, codev_autonomy_revoke, codev_autonomy_state,
+    codev_pr_open, codev_pr_state,
 };
 use commands::codev_review::{
     codev_review_cancel, codev_review_integrate, codev_review_request, codev_review_state,
@@ -927,6 +933,10 @@ pub fn run() {
             });
             // LSP P2: where the user's override file and the approvals live; reload on change
             lsp::init(_app.handle());
+            // Multi Co-Dev, phase 5: what the backend needs to act on what a human delegated
+            if let Err(e) = commands::codev_autonomy::install(_app.handle()) {
+                eprintln!("autonomy: not installed ({e})");
+            }
             // r23 F4a (X02): each request that lost secrets is shown (and audited) by the UI
             let handle = _app.handle().clone();
             tutor_protect::redact::on_redact(move |origin, count| {
@@ -1083,6 +1093,13 @@ pub fn run() {
             codev_review_request,
             codev_review_cancel,
             codev_review_integrate,
+            // Multi Co-Dev, fase 5 — a autonomia delegada e os pull requests (commands/codev_autonomy.rs)
+            codev_autonomy_state,
+            codev_autonomy_grant,
+            codev_autonomy_revoke,
+            codev_autonomy_pause,
+            codev_pr_state,
+            codev_pr_open,
             dictation_status,
             dictation_start,
             dictation_stop,
