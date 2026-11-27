@@ -26,7 +26,9 @@ const step = (s: StepIn): Step => ({
   body: s.body, prompt: s.prompt, target: s.target, explanation: s.explanation,
   line_comments: s.lineComments, placeholder_policy: s.placeholderPolicy,
   instructions: s.instructions, entry: s.entry, starter: s.starter,
-  ...(s.project ? { project: { main: s.project.main, files: { ...s.project.files }, readonly: [...s.project.readonly] } } : {}),
+  ...(s.project
+    ? { project: { main: s.project.main, files: { ...s.project.files }, readonly: [...s.project.readonly], ...(s.project.live ? { live: true } : {}) } }
+    : {}),
 });
 
 const unit = (u: UnitIn): Unit => ({

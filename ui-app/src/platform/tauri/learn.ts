@@ -114,6 +114,8 @@ export interface StepProjectDto {
   /** caminho relativo → conteúdo inicial */
   files: Record<string, string>;
   readonly: string[];
+  /** Verifica-se ao vivo no cluster de prática (Learn P3b); ausente nos outros passos. */
+  live?: boolean;
 }
 
 export interface UnitDto {
@@ -175,7 +177,7 @@ export interface CoursePrepareDto {
   /** Os comandos exactos a aprovar (construídos no backend). */
   command: string;
   /** O gestor de pacotes da cache: `cargo` ou `pip` (vazio sem nada a preparar). */
-  kind: "cargo" | "pip" | "";
+  kind: "cargo" | "pip" | "cluster" | "";
   /** Os pacotes que a preparação descarrega (o diálogo de aprovação lista-os). */
   packages: CoursePackageDto[];
   /** A pasta da cache do curso. */
@@ -198,6 +200,36 @@ export interface CoursePreparedDto {
   output: string;
   status: CoursePrepareDto;
 }
+
+/** O cluster de prática de um curso de Kubernetes (`learn_cluster_status`, Learn P3b). */
+export interface ClusterDto {
+  live: boolean;
+  prepared: boolean;
+  support: { ok: boolean; podman: string | null; reason: string | null; fix: string | null };
+  status: {
+    name: string;
+    prepared: boolean;
+    exists: boolean;
+    running: boolean;
+    createdAt: number | null;
+    lastUsed: number | null;
+    createSecs: number | null;
+    memoryBytes: number | null;
+    idleDeadline: number | null;
+  } | null;
+  startCommand: string;
+  deleteCommand: string;
+  dir: string;
+  idleMinutes: number;
+}
+
+export const learnClusterStatus = (courseId: string): Promise<ClusterDto> => invoke<ClusterDto>("learn_cluster_status", { courseId });
+/** Cria (ou reutiliza) o cluster de prática com os comandos aprovados; o backend audita antes e depois. */
+export const learnClusterStart = (courseId: string, decision: PrepareDecisionDto): Promise<ClusterDto> =>
+  invoke<ClusterDto>("learn_cluster_start", { courseId, decision });
+/** Apaga o cluster de prática (as imagens preparadas ficam); o backend audita antes e depois. */
+export const learnClusterDelete = (courseId: string, decision: PrepareDecisionDto): Promise<ClusterDto> =>
+  invoke<ClusterDto>("learn_cluster_delete", { courseId, decision });
 
 export const coursePrepareStatus = (courseId: string): Promise<CoursePrepareDto> =>
   invoke<CoursePrepareDto>("course_prepare_status", { courseId });

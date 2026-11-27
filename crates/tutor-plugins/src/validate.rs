@@ -292,7 +292,7 @@ fn check_course(
         e(
             r,
             format!(
-                "build.prepare: a prepared course cache is only available for courses graded in rust (cargo) or python (pip) (this one is graded in `{}`)",
+                "build.prepare: a prepared course cache is only available for courses graded in rust (cargo), python (pip) or yaml (the practice cluster) (this one is graded in `{}`)",
                 c.language
             ),
         );
@@ -405,6 +405,16 @@ fn check_course(
                             .then_some(images.as_slice());
                         for msg in tutor_core::toolcheck::check_step_with(p, prepared) {
                             e(r, format!("{at}: {msg}"));
+                        }
+                        // Um passo ao vivo corre no cluster de prática, que só existe num curso
+                        // preparado (o kind, a imagem do nó e as imagens que os passos usam).
+                        if tutor_core::livecheck::step_is_live(p) && !c.build.prepare {
+                            e(
+                                r,
+                                format!(
+                                    "{at}: live checks run in the practice cluster: the course needs `[build] prepare = true` with the images its live steps use"
+                                ),
+                            );
                         }
                     }
                 }

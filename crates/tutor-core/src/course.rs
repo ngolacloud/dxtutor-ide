@@ -1592,11 +1592,41 @@ mod tool_course_tests {
             "kubernetes-basics",
             "kubernetes",
             "k8s-",
-            11,
+            18,
             &[crate::toolcheck::Tool::Kubectl],
         );
         let c = load_course("kubernetes-basics").unwrap();
         assert!(c.overview.contains("kubectl v1.36"));
+        // Learn P3b: units 12–18 run live in the practice cluster, from a prepared cache of
+        // images pinned by digest; units 1–11 stay offline and need no preparation.
+        let live: Vec<&str> = c
+            .units
+            .iter()
+            .filter(|u| {
+                u.steps
+                    .iter()
+                    .filter_map(|s| s.project.as_ref())
+                    .any(crate::livecheck::step_is_live)
+            })
+            .map(|u| u.id.as_str())
+            .collect();
+        assert_eq!(live.len(), 7, "{live:?}");
+        assert!(c.units[..11].iter().all(|u| !live.contains(&u.id.as_str())));
+        assert!(c.build.prepare);
+        assert_eq!(c.build.dependencies.len(), 3);
+        for d in &c.build.dependencies {
+            crate::image_reference(d).expect("pinned by digest");
+        }
+        for (n, u) in c.units.iter().enumerate() {
+            let ch = u.steps.last().unwrap();
+            let phase = c.phase(ch, Level::Basico).unwrap();
+            assert_eq!(
+                crate::livecheck::phase_needs_cache(&phase),
+                n >= 11,
+                "{}: only live steps need the prepared cluster",
+                ch.id
+            );
+        }
     }
 
     #[test]

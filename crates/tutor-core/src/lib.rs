@@ -6,6 +6,7 @@ pub mod content;
 pub mod course;
 pub mod curriculum;
 pub mod glossary;
+pub mod livecheck;
 pub mod model;
 pub mod podcmd;
 pub mod project;

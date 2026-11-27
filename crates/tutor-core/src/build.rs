@@ -43,6 +43,11 @@
 //!   pelo digest para o armazenamento do sandbox de contentores e dá-lhe a tag (para um `FROM
 //!   alpine:3.24.4` a encontrar); a avaliação nunca puxa (`--pull=never`). Como no pip, sem
 //!   `prepare = true` é um erro.
+//! - `yaml` (cluster, Learn P3b): uma IMAGEM de contentor que os passos ao vivo usam, com o
+//!   registo, a etiqueta e o digest — `docker.io/library/nginx:1.27.5-alpine@sha256:<64 hex>`
+//!   ([`image_reference`]). A preparação descarrega o kind fixado e a imagem do nó (fixados no
+//!   `tutor-eval`, nunca pelo curso) e estas imagens para o armazenamento do Podman do curso; a
+//!   avaliação carrega-as no cluster de prática, que nunca vai à internet.
 
 use std::collections::BTreeMap;
 
@@ -128,6 +133,9 @@ pub enum CacheKind {
     Pip,
     /// Imagens base fixadas pelo digest, puxadas para o sandbox de contentores (Learn P3a).
     Images,
+    /// O cluster de prática dos cursos de Kubernetes (Learn P3b): o kind fixado, a imagem do nó
+    /// e as imagens dos passos ao vivo, num armazenamento do Podman só do curso.
+    Cluster,
 }
 
 impl CacheKind {
@@ -138,6 +146,7 @@ impl CacheKind {
             "rust" | "rs" => Some(CacheKind::Cargo),
             "python" | "py" | "python3" => Some(CacheKind::Pip),
             "dockerfile" | "containerfile" => Some(CacheKind::Images),
+            "yaml" | "yml" => Some(CacheKind::Cluster),
             _ => None,
         }
     }
@@ -147,6 +156,7 @@ impl CacheKind {
             CacheKind::Cargo => "cargo",
             CacheKind::Pip => "pip",
             CacheKind::Images => "images",
+            CacheKind::Cluster => "cluster",
         }
     }
 }
@@ -543,6 +553,33 @@ pub fn resolve(course: &mut crate::Course) -> Result<(), String> {
             names.push(key);
         }
     }
+    if CacheKind::of(&course.language) == Some(CacheKind::Cluster) && !all.is_empty() {
+        if !course.build.prepare {
+            return Err(format!(
+                "build.dependencies of a course graded in `{}` are images preloaded into the practice cluster: set build.prepare = true",
+                course.language
+            ));
+        }
+        let mut names = Vec::new();
+        for line in &all {
+            let img = image_reference(line).map_err(|e| format!("build.dependencies: {e}"))?;
+            // `latest` makes the kubelet pull the image on every start: the practice cluster
+            // is offline, so a live step could never start it.
+            if img.tag == "latest" {
+                return Err(format!(
+                    "build.dependencies: `{}`: `latest` makes Kubernetes pull the image every time; pin a version tag",
+                    img.line()
+                ));
+            }
+            if names.contains(&img.name()) {
+                return Err(format!(
+                    "build.dependencies: `{}` is listed more than once",
+                    img.name()
+                ));
+            }
+            names.push(img.name());
+        }
+    }
     let env = BuildEnv {
         cache: course.build.prepare.then(|| CourseCache {
             key: course.id.clone(),
@@ -827,6 +864,74 @@ justification = ""
 
         assert_eq!(CacheKind::of("Rust"), Some(CacheKind::Cargo));
         assert_eq!(CacheKind::of("typescript"), None);
+    }
+
+    const NGINX: &str = "docker.io/library/nginx:1.27.5-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10";
+
+    #[test]
+    fn a_cluster_image_line_names_what_the_manifests_use_and_what_is_pulled() {
+        let img = image_reference(NGINX).expect("a pinned image");
+        assert_eq!(img.name(), "docker.io/library/nginx:1.27.5-alpine");
+        assert_eq!(img.short(), "nginx:1.27.5-alpine");
+        assert_eq!(
+            img.pinned(),
+            "docker.io/library/nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"
+        );
+        assert!(img.matches("nginx:1.27.5-alpine"));
+        assert!(img.matches("docker.io/library/nginx:1.27.5-alpine"));
+        assert!(!img.matches("nginx:1.28.0-alpine") && !img.matches("nginx"));
+        for bad in [
+            "docker.io/library/nginx:1.27.5-alpine",
+            "nginx:1.27.5-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10",
+            "docker.io/library/nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10",
+        ] {
+            assert!(image_reference(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_cluster_course_preloads_pinned_images_only_from_a_prepared_cache() {
+        let course = |build: &str| {
+            format!(
+                "id = \"k-live\"\nlanguage = \"yaml\"\ncategory = \"tool\"\nsubject = \"k\"\ntitle = \"T\"\nlevel = \"beginner\"\nsummary = \"s\"\n{build}\n[[unit]]\nid = \"u1\"\ntitle = \"U\"\n[[unit.step]]\nkind = \"concept\"\nid = \"c1\"\ntitle = \"C\"\nbody = \"b\"\n"
+            )
+        };
+        let ok = Course::parse(
+            &course(&format!(
+                "[build]\nprepare = true\ndependencies = ['{NGINX}']\n"
+            )),
+            CourseFormat::Toml,
+        )
+        .expect("a cluster course");
+        let cache = ok.units[0].steps[0].build.cache.as_ref().expect("cache");
+        assert_eq!(cache.kind(), Some(CacheKind::Cluster));
+        assert_eq!(cache.kind().unwrap().as_str(), "cluster");
+        assert_eq!(cache.dependencies, vec![NGINX.to_string()]);
+
+        let e = Course::parse(
+            &course(&format!("[build]\ndependencies = ['{NGINX}']\n")),
+            CourseFormat::Toml,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(e.contains("set build.prepare = true"), "{e}");
+        let e = Course::parse(
+            &course("[build]\nprepare = true\ndependencies = ['docker.io/library/nginx:1']\n"),
+            CourseFormat::Toml,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(e.contains("pin the image by digest"), "{e}");
+        let latest = NGINX.replace("1.27.5-alpine", "latest");
+        let e = Course::parse(
+            &course(&format!(
+                "[build]\nprepare = true\ndependencies = ['{latest}']\n"
+            )),
+            CourseFormat::Toml,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(e.contains("`latest` makes Kubernetes pull"), "{e}");
     }
 
     #[test]

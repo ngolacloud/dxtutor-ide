@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 348 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 351 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -901,7 +901,7 @@ cpp, sql.
   `dxt plugin prepare` e `dxt plugin test courses/django`. Testes: `cargo test -p tutor-core build`,
   `-p tutor-eval course_cache` e `--test course_cache_pip_real` (índice `file://`, sem rede),
   `tests/learn.prepare.test.ts`, `tests/approval.test.ts`.
-- **Cursos de ferramentas (Learn P2b, parte offline):** `courses/kubernetes/` (11 unidades, kubectl
+- **Cursos de ferramentas (Learn P2b, parte offline):** `courses/kubernetes/` (11 unidades offline e 7 ao vivo, abaixo; kubectl
   v1.36) e `courses/delonix/` (9 unidades, Delonix 0.2.0; o README do delonix ainda diz «0.1.x»),
   categoria `tool`, linguagem `yaml`, embutidos só no backend. Avaliam-se por verificações
   (`tutor_core::toolcheck` = forma, lista permitida e avaliação; `tutor_eval::tool_runner` = YAML e
@@ -921,8 +921,8 @@ cpp, sql.
 - **Sandbox de contentores e cursos de Docker e de Podman (Learn P3a):** `courses/podman/` e
   `courses/docker/` (10 unidades cada, categoria `tool`, linguagem `dockerfile`, só no backend; o de Docker
   ensina a sintaxe e o CLI do Docker — as verificações escrevem `docker …` — mas avalia no MESMO sandbox,
-  nunca no daemon do Docker, e diz onde difere). O motor é `tutor_eval::sandbox` (reutilizável, o kind do
-  Learn P3b segue-o): Podman rootless com armazenamento, volumes, redes e configuração próprios em
+  nunca no daemon do Docker, e diz onde difere). O motor é `tutor_eval::sandbox` (reutilizável; o kind do
+  Learn P3b tem a sua caixa, `kindbox`): Podman rootless com armazenamento, volumes, redes e configuração próprios em
   `<cache dos cursos>/.sandbox/podman` (ou `DXTUTOR_SANDBOX_ROOT`), runroot em `$XDG_RUNTIME_DIR/dxtutor-sbx-<hash>`
   (o Podman recusa > 50 caracteres), ambiente limpo e flags globais (o `~/.local/share/containers` do
   utilizador nunca é lido); etiquetas `io.dxtutor.sandbox=<propósito>` + `io.dxtutor.run=<id>`; limpeza
@@ -937,8 +937,8 @@ cpp, sql.
   + `append`), o Containerfile passa antes pela guarda `tutor_core::containerfile`, e `container_check` gera
   o comando real (nomes prefixados pela corrida, `--health-interval=disable`, `--network none|container:`,
   construções `--isolation=oci` com memória/CPU/`nproc` e numa fatia systemd própria, que mata um `RUN` fora
-  de tempo). GOTCHAs medidos (Podman 4.9.3): as redes rootless partilham um `rootless-netns` por utilizador
-  (por isso nada de `network create` nem `-p`); o temporizador de healthcheck chamaria `podman` sem as flags
+  de tempo). GOTCHAs medidos (Podman 4.9.3): com o `XDG_RUNTIME_DIR` da sessão (o desta caixa), as redes rootless partilham
+  o `rootless-netns` do utilizador (por isso nada de `network create` nem `-p`); o temporizador de healthcheck chamaria `podman` sem as flags
   do sandbox; o OCI deita fora o `HEALTHCHECK` (`--format docker`); o Buildah 1.33 reutiliza `ENV`/`LABEL`
   da cache depois de mudar um `--build-arg` (a corrida passa a `--no-cache`); o `storage/overlay` fica
   montado no espaço do processo de pausa (`destroy` desmonta e apaga no mesmo `podman unshare`).
@@ -946,6 +946,31 @@ cpp, sql.
   -p tutor-core build podcmd containerfile toolcheck tool_course`, `-p tutor-eval sandbox container_check`,
   `--test sandbox_real` e `--test container_grade_real` (sandbox real, sem rede: imagem do `busybox`
   estático), `tests/learn.tools.test.ts`; guia em `docs/plugins/README.md`.
+- **Kubernetes ao vivo (Learn P3b):** as unidades 12–18 de `courses/kubernetes/` aplicam os manifestos num
+  **cluster de prática** — kind v0.33.0 sobre Podman sem root, Kubernetes v1.36.4 — e lêem o resultado. As regras
+  vivem no Rust: `tutor_core::livecheck` (os `[[live]]` do `checks.toml`, a lista permitida — `apply`, `get -o
+  json|yaml`, `rollout status|undo|history`, `wait --for=condition`, `logs`; kubeconfig, contexto e namespace são
+  do avaliador — e o `manifest_problems` antes de cada `apply`: só tipos com namespace, sem `hostPath`/`hostPort`/
+  privilegiados, só as imagens preparadas), `tutor_eval::kindbox` (kind e imagem do nó FIXADOS no código, sha256 e
+  digest; um Podman só do curso — `rootless_storage_path`, `XDG_RUNTIME_DIR` próprio em `/run/user/<uid>`,
+  `CONTAINERS_*` e registos bloqueados —; rede `--internal` na sub-rede fixa `198.18.250.0/24` (fora dos pools do Podman,
+  do Docker e do kind; `subnet_conflicts` recusa-a se as redes do Podman do utilizador ou as rotas do anfitrião a usarem —
+  medido: com o `XDG_RUNTIME_DIR` próprio, o userns e o rootless-netns da caixa não são os do utilizador); o processo de pausa e a pasta de execução saem com o
+  cluster) e o `CacheKind::Cluster` (`yaml`: linhas `registo/repo:tag@sha256:…`). Num namespace novo por avaliação
+  (`dxt-<passo>-…`, apagado no fim); as `[[check]]` que não lêem saídas ao vivo correm antes e, falhando, o cluster
+  nem é tocado. Só os passos ao vivo precisam da cache (`livecheck::phase_needs_cache`). O cluster nasce na
+  primeira avaliação (≈1 min, ≈900 MB) ou por «Start practice cluster», sai por «Delete cluster» (os dois aprovados e
+  auditados: `learn_cluster_start`/`_delete`; `learn_cluster_status` só lê) e ao fim de 20 min sem uso
+  (`study::start_cluster_reaper`, que também limpa os `dxtutor-*` deixados por outra execução) — a aprovação do
+  «Prepare course» diz que é assim. Sem Podman/cgroup v2/delegação/user namespaces/D-Bus: `kindbox::probe` diz o
+  quê, a avaliação recusa com `LIVE_UNAVAILABLE` e o `dxt plugin test` salta os passos ao vivo. GOTCHA-podman: um
+  Podman sem root ignora o `graphroot` e o `runroot` do `storage.conf` (usa `rootless_storage_path` e
+  `$XDG_RUNTIME_DIR/containers`) e a base do libpod guarda-os da 1.ª vez: a caixa define tudo desde a 1.ª
+  chamada. Testes: `cargo test -p tutor-core livecheck build toolcheck`, `-p tutor-eval kindbox tool_runner`,
+  `tests/learn.cluster.test.ts`; `dxt plugin prepare courses/kubernetes` + `dxt plugin test courses/kubernetes`
+  (cria, mede e apaga o cluster). O Podman do kind fica em `kindbox/podman.rs`, à parte da caixa do Learn P3a:
+  o kind chama o `podman` sem as flags por comando dessa caixa e precisa de uma rede interna e de um nó privilegiado
+  (rootless), que ela proíbe; o `ImageRef`/`normalize_image` do `tutor_core::build` é o mesmo texto do P3a.
 - Testes: `cargo test -p tutor-plugins`, `ui-app/tests/learn.domain.test.ts`,
   `learn.onboarding.test.ts`, `learn.frameworks.test.ts`; o plugin-fixture só de testes
   `crates/tutor-plugins/tests/fixtures/framework-project` passa por `dxt plugin test`

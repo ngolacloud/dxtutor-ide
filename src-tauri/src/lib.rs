@@ -146,8 +146,9 @@ use commands::search::{
     detect_projects, list_files, read_folder_sources, search_project, workspace_projects,
 };
 use commands::study::{
-    course_prepare, course_prepare_status, get_course, get_glossary, get_study_guide, list_courses,
-    list_phases, request_fix, request_hint, request_plan, study_policy, submit, submit_step,
+    course_prepare, course_prepare_status, get_course, get_glossary, get_study_guide,
+    learn_cluster_delete, learn_cluster_start, learn_cluster_status, list_courses, list_phases,
+    request_fix, request_hint, request_plan, study_policy, submit, submit_step,
 };
 use commands::tests::{
     list_tests, run_all_tests, run_path, run_test, run_tests, test_history, test_run, test_runners,
@@ -303,6 +304,9 @@ struct StepProjectDto {
     main: String,
     files: std::collections::BTreeMap<String, String>,
     readonly: Vec<String>,
+    /// The step is checked live in the course's practice cluster (Learn P3b); absent otherwise.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    live: bool,
 }
 
 #[derive(Serialize)]
@@ -580,6 +584,7 @@ fn step_dto(s: &tutor_core::Step) -> StepDto {
             main: p.main.clone(),
             files: p.starter.clone(),
             readonly: p.readonly.clone(),
+            live: tutor_core::livecheck::step_is_live(p),
         }),
     }
 }
@@ -933,6 +938,8 @@ pub fn run() {
             });
             // LSP P2: where the user's override file and the approvals live; reload on change
             lsp::init(_app.handle());
+            // Learn P3b: practice clusters idle for 20 min (or left by an earlier run) are deleted
+            study::start_cluster_reaper();
             // Multi Co-Dev, phase 5: what the backend needs to act on what a human delegated
             if let Err(e) = commands::codev_autonomy::install(_app.handle()) {
                 eprintln!("autonomy: not installed ({e})");
@@ -1126,6 +1133,9 @@ pub fn run() {
             submit_step,
             course_prepare_status,
             course_prepare,
+            learn_cluster_status,
+            learn_cluster_start,
+            learn_cluster_delete,
             get_glossary,
             get_study_guide,
             fsops::list_dir,
