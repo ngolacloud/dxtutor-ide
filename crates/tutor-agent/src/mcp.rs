@@ -437,7 +437,8 @@ for line in sys.stdin:
             None,
             &crate::os_sandbox::SandboxConfig::default(),
         );
-        let mut c = McpClient::connect_in("fake", &fake_cfg(d.path()), d.path(), Some(&sb)).unwrap();
+        let mut c =
+            McpClient::connect_in("fake", &fake_cfg(d.path()), d.path(), Some(&sb)).unwrap();
         assert!(!c.list_tools().unwrap().is_empty());
     }
 
