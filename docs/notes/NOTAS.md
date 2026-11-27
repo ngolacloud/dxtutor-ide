@@ -11,7 +11,7 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 - [Quadro (backlog, sprints e kanban)](#quadro-backlog-sprints-e-kanban) — 2 acções
 - [Project](#project) — 11 acções
 - [Testes](#testes) — 1 acção
-- [Servidor de linguagem (LSP)](#servidor-de-linguagem-lsp) — 8 acções
+- [Servidor de linguagem (LSP)](#servidor-de-linguagem-lsp) — 9 acções
 - [Protecção de dados — nenhum segredo sai da máquina](#proteccao-de-dados-nenhum-segredo-sai-da-maquina) — 4 acções
 - [Ops — infraestrutura, Kubernetes, runbooks e evidências](#ops-infraestrutura-kubernetes-runbooks-e-evidencias) — 12 acções
 - [Platform — a minha fila, revisão de PR de infra e incidentes](#platform-a-minha-fila-revisao-de-pr-de-infra-e-incidentes) — 3 acções
@@ -873,9 +873,9 @@ Corre a suite do projecto e mostra-a a acontecer: spinner, barra de progresso, c
 
 ## Servidor de linguagem (LSP)
 
-Na app desktop, o editor fala com o servidor de linguagem de cada ficheiro (rust-analyzer, typescript-language-server, pyright, gopls, jdtls…) para os diagnósticos ao vivo, o hover, o «ir para a definição», o rename e o completion. Que linguagem é cada ficheiro (pela extensão, sem distinguir maiúsculas, pelo nome inteiro como `Dockerfile` e `Makefile`, ou pelo shebang) e que servidor a serve diz um só ficheiro de dados, `languages/registry.json`, lido pelo editor e pelo backend. O teu `lsp.json` e o `.dxtutor/lsp.json` de cada projecto acrescentam linguagens e servidores e mudam o comando, os argumentos e as definições de cada servidor; o comando que um projecto pede só corre depois de o aprovares. Quando o servidor não está instalado, o editor diz qual falta e instala-o depois de aprovares o comando exacto, para a pasta do próprio dxtutor. Os servidores não ficam a gastar a máquina: um servidor sem ficheiros abertos pára sozinho ao fim de algum tempo, há um limite de servidores ao mesmo tempo, e a paleta mostra os que estão a correr, com o registo de cada um.
+Na app desktop, o editor fala com o servidor de linguagem de cada ficheiro (rust-analyzer, typescript-language-server, pyright, gopls, jdtls…) para os diagnósticos ao vivo, o hover, o «ir para a definição», o rename e o completion. Que linguagem é cada ficheiro (pela extensão, sem distinguir maiúsculas, pelo nome inteiro como `Dockerfile` e `Makefile`, ou pelo shebang) e que servidor a serve diz um só ficheiro de dados, `languages/registry.json`, lido pelo editor e pelo backend. O teu `lsp.json` e o `.dxtutor/lsp.json` de cada projecto acrescentam linguagens e servidores e mudam o comando, os argumentos e as definições de cada servidor; o comando que um projecto pede só corre depois de o aprovares. Quando o servidor não está instalado, o editor diz qual falta e instala-o depois de aprovares o comando exacto, para a pasta do próprio dxtutor. Uma extensão VS Code instalada (VSIX) que traz uma linguagem que o registo não conhece torna-a uma linguagem do editor — realce, comentários e o nome na barra de estado — e, se o registo o disser, liga-a ao servidor de linguagem certo. Os servidores não ficam a gastar a máquina: um servidor sem ficheiros abertos pára sozinho ao fim de algum tempo, há um limite de servidores ao mesmo tempo, e a paleta mostra os que estão a correr, com o registo de cada um.
 
-<sub>Código: `languages/registry.json`, `crates/tutor-eval/src/langreg.rs`, `crates/tutor-eval/src/lspconf.rs`, `ui-app/src/features/lsp/application/overrides.ts`, `ui-app/src/features/lsp/ui/config-view.ts`, `docs/lsp/overrides.md`, `ui-app/src/features/lsp/domain/registry.ts`, `ui-app/src/features/lsp/application/lsp-client.ts`, `ui-app/src/features/lsp/domain/server-status.ts`, `crates/tutor-eval/src/lspinstall.rs`, `src-tauri/src/commands/lsp_install.rs`, `src-tauri/src/lsp.rs`, `src-tauri/src/lsp/lifecycle.rs`, `ui-app/src/features/lsp/application/servers.ts`, `ui-app/src/features/lsp/ui/servers-view.ts`, `ui-app/src/features/panel/domain/lsp-log.ts` · revisto em 2026-11-26</sub>
+<sub>Código: `languages/registry.json`, `crates/tutor-eval/src/langreg.rs`, `crates/tutor-eval/src/lspconf.rs`, `ui-app/src/features/lsp/application/overrides.ts`, `ui-app/src/features/lsp/ui/config-view.ts`, `docs/lsp/overrides.md`, `ui-app/src/features/lsp/domain/registry.ts`, `ui-app/src/features/lsp/application/lsp-client.ts`, `ui-app/src/features/lsp/domain/server-status.ts`, `crates/tutor-eval/src/lspinstall.rs`, `src-tauri/src/commands/lsp_install.rs`, `src-tauri/src/lsp.rs`, `src-tauri/src/lsp/lifecycle.rs`, `ui-app/src/features/lsp/application/servers.ts`, `ui-app/src/features/lsp/ui/servers-view.ts`, `ui-app/src/features/panel/domain/lsp-log.ts`, `crates/tutor-eval/src/langcontrib.rs`, `ui-app/src/features/ext/domain/contributions.ts`, `ui-app/src/features/ext/domain/plist.ts`, `ui-app/src/features/lsp/application/contributions.ts` · revisto em 2026-11-27</sub>
 
 | Acção | Onde |
 |---|---|
@@ -885,6 +885,7 @@ Na app desktop, o editor fala com o servidor de linguagem de cada ficheiro (rust
 | [Aprovar o comando e as definições que um projecto pede](#aprovar-o-comando-e-as-definicoes-que-um-projecto-pede) | faixa no topo do ficheiro «… is waiting for your approval» → «Review…» · a configuração efectiva → «Review…» |
 | [Ver a configuração efectiva](#ver-a-configuracao-efectiva) | paleta: «LSP: Show Effective Language Server Configuration» |
 | [Aviso de definições ignoradas](#aviso-de-definicoes-ignoradas) | cartão vermelho no canto «Language server settings ignored» |
+| [Linguagens trazidas por uma extensão VS Code (VSIX)](#linguagens-trazidas-por-uma-extensao-vs-code-vsix) | painel «Extensions» → instalar do Open VSX ou de um .vsix (+) · página da extensão → «What this extension adds here» |
 | [Ver os servidores de linguagem a correr](#ver-os-servidores-de-linguagem-a-correr) | paleta: «LSP: Show Running Language Servers» |
 | [Servidores inactivos e o limite de servidores](#servidores-inactivos-e-o-limite-de-servidores) | automático · o teu `lsp.json`: «resources» |
 
@@ -1033,6 +1034,37 @@ Quando o teu `lsp.json` ou o `.dxtutor/lsp.json` têm um erro, o dxtutor ignora 
 1. Os erros vêm de `lsp_config` (`userFile`/`projectFile.errors`); o aviso só se repete quando os erros mudam.
 
 <sub>Cobre: `lsp:config-errors-open`</sub>
+
+### Linguagens trazidas por uma extensão VS Code (VSIX)
+
+**Onde:** painel «Extensions» → instalar do Open VSX ou de um .vsix (+) · página da extensão → «What this extension adds here»
+
+Uma extensão instalada que declara uma linguagem que o dxtutor ainda não conhece (o Apache para o `.htaccess`, o Perl, o `go.mod` da extensão do Go) passa a ser uma linguagem do editor: o ficheiro é reconhecido pelo nome inteiro, por um padrão, pela extensão ou pela primeira linha, ganha o realce da gramática da extensão (JSON ou `.tmLanguage` em XML), o Ctrl+/ com o comentário do `language-configuration.json` e o nome na barra de estado. Se o registo de linguagens do dxtutor o disser, o ficheiro vai para o servidor de linguagem dessa extensão (instalar a extensão do Go dá o gopls aos `go.mod`, `go.sum` e `go.work`). Desinstalar ou desligar a extensão tira tudo o que ela trouxe.
+
+**Como usar**
+
+1. Instala a extensão (do Open VSX ou de um ficheiro .vsix) e abre um ficheiro dessa linguagem.
+2. Na página da extensão, cada linguagem diz se é nova no editor ou já do dxtutor, que ficheiros reconhece, que servidor de linguagem tem (ou que não tem) e que ficheiros ficam com o registo do dxtutor.
+3. Uma extensão instalada antes desta versão guardou só as extensões de ficheiro: a página pede para a reinstalar.
+
+**Fluxo (por dentro)**
+
+1. Ao instalar, `readFromVsix` lê de cada linguagem `extensions`, `filenames`, `filenamePatterns`, `firstLine` e `aliases` (o primeiro é o nome), e as gramáticas em JSON ou em property list XML (`ext/domain/plist.ts`); fica tudo no `vsx-contrib`.
+2. As linguagens das extensões ligadas, juntadas por id, entram no registo de linguagens POR BAIXO dele (`useContributed`): o editor, o explorador e o cliente LSP perguntam lá. O registo ganha sempre: um ficheiro que ele já reconhece (pelo nome ou pela extensão) fica dele, e a página da extensão di-lo.
+3. Dentro das extensões: o nome inteiro, depois o padrão mais comprido, depois a extensão mais comprida (`.d.ts` antes de `.ts`); a primeira linha só quando o nome não diz nada (a do registo primeiro). Uma linguagem com o id de uma do registo (`python` com `.pyw`) É essa, servidor incluído.
+4. Servidor: só o do registo que nomeia a extensão em `vscodeExtensions` e a linguagem em `vscodeLanguages` (o gopls lista `go.mod`, `go.sum`, `go.work`; o `go.asm` da mesma extensão fica sem servidor, e o `pip-requirements` da extensão do Python nunca vai para o pyright). O id da linguagem da extensão é o `languageId` que o servidor recebe. Os overrides (P2), a aprovação e as receitas de instalação (P3) continuam iguais.
+5. O backend recebe a lista inteira (`lsp_contributions`) antes de o cliente decidir a linguagem de um ficheiro e sempre que muda (bus `ext:languages`); quando muda, um documento aberto que perdeu o servidor fecha-se nele.
+
+**Dicas**
+
+- No teu `lsp.json` podes dar `vscodeLanguages` a um servidor para que sirva outra linguagem que uma extensão dele traga.
+
+**Limites**
+
+- Não há extension host: o JavaScript da extensão nunca corre, e uma extensão nunca traz o comando de um servidor — o servidor é sempre o do registo.
+- Gramáticas que incluem outras gramáticas (`source.js`…) ficam sem realce nesses blocos; regras que acabam no fim da linha (`\n`) ou com `\G` (o comentário do Perl) ainda não são bem tratadas pelo realce.
+
+<sub>Cobre: `lsp:vsix-languages`</sub>
 
 ### Ver os servidores de linguagem a correr
 
