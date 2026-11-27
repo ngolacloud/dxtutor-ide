@@ -877,6 +877,20 @@ fn enable_media(app: &tauri::App) {
     }
 }
 
+/// Gives the memory freed since the last call back to the system, a few seconds from now (after the answer that
+/// held it was serialized and sent). glibc keeps what a thread frees in that thread's arena; measured 2026-11-27:
+/// opening this repository (1113 files, 16 MB) left the app ~27 MB bigger for good.
+pub fn trim_soon() {
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        // SAFETY: malloc_trim only releases free memory held by the allocator
+        unsafe {
+            libc::malloc_trim(0);
+        }
+    });
+}
+
 pub fn run() {
     // Default the desktop to running student/user code inside Delonix containers
     // (real isolation + package caches). The user can switch at runtime via

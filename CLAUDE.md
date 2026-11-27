@@ -988,6 +988,9 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
   jdtls respondia vazio ao completion/signatureHelp a sessão inteira (o kotlin-language-server
   perdia as referências). Agora o backend só usa uma sessão do mapa depois de `initialized`
   (`Session::initialized`, `wait_initialized`) e o cliente espera pelo `lsp_start`/`didOpen` em curso.
+  O `initialize` tem 180 s (`INIT_BUDGET`: a JVM do jdtls sob carga levou 39 s; um servidor que morre falha logo) e quem
+  espera recebe um ERRO se a sessão não acabou o handshake — nunca a usa a meio (2026-11-27: o `didOpen` antes do
+  `initialized` deixava o jdtls sem projecto, sem diagnósticos).
 - **Símbolos da pasta** (`domain/workspace-symbols.ts`, `ui/workspace-symbol-hooks.ts` +
   `showWorkspaceSymbolPicker`, comando `lsp_workspace_symbols(root, query)`): Ctrl+T (no editor, ou
   fora de campos de texto e do terminal) ou «Go to Symbol in Workspace…» na paleta abre `#lsp-wsymbols`;
@@ -1395,6 +1398,8 @@ O IDE tem de ser leve e nunca travar a máquina. Regras medidas (amostragem da t
   relida, a página não pára, uma `perf-out/` de 80 MB ignorada pelo `.git/info/exclude` não entra nem a faz crescer, CPU
   em repouso e memória privada no fim. Um limite só sobe com a medição que o justifica, nas notas. O `lsp-java`/`lsp-kotlin`
   falham sem diagnósticos (antes registavam `null` e passavam).
+- **Memória devolvida:** o glibc guarda o que uma thread liberta na arena dela; depois do `load_workspace` (dezenas de
+  MB passageiros) o `crate::trim_soon()` chama o `malloc_trim(0)` 3 s depois (medido: 152 → 108 MB com este repositório).
 - Medidas e método em `docs/v2/NOTAS-desempenho.md`.
 
 ## Regras ao mexer aqui

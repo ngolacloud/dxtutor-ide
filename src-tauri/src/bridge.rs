@@ -27,7 +27,7 @@ fn config_dir(app: &AppHandle) -> Result<PathBuf, String> {
 // de uso. O `spawn_blocking` mantém o walk de disco fora da thread de UI.
 #[tauri::command]
 pub async fn load_workspace(root: String) -> Result<workspace::Loaded, String> {
-    tauri::async_runtime::spawn_blocking(move || {
+    let loaded = tauri::async_runtime::spawn_blocking(move || {
         workspace::open_workspace(
             std::path::Path::new(&root),
             workspace::LoadPolicy::default(),
@@ -35,7 +35,10 @@ pub async fn load_workspace(root: String) -> Result<workspace::Loaded, String> {
         .map_err(|e| format!("{root}: {e}"))
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+    // the files and their JSON (tens of MB) are freed once the answer is sent: give them back to the system
+    crate::trim_soon();
+    loaded
 }
 
 #[tauri::command]
