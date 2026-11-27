@@ -77,7 +77,7 @@ function paintEd(p:string){const f=FS[p],v=VIEWS.get(p)??null,lines=(v?v.text:f.
   $('#ed-gut')!.innerHTML=lines.map((_,i)=>{const c=((dg[i+1]?`g-${dg[i+1]}`:'')+hk(i)).trim();return `<div${c?` class="${c}"`:''}>${num(i)}</div>`;}).join('');
   /* Fase 4: se uma extensão VS Code instalada traz a gramática TextMate da linguagem, o
      realce é do documento inteiro (com estado entre linhas); senão, o realce de sempre. */
-  const tm=window.vsxHighlight?window.vsxHighlight(ext,lines):null;
+  const tm=window.vsxHighlight?window.vsxHighlight(ext,lines,p):null;
   $('#ed-hl')!.innerHTML=lines.map((l,i)=>`<div class="l${dg[i+1]?' d-'+dg[i+1]:''}${hk(i)}">${(tm?tm[i]:hlLine(l,ext))||' '}</div>`).join('');
   const mm=$('#minimap')!;mm.classList.remove('hidden');$('#ebody')!.classList.add('with-mm');
   mm.innerHTML='<div class="mm-view"></div>'+lines.slice(0,120).map((l,i)=>`<div class="mm-line${dg[i+1]==='e'?' err':''}" style="width:${l.trim()?Math.max(6,Math.min(52,l.length*.9)):0}px"></div>`).join('');

@@ -9,6 +9,7 @@ pub mod model;
 pub mod project;
 pub mod study;
 pub mod support;
+pub mod toolcheck;
 
 pub use build::{BuildEnv, CourseBuild, CourseCache};
 pub use content::{builtin_projects, find_phase, load_project};

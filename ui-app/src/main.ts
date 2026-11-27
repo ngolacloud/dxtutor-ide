@@ -78,6 +78,8 @@ import "./features/workspace";
 import "./features/explorer";
 import "./features/diagnostics";
 import "./features/shortcuts";
+/* New Project: os templates do Delonix (`delonix init -t`); as boas-vindas e o menu File abrem-no */
+import "./features/newproject/index";
 /* r23 F6: Start · Recent · Walkthroughs */
 import "./features/welcome/index";
 import "./app/chrome-actions";

@@ -8,7 +8,8 @@
    `lsp_config` / `lsp_config_file` / `lsp_user_config_save` / `lsp_approve_server` e o evento `lsp://config`; e a
    instalação a partir das receitas do registo (LSP P3): `lsp_install_plan` / `lsp_install_download`; e os recursos
    (LSP P6): `lsp_did_close` / `lsp_folder_closed` e a `ServersPort` (`lsp_servers` / `lsp_server_stop` /
-   `lsp_server_restart`, eventos `lsp://servers` e `lsp://limit`).
+   `lsp_server_restart`, eventos `lsp://servers` e `lsp://limit`); e as linguagens dos VSIX instalados (LSP P4):
+   `lsp_contributions`.
    Não toca em `window` (o cliente tipado é que o faz, fora da subárvore). */
 
 import { invoke, listen } from "../../../platform/tauri/core";
@@ -16,6 +17,7 @@ import type { LspConfigPort, LspPort, ServersPort } from "../application/ports";
 import type { InstallPlan, ServerStatus } from "../domain/server-status";
 import type { FileReport, LspConfigView } from "../domain/overrides";
 import type { LimitNotice, ServersView } from "../domain/servers";
+import type { ContributedLanguage } from "../domain/registry";
 
 export const tauriLspServers: ServersPort = {
   list: () => invoke<ServersView>("lsp_servers"),
@@ -47,6 +49,12 @@ export const tauriLspConfig: LspConfigPort = {
   onConfig: (cb) => {
     void listen("lsp://config", () => cb());
   },
+};
+
+/** As linguagens dos VSIX instalados (LSP P4): o backend só muda o encaminhamento dos ficheiros que o registo não
+ *  conhece (`tutor_eval::langcontrib`). */
+export const tauriLspContributions = {
+  send: (languages: ContributedLanguage[]) => invoke<void>("lsp_contributions", { languages }),
 };
 
 export const tauriLsp: LspPort = {

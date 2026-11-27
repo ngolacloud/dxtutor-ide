@@ -133,6 +133,7 @@ use commands::runbook::{
     runbook_decide, runbook_list, runbook_parse, runbook_step, sources_status,
 };
 use commands::sandbox::{compose_ps, get_sandbox_engine, set_sandbox_engine};
+use commands::scaffold::{project_new, project_new_plan, project_templates};
 use commands::search::{detect_projects, list_files, read_folder_sources, search_project};
 use commands::study::{
     course_prepare, course_prepare_status, get_course, get_glossary, get_study_guide, list_courses,
@@ -1243,6 +1244,8 @@ pub fn run() {
             lsp::lsp_server_log,
             lsp::lsp_server_stop,
             lsp::lsp_server_restart,
+            // LSP P4: the languages the installed VS Code extensions contribute
+            lsp::lsp_contributions,
             board::board_load,
             board::board_save,
             board::project_load,
@@ -1263,6 +1266,9 @@ pub fn run() {
             board::audit_export_evidence,
             board::project_issue_prompt,
             board::project_create_from_backlog,
+            project_templates,
+            project_new_plan,
+            project_new,
             board::project_sprint_plan,
             board::project_scope_overlap,
             board::project_checks,

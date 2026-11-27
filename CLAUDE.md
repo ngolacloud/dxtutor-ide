@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 337 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 341 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -847,6 +847,23 @@ cpp, sql.
   `timeout_secs` do curso dá o tempo limite de cada compilação. Testes: `cargo test -p tutor-core
   build`, `-p tutor-eval course_cache` e `--test course_cache_real` (git `file://`, sem rede),
   `tests/learn.prepare.test.ts`.
+- **Cursos de ferramentas (Learn P2b, parte offline):** `courses/kubernetes/` (11 unidades, kubectl
+  v1.36) e `courses/delonix/` (9 unidades, Delonix 0.2.0; o README do delonix ainda diz «0.1.x»),
+  categoria `tool`, linguagem `yaml`, embutidos só no backend. Avaliam-se por verificações
+  (`tutor_core::toolcheck` = forma, lista permitida e avaliação; `tutor_eval::tool_runner` = YAML e
+  comandos): cada desafio é um passo de projecto com um `checks.toml` oculto — `[[check]]` (caminho num
+  documento + uma afirmação: `equals`, `matches`, `only_keys`, `selects`, `among`, `doc_count`…) e
+  `[[run]]` SÓ de `kubectl kustomize <dir>`, `delonix manifest render -f` e `delonix compose config -f
+  -p` (provados sem rede nem motor no código do delonix em `edba10a1c` e medidos com `strace`;
+  `kubectl apply|create --dry-run=client -f` liga à API e `delonix manifest validate` lê os stores e
+  varre cgroups do anfitrião: recusados). Sem shell, ambiente limpo, `HOME`/`XDG_*`/`DELONIX_ROOT` e
+  um `KUBECONFIG` vazio temporários; guardas no Rust: kustomization sem rede nem Helm, compose com a
+  porta do anfitrião e sem `$`, `depends_on` desconhecido (o delonix 0.2.0 entra em pânico).
+  Ferramenta em falta = erro com o que instalar; um drill YAML só se lê. `dxt plugin validate` valida
+  os `checks.toml` e `dxt plugin test` diz a versão de cada ferramenta. Na UI, `EVALUATION_LANGUAGES`
+  (o `yaml`: extensão e indentação, fora do tecto de 10). Testes: `cargo test -p tutor-core
+  toolcheck tool_course`, `-p tutor-eval tool_runner`, `-p tutor-plugins --test tool_courses`,
+  `tests/learn.tools.test.ts`; guia em `docs/plugins/README.md`.
 - Testes: `cargo test -p tutor-plugins`, `ui-app/tests/learn.domain.test.ts`,
   `learn.onboarding.test.ts`, `learn.frameworks.test.ts`; o plugin-fixture só de testes
   `crates/tutor-plugins/tests/fixtures/framework-project` passa por `dxt plugin test`
@@ -875,8 +892,19 @@ forma declarativa é aplicado por código tipado em `features/ext/`, governado p
   diagnósticos); Shift+Alt+F formata sempre.
 - **Backend:** `vsix_fetch_open_vsx` e `vsix_search_open_vsx` (só open-vsx.org) e os servidores LSP das linguagens novas
   em `lsp.rs`.
+- **Linguagens de um VSIX (LSP P4):** lêem-se `extensions`, `filenames`, `filenamePatterns`, `firstLine` e `aliases`
+  (`languagesOf`; o primeiro alias é o nome) e as gramáticas em JSON ou em property list XML (`domain/plist.ts`, decide o
+  conteúdo). As das extensões LIGADAS, juntadas por id (`contributedLanguages`, o comentário do `language-configuration`),
+  entram POR BAIXO do registo de linguagens (`useContributed` em `lsp/domain/registry.ts`, posto pelo `ext.ts`): o editor
+  (barra de estado, `vsxHighlight` com o caminho, Ctrl+/ de linha ou de bloco, snippets) pergunta por LINGUAGEM, não pela
+  extensão do ficheiro. O registo ganha sempre (`languageConflicts` di-lo na página da extensão); o servidor é a regra do
+  LSP abaixo. Instalar, desinstalar ou ligar/desligar avisa `onChange` → bus `ext:languages`. Uma extensão instalada antes
+  guardou só `id`/`extensions` (a página pede para a reinstalar). Limitação conhecida do TextMate «lite»: regras que
+  acabam num `\n` ou num `(?!\G)` (o comentário do Perl) continuam na linha seguinte.
 - **Testes:** `ext.contributions.test.ts`, `ext.contrib-engine.test.ts` e
-  `ext.phase4-harness.test.ts`. A página de detalhe só muda para itens VSIX, por isso os
+  `ext.phase4-harness.test.ts`; do P4, `ext.vsix-languages.test.ts` (domínio e motor), `ext.vsix-editor.test.ts` (no
+  editor real) e `lsp.vsix.test.ts`, com VSIX reais em miniatura em `tests/fixtures/vsix/` (golang.go, Apache com
+  `.tmLanguage` plist, Perl, ms-python; MIT). A página de detalhe só muda para itens VSIX, por isso os
   goldens do catálogo ficam intactos.
 
 ## Nona feature: Testing real (`ui-app/src/features/testing/`)
@@ -926,7 +954,8 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
   `rootMarkers`, `readySignal`, `initOptions` (o jdtls), `oneShot` (o cliente de um pedido do `tutor_eval::lsp`
   pode arrancá-lo: rust/go/ts/python, nunca um JVM), `quirks` (só `nodePath` e `rustupProxy` mudam código; os
   outros registam o que já é genérico), `install` (SÓ texto, a instrução à mão quando nenhuma receita serve),
-  `recipes` (LSP P3, abaixo) e `vscodeExtensions` (o `KNOWN_LANGUAGE_SERVERS`). Leram-se daqui as
+  `recipes` (LSP P3, abaixo), `vscodeExtensions` (o `KNOWN_LANGUAGE_SERVERS`) e `vscodeLanguages` (LSP P4,
+  abaixo). Leram-se daqui as
   nove cópias antigas: `LANGS`/`server_cmd`/pistas/`init_options` do `lsp.rs`, a tabela do `tutor_eval::lsp`,
   `codeintel::outline_lang`, `languages.ts`, `server-status.ts`, `ext/domain/contributions.ts`, os comentários do
   `ext.ts`, o `OUTLINE_LANG` do explorador e os nomes da barra de estado (o `LANG` do `editor.ts` saiu, e com
@@ -940,6 +969,15 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
   --toolchain stable`, `~/.rustup/toolchains/*/bin`) ou de um binário no PATH que NÃO seja o proxy do rustup;
   sem nenhum, `lsp_server_status` diz «não instalado» (antes caía num `rust-analyzer` solto e o aviso nunca
   aparecia). Os resolvers que correm um programa (`rustup`, `go`) guardam só o que encontraram, nunca a falta.
+- **Linguagens dos VSIX instalados (LSP P4, `tutor_eval::langcontrib`).** Só se perguntam quando o registo não reconhece
+  o ficheiro pelo nome; dentro delas, nome inteiro → padrão mais comprido → extensão mais comprida; a primeira linha só
+  quando o nome não diz nada (a do registo primeiro). Uma linguagem com o id de uma do registo É essa. O servidor de uma
+  só do VSIX é o do registo que nomeia a extensão em `vscodeExtensions` E a linguagem em `vscodeLanguages` (o gopls:
+  `go.mod`/`go.sum`/`go.work`; o `pip-requirements` do `ms-python.python` fica sem servidor), e o id do VSIX é o
+  `languageId`. A UI (`registry.ts`, `glob.ts`) e o Rust têm as mesmas regras e os mesmos casos de teste; o backend
+  recebe a lista inteira por `lsp_contributions` antes de o cliente decidir a linguagem de um ficheiro
+  (`application/contributions.ts`, só quando mudou) e o cliente fecha os documentos que perderam o servidor
+  (`onLanguagesChanged`). Um VSIX nunca traz um comando: aprovação, overrides e receitas ficam iguais.
 - **Overrides do registo (LSP P2, `tutor_eval::lspconf`, `docs/lsp/overrides.md`).** Ordem: o registo embutido →
   o `lsp.json` do utilizador (`app_config_dir`, p.ex. `~/.config/ao.ngolacloud.dxtutor-ide/lsp.json`) → o
   `.dxtutor/lsp.json` da pasta aberta. Mesmo formato do registo (`languages[]`/`servers[]` por `id`), JSON com
@@ -1366,6 +1404,29 @@ O Prometheus do projecto, só lido (`GET /api/v1/…`). Desbloqueia o portão `s
   API são os erros), `deploy::tests::the_slo_gate_and_its_waiver`, `review::…capacity_and_error_budget_from_metrics`,
   `tests/ops.test.ts`, `tests/platform.test.ts` e o passo `metrics` do auto-teste (Prometheus e Vault dev do runner).
 
+## Novo projecto: os templates do Delonix (`crates/tutor-scaffold`, `ui-app/src/features/newproject/`)
+
+O mesmo princípio do `delonix init -t`, com os mesmos templates: **13** (Rust, Go, Node.js, FastAPI, Django, NestJS,
+Next.js, Laravel, nginx, Apache httpd, HAProxy, Odoo, WordPress), cada um um projecto completo (código, testes,
+Dockerfile, compose, CI, ADRs, runbooks, dotfiles).
+- **Fonte:** `templates/projects/` é uma CÓPIA de `bins/delonix/templates` do Delonix, feita por
+  `scripts/sync-delonix-templates.sh` (lê o `origin/develop` do checkout do Delonix com `git archive`; o commit fica em
+  `templates/projects/SOURCE`). Não se editam aqui: muda-se no Delonix e corre-se o script.
+- **Regras no Rust** (`tutor-scaffold`, as do `scaffold.rs` do Delonix): nome = etiqueta DNS; versão simples dentro do
+  `versions=` do `template.meta`; tokens `__NAME__`/`__MODULE__`/`__PORT__`/`__TLS_PORT__`/`__TEMPLATE_VERSION__`/
+  `__DISTROLESS_REGISTRY__` nos conteúdos e nos caminhos; `.env.tmpl` → `.env` 0600 com `__SECRET_<NOME>__` aleatório
+  (o mesmo nome, o mesmo valor) e `{random32}`; pasta nova ou vazia; lockfile pelo gestor de pacotes se existir;
+  `git init` em `main` e commit `chore: scaffold`. O `build.rs` embute os ficheiros (com o bit de execução). Um template
+  novo vindo do Delonix precisa de uma linha no `CATALOG` (o teste `every_template_has_a_catalog_row…` reprova-o).
+- **Comandos** (`commands/scaffold.rs`): `project_templates`, `project_new_plan` (o que vai acontecer; não escreve) e
+  `project_new` (cria, auditado no projecto novo antes e com o resultado). O certificado local (`tls/`) dos templates
+  com HTTPS não é gerado: o resumo diz como.
+- **UI** (`features/newproject`, governada por A7/A8): um modal como o do Learning Track (Linguagens, Frameworks,
+  Servidores web, Aplicações), o formulário (nome, pasta, versão), o diálogo de aprovação partilhado e a pasta aberta
+  logo como workspace. Entradas: Boas-vindas › Começar › «Novo projecto…», File › New Project…, paleta «File: New Project…».
+- Testes: `cargo test -p tutor-scaffold` (nenhum token sobra em nenhum template, segredos, modos, git), `cargo test -p
+  dxtutor-ide scaffold`, `tests/newproject.test.ts`.
+
 ## Boas-vindas e walkthroughs (`ui-app/src/features/welcome/`, r23 F6)
 
 Feature tipada e em camadas (governada por A7/A8), no lugar do antigo `features/welcome.ts`: Start (New File,
@@ -1428,7 +1489,12 @@ O IDE tem de ser leve e nunca travar a máquina. Regras medidas (amostragem da t
   o git ignora por inteiro (`git ls-files --others --ignored --directory`; um `.env` ignorado e um ficheiro versionado
   ficam) e pára aos 48 MB (`LoadPolicy::max_total`), além dos 4000 ficheiros de 768 KB. O HEAD dos alterados vem de um só
   `git cat-file --batch` (`platform/desktop/git-batch.ts`). O auto-teste é um chunk à parte (`import()` no `bridge.ts`).
-- Medidas e método em `docs/v2/NOTAS-desempenho.md`; fica para a P3 o passo de desempenho no auto-teste.
+- **Vigilância (P3):** o passo `perf` do auto-teste (último antes do `csp`) lê a app e a página pelo `/proc` e falha
+  acima dos limites (`LIMIT` no `perfProbe`): a thread da UI da app responde ao `app_info` (síncrono) enquanto a pasta é
+  relida, a página não pára, uma `perf-out/` de 80 MB ignorada pelo `.git/info/exclude` não entra nem a faz crescer, CPU
+  em repouso e memória privada no fim. Um limite só sobe com a medição que o justifica, nas notas. O `lsp-java`/`lsp-kotlin`
+  falham sem diagnósticos (antes registavam `null` e passavam).
+- Medidas e método em `docs/v2/NOTAS-desempenho.md`.
 
 ## Regras ao mexer aqui
 

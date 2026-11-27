@@ -34,6 +34,7 @@ pub mod protect;
 pub mod review;
 pub mod runbook;
 pub mod sandbox;
+pub mod scaffold;
 pub mod search;
 pub mod study;
 pub mod tests;

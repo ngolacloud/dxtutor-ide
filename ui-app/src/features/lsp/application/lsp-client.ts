@@ -11,7 +11,10 @@
    que o backend constrói a partir das receitas do registo (`lsp_install_plan`, LSP P3) — antes ficava
    calado (o backend não abre sessão nem dá erro). Se o `.dxtutor/lsp.json` do projecto pede
    um comando ainda não aprovado (LSP P2), a faixa diz qual e abre a aprovação; o registo efectivo (com os
-   overrides) é posto em uso antes de abrir o primeiro ficheiro da pasta (`overrides.ready`). */
+   overrides) é posto em uso antes de abrir o primeiro ficheiro da pasta (`overrides.ready`).
+   As linguagens dos VSIX instalados (LSP P4) vão ao backend antes de decidir que linguagem é um ficheiro
+   (`contributions.sync`, só quando mudaram); quando mudam (`onLanguagesChanged`), um documento aberto que
+   perdeu o servidor (ou mudou de linguagem) fecha-se no servidor e o ficheiro à vista é revisto. */
 
 import { languageIdFor } from "../domain/languages";
 import { keyToAbsolute, absoluteToKey } from "../domain/paths";
@@ -49,6 +52,8 @@ export interface LspClientDeps {
   copy?: Copy;
   /** Os textos do aviso de servidor em falta e da instalação (LSP P3; por omissão, inglês). */
   installCopy?: InstallCopy;
+  /** Manda ao backend as linguagens dos VSIX instalados, se mudaram desde a última vez (LSP P4). */
+  contributions?: { sync(): Promise<void> };
 }
 
 /** Quantas vezes, e com que intervalo, repetir um rename que voltou vazio. */
@@ -113,6 +118,9 @@ export interface LspClient {
   onWorkspaceChanged(): Promise<void>;
   /** Abriu-se a pasta `root`: se é outra, os servidores da anterior param e os documentos dela esquecem-se. */
   onFolder(root: string): Promise<void>;
+  /** As linguagens dos VSIX instalados mudaram (LSP P4): vão ao backend, os documentos abertos que perderam
+   *  o servidor ou mudaram de linguagem fecham-se nele, e o ficheiro à vista é revisto. */
+  onLanguagesChanged(): Promise<void>;
 }
 
 /** Uma referência: onde está (chave do editor, `null` se fora da pasta) e a linha de texto. */
@@ -208,6 +216,9 @@ export function makeLspClient(d: LspClientDeps): LspClient {
   /** A chave do editor de cada documento aberto no servidor (caminho → chave): fecha-se quando o separador
    *  fecha ou o ficheiro desaparece. */
   const keys = new Map<string, string>();
+  /** O `languageId` com que cada documento abriu (caminho → id): se a linguagem do ficheiro muda (um VSIX
+   *  instalado ou desinstalado), fecha-se. */
+  const languageIds = new Map<string, string>();
   /** A pasta dos documentos abertos: quando abre outra, os servidores desta param. */
   let folder: string | null = null;
 
@@ -410,6 +421,7 @@ export function makeLspClient(d: LspClientDeps): LspClient {
     versions.set(doc.path, 1);
     sent.set(doc.path, text);
     keys.set(doc.path, doc.key);
+    languageIds.set(doc.path, doc.languageId);
     const p = d.lsp.didOpen(doc.path, text, doc.languageId).then(
       () => true,
       () => {
@@ -427,6 +439,7 @@ export function makeLspClient(d: LspClientDeps): LspClient {
     versions.delete(path);
     sent.delete(path);
     keys.delete(path);
+    languageIds.delete(path);
   }
 
   /** Fecha um documento no servidor (depois do `didOpen` em curso, se houver). */
@@ -462,6 +475,7 @@ export function makeLspClient(d: LspClientDeps): LspClient {
   async function registryReady(): Promise<void> {
     const root = d.workspace.diskRoot();
     if (root && d.overrides) await d.overrides.ready(root);
+    if (d.contributions) await d.contributions.sync().catch(() => {});
   }
 
   async function onTab(tabId: string | null): Promise<void> {
@@ -915,5 +929,14 @@ export function makeLspClient(d: LspClientDeps): LspClient {
     if (await ensureOpen(doc)) d.editor.repaint(doc.key);
   }
 
-  return { onTab, onEdit, hoverAt, definitionAt, referencesAt, prepareRenameAt, renameAt, completionAt, signatureHelpAt, codeActionsAt, applyCodeAction, onApplyEdit, formatAt, symbolsFor, workspaceSymbolsFor, openWorkspaceSymbol, typeHierarchyAt, typeHierarchyChildren, openType, onDiagnostics, opened: () => versions, onFileView, onConfigChanged, onTabClosed, onWorkspaceChanged, onFolder };
+  async function onLanguagesChanged(): Promise<void> {
+    await registryReady();
+    for (const [path, key] of [...keys]) {
+      const doc = docOf(key);
+      if (!doc || doc.path !== path || doc.languageId !== languageIds.get(path)) await closeDoc(path);
+    }
+    await onConfigChanged();
+  }
+
+  return { onTab, onEdit, hoverAt, definitionAt, referencesAt, prepareRenameAt, renameAt, completionAt, signatureHelpAt, codeActionsAt, applyCodeAction, onApplyEdit, formatAt, symbolsFor, workspaceSymbolsFor, openWorkspaceSymbol, typeHierarchyAt, typeHierarchyChildren, openType, onDiagnostics, opened: () => versions, onFileView, onConfigChanged, onTabClosed, onWorkspaceChanged, onFolder, onLanguagesChanged };
 }

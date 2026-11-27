@@ -206,7 +206,8 @@ pub fn language_supported(language: &str) -> bool {
     matches!(
         language.trim().to_ascii_lowercase().as_str(),
         "js" | "javascript" | "go" | "golang" | "rust" | "rs"
-    ) || crate::plugin::find_plugin(language).is_some()
+    ) || tutor_core::toolcheck::graded_by_checks(language)
+        || crate::plugin::find_plugin(language).is_some()
 }
 
 /// Escolhe o [`LanguageRunner`] para uma linguagem. A precedência é:
@@ -224,6 +225,11 @@ fn runner_for(language: &str) -> Box<dyn LanguageRunner> {
         "js" | "javascript" => Box::new(JsRunner::new()),
         "go" | "golang" => Box::new(GoRunner::new()),
         "rust" | "rs" => Box::new(RustRunner),
+        // Os cursos de ferramentas (Kubernetes, Delonix): verificações declarativas + comandos
+        // offline da lista permitida (`tutor_core::toolcheck`).
+        other if tutor_core::toolcheck::graded_by_checks(other) => {
+            Box::new(crate::tool_runner::ToolRunner)
+        }
         other => {
             // Um plugin declarativo registado tem prioridade sobre o fallback Rust.
             if let Some(plugin) = crate::plugin::find_plugin(other) {

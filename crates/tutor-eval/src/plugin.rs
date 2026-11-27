@@ -1532,6 +1532,11 @@ pub fn run_course_program(
     build: &tutor_core::BuildEnv,
 ) -> Result<RunOutput> {
     let lang = language.trim().to_ascii_lowercase();
+    // Um drill de um curso de ferramentas é um ficheiro YAML: «corrê-lo» é lê-lo (sem
+    // ferramentas, sem rede). Os ficheiros de apoio não entram num drill YAML.
+    if tutor_core::toolcheck::graded_by_checks(&lang) {
+        return Ok(crate::tool_runner::run_yaml_program(code));
+    }
     let plugin = match lang.as_str() {
         "go" | "golang" | "rust" | "rs" => None,
         other => find_plugin(other),
