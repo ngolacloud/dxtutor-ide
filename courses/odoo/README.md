@@ -96,3 +96,12 @@ without it, naming it.
 - **Odoo 20 Enterprise payroll** — no Enterprise 20 was available to verify it: no 20 step.
 
 This is a course, not legal advice: check the law in force before using the module.
+
+## Licence
+
+The course — its text, challenges, sample modules and graders — is licensed `MIT OR Apache-2.0`, as
+`dxtutor-plugin.json` says. The `'license': 'LGPL-3'` in the manifests of the sample modules
+(`l10n_ao`, `l10n_ao_hr`, `l10n_ao_hr_payroll`) is the convention the course teaches: Odoo's native
+modules declare LGPL-3, and a localization built the native way does the same. It is not the licence
+of this course. The Enterprise addons (licence OEEL-1) are never part of it: the payroll steps run only
+against your own copy, mounted read-only.

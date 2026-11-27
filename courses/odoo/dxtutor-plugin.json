@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "odoo",
   "name": "Odoo",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Odoo: Modules and an Angolan Localization, 18 to 20 — manifest, models, views, security, wizards, data files, the PGC chart template, taxes, fiscal positions, the NIF, HR (IRT, INSS, public holidays) and an Enterprise payroll structure, by building l10n_ao the way Odoo's native localizations are built. Graded in a real Odoo 18, 19 or 20 with PostgreSQL, in a private rootless Podman sandbox, offline, against pinned images.",
   "authors": ["dxtutor"],
   "license": "MIT OR Apache-2.0",
