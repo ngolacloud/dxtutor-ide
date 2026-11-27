@@ -108,7 +108,7 @@ pub fn cluster_name(key: &str) -> String {
         let h = hex(&Sha256::digest(key.as_bytes()));
         format!(
             "{CLUSTER_PREFIX}{}-{}",
-            &clean[..24].trim_end_matches('-'),
+            clean[..24].trim_end_matches('-'),
             &h[..7]
         )
     }
@@ -423,7 +423,7 @@ pub fn plan_steps(sb: &Sandbox, images: &[String]) -> Result<Vec<Step>> {
             network: true,
         },
         Step {
-            args: vec![s("tag"), node.pinned(), node.named()],
+            args: vec![s("tag"), node.pinned(), node.name()],
             download: None,
             network: false,
         },
@@ -435,7 +435,7 @@ pub fn plan_steps(sb: &Sandbox, images: &[String]) -> Result<Vec<Step>> {
             network: true,
         });
         steps.push(Step {
-            args: vec![s("tag"), r.pinned(), r.named()],
+            args: vec![s("tag"), r.pinned(), r.name()],
             download: None,
             network: false,
         });
@@ -448,7 +448,7 @@ pub fn plan_steps(sb: &Sandbox, images: &[String]) -> Result<Vec<Step>> {
             s("--output"),
             sb.images.display().to_string(),
         ];
-        save.extend(refs.iter().map(|r| r.named()));
+        save.extend(refs.iter().map(|r| r.name()));
         steps.push(Step {
             args: save,
             download: None,
@@ -736,7 +736,8 @@ pub struct ClusterStatus {
 /// The status of the course's cluster (reads only; no cluster is created).
 pub fn status(sb: &Sandbox) -> Result<ClusterStatus> {
     let prepared = sb.prepared();
-    let exists = prepared && clusters(sb)?.contains(&sb.name);
+    // Without a record of a cluster or a Podman run since, nothing is asked (no Podman starts).
+    let exists = prepared && maybe_active(sb) && clusters(sb)?.contains(&sb.name);
     let running = exists && node_running(sb);
     let st = read_state(sb).filter(|_| exists);
     Ok(ClusterStatus {

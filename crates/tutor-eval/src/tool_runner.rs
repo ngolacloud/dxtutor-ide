@@ -771,8 +771,8 @@ fn grade(
 pub(crate) trait LiveCluster {
     /// One line for the report (the cluster, whether it was created now, the versions).
     fn describe(&self) -> String;
-    /// The prepared images (`docker.io/library/nginx:…`): the only ones a manifest may use.
-    fn images(&self) -> Vec<String>;
+    /// The prepared images: the only ones a manifest may use.
+    fn images(&self) -> Vec<tutor_core::ImageRef>;
     /// Runs `kubectl <args>` against the practice cluster, in `namespace` when given, from `cwd`.
     fn kubectl(
         &self,
@@ -790,7 +790,7 @@ pub(crate) type OpenCluster<'a> = &'a dyn Fn(&Phase, &Path) -> Result<Box<dyn Li
 struct KindCluster {
     sb: crate::kindbox::Sandbox,
     kubectl: PathBuf,
-    images: Vec<String>,
+    images: Vec<tutor_core::ImageRef>,
     ensured: crate::kindbox::Ensured,
     _lock: crate::kindbox::Lock,
 }
@@ -813,7 +813,7 @@ impl LiveCluster for KindCluster {
         )
     }
 
-    fn images(&self) -> Vec<String> {
+    fn images(&self) -> Vec<tutor_core::ImageRef> {
         self.images.clone()
     }
 
@@ -856,15 +856,14 @@ fn node_version() -> String {
         .unwrap_or_default()
 }
 
-/// The images a phase's course prepared (their full names).
-fn prepared_images(phase: &Phase) -> Vec<String> {
+/// The images a phase's course prepared.
+fn prepared_images(phase: &Phase) -> Vec<tutor_core::ImageRef> {
     phase
         .build
         .cache
         .iter()
         .flat_map(|c| &c.dependencies)
         .filter_map(|d| tutor_core::image_reference(d).ok())
-        .map(|r| r.named())
         .collect()
 }
 
@@ -1453,8 +1452,11 @@ mod tests {
         fn describe(&self) -> String {
             "practice cluster dxtutor-test: reused".into()
         }
-        fn images(&self) -> Vec<String> {
-            vec!["docker.io/library/nginx:1.27.5-alpine".into()]
+        fn images(&self) -> Vec<tutor_core::ImageRef> {
+            vec![tutor_core::image_reference(
+                "docker.io/library/nginx:1.27.5-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10",
+            )
+            .unwrap()]
         }
         fn kubectl(
             &self,
@@ -1605,7 +1607,7 @@ message = "Two replicas."
         let (r, calls) = grade_live(&[("web.yaml", &bad)], LIVE_CHECKS, Box::new(|_, _| ok("")));
         assert!(!r.passed);
         assert!(
-            r.raw.contains("not applied") && r.raw.contains("prepared images"),
+            r.raw.contains("not applied") && r.raw.contains("no version tag"),
             "{}",
             r.raw
         );

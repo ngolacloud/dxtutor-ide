@@ -17,7 +17,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use tutor_core::{Level, toolcheck::CHECKS_FILE};
+use tutor_core::{toolcheck::CHECKS_FILE, Level};
 use tutor_eval::{course_cache, kindbox};
 
 fn course() -> tutor_core::Course {
@@ -73,7 +73,10 @@ fn live_checks_catch_what_only_a_cluster_shows_and_leave_nothing_behind() {
     let raw_report = &starter.correctness.raw;
     eprintln!("{raw_report}");
     assert!(!starter.correctness.passed, "{raw_report}");
-    assert!(raw_report.contains("practice cluster dxtutor-kubernetes-basics"), "{raw_report}");
+    assert!(
+        raw_report.contains("practice cluster dxtutor-kubernetes-basics"),
+        "{raw_report}"
+    );
     assert!(
         raw_report.contains("Exactly 2 endpoints: your 2 Pods, not the stranger"),
         "the stranger Pod must be caught by the live endpoints: {raw_report}"
@@ -121,9 +124,22 @@ fn live_checks_catch_what_only_a_cluster_shows_and_leave_nothing_behind() {
         let d = kindbox::delete_cluster(&sb).unwrap();
         eprintln!("deleted the practice cluster in {:.1} s", d.secs);
         assert!(d.existed);
-        assert!(kindbox::clusters(&sb).unwrap().is_empty());
-        assert!(!sb.kubeconfig.exists(), "the kubeconfig goes with the cluster");
-        assert!(!sb.runtime.exists(), "the runtime folder goes with the cluster");
+        assert!(
+            !sb.kubeconfig.exists(),
+            "the kubeconfig goes with the cluster"
+        );
+        assert!(
+            !sb.runtime.exists(),
+            "the runtime folder (and Podman's pause process) go too"
+        );
         assert!(!sb.state.exists());
+        assert!(!kindbox::status(&sb).unwrap().exists);
+        // Asking kind itself starts the sandbox's Podman again: ask, then leave it as found.
+        assert!(
+            kindbox::clusters(&sb).unwrap().is_empty(),
+            "no cluster in the sandbox"
+        );
+        kindbox::podman::stop_pause(&sb);
+        let _ = std::fs::remove_dir_all(&sb.runtime);
     }
 }

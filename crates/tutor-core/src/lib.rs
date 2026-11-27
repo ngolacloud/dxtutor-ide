@@ -14,7 +14,7 @@ pub mod toolcheck;
 
 pub use build::{
     image_reference, normalize_image, pip_requirement, BuildEnv, CacheKind, CourseBuild,
-    CourseCache, ImageRef, PipRequirement,
+    CourseCache, ImageRef, NormalizedImage, PipRequirement,
 };
 pub use content::{builtin_projects, find_phase, load_project};
 pub use course::{

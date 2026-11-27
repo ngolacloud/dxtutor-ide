@@ -678,6 +678,42 @@ pub fn check_live(live: &[Live], known: &mut BTreeSet<String>) -> Vec<String> {
     errs
 }
 
+/// Porque uma imagem de um manifesto não corre no cluster de prática (`None`: é uma das imagens
+/// preparadas, pelo nome e a etiqueta com que o cluster a conhece).
+fn image_problem(img: &str, images: &[crate::ImageRef]) -> Option<String> {
+    let prepared = || {
+        if images.is_empty() {
+            "none".to_string()
+        } else {
+            images
+                .iter()
+                .map(|i| format!("`{}`", i.short()))
+                .collect::<Vec<_>>()
+                .join(", ")
+        }
+    };
+    let Some(n) = crate::normalize_image(img) else {
+        return Some(format!("`{img}` is not an image reference"));
+    };
+    if n.digest.is_some() {
+        return Some(format!(
+            "write the image by its tag (one of {}), not by digest: the practice cluster knows its images by name",
+            prepared()
+        ));
+    }
+    match n.tag.as_deref() {
+        None | Some("latest") => Some(format!(
+            "`{img}` has no version tag, so Kubernetes would pull it every time; use one of {}",
+            prepared()
+        )),
+        Some(_) if images.iter().any(|i| i.matches(img)) => None,
+        Some(_) => Some(format!(
+            "the image `{img}` is not one of this course's prepared images ({}); the practice cluster never downloads images",
+            prepared()
+        )),
+    }
+}
+
 /// `true` quando o passo se verifica ao vivo (o seu `checks.toml` tem `[[live]]`).
 pub fn step_is_live(project: &crate::ProjectFiles) -> bool {
     project
@@ -724,7 +760,7 @@ fn truthy(v: Option<&Value>) -> bool {
 /// Problemas dos documentos de um ficheiro que um `apply` ao vivo criaria (vazio = pode correr).
 /// `images` são os nomes completos das imagens preparadas do curso (`docker.io/library/nginx:…`,
 /// [`crate::ImageRef::named`]). A regra está explicada no cabeçalho do módulo.
-pub fn manifest_problems(file: &str, docs: &[Value], images: &[String]) -> Vec<String> {
+pub fn manifest_problems(file: &str, docs: &[Value], images: &[crate::ImageRef]) -> Vec<String> {
     let mut out = Vec::new();
     if docs.is_empty() {
         out.push(format!("`{file}` has no document to apply"));
@@ -790,18 +826,11 @@ pub fn manifest_problems(file: &str, docs: &[Value], images: &[String]) -> Vec<S
                 let cat = format!("{at} › container `{cn}`");
                 match c.get("image").and_then(Value::as_str) {
                     None => out.push(format!("{cat}: no `image`")),
-                    Some(img) => match crate::build::normalize_image(img) {
-                        None => out.push(format!("{cat}: `{img}` is not an image reference")),
-                        Some(full) if !images.contains(&full) => out.push(format!(
-                            "{cat}: the image `{img}` is not one of this course's prepared images ({}); the practice cluster never downloads images",
-                            if images.is_empty() {
-                                "none".to_string()
-                            } else {
-                                images.join(", ")
-                            }
-                        )),
-                        Some(_) => {}
-                    },
+                    Some(img) => {
+                        if let Some(why) = image_problem(img, images) {
+                            out.push(format!("{cat}: {why}"));
+                        }
+                    }
                 }
                 if c.get("imagePullPolicy").and_then(Value::as_str) == Some("Always") {
                     out.push(format!(
@@ -1009,10 +1038,23 @@ mod tests {
 
     #[test]
     fn manifests_stay_inside_the_namespace_and_use_prepared_images() {
+        let digest = "@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10";
         let images = vec![
-            "docker.io/library/nginx:1.27.5-alpine".to_string(),
-            "docker.io/library/busybox:1.37.0".to_string(),
+            crate::image_reference(&format!("docker.io/library/nginx:1.27.5-alpine{digest}"))
+                .unwrap(),
+            crate::image_reference(&format!("docker.io/library/busybox:1.37.0{digest}")).unwrap(),
         ];
+        let by_digest = json!({"kind": "Pod", "metadata": {"name": "d"}, "spec": {"containers": [
+            {"name": "d", "image": format!("nginx:1.27.5-alpine{digest}")}]}});
+        let p = manifest_problems("d.yaml", &[by_digest], &images);
+        assert!(p[0].contains("not by digest"), "{p:?}");
+        let other = json!({"kind": "Pod", "metadata": {"name": "o"}, "spec": {"containers": [
+            {"name": "o", "image": "nginx:1.28.0-alpine"}]}});
+        let p = manifest_problems("o.yaml", &[other], &images);
+        assert!(
+            p[0].contains("not one of this course's prepared images (`nginx:1.27.5-alpine`, `busybox:1.37.0`)"),
+            "{p:?}"
+        );
         let deploy = json!({
             "apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": "web"},
             "spec": {"template": {"spec": {"containers": [
@@ -1025,10 +1067,7 @@ mod tests {
         let cron = json!({"kind": "CronJob", "metadata": {"name": "c"}, "spec": {"jobTemplate": {"spec": {"template": {"spec": {
             "containers": [{"name": "c", "image": "busybox"}]}}}}}});
         let p = manifest_problems("c.yaml", &[cron], &images);
-        assert!(
-            p[0].contains("not one of this course's prepared images"),
-            "{p:?}"
-        );
+        assert!(p[0].contains("no version tag"), "{p:?}");
 
         let bad = json!({
             "apiVersion": "v1", "kind": "Pod", "metadata": {"name": "x", "namespace": "kube-system"},

@@ -152,6 +152,196 @@ impl CacheKind {
     }
 }
 
+/// Uma imagem base de um curso de contentores: registo, repositório, tag e digest (todos
+/// obrigatórios: a tag dá o nome que o `FROM` usa, o digest diz exactamente o que se puxa).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ImageRef {
+    /// `docker.io`, `quay.io`, `ghcr.io`, `localhost`…
+    pub registry: String,
+    /// `library/alpine`, `podman/hello`…
+    pub repository: String,
+    pub tag: String,
+    /// `sha256:<64 hex>` (em minúsculas).
+    pub digest: String,
+}
+
+impl ImageRef {
+    /// `docker.io/library/alpine` (sem tag nem digest).
+    pub fn repo(&self) -> String {
+        format!("{}/{}", self.registry, self.repository)
+    }
+
+    /// `docker.io/library/alpine:3.24.4`: o nome que a preparação lhe dá no sandbox.
+    pub fn name(&self) -> String {
+        format!("{}:{}", self.repo(), self.tag)
+    }
+
+    /// `docker.io/library/alpine@sha256:…`: o que a preparação puxa.
+    pub fn pinned(&self) -> String {
+        format!("{}@{}", self.repo(), self.digest)
+    }
+
+    /// A linha do curso: `docker.io/library/alpine:3.24.4@sha256:…`.
+    pub fn line(&self) -> String {
+        format!("{}@{}", self.name(), self.digest)
+    }
+
+    /// Como se escreve num `FROM` do Docker Hub (`alpine:3.24.4`, `user/app:1`); o nome completo
+    /// noutro registo.
+    pub fn short(&self) -> String {
+        if self.registry == "docker.io" {
+            let repo = self
+                .repository
+                .strip_prefix("library/")
+                .unwrap_or(&self.repository);
+            format!("{repo}:{}", self.tag)
+        } else {
+            self.name()
+        }
+    }
+
+    /// `true` se `reference` (um `FROM`, uma imagem de um `run`) nomeia esta imagem: pelo nome e a
+    /// tag (com as regras do Docker Hub para nomes curtos) ou pelo digest.
+    pub fn matches(&self, reference: &str) -> bool {
+        let Some(n) = normalize_image(reference) else {
+            return false;
+        };
+        if n.repo != self.repo() {
+            return false;
+        }
+        match (&n.tag, &n.digest) {
+            (_, Some(d)) => d == &self.digest && n.tag.as_ref().is_none_or(|t| t == &self.tag),
+            (Some(t), None) => t == &self.tag,
+            (None, None) => false,
+        }
+    }
+}
+
+/// Uma referência de imagem normalizada como o Docker e o Podman a lêem: o registo (o Docker Hub
+/// quando o primeiro componente não parece um host), o repositório (`library/` à frente de um nome
+/// do Docker Hub sem `/`) e a tag ou o digest, se os tiver.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NormalizedImage {
+    /// `docker.io/library/alpine`.
+    pub repo: String,
+    pub tag: Option<String>,
+    pub digest: Option<String>,
+}
+
+fn path_component_ok(c: &str) -> bool {
+    // [a-z0-9]+(?:(?:[._]|__|[-]*)[a-z0-9]+)*
+    !c.is_empty()
+        && c.len() <= 128
+        && c.starts_with(|x: char| x.is_ascii_lowercase() || x.is_ascii_digit())
+        && c.ends_with(|x: char| x.is_ascii_lowercase() || x.is_ascii_digit())
+        && c.chars()
+            .all(|x| x.is_ascii_lowercase() || x.is_ascii_digit() || matches!(x, '.' | '_' | '-'))
+}
+
+fn tag_ok(t: &str) -> bool {
+    !t.is_empty()
+        && t.len() <= 128
+        && t.starts_with(|x: char| x.is_ascii_alphanumeric() || x == '_')
+        && t.chars()
+            .all(|x| x.is_ascii_alphanumeric() || matches!(x, '_' | '.' | '-'))
+}
+
+fn digest_ok(d: &str) -> bool {
+    d.strip_prefix("sha256:")
+        .is_some_and(|h| h.len() == 64 && h.chars().all(|c| c.is_ascii_hexdigit()))
+}
+
+fn host_like(c: &str) -> bool {
+    c == "localhost" || c.contains('.') || c.contains(':')
+}
+
+/// Normaliza uma referência de imagem (`alpine:3.24`, `docker.io/library/alpine@sha256:…`,
+/// `quay.io/podman/hello:latest`). `None` quando não é uma referência válida (maiúsculas, `..`,
+/// uma variável `$X`…). Uma referência sem tag nem digest fica sem tag (o Docker juntaria
+/// `latest`; o curso exige sempre uma).
+pub fn normalize_image(reference: &str) -> Option<NormalizedImage> {
+    let r = reference.trim();
+    if r.is_empty() || r.len() > 512 || r.chars().any(|c| c.is_whitespace() || c == '$') {
+        return None;
+    }
+    let (rest, digest) = match r.split_once('@') {
+        Some((a, d)) => {
+            if !digest_ok(d) {
+                return None;
+            }
+            (a, Some(d.to_ascii_lowercase()))
+        }
+        None => (r, None),
+    };
+    let last_slash = rest.rfind('/').map(|i| i + 1).unwrap_or(0);
+    let (name, tag) = match rest[last_slash..].rfind(':') {
+        Some(i) => {
+            let t = &rest[last_slash + i + 1..];
+            if !tag_ok(t) {
+                return None;
+            }
+            (&rest[..last_slash + i], Some(t.to_string()))
+        }
+        None => (rest, None),
+    };
+    let mut parts: Vec<&str> = name.split('/').collect();
+    let registry = if parts.len() > 1 && host_like(parts[0]) {
+        let host = parts.remove(0);
+        if host == "index.docker.io" {
+            "docker.io".to_string()
+        } else {
+            host.to_ascii_lowercase()
+        }
+    } else {
+        "docker.io".to_string()
+    };
+    if parts.is_empty() || !parts.iter().all(|c| path_component_ok(c)) {
+        return None;
+    }
+    let mut repo = parts.join("/");
+    if registry == "docker.io" && parts.len() == 1 {
+        repo = format!("library/{repo}");
+    }
+    Some(NormalizedImage {
+        repo: format!("{registry}/{repo}"),
+        tag,
+        digest,
+    })
+}
+
+/// Lê uma linha de dependência de um curso de contentores: `registo/repositório:tag@sha256:<64
+/// hex>`, com o registo escrito (nada de nomes curtos que dependam de uma lista de pesquisa) e a
+/// tag e o digest presentes.
+pub fn image_reference(line: &str) -> Result<ImageRef, String> {
+    let l = line.trim();
+    let first = l.split('/').next().unwrap_or("");
+    if !l.contains('/') || !host_like(first) {
+        return Err(format!(
+            "`{l}`: write the registry in full (`docker.io/library/alpine:3.24.4@sha256:…`)"
+        ));
+    }
+    let n = normalize_image(l).ok_or_else(|| format!("`{l}` is not an image reference"))?;
+    let tag = n.tag.ok_or_else(|| {
+        format!("`{l}`: add the tag that FROM lines use (`…/alpine:3.24.4@sha256:…`)")
+    })?;
+    let digest = n.digest.ok_or_else(|| {
+        format!(
+            "`{l}`: pin the image by digest (`@sha256:<64 hex>`): preparation pulls exactly that"
+        )
+    })?;
+    let (registry, repository) = n
+        .repo
+        .split_once('/')
+        .map(|(a, b)| (a.to_string(), b.to_string()))
+        .ok_or_else(|| format!("`{l}` is not an image reference"))?;
+    Ok(ImageRef {
+        registry,
+        repository,
+        tag,
+        digest,
+    })
+}
+
 /// Uma linha de `requirements.txt` de um curso Python preparado: um pacote, a versão exacta e
 /// os hashes sha256 dos ficheiros aceites.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -232,155 +422,6 @@ pub fn pip_requirement(line: &str) -> Result<PipRequirement, String> {
         version: version.to_string(),
         hashes,
     })
-}
-
-/// Uma imagem de contentor de um curso de cluster (Learn P3b): o registo, o repositório, a
-/// etiqueta e o digest — tudo explícito, para a preparação descarregar EXACTAMENTE esse conteúdo
-/// e os manifestos do aluno a poderem citar pelo nome curto (`nginx:1.27.5-alpine`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ImageRef {
-    /// `docker.io`, `registry.k8s.io`, `quay.io`, …
-    pub registry: String,
-    /// `library/nginx`
-    pub repository: String,
-    /// `1.27.5-alpine` (nunca `latest`)
-    pub tag: String,
-    /// `sha256:<64 hex>` em minúsculas
-    pub digest: String,
-}
-
-impl ImageRef {
-    /// `docker.io/library/nginx:1.27.5-alpine`: o nome com que a imagem fica no cluster.
-    pub fn named(&self) -> String {
-        format!("{}/{}:{}", self.registry, self.repository, self.tag)
-    }
-
-    /// `docker.io/library/nginx@sha256:…`: o que a preparação descarrega (o conteúdo verifica-se
-    /// pelo digest).
-    pub fn pinned(&self) -> String {
-        format!("{}/{}@{}", self.registry, self.repository, self.digest)
-    }
-
-    /// A linha completa (`…:tag@sha256:…`).
-    pub fn line(&self) -> String {
-        format!("{}@{}", self.named(), self.digest)
-    }
-}
-
-fn registry_ok(r: &str) -> bool {
-    (r.contains('.') || r.contains(':') || r == "localhost")
-        && r.len() <= 255
-        && r.chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '-' | ':'))
-}
-
-fn repository_ok(r: &str) -> bool {
-    !r.is_empty()
-        && r.len() <= 255
-        && r.split('/').all(|part| {
-            !part.is_empty()
-                && part.starts_with(|c: char| c.is_ascii_lowercase() || c.is_ascii_digit())
-                && part.ends_with(|c: char| c.is_ascii_lowercase() || c.is_ascii_digit())
-                && part.chars().all(|c| {
-                    c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '_' | '-')
-                })
-        })
-}
-
-fn tag_ok(t: &str) -> bool {
-    !t.is_empty()
-        && t.len() <= 128
-        && t.starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_')
-        && t.chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))
-}
-
-/// Lê uma linha de dependência de um curso de cluster: `registo/repositório:etiqueta@sha256:<64
-/// hex>`. Recusa um nome curto (sem registo), a etiqueta `latest`, uma imagem sem digest e
-/// qualquer outra coisa: o curso escolhe QUE imagem, e o digest prova que é essa.
-pub fn image_reference(line: &str) -> Result<ImageRef, String> {
-    let line = line.trim();
-    if line.is_empty() || line.contains(char::is_whitespace) {
-        return Err(format!(
-            "`{line}`: one image per line, `registry/repository:tag@sha256:<64 hex>`"
-        ));
-    }
-    let Some((named, digest)) = line.split_once('@') else {
-        return Err(format!(
-            "`{line}`: pin the image by digest (`…:tag@sha256:<64 hex>`): a tag can move"
-        ));
-    };
-    let hex = digest.strip_prefix("sha256:").unwrap_or("");
-    if hex.len() != 64
-        || !hex
-            .chars()
-            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
-    {
-        return Err(format!(
-            "`{line}`: `{digest}` is not `sha256:` followed by 64 lowercase hex digits"
-        ));
-    }
-    let Some((registry, rest)) = named.split_once('/') else {
-        return Err(format!(
-            "`{line}`: write the registry (`docker.io/library/nginx:…`), not a short name"
-        ));
-    };
-    if !registry_ok(registry) {
-        return Err(format!(
-            "`{line}`: `{registry}` is not a registry host (e.g. docker.io, registry.k8s.io)"
-        ));
-    }
-    let Some((repository, tag)) = rest.rsplit_once(':') else {
-        return Err(format!(
-            "`{line}`: add the tag the manifests use (`…/nginx:1.27.5-alpine@sha256:…`)"
-        ));
-    };
-    if !repository_ok(repository) {
-        return Err(format!("`{line}`: `{repository}` is not a repository name"));
-    }
-    if !tag_ok(tag) {
-        return Err(format!("`{line}`: `{tag}` is not an image tag"));
-    }
-    if tag == "latest" {
-        return Err(format!(
-            "`{line}`: `latest` makes Kubernetes pull the image every time; pin a version tag"
-        ));
-    }
-    Ok(ImageRef {
-        registry: registry.to_string(),
-        repository: repository.to_string(),
-        tag: tag.to_string(),
-        digest: digest.to_string(),
-    })
-}
-
-/// O nome completo de uma imagem como o Kubernetes a resolve (`nginx:1.27` →
-/// `docker.io/library/nginx:1.27`; sem etiqueta, `:latest`), sem o digest; `None` quando não é
-/// uma referência de imagem.
-pub fn normalize_image(image: &str) -> Option<String> {
-    let image = image.trim();
-    if image.is_empty() || image.contains(char::is_whitespace) {
-        return None;
-    }
-    let named = image.split_once('@').map(|(n, _)| n).unwrap_or(image);
-    let (registry, rest) = match named.split_once('/') {
-        Some((first, rest))
-            if first.contains('.') || first.contains(':') || first == "localhost" =>
-        {
-            (first.to_string(), rest.to_string())
-        }
-        _ => ("docker.io".to_string(), named.to_string()),
-    };
-    let rest = if registry == "docker.io" && !rest.contains('/') {
-        format!("library/{rest}")
-    } else {
-        rest
-    };
-    let (repository, tag) = match rest.rsplit_once(':') {
-        Some((r, t)) if !t.contains('/') => (r.to_string(), t.to_string()),
-        _ => (rest.clone(), "latest".to_string()),
-    };
-    (repository_ok(&repository) && tag_ok(&tag)).then(|| format!("{registry}/{repository}:{tag}"))
 }
 
 /// O que chega ao avaliador sobre a construção de um passo (de [`CourseBuild`]). Por omissão,
@@ -494,13 +535,21 @@ pub fn resolve(course: &mut crate::Course) -> Result<(), String> {
         let mut names = Vec::new();
         for line in &all {
             let img = image_reference(line).map_err(|e| format!("build.dependencies: {e}"))?;
-            if names.contains(&img.named()) {
+            // `latest` makes the kubelet pull the image on every start: the practice cluster
+            // is offline, so a live step could never start it.
+            if img.tag == "latest" {
                 return Err(format!(
-                    "build.dependencies: `{}` is listed more than once",
-                    img.named()
+                    "build.dependencies: `{}`: `latest` makes Kubernetes pull the image every time; pin a version tag",
+                    img.line()
                 ));
             }
-            names.push(img.named());
+            if names.contains(&img.name()) {
+                return Err(format!(
+                    "build.dependencies: `{}` is listed more than once",
+                    img.name()
+                ));
+            }
+            names.push(img.name());
         }
     }
     let env = BuildEnv {
@@ -711,70 +760,24 @@ justification = ""
     const NGINX: &str = "docker.io/library/nginx:1.27.5-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10";
 
     #[test]
-    fn an_image_line_names_the_registry_the_tag_and_the_digest() {
+    fn a_cluster_image_line_names_what_the_manifests_use_and_what_is_pulled() {
         let img = image_reference(NGINX).expect("a pinned image");
-        assert_eq!(img.named(), "docker.io/library/nginx:1.27.5-alpine");
+        assert_eq!(img.name(), "docker.io/library/nginx:1.27.5-alpine");
+        assert_eq!(img.short(), "nginx:1.27.5-alpine");
         assert_eq!(
             img.pinned(),
             "docker.io/library/nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"
         );
-        assert_eq!(img.line(), NGINX);
-        let digest = "@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10";
-        for (bad, why) in [
-            (
-                "docker.io/library/nginx:1.27.5-alpine",
-                "pin the image by digest",
-            ),
-            (&format!("nginx:1.27{digest}") as &str, "write the registry"),
-            (&format!("docker.io/library/nginx{digest}"), "add the tag"),
-            (
-                &format!("docker.io/library/nginx:latest{digest}"),
-                "`latest`",
-            ),
-            (
-                &format!("docker.io/library/Nginx:1{digest}"),
-                "not a repository",
-            ),
-            ("docker.io/library/nginx:1@sha256:ABC", "64 lowercase hex"),
-            (
-                &format!("docker.io/library/nginx:1{digest} --x"),
-                "one image per line",
-            ),
+        assert!(img.matches("nginx:1.27.5-alpine"));
+        assert!(img.matches("docker.io/library/nginx:1.27.5-alpine"));
+        assert!(!img.matches("nginx:1.28.0-alpine") && !img.matches("nginx"));
+        for bad in [
+            "docker.io/library/nginx:1.27.5-alpine",
+            "nginx:1.27.5-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10",
+            "docker.io/library/nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10",
         ] {
-            let e = image_reference(bad).unwrap_err();
-            assert!(e.contains(why), "{bad}: {e}");
+            assert!(image_reference(bad).is_err(), "{bad}");
         }
-    }
-
-    #[test]
-    fn short_image_names_resolve_like_kubernetes_resolves_them() {
-        let n = |s: &str| normalize_image(s);
-        assert_eq!(
-            n("nginx:1.27.5-alpine").as_deref(),
-            Some("docker.io/library/nginx:1.27.5-alpine")
-        );
-        assert_eq!(
-            n("busybox").as_deref(),
-            Some("docker.io/library/busybox:latest")
-        );
-        assert_eq!(
-            n("bitnami/redis:7").as_deref(),
-            Some("docker.io/bitnami/redis:7")
-        );
-        assert_eq!(
-            n("registry.k8s.io/pause:3.10").as_deref(),
-            Some("registry.k8s.io/pause:3.10")
-        );
-        assert_eq!(
-            n("localhost:5000/app:1").as_deref(),
-            Some("localhost:5000/app:1")
-        );
-        assert_eq!(
-            n("nginx:1.27@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10").as_deref(),
-            Some("docker.io/library/nginx:1.27")
-        );
-        assert_eq!(n("NGINX"), None);
-        assert_eq!(n("a b"), None);
     }
 
     #[test]
@@ -810,15 +813,16 @@ justification = ""
         .unwrap_err()
         .to_string();
         assert!(e.contains("pin the image by digest"), "{e}");
+        let latest = NGINX.replace("1.27.5-alpine", "latest");
         let e = Course::parse(
             &course(&format!(
-                "[build]\nprepare = true\ndependencies = ['{NGINX}', ' {NGINX}x']\n"
+                "[build]\nprepare = true\ndependencies = ['{latest}']\n"
             )),
             CourseFormat::Toml,
         )
         .unwrap_err()
         .to_string();
-        assert!(e.contains("64 lowercase hex"), "{e}");
+        assert!(e.contains("`latest` makes Kubernetes pull"), "{e}");
     }
 
     #[test]
