@@ -247,9 +247,27 @@ fn test(args: &[String]) -> Result<()> {
     let (mut passed, mut failed) = (0usize, Vec::<String>::new());
     for course in &report.courses {
         // O que avalia o curso, para o relatório dizer com que versão da ferramenta passou.
-        let toolchain = tutor_eval::toolchain_version(&course.language)
+        let mut toolchain = tutor_eval::toolchain_version(&course.language)
             .map(|v| format!(" with {v}"))
             .unwrap_or_default();
+        // Um curso de ferramentas (avaliado por verificações): a versão de cada ferramenta que os
+        // seus comandos correm, ou o que instalar.
+        let mut missing_tools = Vec::new();
+        if tutor_core::toolcheck::graded_by_checks(&course.language) {
+            let tools = tutor_core::toolcheck::course_tools(course);
+            let mut found = Vec::new();
+            for (tool, v) in tutor_eval::tool_runner::tool_versions(&tools) {
+                match v {
+                    Ok(v) => found.push(format!("{} ({v})", tool.binary())),
+                    Err(why) => missing_tools.push(why),
+                }
+            }
+            toolchain = if found.is_empty() {
+                " by checks (structural only)".to_string()
+            } else {
+                format!(" by checks with {}", found.join(" and "))
+            };
+        }
         let support = match course.support_files.len() {
             0 => String::new(),
             n => format!(", {n} support files"),
@@ -267,6 +285,9 @@ fn test(args: &[String]) -> Result<()> {
                 "{} — graded as {}{toolchain}{support}",
                 course.id, course.language
             );
+        }
+        for why in &missing_tools {
+            println!("  ! {why}");
         }
         for unit in &course.units {
             if only.is_some_and(|p| !unit.id.starts_with(p)) {

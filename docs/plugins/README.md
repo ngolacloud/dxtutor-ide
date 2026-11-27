@@ -377,6 +377,52 @@ seiva = 'git = "https://github.com/ngolacloud/seiva", tag = "v0.2.0"'
   `timeout_secs`. Until then, grading answers `COURSE_NOT_PREPARED` and says what to do. When the
   course's dependency set changes, the cache is stale and has to be prepared again.
 
+### Tool courses graded by checks: `language = "yaml"`
+
+A tool course whose exercises are configuration files (Kubernetes manifests, Delonix manifests,
+compose files) is written in **`yaml`**: no test language, but declarative **checks**. Every challenge
+is a project step, and its hidden files contain a `checks.toml`:
+
+```toml
+[unit.step.project.tests]
+"checks.toml" = '''
+[[run]]                                      # optional: an allow-listed offline command
+cmd = ["kubectl", "kustomize", "overlays/prod"]
+save = "rendered.yaml"                       # its stdout becomes a file the checks can read
+message = "kubectl kustomize overlays/prod must build."
+
+[[check]]
+file = "rendered.yaml"                       # a learner file, a hidden file or a saved output
+doc = { kind = "Deployment", name = "prod-web" }   # picks ONE document of a multi-document file
+path = "spec.template.spec.containers[name=web].image"
+equals = "nginx:1.27.3"
+message = "The overlay pins the image to nginx:1.27.3."   # what the learner reads when it fails
+'''
+```
+
+- **Paths**: `a.b[0].c`, `items[*].name` (every element), `containers[name=web]` (the element whose
+  `name` is `web`), `labels["app.kubernetes.io/name"]` (a key with dots or slashes). With `[*]` or
+  `[field=value]` the assertion holds for every value found, and fails if there is none.
+- **One assertion per check**: `exists` (true/false), `equals`, `one_of`, `matches` (a regex),
+  `contains` (substring, list element or sub-mapping), `only_keys` (catches misspelt fields), `len`,
+  `min_len`, `is` (`string`, `integer`, `number`, `boolean`, `mapping`, `sequence`), `same_as`
+  (equal to another path), `among` (one of the values of another path, across every document its
+  `doc` selects), `selects` (a label selector whose labels all appear in another mapping) and
+  `doc_count` (with an empty `path`). The reference of `same_as`/`among`/`selects` is
+  `{ file?, doc?, path }`, the same file by default.
+- **Commands** run only from dxtutor's allow-list, without a shell, with a clean environment and an
+  empty temporary `HOME` and `KUBECONFIG`: `kubectl kustomize <dir>`, `delonix manifest render -f
+  <file>` and `delonix compose config -f <file> -p <project>` — each one proven not to touch the
+  network, a cluster or the container engine. `expect = "failure"` checks that a tool refuses an
+  input; `output_contains` checks its output. Anything else (`kubectl apply`, even with
+  `--dry-run=client`, which asks the API server for its schema) is refused when the plugin is
+  validated. A kustomization that points at the network or uses Helm, a compose port without a host
+  port and a compose file with `$` interpolation are refused before running.
+- A missing tool is an error that says what to install, never a failed or passed step.
+- Drills are YAML files too: running one checks that it parses and lists its documents.
+- `dxt plugin validate` checks every `checks.toml` (form, paths, assertions, allowed commands, files
+  that exist); `dxt plugin test` prints the version of each tool the course uses.
+
 ### Ids
 
 Step ids must be unique across **all** installed courses, including the ones built into
@@ -475,6 +521,7 @@ evaluator, which must support the course language:
 | C# | descriptor | the body of a method using `Test("name", () => Equal(actual, expected))`, plus `Check`, `Near` and `Throws<T>`; async lambdas are awaited. The learner's file has only types (no top-level statements) | .NET 8 SDK (`dotnet`) |
 | Swift | descriptor | `test("name") { self.equal(actual, expected) }`, plus `expect`, `near` and `assertThrows`; tests may be `async`. The learner's file has only declarations; Swift 6 language mode | Swift 6 toolchain (`swiftc`, also via swiftly) |
 | C | descriptor | a `main` that `assert`s (the test file `#include`s the student file) | `cc` |
+| YAML (tool courses) | tool evaluator | a `checks.toml` in the project step's hidden files (see «Tool courses graded by checks») | `kubectl` / `delonix` for the steps whose checks run them |
 
 A language without a native runner uses a **descriptor**: a small TOML file that says how
 to scaffold the files and which commands run the program, the tests (exit 0 = passed) and
