@@ -164,7 +164,7 @@ function ltPrepareCard(c:Course):string{
   const st=ltPrepState(c);
   const note=LT_PREP_MSG?`<p class="lt-note${LT_PREP_MSG.bad?' bad':''}">${esc(LT_PREP_MSG.text)}</p>${LT_PREP_MSG.output?`<pre class="notr">${esc(LT_PREP_MSG.output.slice(-4000))}</pre>`:''}`:'';
   if(!st||st==='loading'||!needsPreparing(st))return note?`<div class="lt-card">${note}</div>`:'';
-  return `<div class="lt-card lt-prep"><h3>${esc(tt("prepareHeading"))}</h3><p>${esc(st.state==='stale'?tt("prepareStale"):st.kind==='pip'?tt("prepareBodyPip"):tt("prepareBody"))}</p>${note}<button class="mini pri" data-action="lt-prepare" ${LT_PREPARING?'disabled':''}>${esc(LT_PREPARING?tt("preparing"):tt("prepareButton"))}</button></div>`;
+  return `<div class="lt-card lt-prep"><h3>${esc(tt("prepareHeading"))}</h3><p>${esc(st.state==='stale'?tt("prepareStale"):st.kind==='pip'?tt("prepareBodyPip"):tt("prepareBody"))}</p>${note}<button class="mini pri" data-action="lt-prepare" ${LT_PREPARING?'disabled':''}>${esc(LT_PREPARING?tt(st.kind==='pip'?"preparingPip":"preparing"):tt("prepareButton"))}</button></div>`;
 }
 async function ltPrepare(){
   const c=course();if(!c||LT_PREPARING)return;
