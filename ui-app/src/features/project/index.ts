@@ -5,6 +5,7 @@
    palette) — no window global. Kanban, Scrum, XP or Scrum + XP over the SQLite store. */
 
 import { services } from "../../app/services";
+import { workspaceProjects } from "../../app/workspace-projects";
 import { VIEW } from "../../app/store/registry";
 import { makeProjectService } from "./application/project-service";
 import { makeProjectView } from "./ui/view";
@@ -245,6 +246,11 @@ projectInbox.register(async (items) => {
   let n = 0;
   for (const it of items) if (await projectService.apply({ op: "propose", ...it })) n++;
   return n;
+});
+
+/* H2: another project of the workspace picked (status bar): the board is that project's */
+workspaceProjects.onChange(() => {
+  if (projectService.state().status !== "idle") void projectService.open();
 });
 
 /* another folder opened in the desktop app: the project is that folder's */

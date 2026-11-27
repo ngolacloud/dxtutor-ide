@@ -360,7 +360,7 @@ export function makeProjectService(deps: ProjectDeps) {
         if (!d.approved) return null;
       }
       try {
-        const c = parseBacklogCreated(await deps.gateway.createFromBacklog(r, o.hash, o.plan, o.ready, lang()));
+        const c = parseBacklogCreated(await deps.gateway.createFromBacklog(r, o.hash, o.plan, o.ready, lang(), deps.workspace.workspaceRoot?.() ?? null));
         if (!c) throw new Error(copy("backlogBad"));
         set({ status: "ready", project: c.project, error: null, view: "backlog" });
         return c;

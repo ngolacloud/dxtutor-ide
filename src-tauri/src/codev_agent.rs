@@ -798,7 +798,8 @@ pub fn start(
                 .and_then(|p| ws.projects.iter().find(|x| x.path == p));
             let in_project = |c: &Option<String>| -> Option<String> {
                 let p = project.as_deref()?;
-                c.as_deref().map(|c| format!("cd {} && {c}", shell_quote(p)))
+                c.as_deref()
+                    .map(|c| format!("cd {} && {c}", shell_quote(p)))
             };
             let (test_cmd, lint_cmd) = match &project {
                 Some(_) => (
@@ -3273,9 +3274,15 @@ mod tests {
             std::fs::create_dir_all(p.parent().unwrap()).unwrap();
             std::fs::write(p, text).unwrap();
         };
-        put("services/orders/Cargo.toml", "[package]\nname = \"orders\"\n");
+        put(
+            "services/orders/Cargo.toml",
+            "[package]\nname = \"orders\"\n",
+        );
         put("services/orders/AGENTS.md", "Errors use thiserror.\n");
-        put("apps/web/package.json", r#"{"scripts": {"test": "vitest"}}"#);
+        put(
+            "apps/web/package.json",
+            r#"{"scripts": {"test": "vitest"}}"#,
+        );
         let spec = |project: Option<&str>| StartSpec {
             root: r.display().to_string(),
             sessions_base: Some(r.join(".sessions")),
@@ -3289,14 +3296,30 @@ mod tests {
         assert_eq!(s.project.as_deref(), Some("services/orders"));
         assert_eq!(
             s.checks,
-            ["cd 'services/orders' && cargo test", "cd 'services/orders' && cargo clippy"],
+            [
+                "cd 'services/orders' && cargo test",
+                "cd 'services/orders' && cargo clippy"
+            ],
             "the project's commands, run in its folder (not the workspace's)"
         );
         let system: Vec<&str> = s.agent.cfg.system.iter().map(|b| b.text.as_str()).collect();
-        assert!(system.iter().any(|t| t.starts_with("Instructions of the project `services/orders`:") && t.contains("thiserror")));
-        let ws = system.iter().find(|t| t.starts_with("Projects of this workspace")).expect("the workspace block");
-        assert!(ws.contains("`services/orders` (rust)") && ws.contains("← this conversation") && ws.contains("`apps/web`"), "{ws}");
-        assert!(s.agent.cfg.system.last().unwrap().cache, "the cache breakpoint stays on the last block");
+        assert!(system.iter().any(|t| t
+            .starts_with("Instructions of the project `services/orders`:")
+            && t.contains("thiserror")));
+        let ws = system
+            .iter()
+            .find(|t| t.starts_with("Projects of this workspace"))
+            .expect("the workspace block");
+        assert!(
+            ws.contains("`services/orders` (rust)")
+                && ws.contains("← this conversation")
+                && ws.contains("`apps/web`"),
+            "{ws}"
+        );
+        assert!(
+            s.agent.cfg.system.last().unwrap().cache,
+            "the cache breakpoint stays on the last block"
+        );
         close(&id);
         // the whole workspace: the UI's commands, as before
         let id = start(spec(None), &key("sk-test"), None).unwrap();

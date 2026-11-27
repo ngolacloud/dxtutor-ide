@@ -1494,6 +1494,25 @@ O `bash`, o `run_tests`/`lint` e os hooks do projecto correm dentro do bubblewra
   de domínios pelo proxy e um servidor MCP — correm com o bwrap desta máquina e saltam sem ele),
   `a_command_outside_the_sandbox_is_always_the_humans`, `tests/codev.agent-chat.test.ts` (H1).
 
+## Workspace com projectos (H2, `tutor_agent::workspace`, `app/workspace-projects.ts`)
+
+O workspace é a pasta aberta; os projectos são as pastas com manifesto (`Cargo.toml`, `package.json`, `go.mod`,
+`pyproject.toml`, `pom.xml`, `*.csproj`, `*.tf`…) até DOIS níveis (`apps/*`, `crates/*`, `services/*`; fixtures e
+pastas de build saltam), ou o que o `.dxtutor/workspace.json` diz (`projects: [{path, name?, test?, lint?}]`,
+`exclude: []`, `detect: false`). Cada projecto traz os seus comandos de teste e lint. Uma pasta vazia é um projecto.
+- **Projecto actual** (`app/workspace-projects.ts`, comando `workspace_projects`): carregado ao abrir a pasta,
+  lembrado por pasta; com mais de um, o `#st-project` na barra de estado mostra-o e um clique escolhe outro.
+- **Project por projecto:** a raiz do store passa a ser a pasta do projecto actual (o da raiz é o mesmo de antes —
+  nenhum dado muda de sítio); escolher outro recarrega o quadro. O `/project` cria-o no projecto actual a partir do
+  rascunho do workspace (`project_create_from_backlog` com `draft_root`, que tem de conter a pasta do projecto).
+- **Co-Dev com fronteiras:** uma conversa nova abre no projecto actual (`StartSpec.project`, gravado no
+  `SessionMeta.project`): `run_tests`/`lint` são os do projecto, corridos na pasta dele (`cd '<p>' && …`); as
+  instruções do projecto (AGENTS.md/CLAUDE.md da pasta) juntam-se às da raiz; o system prompt lista os projectos do
+  workspace (só com mais de um, no máximo 15); um pedido do chat só muda ficheiros do projecto sem perguntar (âmbito
+  `<p>/**`; fora dele a política pergunta sempre — RF-G03). Uma issue usa o âmbito dela.
+- Testes: `cargo test -p tutor-agent workspace::`, `cargo test -p dxtutor-ide a_session_in_a_project`,
+  `tests/workspace-projects.test.ts` (inclui o adaptador do Co-Dev a mandar `backlog` e `project` ao backend).
+
 ## Medir o harness do Co-Dev (H0, `src-tauri/src/eval.rs`, `evals/`)
 
 `cargo run -p dxtutor-ide --example codev-eval -- run` corre o conjunto de tarefas reais (`evals/tasks/`, ≥ 30, Rust,

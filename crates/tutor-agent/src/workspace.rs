@@ -18,8 +18,23 @@ pub const MAX_DEPTH: usize = 2;
 /// At most this many projects go into the system prompt.
 pub const MAX_IN_PROMPT: usize = 15;
 const SKIP: &[&str] = &[
-    "node_modules", "target", "dist", "build", "out", "vendor", "venv", ".venv", "__pycache__", "coverage",
-    "bin", "obj", "Pods", "DerivedData", "fixtures", "testdata", "__fixtures__",
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    "out",
+    "vendor",
+    "venv",
+    ".venv",
+    "__pycache__",
+    "coverage",
+    "bin",
+    "obj",
+    "Pods",
+    "DerivedData",
+    "fixtures",
+    "testdata",
+    "__fixtures__",
 ];
 
 /// A project of the workspace.
@@ -72,7 +87,10 @@ struct Declared {
 
 fn has_ext(dir: &Path, ext: &str) -> bool {
     std::fs::read_dir(dir)
-        .map(|rd| rd.flatten().any(|e| e.path().extension().is_some_and(|x| x == ext) && e.path().is_file()))
+        .map(|rd| {
+            rd.flatten()
+                .any(|e| e.path().extension().is_some_and(|x| x == ext) && e.path().is_file())
+        })
         .unwrap_or(false)
 }
 
@@ -140,7 +158,13 @@ pub fn commands(dir: &Path, language: &str) -> (Option<String>, Option<String>) 
             };
             let (test, lint) = package_scripts(dir);
             (
-                test.then(|| if pm == "npm" { "npm test".into() } else { format!("{pm} test") }),
+                test.then(|| {
+                    if pm == "npm" {
+                        "npm test".into()
+                    } else {
+                        format!("{pm} test")
+                    }
+                }),
                 lint.then(|| format!("{pm} run lint")),
             )
         }
@@ -149,11 +173,25 @@ pub fn commands(dir: &Path, language: &str) -> (Option<String>, Option<String>) 
                 .iter()
                 .filter_map(|f| std::fs::read_to_string(dir.join(f)).ok())
                 .collect::<String>();
-            let test = if deps.contains("pytest") { "python3 -m pytest" } else { "python3 -m unittest discover" };
-            (s(test), deps.contains("ruff").then(|| "ruff check .".to_string()))
+            let test = if deps.contains("pytest") {
+                "python3 -m pytest"
+            } else {
+                "python3 -m unittest discover"
+            };
+            (
+                s(test),
+                deps.contains("ruff").then(|| "ruff check .".to_string()),
+            )
         }
         "java" if dir.join("pom.xml").is_file() => (s("mvn -q test"), None),
-        "java" => (s(if dir.join("gradlew").is_file() { "./gradlew test" } else { "gradle test" }), None),
+        "java" => (
+            s(if dir.join("gradlew").is_file() {
+                "./gradlew test"
+            } else {
+                "gradle test"
+            }),
+            None,
+        ),
         "csharp" => (s("dotnet test"), None),
         "swift" => (s("swift test"), None),
         "terraform" => (None, s("terraform validate")),
@@ -162,7 +200,11 @@ pub fn commands(dir: &Path, language: &str) -> (Option<String>, Option<String>) 
 }
 
 fn rel(root: &Path, p: &Path) -> String {
-    let r = p.strip_prefix(root).unwrap_or(p).to_string_lossy().replace('\\', "/");
+    let r = p
+        .strip_prefix(root)
+        .unwrap_or(p)
+        .to_string_lossy()
+        .replace('\\', "/");
     if r.is_empty() {
         ".".into()
     } else {
@@ -173,27 +215,35 @@ fn rel(root: &Path, p: &Path) -> String {
 fn excluded(path: &str, exclude: &[String]) -> bool {
     exclude.iter().any(|e| {
         let e = e.trim().trim_start_matches("./").trim_end_matches('/');
-        !e.is_empty() && (path == e || path.starts_with(&format!("{e}/")) || crate::permissions::scope_matches(e, path))
+        !e.is_empty()
+            && (path == e
+                || path.starts_with(&format!("{e}/"))
+                || crate::permissions::scope_matches(e, path))
     })
 }
 
-fn walk(root: &Path, dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
+fn walk(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
     out.push(dir.to_path_buf());
     if depth >= MAX_DEPTH {
         return;
     }
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
     let mut subs: Vec<PathBuf> = rd
         .flatten()
         .map(|e| e.path())
         .filter(|p| {
-            let n = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let n = p
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
             p.is_dir() && !n.starts_with('.') && !SKIP.contains(&n.as_str()) && !p.is_symlink()
         })
         .collect();
     subs.sort();
     for s in subs {
-        walk(root, &s, depth + 1, out);
+        walk(&s, depth + 1, out);
     }
 }
 
@@ -212,11 +262,14 @@ pub fn detect(root: &Path) -> Workspace {
             WorkspaceFile::default()
         }),
     };
-    let folder_name = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "workspace".into());
+    let folder_name = root
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "workspace".into());
     let mut projects: Vec<WsProject> = vec![];
     if file.detect != Some(false) {
         let mut dirs = vec![];
-        walk(root, root, 0, &mut dirs);
+        walk(root, 0, &mut dirs);
         for d in dirs {
             let (m, lang) = markers(&d);
             if m.is_empty() {
@@ -228,7 +281,11 @@ pub fn detect(root: &Path) -> Workspace {
             }
             let (test, lint) = commands(&d, lang);
             projects.push(WsProject {
-                name: if path == "." { folder_name.clone() } else { d.file_name().unwrap().to_string_lossy().into_owned() },
+                name: if path == "." {
+                    folder_name.clone()
+                } else {
+                    d.file_name().unwrap().to_string_lossy().into_owned()
+                },
                 path,
                 language: lang.into(),
                 markers: m,
@@ -239,13 +296,24 @@ pub fn detect(root: &Path) -> Workspace {
         }
     }
     for decl in &file.projects {
-        let path = decl.path.trim().trim_start_matches("./").trim_end_matches('/');
+        let path = decl
+            .path
+            .trim()
+            .trim_start_matches("./")
+            .trim_end_matches('/');
         let path = if path.is_empty() { "." } else { path };
         if path != "." && !safe_rel(path) {
-            notes.push(format!("{WORKSPACE_FILE}: «{}» is not a folder inside the workspace", decl.path));
+            notes.push(format!(
+                "{WORKSPACE_FILE}: «{}» is not a folder inside the workspace",
+                decl.path
+            ));
             continue;
         }
-        let dir = if path == "." { root.to_path_buf() } else { root.join(path) };
+        let dir = if path == "." {
+            root.to_path_buf()
+        } else {
+            root.join(path)
+        };
         if !dir.is_dir() {
             notes.push(format!("{WORKSPACE_FILE}: «{path}» does not exist"));
             continue;
@@ -253,9 +321,17 @@ pub fn detect(root: &Path) -> Workspace {
         let (m, lang) = markers(&dir);
         let (test, lint) = commands(&dir, lang);
         let p = WsProject {
-            name: decl.name.clone().filter(|n| !n.trim().is_empty()).unwrap_or_else(|| {
-                if path == "." { folder_name.clone() } else { dir.file_name().unwrap().to_string_lossy().into_owned() }
-            }),
+            name: decl
+                .name
+                .clone()
+                .filter(|n| !n.trim().is_empty())
+                .unwrap_or_else(|| {
+                    if path == "." {
+                        folder_name.clone()
+                    } else {
+                        dir.file_name().unwrap().to_string_lossy().into_owned()
+                    }
+                }),
             path: path.to_string(),
             language: lang.into(),
             markers: m,
@@ -303,23 +379,41 @@ pub fn prompt_block(ws: &Workspace, current: Option<&str>) -> Option<String> {
          a change in another project needs the human's approval):\n",
     );
     for p in ws.projects.iter().take(MAX_IN_PROMPT) {
-        let mark = if Some(p.path.as_str()) == current { " ← this conversation" } else { "" };
-        let cmds = [p.test.as_deref().map(|t| format!("test: `{t}`")), p.lint.as_deref().map(|l| format!("lint: `{l}`"))]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>()
-            .join(", ");
+        let mark = if Some(p.path.as_str()) == current {
+            " ← this conversation"
+        } else {
+            ""
+        };
+        let cmds = [
+            p.test.as_deref().map(|t| format!("test: `{t}`")),
+            p.lint.as_deref().map(|l| format!("lint: `{l}`")),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(", ");
         out.push_str(&format!(
             "- {} — `{}`{}{}{}\n",
             p.name,
             p.path,
-            if p.language.is_empty() { String::new() } else { format!(" ({})", p.language) },
-            if cmds.is_empty() { String::new() } else { format!(" — {cmds} (run inside the project folder)") },
+            if p.language.is_empty() {
+                String::new()
+            } else {
+                format!(" ({})", p.language)
+            },
+            if cmds.is_empty() {
+                String::new()
+            } else {
+                format!(" — {cmds} (run inside the project folder)")
+            },
             mark
         ));
     }
     if ws.projects.len() > MAX_IN_PROMPT {
-        out.push_str(&format!("- … and {} more ({WORKSPACE_FILE} lists or excludes them)\n", ws.projects.len() - MAX_IN_PROMPT));
+        out.push_str(&format!(
+            "- … and {} more ({WORKSPACE_FILE} lists or excludes them)\n",
+            ws.projects.len() - MAX_IN_PROMPT
+        ));
     }
     Some(out.trim_end().to_string())
 }
@@ -337,14 +431,30 @@ mod tests {
     fn monorepo() -> tempfile::TempDir {
         let d = tempfile::tempdir().unwrap();
         let r = d.path();
-        put(r, "package.json", r#"{"private": true, "workspaces": ["apps/*"]}"#);
-        put(r, "apps/web/package.json", r#"{"scripts": {"test": "vitest", "lint": "eslint ."}}"#);
+        put(
+            r,
+            "package.json",
+            r#"{"private": true, "workspaces": ["apps/*"]}"#,
+        );
+        put(
+            r,
+            "apps/web/package.json",
+            r#"{"scripts": {"test": "vitest", "lint": "eslint ."}}"#,
+        );
         put(r, "apps/web/pnpm-lock.yaml", "");
-        put(r, "services/orders/Cargo.toml", "[package]\nname = \"orders\"\n");
+        put(
+            r,
+            "services/orders/Cargo.toml",
+            "[package]\nname = \"orders\"\n",
+        );
         put(r, "services/pay/go.mod", "module pay\n");
         put(r, "services/pay/node_modules/x/package.json", "{}");
         put(r, "infra/main.tf", "");
-        put(r, "tools/py/pyproject.toml", "[project]\ndependencies = [\"pytest\", \"ruff\"]\n");
+        put(
+            r,
+            "tools/py/pyproject.toml",
+            "[project]\ndependencies = [\"pytest\", \"ruff\"]\n",
+        );
         put(r, ".hidden/Cargo.toml", "");
         d
     }
@@ -353,32 +463,85 @@ mod tests {
     fn a_monorepo_has_one_project_per_manifest_with_its_commands() {
         let d = monorepo();
         let ws = detect(d.path());
-        let got: Vec<(&str, &str)> = ws.projects.iter().map(|p| (p.path.as_str(), p.language.as_str())).collect();
+        let got: Vec<(&str, &str)> = ws
+            .projects
+            .iter()
+            .map(|p| (p.path.as_str(), p.language.as_str()))
+            .collect();
         assert_eq!(
             got,
-            [(".", "typescript"), ("apps/web", "typescript"), ("infra", "terraform"), ("services/orders", "rust"), ("services/pay", "go"), ("tools/py", "python")]
+            [
+                (".", "typescript"),
+                ("apps/web", "typescript"),
+                ("infra", "terraform"),
+                ("services/orders", "rust"),
+                ("services/pay", "go"),
+                ("tools/py", "python")
+            ]
         );
         let web = &ws.projects[1];
-        assert_eq!((web.test.as_deref(), web.lint.as_deref()), (Some("pnpm test"), Some("pnpm run lint")));
-        assert_eq!(ws.projects[0].test, None, "the root package.json has no test script");
+        assert_eq!(
+            (web.test.as_deref(), web.lint.as_deref()),
+            (Some("pnpm test"), Some("pnpm run lint"))
+        );
+        assert_eq!(
+            ws.projects[0].test, None,
+            "the root package.json has no test script"
+        );
         let py = ws.projects.iter().find(|p| p.path == "tools/py").unwrap();
-        assert_eq!((py.test.as_deref(), py.lint.as_deref()), (Some("python3 -m pytest"), Some("ruff check .")));
+        assert_eq!(
+            (py.test.as_deref(), py.lint.as_deref()),
+            (Some("python3 -m pytest"), Some("ruff check ."))
+        );
         assert!(ws.notes.is_empty());
     }
 
     #[test]
     fn the_workspace_file_declares_excludes_and_can_turn_detection_off() {
         let d = monorepo();
-        put(d.path(), WORKSPACE_FILE, r#"{"projects": [{"path": "services/orders", "name": "Orders API", "test": "cargo test -p orders"}, {"path": "docs"}, {"path": "../x"}], "exclude": ["tools", "infra"]}"#);
+        put(
+            d.path(),
+            WORKSPACE_FILE,
+            r#"{"projects": [{"path": "services/orders", "name": "Orders API", "test": "cargo test -p orders"}, {"path": "docs"}, {"path": "../x"}], "exclude": ["tools", "infra"]}"#,
+        );
         std::fs::create_dir_all(d.path().join("docs")).unwrap();
         let ws = detect(d.path());
         let paths: Vec<&str> = ws.projects.iter().map(|p| p.path.as_str()).collect();
-        assert_eq!(paths, [".", "apps/web", "docs", "services/orders", "services/pay"]);
-        let orders = ws.projects.iter().find(|p| p.path == "services/orders").unwrap();
-        assert_eq!((orders.name.as_str(), orders.test.as_deref(), orders.declared), ("Orders API", Some("cargo test -p orders"), true));
-        assert!(ws.notes.iter().any(|n| n.contains("../x")), "{:?}", ws.notes);
-        put(d.path(), WORKSPACE_FILE, r#"{"detect": false, "projects": [{"path": "apps/web"}]}"#);
-        assert_eq!(detect(d.path()).projects.iter().map(|p| p.path.as_str()).collect::<Vec<_>>(), ["apps/web"]);
+        assert_eq!(
+            paths,
+            [".", "apps/web", "docs", "services/orders", "services/pay"]
+        );
+        let orders = ws
+            .projects
+            .iter()
+            .find(|p| p.path == "services/orders")
+            .unwrap();
+        assert_eq!(
+            (
+                orders.name.as_str(),
+                orders.test.as_deref(),
+                orders.declared
+            ),
+            ("Orders API", Some("cargo test -p orders"), true)
+        );
+        assert!(
+            ws.notes.iter().any(|n| n.contains("../x")),
+            "{:?}",
+            ws.notes
+        );
+        put(
+            d.path(),
+            WORKSPACE_FILE,
+            r#"{"detect": false, "projects": [{"path": "apps/web"}]}"#,
+        );
+        assert_eq!(
+            detect(d.path())
+                .projects
+                .iter()
+                .map(|p| p.path.as_str())
+                .collect::<Vec<_>>(),
+            ["apps/web"]
+        );
     }
 
     #[test]
@@ -387,12 +550,22 @@ mod tests {
         let ws = detect(empty.path());
         assert_eq!(ws.projects.len(), 1);
         assert_eq!(ws.projects[0].path, ".");
-        assert!(prompt_block(&ws, Some(".")).is_none(), "one project: nothing to tell");
+        assert!(
+            prompt_block(&ws, Some(".")).is_none(),
+            "one project: nothing to tell"
+        );
         let d = monorepo();
         let ws = detect(d.path());
-        assert_eq!(project_of(&ws, "services/orders/src/main.rs").unwrap().path, "services/orders");
+        assert_eq!(
+            project_of(&ws, "services/orders/src/main.rs").unwrap().path,
+            "services/orders"
+        );
         assert_eq!(project_of(&ws, "README.md").unwrap().path, ".");
-        assert_eq!(project_of(&ws, "services/payments.md").unwrap().path, ".", "a prefix is not a folder");
+        assert_eq!(
+            project_of(&ws, "services/payments.md").unwrap().path,
+            ".",
+            "a prefix is not a folder"
+        );
         let block = prompt_block(&ws, Some("services/orders")).unwrap();
         assert!(block.contains("- orders — `services/orders` (rust) — test: `cargo test`, lint: `cargo clippy` (run inside the project folder) ← this conversation"), "{block}");
     }

@@ -306,6 +306,7 @@ export function makeAgentChat(deps: AgentChatDeps) {
         reviewEdits: !!deps.hunks,
         issue: issueKey,
         architecture: deps.architecture?.(firstRequest) ?? false,
+        project: deps.project?.() ?? null,
         backlog: backlogScope,
         ...(inWorktree ? { worktree: true } : {}),
       });

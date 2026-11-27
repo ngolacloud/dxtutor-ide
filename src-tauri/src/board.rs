@@ -367,10 +367,26 @@ pub async fn project_create_from_backlog(
     plan: serde_json::Value,
     ready: bool,
     lang: Option<String>,
+    draft_root: Option<String>,
 ) -> Result<tutor_board::project::backlog::Created, ProjectError> {
     use tutor_board::project::backlog::{Plan, DRAFT_PATH};
     let root = root_of(&root)?;
-    let (draft, now_hash) = crate::backlog::read_draft(Path::new(&root)).map_err(invalid)?;
+    // H2: the draft is the workspace's (where the backlog session wrote it); the Project may be one of its
+    // projects — a folder inside it
+    let draft_dir = match draft_root
+        .as_deref()
+        .map(str::trim)
+        .filter(|d| !d.is_empty())
+    {
+        Some(d) if Path::new(&root).starts_with(d) => d.to_string(),
+        Some(d) => {
+            return Err(invalid(format!(
+                "o rascunho ({d}) não é do workspace deste projecto ({root})"
+            )))
+        }
+        None => root.clone(),
+    };
+    let (draft, now_hash) = crate::backlog::read_draft(Path::new(&draft_dir)).map_err(invalid)?;
     if now_hash != hash.trim() {
         return Err(ProjectError {
             code: "stale".into(),
