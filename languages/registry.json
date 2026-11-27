@@ -77,7 +77,7 @@
         { "manager": "go", "packages": ["golang.org/x/tools/gopls@latest"] },
         { "manager": "brew", "packages": ["gopls"] }
       ],
-      "vscodeExtensions": ["golang.go"]
+      "vscodeExtensions": ["golang.go"], "vscodeLanguages": ["go.mod", "go.sum", "go.work"]
     },
     {
       "id": "typescript",

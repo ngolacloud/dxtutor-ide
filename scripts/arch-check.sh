@@ -41,7 +41,7 @@ strip_comments() {
 }
 
 # Baseline esperada (Etapa 0 — MIGRATION §2/§3). Actualizar DELIBERADAMENTE.
-EXPECT_TOTAL=333
+EXPECT_TOTAL=334
 # @ts-nocheck: contamos a DIRECTIVA real (linha-comentário `// @ts-nocheck`), não
 # a palavra por substring (A6 antigo contava 24 com `grep -rl`, inflado por 13
 # ficheiros que só a mencionam em prosa/JSDoc). Baseline = 0 desde a U4j5b do ADR-0004
@@ -156,7 +156,8 @@ EXPECT_TSNOCHECK=0
 # Learn P1 (curso Seiva): commands/study.rs ganha course_prepare_status e course_prepare
 # (11→13): 330 + 2 = 332.
 # /backlog e /project (o Studio ligado ao Project): board.rs ganha project_create_from_backlog (23→24): 333.
-declare -A EXPECT_PER_FILE=( [lib.rs]=0 [commands/review.rs]=3 [commands/codeintel.rs]=10 [commands/tests.rs]=8 [commands/git.rs]=41 [commands/codev.rs]=5 [commands/codev_agent.rs]=18 [commands/codev_worktree.rs]=7 [commands/dictation.rs]=4 [commands/search.rs]=4 [commands/agent.rs]=16 [commands/assistant.rs]=8 [commands/debug_cmds.rs]=34 [commands/hood.rs]=3 [commands/ops.rs]=6 [commands/codebase.rs]=2 [commands/devcontainer.rs]=8 [commands/sandbox.rs]=3 [commands/pair.rs]=4 [commands/plugins.rs]=3 [commands/study.rs]=13 [commands/missions.rs]=4 [bridge.rs]=16 [fsops.rs]=10 [lsp.rs]=28 [pty.rs]=7 [commands/panel.rs]=2 [commands/protect.rs]=5 [commands/iac.rs]=3 [commands/vault.rs]=10 [commands/deploy.rs]=2 [commands/runbook.rs]=5 [commands/platform.rs]=11 [commands/metrics.rs]=4 [commands/lsp_install.rs]=2 [board.rs]=24 )
+# LSP P4 (as linguagens dos VSIX instalados): lsp.rs ganha lsp_contributions (28→29): 333 + 1 = 334.
+declare -A EXPECT_PER_FILE=( [lib.rs]=0 [commands/review.rs]=3 [commands/codeintel.rs]=10 [commands/tests.rs]=8 [commands/git.rs]=41 [commands/codev.rs]=5 [commands/codev_agent.rs]=18 [commands/codev_worktree.rs]=7 [commands/dictation.rs]=4 [commands/search.rs]=4 [commands/agent.rs]=16 [commands/assistant.rs]=8 [commands/debug_cmds.rs]=34 [commands/hood.rs]=3 [commands/ops.rs]=6 [commands/codebase.rs]=2 [commands/devcontainer.rs]=8 [commands/sandbox.rs]=3 [commands/pair.rs]=4 [commands/plugins.rs]=3 [commands/study.rs]=13 [commands/missions.rs]=4 [bridge.rs]=16 [fsops.rs]=10 [lsp.rs]=29 [pty.rs]=7 [commands/panel.rs]=2 [commands/protect.rs]=5 [commands/iac.rs]=3 [commands/vault.rs]=10 [commands/deploy.rs]=2 [commands/runbook.rs]=5 [commands/platform.rs]=11 [commands/metrics.rs]=4 [commands/lsp_install.rs]=2 [board.rs]=24 )
 
 echo "== A1 · comandos registados em generate_handler! =="
 # Extrai o bloco generate_handler!, remove comentários //, apanha os identificadores

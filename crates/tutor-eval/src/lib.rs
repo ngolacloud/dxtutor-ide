@@ -37,6 +37,7 @@ pub mod iac;
 pub mod iacfind;
 pub mod js_runner;
 pub mod lang;
+pub mod langcontrib;
 pub mod langreg;
 pub mod lsp;
 pub mod lspconf;
