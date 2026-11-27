@@ -104,6 +104,14 @@ fn the_candidate_is_the_merge_of_both_tips_checked_out_in_a_temporary_worktree()
     let (d, cut) = diff(r.path(), &t.base, &c.commit, 100_000).unwrap();
     assert!(d.contains("+pub fn pay() {}") && !cut);
     assert!(diff(r.path(), &t.base, &c.commit, 10).unwrap().1);
+    // the reviewer's evidence is checked against the candidate's own files
+    assert_eq!(file_lines(r.path(), &c.commit, "src/pay.rs"), Some(1));
+    assert_eq!(file_lines(r.path(), &c.commit, "src/ghost.rs"), None);
+    assert_eq!(file_lines(r.path(), &c.commit, "src"), None);
+    assert_eq!(file_lines(r.path(), &c.commit, "../x"), None);
+    assert!(mentions(r.path(), &c.commit, "fn pay"));
+    assert!(!mentions(r.path(), &c.commit, "fn refund"));
+    assert!(!mentions(r.path(), &t.base, "fn pay"));
     // preparing again replaces the worktree; discarding removes it and git forgets it
     std::fs::write(dir.join("build.out"), "x").unwrap();
     let Prepared::Ready(c2) = prepare(r.path(), base.path(), "DX-1", &t, "Merge DX-1").unwrap()

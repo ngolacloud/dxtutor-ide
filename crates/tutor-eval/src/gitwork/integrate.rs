@@ -373,6 +373,51 @@ pub fn diff(
     Ok((text.chars().take(max_chars).collect(), true))
 }
 
+/// How many lines the project file `rel` has in `commit` (`None`: not a file of it). For the
+/// reviewer's evidence: a file it cites must be there, and its lines too.
+pub fn file_lines(root: &Path, commit: &str, rel: &str) -> Option<usize> {
+    let rel = crate::gitx::check_path(rel).ok()?;
+    if Path::new(rel)
+        .components()
+        .any(|c| !matches!(c, std::path::Component::Normal(_)))
+    {
+        return None;
+    }
+    let pre = prefix(root);
+    let in_repo = if pre.is_empty() {
+        rel.to_string()
+    } else {
+        format!("{pre}/{rel}")
+    };
+    let kind = trimmed(root, &["cat-file", "-t", &format!("{commit}:{in_repo}")])?;
+    if kind != "blob" {
+        return None;
+    }
+    let text = git(root, &["cat-file", "blob", &format!("{commit}:{in_repo}")]).ok()?;
+    Some(text.lines().count())
+}
+
+/// Does `needle` (literally) appear in a project file of `commit`? For the reviewer's evidence: a
+/// test it names must exist in the tree.
+pub fn mentions(root: &Path, commit: &str, needle: &str) -> bool {
+    let n = needle.trim();
+    if n.is_empty() || n.chars().any(|c| c.is_control()) {
+        return false;
+    }
+    let pre = prefix(root);
+    let scope = if pre.is_empty() { ".".to_string() } else { pre };
+    Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["grep", "-q", "-F", "-e", n, commit, "--", &scope])
+        .env("LC_ALL", "C")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
+}
+
 /// The exact command that integrates the candidate (for the approval dialog and the audit log).
 pub fn integrate_command(root: &Path, commit: &str) -> String {
     format!(

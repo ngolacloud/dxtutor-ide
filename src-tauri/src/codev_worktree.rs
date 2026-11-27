@@ -42,7 +42,7 @@ fn issue_branch(db: &Path, root: &str, key: &str) -> Result<(String, bool), Stri
 
 /// One row of the audit log for a worktree operation (origin `ide`, feature `codev`).
 #[allow(clippy::too_many_arguments)]
-fn record(
+pub(crate) fn record(
     db: &Path,
     root: &str,
     action: &str,
