@@ -680,7 +680,8 @@ fn node_running(sb: &Sandbox) -> bool {
     .is_some_and(|r| r.ok && r.stdout.trim() == "true")
 }
 
-/// The memory the node container uses now (bytes), from its cgroup.
+/// The memory the node container uses now (bytes): its cgroup's `memory.current` minus the page
+/// cache it could drop (`inactive_file`), the "working set" `kubectl top` and `docker stats` show.
 pub fn memory_bytes(sb: &Sandbox) -> Option<u64> {
     let r = run(
         podman_cmd(
@@ -695,14 +696,21 @@ pub fn memory_bytes(sb: &Sandbox) -> Option<u64> {
     if !r.ok || cg.is_empty() {
         return None;
     }
-    std::fs::read_to_string(format!(
-        "/sys/fs/cgroup/{}/memory.current",
-        cg.trim_start_matches('/')
-    ))
-    .ok()?
-    .trim()
-    .parse()
-    .ok()
+    let dir = format!("/sys/fs/cgroup/{}", cg.trim_start_matches('/'));
+    let current: u64 = std::fs::read_to_string(format!("{dir}/memory.current"))
+        .ok()?
+        .trim()
+        .parse()
+        .ok()?;
+    let inactive: u64 = std::fs::read_to_string(format!("{dir}/memory.stat"))
+        .ok()
+        .and_then(|st| {
+            st.lines()
+                .find_map(|l| l.strip_prefix("inactive_file "))
+                .and_then(|v| v.trim().parse().ok())
+        })
+        .unwrap_or(0);
+    Some(current.saturating_sub(inactive))
 }
 
 /// What the Learning Track shows about a course's cluster.
@@ -1029,48 +1037,88 @@ pub struct Leftover {
     pub cluster: String,
 }
 
-/// The clusters in the dxtutor sandboxes under `root` whose name starts with [`CLUSTER_PREFIX`]
-/// but that are not the course's own (a renamed course), or that are idle past `max_idle`.
-pub fn leftovers(root: &Path, max_idle: Duration) -> Vec<Leftover> {
+/// Whether Podman may have something of the sandbox alive: a cluster was created and not deleted
+/// (its state file), or Podman ran since (its runtime folder). Otherwise nothing is asked — the
+/// reaper must not start Podman every minute.
+fn maybe_active(sb: &Sandbox) -> bool {
+    sb.state.exists() || sb.runtime.exists()
+}
+
+/// The stale clusters of one sandbox: names with [`CLUSTER_PREFIX`] that are not the course's own
+/// (a renamed course), or the course's own unused for `max_idle` (or with no record of use).
+fn stale_in(sb: &Sandbox, names: &[String], max_idle: Duration) -> Vec<String> {
     let t = now();
+    names
+        .iter()
+        .filter(|n| n.starts_with(CLUSTER_PREFIX))
+        .filter(|n| {
+            **n != sb.name || read_state(sb).is_none_or(|s| s.last_used + max_idle.as_secs() <= t)
+        })
+        .cloned()
+        .collect()
+}
+
+/// The [`Leftover`]s under the course cache `root` (reads only).
+pub fn leftovers(root: &Path, max_idle: Duration) -> Vec<Leftover> {
     let mut out = Vec::new();
-    for sb in sandboxes(root) {
+    for sb in sandboxes(root).into_iter().filter(maybe_active) {
         let Ok(names) = clusters(&sb) else { continue };
-        for name in names.into_iter().filter(|n| n.starts_with(CLUSTER_PREFIX)) {
-            let stale = name != sb.name
-                || read_state(&sb).is_none_or(|s| s.last_used + max_idle.as_secs() <= t);
-            if stale {
-                out.push(Leftover {
-                    course: sb.key.clone(),
-                    cluster: name,
-                });
-            }
+        for cluster in stale_in(&sb, &names, max_idle) {
+            out.push(Leftover {
+                course: sb.key.clone(),
+                cluster,
+            });
         }
     }
     out
 }
 
-/// Deletes the [`leftovers`] under `root` and returns what was deleted. Each sandbox is locked
-/// while it is cleaned, so a grading in progress is never cut.
+/// Deletes the stale clusters under `root` (see [`leftovers`]) and returns them. Each sandbox is
+/// locked while it is cleaned, so a grading in progress is never cut. A sandbox left without
+/// clusters also loses its Podman pause process and runtime folder: nothing keeps running.
 pub fn cleanup(root: &Path, max_idle: Duration) -> Vec<Leftover> {
     let mut done = Vec::new();
-    for l in leftovers(root, max_idle) {
-        let Some(sb) = sandboxes(root).into_iter().find(|s| s.key == l.course) else {
-            continue;
-        };
+    for sb in sandboxes(root).into_iter().filter(maybe_active) {
         let Ok(_guard) = lock(&sb) else { continue };
-        let ok = if l.cluster == sb.name {
-            delete_cluster(&sb).is_ok()
-        } else {
-            let mut other = sb.clone();
-            other.name = l.cluster.clone();
-            delete_cluster(&other).is_ok()
-        };
-        if ok {
-            done.push(l);
+        let Ok(names) = clusters(&sb) else { continue };
+        for cluster in stale_in(&sb, &names, max_idle) {
+            let mut target = sb.clone();
+            target.name = cluster.clone();
+            if delete_cluster(&target).is_ok() {
+                done.push(Leftover {
+                    course: sb.key.clone(),
+                    cluster,
+                });
+            }
+        }
+        if clusters(&sb).is_ok_and(|c| c.is_empty()) {
+            let _ = std::fs::remove_file(&sb.state);
+            podman::stop_pause(&sb);
+            let _ = std::fs::remove_dir_all(&sb.runtime);
         }
     }
     done
+}
+
+/// The texts the approval dialog shows for «Start practice cluster» and «Delete cluster»: the
+/// exact commands (the Podman environment is the sandbox's, described by the preparation).
+pub fn start_command_text(sb: &Sandbox) -> String {
+    format!(
+        "podman network create --internal --label {} {NETWORK}\nkind create cluster --name {} --image {NODE_IMAGE} --kubeconfig {} --wait 180s\nkind load image-archive {} --name {}",
+        podman::LABEL,
+        sb.name,
+        sb.kubeconfig.display(),
+        sb.images.display(),
+        sb.name
+    )
+}
+
+pub fn delete_command_text(sb: &Sandbox) -> String {
+    format!(
+        "kind delete cluster --name {} --kubeconfig {}\npodman network rm --force {NETWORK}",
+        sb.name,
+        sb.kubeconfig.display()
+    )
 }
 
 /// A grading namespace name: `dxt-<step>-<random>` (DNS label, ≤ 63).

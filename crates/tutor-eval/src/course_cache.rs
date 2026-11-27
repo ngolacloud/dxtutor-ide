@@ -724,6 +724,17 @@ pub fn prepare(plan: &Plan) -> Result<Prepared> {
             crate::kindbox::podman::init(&l.sandbox())?;
         }
     }
+    // A cluster course: a cluster made from the previous preparation goes first (the node image
+    // or the images may change), and nobody grades while the images are replaced.
+    let _cluster_lock = match plan.kind {
+        CacheKind::Cluster => {
+            let sb = l.sandbox();
+            let lock = crate::kindbox::lock(&sb)?;
+            crate::kindbox::delete_cluster(&sb)?;
+            Some(lock)
+        }
+        _ => None,
+    };
     // A marca de antes deixa de valer: só uma preparação completa a volta a escrever.
     let _ = std::fs::remove_file(&l.marker);
 
@@ -817,8 +828,10 @@ pub fn prepare(plan: &Plan) -> Result<Prepared> {
         Ok(None)
     })();
     if plan.kind == CacheKind::Cluster {
-        // Nothing of the sandbox keeps running after the preparation (Podman's pause process).
+        // Nothing of the sandbox keeps running after the preparation (Podman's pause process,
+        // its runtime folder): no cluster exists now.
         crate::kindbox::podman::stop_pause(&sandbox);
+        let _ = std::fs::remove_dir_all(&sandbox.runtime);
     }
     if let Some(failed) = result? {
         return Ok(failed);
@@ -838,7 +851,6 @@ pub fn prepare(plan: &Plan) -> Result<Prepared> {
         }
         CacheKind::Cluster => {
             let v = crate::kindbox::versions(&sandbox);
-            crate::kindbox::podman::stop_pause(&sandbox);
             format!(
                 "{} · {}",
                 v.get("kind").cloned().unwrap_or_default(),

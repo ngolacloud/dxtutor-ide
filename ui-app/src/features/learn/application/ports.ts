@@ -1,7 +1,7 @@
 /* Portas do Learning Track: o que os casos de uso precisam do mundo exterior. Os adaptadores
    vivem em infrastructure/ (hoje sobre os comandos Tauri `plugin_*`/`get_course`/`submit_step`). */
 
-import type { Category, Course, PluginRow, PrepareStatus } from "../domain/types";
+import type { Category, ClusterState, Course, PluginRow, PrepareStatus } from "../domain/types";
 
 export interface InstallResult {
   id: string;
@@ -50,6 +50,12 @@ export interface CourseGateway {
   /** Prepara o curso com os comandos que o humano aprovou: a ÚNICA ida à rede do Learning Track.
    *  O backend recusa um comando que não seja o plano actual e audita antes e com o resultado. */
   prepare(courseId: string, decision: PrepareDecision): Promise<PrepareResult>;
+  /** O cluster de prática de um curso de Kubernetes (Learn P3b): se o curso tem passos ao vivo,
+   *  se esta máquina o corre e o estado do cluster (só leitura). */
+  clusterStatus(courseId: string): Promise<ClusterState>;
+  /** «Start practice cluster» / «Delete cluster» com o comando que o humano aprovou; o backend
+   *  recusa um comando que não seja o actual e audita antes e com o resultado. */
+  clusterAction(courseId: string, action: "start" | "delete", decision: PrepareDecision): Promise<ClusterState>;
 }
 
 /** A decisão do diálogo de aprovação partilhado. */

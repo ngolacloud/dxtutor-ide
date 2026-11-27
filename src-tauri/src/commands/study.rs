@@ -356,3 +356,171 @@ fn prepare_blocking(
         status,
     })
 }
+
+// ── O cluster de prática dos cursos de Kubernetes (Learn P3b) ────────────────────────────
+
+/// What the Learning Track shows about a course's practice cluster (kind on rootless Podman).
+#[derive(serde::Serialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ClusterDto {
+    /// The course has steps checked live in the practice cluster.
+    pub live: bool,
+    /// The course is prepared (kind, the node image and the step images are downloaded).
+    pub prepared: bool,
+    /// Whether this machine can run the cluster (Podman, cgroup v2, delegation, user
+    /// namespaces, D-Bus), and why not.
+    pub support: tutor_eval::kindbox::Support,
+    /// The cluster now (only when prepared and supported).
+    pub status: Option<tutor_eval::kindbox::ClusterStatus>,
+    /// The exact commands the approval dialog shows for «Start practice cluster» and «Delete
+    /// cluster».
+    pub start_command: String,
+    pub delete_command: String,
+    /// The sandbox folder (the approval's scope and the audit row's root).
+    pub dir: String,
+    pub idle_minutes: u64,
+}
+
+fn cluster_dto(course_id: &str) -> Result<ClusterDto, String> {
+    let root = cache_root()?;
+    let found =
+        study::cluster_of(&study::all_courses(), course_id, &root).map_err(|e| e.to_string())?;
+    let support = tutor_eval::kindbox::probe();
+    let Some((sb, prepared)) = found else {
+        return Ok(ClusterDto {
+            live: false,
+            prepared: false,
+            support,
+            status: None,
+            start_command: String::new(),
+            delete_command: String::new(),
+            dir: String::new(),
+            idle_minutes: tutor_eval::kindbox::IDLE_SECS / 60,
+        });
+    };
+    let status = if prepared && support.ok {
+        Some(tutor_eval::kindbox::status(&sb).map_err(|e| e.to_string())?)
+    } else {
+        None
+    };
+    Ok(ClusterDto {
+        live: true,
+        prepared,
+        support,
+        status,
+        start_command: tutor_eval::kindbox::start_command_text(&sb),
+        delete_command: tutor_eval::kindbox::delete_command_text(&sb),
+        dir: sb.dir.display().to_string(),
+        idle_minutes: tutor_eval::kindbox::IDLE_SECS / 60,
+    })
+}
+
+/// The practice cluster of a course: whether it is live, prepared, supported here, and the
+/// cluster's state (reads only; nothing is created).
+#[tauri::command]
+pub async fn learn_cluster_status(course_id: String) -> Result<ClusterDto, String> {
+    tauri::async_runtime::spawn_blocking(move || cluster_dto(&course_id))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Which practice-cluster action the human approved.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ClusterAction {
+    Start,
+    Delete,
+}
+
+fn cluster_blocking(
+    app: &tauri::AppHandle,
+    course_id: &str,
+    decision: &PrepareDecision,
+    action: ClusterAction,
+) -> Result<ClusterDto, String> {
+    let root = cache_root()?;
+    let (sb, prepared) = study::cluster_of(&study::all_courses(), course_id, &root)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("course {course_id} has no live steps"))?;
+    let command = match action {
+        ClusterAction::Start => tutor_eval::kindbox::start_command_text(&sb),
+        ClusterAction::Delete => tutor_eval::kindbox::delete_command_text(&sb),
+    };
+    if command != decision.command {
+        return Err("the approved command is not this cluster's current one; ask again".into());
+    }
+    if action == ClusterAction::Start && !prepared {
+        return Err(tutor_eval::course_cache::not_prepared_message(
+            &sb.key, false,
+        ));
+    }
+    let dir = sb.dir.display().to_string();
+    std::fs::create_dir_all(&sb.dir).map_err(|e| format!("{dir}: {e}"))?;
+    let row = |outcome: &str| crate::board::IdeAudit {
+        feature: "learn".into(),
+        action: match action {
+            ClusterAction::Start => "cluster.start",
+            ClusterAction::Delete => "cluster.delete",
+        }
+        .into(),
+        command: command.clone(),
+        scope: Some(format!("course {course_id} · cluster {} · {dir}", sb.name)),
+        approved: true,
+        reason: decision.reason.clone().filter(|r| !r.trim().is_empty()),
+        outcome: Some(outcome.into()),
+        decided_at: decision.decided_at,
+    };
+    crate::board::record_ide_audit(app, &dir, &row("sent"))
+        .map_err(|e| format!("not audited, nothing ran: {}", e.message))?;
+    let result = (|| -> Result<(), String> {
+        let _lock = tutor_eval::kindbox::lock(&sb).map_err(|e| e.to_string())?;
+        match action {
+            ClusterAction::Start => {
+                let kubectl =
+                    tutor_eval::tool_runner::find_tool(tutor_core::toolcheck::Tool::Kubectl)
+                        .ok_or("kubectl is not installed")?;
+                tutor_eval::kindbox::ensure(&sb, &kubectl).map_err(|e| e.to_string())?;
+            }
+            ClusterAction::Delete => {
+                tutor_eval::kindbox::delete_cluster(&sb).map_err(|e| e.to_string())?;
+            }
+        }
+        Ok(())
+    })();
+    let _ = crate::board::record_ide_audit(
+        app,
+        &dir,
+        &row(if result.is_ok() { "ok" } else { "failed" }),
+    );
+    result?;
+    cluster_dto(course_id)
+}
+
+/// «Start practice cluster»: creates (or reuses) the course's kind cluster and loads the step
+/// images, running exactly the approved commands; audited before and with the result.
+#[tauri::command]
+pub async fn learn_cluster_start(
+    app: tauri::AppHandle,
+    course_id: String,
+    decision: PrepareDecision,
+) -> Result<ClusterDto, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        cluster_blocking(&app, &course_id, &decision, ClusterAction::Start)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// «Delete cluster»: deletes the course's kind cluster, its kubeconfig and network (the prepared
+/// images stay); audited before and with the result.
+#[tauri::command]
+pub async fn learn_cluster_delete(
+    app: tauri::AppHandle,
+    course_id: String,
+    decision: PrepareDecision,
+) -> Result<ClusterDto, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        cluster_blocking(&app, &course_id, &decision, ClusterAction::Delete)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}

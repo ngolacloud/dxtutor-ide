@@ -38,6 +38,8 @@ export interface StepProject {
   files: Record<string, string>;
   /** Os que o aluno vê mas não muda. */
   readonly: string[];
+  /** Verifica-se AO VIVO no cluster de prática do curso (Learn P3b). */
+  live?: boolean;
 }
 
 /** Um passo, na forma que o motor (features/learn.ts) lê — a mesma dos JSON embutidos. */
@@ -110,8 +112,9 @@ export interface PrepareStatus {
   state: "not-needed" | "missing" | "stale" | "ready";
   /** Os comandos exactos a aprovar (vêm do backend). */
   command: string;
-  /** O gestor de pacotes da cache: `cargo` (compila) ou `pip` (venv do curso). */
-  kind: "cargo" | "pip" | "";
+  /** O gestor de pacotes da cache: `cargo` (compila), `pip` (venv do curso) ou `cluster` (o kind,
+   *  a imagem do nó e as imagens dos passos ao vivo, Learn P3b). */
+  kind: "cargo" | "pip" | "cluster" | "";
   /** Os pacotes que a preparação descarrega, para o diálogo de aprovação. */
   packages: CoursePackage[];
   /** A pasta da cache do curso. */
@@ -119,6 +122,40 @@ export interface PrepareStatus {
   timeoutSecs: number;
   fetchSecs: number | null;
   warmSecs: number | null;
+}
+
+/** Se esta máquina corre o cluster de prática (Podman, cgroup v2, delegação, user namespaces). */
+export interface ClusterSupport {
+  ok: boolean;
+  podman: string | null;
+  reason: string | null;
+  fix: string | null;
+}
+
+/** O cluster de prática de um curso de Kubernetes (kind sobre Podman sem root, Learn P3b). */
+export interface ClusterState {
+  /** O curso tem passos ao vivo. */
+  live: boolean;
+  /** O curso está preparado (kind, imagem do nó e imagens descarregados). */
+  prepared: boolean;
+  support: ClusterSupport;
+  /** O cluster agora (só preparado e suportado). */
+  status: {
+    name: string;
+    exists: boolean;
+    running: boolean;
+    createdAt: number | null;
+    lastUsed: number | null;
+    createSecs: number | null;
+    memoryBytes: number | null;
+    idleDeadline: number | null;
+  } | null;
+  /** Os comandos exactos que o diálogo de aprovação mostra. */
+  startCommand: string;
+  deleteCommand: string;
+  /** A pasta da caixa do cluster (âmbito da aprovação). */
+  dir: string;
+  idleMinutes: number;
 }
 
 /** Estado de um cartão no selector de linguagens. */

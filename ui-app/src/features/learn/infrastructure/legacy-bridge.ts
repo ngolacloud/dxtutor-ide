@@ -5,7 +5,7 @@ import { isDesktop } from "../../../platform/tauri/core";
 import * as ipc from "../../../platform/tauri/learn";
 import { auditClient } from "../../../platform/tauri/audit";
 import type { AuditPort, CourseGateway } from "../application/ports";
-import type { PrepareStatus } from "../domain/types";
+import type { ClusterState, PrepareStatus } from "../domain/types";
 import { fromCourseDto, toPluginRow } from "../domain/course-adapter";
 
 export const tauriCourseGateway: CourseGateway = {
@@ -27,7 +27,32 @@ export const tauriCourseGateway: CourseGateway = {
     const r = await ipc.coursePrepare(courseId, decision);
     return { ok: r.ok, output: r.output, status: prepareStatus(r.status) };
   },
+  clusterStatus: async courseId => clusterState(await ipc.learnClusterStatus(courseId)),
+  clusterAction: async (courseId, action, decision) =>
+    clusterState(await (action === "start" ? ipc.learnClusterStart(courseId, decision) : ipc.learnClusterDelete(courseId, decision))),
 };
+
+const clusterState = (d: ipc.ClusterDto): ClusterState => ({
+  live: d.live,
+  prepared: d.prepared,
+  support: d.support,
+  status: d.status
+    ? {
+        name: d.status.name,
+        exists: d.status.exists,
+        running: d.status.running,
+        createdAt: d.status.createdAt,
+        lastUsed: d.status.lastUsed,
+        createSecs: d.status.createSecs,
+        memoryBytes: d.status.memoryBytes,
+        idleDeadline: d.status.idleDeadline,
+      }
+    : null,
+  startCommand: d.startCommand,
+  deleteCommand: d.deleteCommand,
+  dir: d.dir,
+  idleMinutes: d.idleMinutes,
+});
 
 const prepareStatus = (s: ipc.CoursePrepareDto): PrepareStatus => ({
   needed: s.needed, state: s.state, command: s.command, kind: s.kind ?? "", packages: s.packages ?? [], dir: s.dir, timeoutSecs: s.timeoutSecs, fetchSecs: s.fetchSecs, warmSecs: s.warmSecs,
