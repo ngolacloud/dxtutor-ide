@@ -288,11 +288,11 @@ fn check_course(
     for msg in c.build.check() {
         e(r, msg);
     }
-    if c.build.prepare && !matches!(c.language.as_str(), "rust" | "rs") {
+    if c.build.prepare && tutor_core::CacheKind::of(&c.language).is_none() {
         e(
             r,
             format!(
-                "build.prepare: a prepared course cache is only available for courses graded in rust (this one is graded in `{}`)",
+                "build.prepare: a prepared course cache is only available for courses graded in rust (cargo) or python (pip) (this one is graded in `{}`)",
                 c.language
             ),
         );

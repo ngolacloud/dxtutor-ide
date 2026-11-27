@@ -28,6 +28,16 @@
 //! `prepare = true` diz que a avaliação NUNCA vai à rede: as dependências descarregam-se numa
 //! acção explícita («preparar o curso», aprovada pelo humano) para uma cache do curso, e daí em
 //! diante cada compilação corre offline contra essa cache (`tutor_eval::course_cache`).
+//!
+//! **O que é uma linha de dependência depende da linguagem que avalia** ([`CacheKind`]):
+//!
+//! - `rust` (cargo): uma linha de `[dependencies]` do `Cargo.toml`;
+//! - `python` (pip, Learn P2a): uma linha de `requirements.txt` FIXADA e com hash —
+//!   `Django==5.2.19 --hash=sha256:<64 hex>` —, e todas as dependências transitivas também
+//!   (o pip corre com `--require-hashes`, que recusa o que não estiver fixado). Nada de
+//!   URLs, de `-e`, de índices nem de outras opções: o curso escolhe pacotes e versões, nunca
+//!   de onde vêm ([`pip_requirement`]). Num curso Python as dependências só existem numa cache
+//!   preparada, por isso `dependencies` sem `prepare = true` é um erro.
 
 use std::collections::BTreeMap;
 
@@ -85,12 +95,133 @@ impl CourseBuild {
     }
 }
 
-/// A cache de um curso que se prepara uma vez: a chave (o id do curso) e as dependências que a
+/// A cache de um curso que se prepara uma vez: a chave (o id do curso), a linguagem que o
+/// avalia (diz o que são as linhas de dependência, [`CacheKind`]) e as dependências que a
 /// preparação descarrega (as do curso e as próprias de cada passo, sem repetidos, pela ordem).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CourseCache {
     pub key: String,
+    /// A linguagem do curso (`rust`, `python`): o [`CacheKind`] da cache.
+    pub language: String,
     pub dependencies: Vec<String>,
+}
+
+impl CourseCache {
+    /// O gestor de pacotes desta cache (`None` numa linguagem sem cache preparada).
+    pub fn kind(&self) -> Option<CacheKind> {
+        CacheKind::of(&self.language)
+    }
+}
+
+/// O gestor de pacotes de uma cache preparada: quem descarrega as dependências e o que é uma
+/// linha de dependência.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CacheKind {
+    /// `cargo fetch` + uma compilação, para um `CARGO_HOME` e um `target` do curso.
+    Cargo,
+    /// Um venv do curso com `pip install --require-hashes --only-binary=:all:`.
+    Pip,
+}
+
+impl CacheKind {
+    /// O gestor de pacotes das caches de um curso avaliado em `language`; `None` quando a
+    /// linguagem não tem cache preparada.
+    pub fn of(language: &str) -> Option<CacheKind> {
+        match language.trim().to_ascii_lowercase().as_str() {
+            "rust" | "rs" => Some(CacheKind::Cargo),
+            "python" | "py" | "python3" => Some(CacheKind::Pip),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CacheKind::Cargo => "cargo",
+            CacheKind::Pip => "pip",
+        }
+    }
+}
+
+/// Uma linha de `requirements.txt` de um curso Python preparado: um pacote, a versão exacta e
+/// os hashes sha256 dos ficheiros aceites.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PipRequirement {
+    pub name: String,
+    pub version: String,
+    /// Hexadecimal em minúsculas (64 caracteres cada).
+    pub hashes: Vec<String>,
+}
+
+impl PipRequirement {
+    /// A linha tal como vai para o `requirements.txt` (normalizada: um espaço entre partes).
+    pub fn line(&self) -> String {
+        let mut s = format!("{}=={}", self.name, self.version);
+        for h in &self.hashes {
+            s.push_str(" --hash=sha256:");
+            s.push_str(h);
+        }
+        s
+    }
+}
+
+/// Lê uma linha de dependência de um curso Python: `nome==versão --hash=sha256:<64 hex>` (um
+/// ou mais hashes). Recusa tudo o resto — intervalos de versões, extras, marcadores, URLs,
+/// caminhos, `-e`, `-r`, `--index-url` e qualquer outra opção —, porque a linha vai para um
+/// `requirements.txt` que o pip lê: o curso diz QUE pacote e QUE ficheiro, nunca de onde.
+pub fn pip_requirement(line: &str) -> Result<PipRequirement, String> {
+    let mut parts = line.split_whitespace();
+    let spec = parts
+        .next()
+        .ok_or_else(|| "an empty requirement line".to_string())?;
+    let Some((name, version)) = spec.split_once("==") else {
+        return Err(format!(
+            "`{line}`: pin an exact version (`name==1.2.3 --hash=sha256:…`)"
+        ));
+    };
+    let name_ok = !name.is_empty()
+        && name.len() <= 100
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+        && name.starts_with(|c: char| c.is_ascii_alphanumeric())
+        && name.ends_with(|c: char| c.is_ascii_alphanumeric());
+    if !name_ok {
+        return Err(format!("`{line}`: `{name}` is not a package name"));
+    }
+    let version_ok = !version.is_empty()
+        && version.len() <= 64
+        && version.starts_with(|c: char| c.is_ascii_digit())
+        && version
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '+' | '!' | '_' | '-'));
+    if !version_ok {
+        return Err(format!("`{line}`: `{version}` is not an exact version"));
+    }
+    let mut hashes = Vec::new();
+    for part in parts {
+        let Some(hex) = part.strip_prefix("--hash=sha256:") else {
+            return Err(format!(
+                "`{line}`: only `--hash=sha256:<64 hex>` may follow the version (found `{part}`)"
+            ));
+        };
+        if hex.len() != 64 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err(format!("`{line}`: `{hex}` is not a sha256 hash"));
+        }
+        let hex = hex.to_ascii_lowercase();
+        if !hashes.contains(&hex) {
+            hashes.push(hex);
+        }
+    }
+    if hashes.is_empty() {
+        return Err(format!(
+            "`{line}`: add the sha256 of the file to install (`--hash=sha256:…`); grading installs with --require-hashes"
+        ));
+    }
+    Ok(PipRequirement {
+        name: name.to_string(),
+        version: version.to_string(),
+        hashes,
+    })
 }
 
 /// O que chega ao avaliador sobre a construção de um passo (de [`CourseBuild`]). Por omissão,
@@ -174,9 +305,30 @@ pub fn resolve(course: &mut crate::Course) -> Result<(), String> {
             }
         }
     }
+    if CacheKind::of(&course.language) == Some(CacheKind::Pip) && !all.is_empty() {
+        if !course.build.prepare {
+            return Err(format!(
+                "build.dependencies of a course graded in `{}` are installed only into a prepared course cache: set build.prepare = true",
+                course.language
+            ));
+        }
+        let mut names = Vec::new();
+        for line in &all {
+            let req = pip_requirement(line).map_err(|e| format!("build.dependencies: {e}"))?;
+            let key = req.name.to_ascii_lowercase().replace(['_', '.'], "-");
+            if names.contains(&key) {
+                return Err(format!(
+                    "build.dependencies: `{}` is pinned more than once",
+                    req.name
+                ));
+            }
+            names.push(key);
+        }
+    }
     let env = BuildEnv {
         cache: course.build.prepare.then(|| CourseCache {
             key: course.id.clone(),
+            language: course.language.clone(),
             dependencies: all,
         }),
         timeout_secs: course.build.timeout_secs,
@@ -302,6 +454,80 @@ justification = ""
         let errs = b.check();
         assert_eq!(errs.len(), 3, "{errs:?}");
         assert!(CourseBuild::default().check().is_empty());
+    }
+
+    const H1: &str = "5965d974a5218a2b68a11dd1276434707f23886525c23f0598eccedaf4f4ca00";
+    const H2: &str = "fe386d1c2bff7259ea95929266d12a8cf9a8b5a1c2598402967d8792e7a7c094";
+
+    #[test]
+    fn a_pip_requirement_is_pinned_hashed_and_nothing_else() {
+        let r = pip_requirement(&format!("Django==5.2.19 --hash=sha256:{H1}")).unwrap();
+        assert_eq!((r.name.as_str(), r.version.as_str()), ("Django", "5.2.19"));
+        assert_eq!(r.hashes, [H1]);
+        // two hashes, upper case, extra spaces: normalised
+        let two = pip_requirement(&format!(
+            "  asgiref==3.12.1   --hash=sha256:{}  --hash=sha256:{H1}",
+            H2.to_uppercase()
+        ))
+        .unwrap();
+        assert_eq!(
+            two.line(),
+            format!("asgiref==3.12.1 --hash=sha256:{H2} --hash=sha256:{H1}")
+        );
+        for bad in [
+            "Django".to_string(),
+            "Django>=5.2".to_string(),
+            format!("Django>=5.2 --hash=sha256:{H1}"),
+            "Django==5.2.19".to_string(),
+            format!("Django==5.2.19 --hash=md5:{}", &H1[..32]),
+            format!("Django==5.2.19 --hash=sha256:{}", &H1[..60]),
+            format!("Django==5.2.19 --index-url https://evil.example --hash=sha256:{H1}"),
+            format!("Django==5.2.19 --hash=sha256:{H1} --extra-index-url=https://evil.example"),
+            format!("django[argon2]==5.2.19 --hash=sha256:{H1}"),
+            format!("Django==5.2.19;sys_platform=='linux' --hash=sha256:{H1}"),
+            format!("git+https://github.com/django/django==5.2 --hash=sha256:{H1}"),
+            format!("-e ./django --hash=sha256:{H1}"),
+            format!("-r other.txt --hash=sha256:{H1}"),
+            format!("./django.whl==1 --hash=sha256:{H1}"),
+            format!("Django==5.2.* --hash=sha256:{H1}"),
+            format!("Django===5.2.19 --hash=sha256:{H1}"),
+        ] {
+            assert!(pip_requirement(&bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_python_course_pins_every_package_and_only_in_a_prepared_cache() {
+        let course = |build: &str| {
+            format!(
+                "id = \"py-fw\"\nlanguage = \"python\"\ntitle = \"T\"\nlevel = \"beginner\"\nsummary = \"s\"\n{build}\n[[unit]]\nid = \"u1\"\ntitle = \"U\"\n[[unit.step]]\nkind = \"concept\"\nid = \"c1\"\ntitle = \"C\"\nbody = \"b\"\n"
+            )
+        };
+        let ok = course(&format!(
+            "[build]\nprepare = true\ndependencies = ['Django==5.2.19 --hash=sha256:{H1}', 'asgiref==3.12.1 --hash=sha256:{H2}']"
+        ));
+        let c = Course::parse(&ok, CourseFormat::Toml).expect("valid");
+        let cache = c.units[0].steps[0].build.cache.clone().expect("prepared");
+        assert_eq!(cache.language, "python");
+        assert_eq!(cache.kind(), Some(CacheKind::Pip));
+        assert_eq!(cache.dependencies.len(), 2);
+
+        let unpinned = course("[build]\nprepare = true\ndependencies = ['Django>=5']");
+        let e = Course::parse(&unpinned, CourseFormat::Toml).unwrap_err();
+        assert!(e.contains("exact version"), "{e}");
+        let unprepared = course(&format!(
+            "[build]\ndependencies = ['Django==5.2.19 --hash=sha256:{H1}']"
+        ));
+        let e = Course::parse(&unprepared, CourseFormat::Toml).unwrap_err();
+        assert!(e.contains("build.prepare = true"), "{e}");
+        let twice = course(&format!(
+            "[build]\nprepare = true\ndependencies = ['Django==5.2.19 --hash=sha256:{H1}', 'django==5.2.18 --hash=sha256:{H2}']"
+        ));
+        let e = Course::parse(&twice, CourseFormat::Toml).unwrap_err();
+        assert!(e.contains("more than once"), "{e}");
+
+        assert_eq!(CacheKind::of("Rust"), Some(CacheKind::Cargo));
+        assert_eq!(CacheKind::of("typescript"), None);
     }
 
     #[test]

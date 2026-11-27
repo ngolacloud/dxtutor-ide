@@ -96,6 +96,7 @@ use tutor_core::Phase;
 
 use crate::complexity::Sample;
 use crate::container::{current_engine, run_in_container, ContainerSpec, SandboxEngine};
+use crate::course_cache::{python_env, PythonEnv};
 use crate::lang::{Diagnostic, LanguageRunner, Severity};
 use crate::runner::{run_guarded, RunOutput};
 
@@ -379,25 +380,47 @@ impl PluginRunner {
         Ok(dir)
     }
 
-    /// Run a shell `script` in `dir`, host or container depending on [`current_engine`].
-    fn run_script(&self, dir: &Path, script: &str) -> Result<RunOutput> {
+    /// The course environment of a run (`tutor_core::build`): a prepared Python course's venv
+    /// and its timeout. A course cache this descriptor cannot use, or one not prepared yet, is
+    /// refused before anything runs (`course_cache::NOT_PREPARED`).
+    fn course_env(&self, build: &tutor_core::BuildEnv) -> Result<PythonEnv> {
+        if let Some(cache) = &build.cache {
+            if tutor_core::CacheKind::of(&self.plugin.id) != Some(tutor_core::CacheKind::Pip) {
+                anyhow::bail!(
+                    "course `{}`: a prepared course cache is not available for courses graded in `{}`",
+                    cache.key,
+                    self.plugin.id
+                );
+            }
+        }
+        python_env(build)
+    }
+
+    /// Run a shell `script` in `dir`, host or container depending on [`current_engine`]. A
+    /// prepared course always runs on the host: its cache lives there.
+    fn run_script(&self, dir: &Path, script: &str, env: &PythonEnv) -> Result<RunOutput> {
         match current_engine() {
-            SandboxEngine::Host => self.run_host(dir, script),
+            _ if env.cache.is_some() => self.run_host(dir, script, env),
+            SandboxEngine::Host => self.run_host(dir, script, env),
             _ => self.run_container(dir, script),
         }
     }
 
     /// Host path: `sh -c "<script>"` with a minimal environment, own process group and a wall-clock
-    /// timeout — the same cheap hardening the native runners use for toolchain invocations.
-    fn run_host(&self, dir: &Path, script: &str) -> Result<RunOutput> {
+    /// timeout — the same cheap hardening the native runners use for toolchain invocations. In a
+    /// prepared Python course the course venv comes first on the `PATH` (and pip has no index),
+    /// with the course's timeout.
+    fn run_host(&self, dir: &Path, script: &str, env: &PythonEnv) -> Result<RunOutput> {
         use std::process::Command;
         let mut cmd = Command::new("sh");
         cmd.arg("-c").arg(script).current_dir(dir);
         cmd.env_clear();
-        cmd.env("PATH", self.plugin.host_path());
+        let path = self.plugin.host_path();
+        cmd.env("PATH", &path);
         cmd.env("HOME", dir);
         cmd.env("LANG", "C");
-        let timeout = self.plugin.host_timeout();
+        env.apply(&mut cmd, &path);
+        let timeout = env.timeout.unwrap_or_else(|| self.plugin.host_timeout());
         let outcome = run_guarded(cmd, dir, "plugin", timeout, None)
             .with_context(|| format!("run plugin `{}` command on host", self.plugin.id))?;
         if outcome.timed_out {
@@ -446,19 +469,32 @@ impl PluginRunner {
         code: &str,
         support: &std::collections::BTreeMap<String, String>,
     ) -> Result<RunOutput> {
+        self.run_course_program(code, support, &Default::default())
+    }
+
+    /// [`PluginRunner::run_program_with`] for a drill of a course with a `[build]`: a prepared
+    /// Python course runs in its course venv, with the course's timeout.
+    pub fn run_course_program(
+        &self,
+        code: &str,
+        support: &std::collections::BTreeMap<String, String>,
+        build: &tutor_core::BuildEnv,
+    ) -> Result<RunOutput> {
+        let env = self.course_env(build)?;
         let dir = self.scaffold(code, None, support)?;
         let script = expand(&self.plugin.run_cmd, &self.plugin, "");
-        self.run_script(dir.path(), &script)
+        self.run_script(dir.path(), &script, &env)
     }
 }
 
 impl LanguageRunner for PluginRunner {
     /// Correctness = run `test_cmd` over the student code + phase tests. **Exit 0 ⇒ passed.**
     fn check_correctness(&self, phase: &Phase, student_code: &str) -> Result<crate::Correctness> {
+        let env = self.course_env(&phase.build)?;
         let dir = self.scaffold(student_code, Some(&phase.tests), &phase.support)?;
         let script = expand(&self.plugin.test_cmd, &self.plugin, &phase.entry);
         let out = self
-            .run_script(dir.path(), &script)
+            .run_script(dir.path(), &script, &env)
             .with_context(|| format!("run plugin `{}` tests", self.plugin.id))?;
 
         let mut raw = String::new();
@@ -489,10 +525,11 @@ impl LanguageRunner for PluginRunner {
             .project
             .as_ref()
             .with_context(|| format!("step `{}` is not a project step", phase.id))?;
+        let env = self.course_env(&phase.build)?;
         let dir = self.scaffold_tree(tree, &project.tests, &phase.support)?;
         let script = expand(template, &self.plugin, &phase.entry).replace("{main}", &project.main);
         let out = self
-            .run_script(dir.path(), &script)
+            .run_script(dir.path(), &script, &env)
             .with_context(|| format!("run plugin `{}` project tests", self.plugin.id))?;
         let mut raw = String::new();
         raw.push_str(&out.stdout);
@@ -526,7 +563,7 @@ impl LanguageRunner for PluginRunner {
         let dir = self.scaffold(student_code, None, &Default::default())?;
         let script = expand(diag_cmd, &self.plugin, "");
         let out = self
-            .run_script(dir.path(), &script)
+            .run_script(dir.path(), &script, &PythonEnv::default())
             .with_context(|| format!("run plugin `{}` diagnostics", self.plugin.id))?;
         let mut diags = parse_cc_diagnostics(&out.stderr);
         diags.extend(parse_cc_diagnostics(&out.stdout));
@@ -674,7 +711,18 @@ test_cmd = "python3 -B -m unittest -q test_student"
 # Project steps: every `test*.py` from the work dir down (packages need an `__init__.py`).
 # Fails on a failure, an error, or when no test ran — checked here, not left to unittest (only
 # Python 3.12+ exits non-zero when nothing ran; older hosts would pass an empty suite).
-project_test_cmd = '''python3 -B -c 'import sys, unittest
+# A project with a `manage.py` at its root is a Django project: Django's own test runner
+# (`manage.py test`, which sets up the test database and discovers the same `test*.py`), with the
+# same "no tests ran" check on its `Ran N tests` line.
+project_test_cmd = '''python3 -B -c 'import os, re, subprocess, sys, unittest
+if os.path.isfile("manage.py"):
+    run = subprocess.run([sys.executable, "-B", "manage.py", "test", "--noinput"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    sys.stdout.write(run.stdout)
+    ran = re.findall(r"^Ran (\d+) tests? in ", run.stdout, re.M)
+    if run.returncode == 0 and (not ran or int(ran[-1]) == 0):
+        print("no tests ran", file=sys.stderr)
+        sys.exit(1)
+    sys.exit(1 if run.returncode else 0)
 suite = unittest.defaultTestLoader.discover(".", pattern="test*.py", top_level_dir=".")
 result = unittest.TextTestRunner(verbosity=0).run(suite)
 if result.testsRun == 0:
@@ -1523,7 +1571,7 @@ pub fn run_program_with_support(
 
 /// The drill path of a course step: [`run_program_with_support`] plus the course's `[build]`
 /// (`Step::build`): a Rust drill of a prepared course compiles offline against the course cache,
-/// with the course's timeout (`tutor_core::build`).
+/// a Python one runs in the course venv, each with the course's timeout (`tutor_core::build`).
 pub fn run_course_program(
     language: &str,
     code: &str,
@@ -1543,7 +1591,7 @@ pub fn run_course_program(
     }
     match (lang.as_str(), plugin) {
         ("go" | "golang", _) => crate::go_runner::run_go_program_with_deps(code, deps),
-        (_, Some(p)) => PluginRunner::new(p).run_program_with(code, support),
+        (_, Some(p)) => PluginRunner::new(p).run_course_program(code, support, build),
         _ => crate::runner::run_rust_snippet_in(code, deps, build),
     }
 }
@@ -1561,7 +1609,9 @@ pub fn toolchain_version(language: &str) -> Option<String> {
         .prefix("dxtutor-version-")
         .tempdir()
         .ok()?;
-    let out = PluginRunner::new(plugin).run_host(dir.path(), &cmd).ok()?;
+    let out = PluginRunner::new(plugin)
+        .run_host(dir.path(), &cmd, &PythonEnv::default())
+        .ok()?;
     if !out.ok {
         return None;
     }
@@ -1651,7 +1701,7 @@ fn bin_on_path(bin: &str) -> bool {
 }
 
 /// Where `bin` resolves on the caller's `PATH` (or itself, if absolute and present).
-fn find_on_path(bin: &str) -> Option<PathBuf> {
+pub(crate) fn find_on_path(bin: &str) -> Option<PathBuf> {
     let p = Path::new(bin);
     if p.is_absolute() {
         return p.is_file().then(|| p.to_path_buf());
@@ -1865,6 +1915,102 @@ mod tests {
         empty.project.as_mut().unwrap().tests = files(&[("test_shop.py", "# nothing\n")]);
         let none = crate::assess_project(&empty, &project.solution).unwrap();
         assert!(!none.correctness.passed, "{}", none.correctness.raw);
+    }
+
+    /// A Python project with a `manage.py` at its root is graded by Django's runner
+    /// (`manage.py test --noinput`): its exit code decides, and a run whose `Ran N tests` line
+    /// says 0 (or is missing) fails. A stand-in `manage.py` plays Django here (the real one runs
+    /// in the Django course: `dxt plugin test courses/django`).
+    #[test]
+    fn a_django_project_is_graded_by_manage_py_test() {
+        let py = builtin_plugins()
+            .into_iter()
+            .find(|p| p.id == "python")
+            .unwrap();
+        if !py.host_available() || current_engine() != SandboxEngine::Host {
+            return;
+        }
+        let manage = |ran: &str, code: i32| {
+            format!(
+                "import sys\nassert sys.argv[1:] == [\"test\", \"--noinput\"], sys.argv\nfrom app import ok\nprint(\"{ran}\", file=sys.stderr)\nsys.exit({code} if ok() else 1)\n"
+            )
+        };
+        let phase_with = |manage_py: String| {
+            let mut phase = c_add_phase();
+            phase.language = "python".into();
+            phase.id = "dj-project".into();
+            phase.project = Some(tutor_core::ProjectFiles {
+                main: "app/__init__.py".into(),
+                starter: files(&[
+                    ("manage.py", manage_py.as_str()),
+                    ("app/__init__.py", "def ok():\n    return False\n"),
+                ]),
+                readonly: vec!["manage.py".into()],
+                tests: files(&[("tests/__init__.py", "")]),
+                solution: files(&[("app/__init__.py", "def ok():\n    return True\n")]),
+                explanation: String::new(),
+            });
+            phase
+        };
+        let phase = phase_with(manage("Ran 3 tests in 0.010s", 0));
+        let solution = phase.project.as_ref().unwrap().solution.clone();
+        let good = crate::assess_project(&phase, &solution).unwrap();
+        assert!(good.correctness.passed, "{}", good.correctness.raw);
+        assert!(good.correctness.raw.contains("Ran 3 tests"));
+        let bad = crate::assess_project(&phase, &files(&[])).unwrap();
+        assert!(!bad.correctness.passed);
+        // Django's runner exits 0 when it found nothing: that never passes.
+        let none = phase_with(manage("Ran 0 tests in 0.000s", 0));
+        let r = crate::assess_project(&none, &solution).unwrap();
+        assert!(!r.correctness.passed);
+        assert!(
+            r.correctness.raw.contains("no tests ran"),
+            "{}",
+            r.correctness.raw
+        );
+        let silent = phase_with(manage("", 0));
+        assert!(
+            !crate::assess_project(&silent, &solution)
+                .unwrap()
+                .correctness
+                .passed
+        );
+        // A failing run fails, whatever it printed.
+        let failing = phase_with(manage("Ran 2 tests in 0.001s", 1));
+        assert!(
+            !crate::assess_project(&failing, &solution)
+                .unwrap()
+                .correctness
+                .passed
+        );
+    }
+
+    /// A prepared course cache only reaches the descriptor that can use it: a Python course's
+    /// venv, never a cargo cache, and never in another descriptor.
+    #[test]
+    fn a_course_cache_reaches_only_the_python_descriptor() {
+        let ts = PluginRunner::new(
+            builtin_plugins()
+                .into_iter()
+                .find(|p| p.id == "typescript")
+                .unwrap(),
+        );
+        let build = tutor_core::BuildEnv {
+            cache: Some(tutor_core::CourseCache {
+                key: "x".into(),
+                language: "python".into(),
+                dependencies: vec!["a==1 --hash=sha256:00".into()],
+            }),
+            timeout_secs: 0,
+        };
+        let e = ts
+            .run_course_program("console.log(1)", &Default::default(), &build)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            e.contains("not available for courses graded in `typescript`"),
+            "{e}"
+        );
     }
 
     #[test]

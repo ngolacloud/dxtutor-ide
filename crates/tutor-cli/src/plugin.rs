@@ -227,12 +227,18 @@ fn test(args: &[String]) -> Result<()> {
         let root = tutor_eval::course_cache::root()
             .ok_or_else(|| anyhow!("cannot find the user data folder; set DXTUTOR_COURSE_CACHE"))?;
         match tutor_eval::course_cache::status(&root, cache)? {
-            tutor_eval::course_cache::Status::Ready(m) => println!(
-                "{} — graded offline against its prepared cache ({}, prepared with {})",
-                course.id,
-                root.join(&cache.key).display(),
-                m.cargo
-            ),
+            tutor_eval::course_cache::Status::Ready(m) => {
+                println!(
+                    "{} — graded offline against its prepared cache ({}, prepared with {})",
+                    course.id,
+                    root.join(&cache.key).display(),
+                    m.tool
+                );
+                if let Some(kind) = cache.kind() {
+                    let pkgs = tutor_eval::course_cache::packages(kind, &cache.dependencies)?;
+                    println!("  dependencies: {}", package_list(&pkgs));
+                }
+            }
             other => bail!(
                 "course `{}` {}: run `dxt plugin prepare {dir}` first (it downloads its dependencies once)",
                 course.id,
@@ -326,9 +332,15 @@ fn prepare(args: &[String]) -> Result<()> {
         };
         any = true;
         let plan = tutor_eval::course_cache::plan(&root, cache)?;
+        let network = match plan.kind {
+            tutor_core::CacheKind::Cargo => "cargo fetch",
+            tutor_core::CacheKind::Pip => "pip install",
+        };
         println!(
-            "{} — preparing (network: cargo fetch only)\n{}\n",
-            course.id, plan.command
+            "{} — preparing (network: {network} only)\ndownloads: {}\n{}\n",
+            course.id,
+            package_list(&plan.packages),
+            plan.command
         );
         let done = tutor_eval::course_cache::prepare(&plan)?;
         if !done.ok {
@@ -339,18 +351,38 @@ fn prepare(args: &[String]) -> Result<()> {
             .marker
             .expect("a successful preparation writes its marker");
         println!(
-            "OK  {} prepared in {} — fetch {:.1} s, first build {:.1} s ({})",
+            "OK  {} prepared in {} — download {:.1} s, offline steps {:.1} s ({})",
             course.id,
             plan.layout.dir.display(),
             m.fetch_secs,
             m.warm_secs,
-            m.cargo
+            m.tool
         );
     }
     if !any {
         println!("Nothing to prepare: no course in {dir} has `[build] prepare = true`.");
     }
     Ok(())
+}
+
+/// `Django 5.2.19 (PyPI), asgiref 3.12.1 (PyPI)` — the packages a preparation downloads.
+fn package_list(pkgs: &[tutor_eval::course_cache::Package]) -> String {
+    pkgs.iter()
+        .map(|p| {
+            let version = if p.version.is_empty() {
+                String::new()
+            } else {
+                format!(" {}", p.version)
+            };
+            let source = if p.source.is_empty() {
+                String::new()
+            } else {
+                format!(" ({})", p.source)
+            };
+            format!("{}{version}{source}", p.name)
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn kind_name(k: tutor_core::StepKind) -> &'static str {
