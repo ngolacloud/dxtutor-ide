@@ -24,6 +24,8 @@
    (`workspace:changed`) dá `didClose`; abrir outra pasta (`dx:workspace`) pára os servidores da anterior; a
    paleta lista os servidores a correr (`application/servers`, com «Restart»/«Stop» e «Show log», que abre o
    canal «Language servers» do Output pelo `services.panel`); o tecto de servidores por cumprir é avisado.
+   As linguagens dos VSIX instalados (LSP P4): vão ao backend (`lsp_contributions`) antes de o cliente decidir a
+   linguagem de um ficheiro, e quando mudam (`ext:languages`, da feature `ext`) o cliente revê os documentos abertos.
    No browser/testes não arranca: o editor continua exactamente como antes. */
 
 import { isDesktop } from "../../platform/tauri/core";
@@ -34,7 +36,9 @@ import { makeLspClient } from "./application/lsp-client";
 import { makeOverrides } from "./application/overrides";
 import { LSP_OVERRIDE_MESSAGES } from "./application/override-messages";
 import { LSP_INSTALL_MESSAGES } from "./application/install-messages";
-import { tauriLsp, tauriLspConfig, tauriLspInstall, tauriLspServers } from "./infrastructure/tauri";
+import { tauriLsp, tauriLspConfig, tauriLspContributions, tauriLspInstall, tauriLspServers } from "./infrastructure/tauri";
+import { makeContributionsSync } from "./application/contributions";
+import { contributedLanguages } from "./domain/registry";
 import { makeServers } from "./application/servers";
 import { LSP_SERVERS_MESSAGES } from "./application/servers-messages";
 import { serversScreen } from "./ui/servers-view";
@@ -65,6 +69,8 @@ if (isDesktop()) {
     lsp: tauriLsp, workspace, editor, defer: (f) => setTimeout(f, 0),
     overrides, copy, configure: () => void overrides.openUserFile(),
     installCopy: translator(LSP_INSTALL_MESSAGES),
+    /* LSP P4: as linguagens dos VSIX instalados, no backend antes de decidir a linguagem de um ficheiro */
+    contributions: makeContributionsSync({ languages: contributedLanguages, send: tauriLspContributions.send }),
     /* o aviso de servidor em falta (LSP P3): o backend dá as maneiras com o comando exacto; instalar pede
        aprovação, fica auditado e corre num terminal (ou é o download conferido pelo backend) */
     installer: {
@@ -80,6 +86,8 @@ if (isDesktop()) {
   /* um comando de code action executado no servidor devolve as edições por workspace/applyEdit */
   tauriLsp.onApplyEdit((edit) => void client.onApplyEdit(edit));
   bus.on("editor:tab", ({ id }) => void client.onTab(id));
+  /* LSP P4: um VSIX instalado, desinstalado, ligado ou desligado mudou as linguagens */
+  bus.on("ext:languages", () => void client.onLanguagesChanged());
   /* um ficheiro de overrides mudou: o backend já reiniciou os servidores afectados; o registo novo entra
      em uso e o ficheiro aberto é revisto (faixa de aprovação, ou o servidor novo) */
   tauriLspConfig.onConfig(() => void overrides.reload().then(() => client.onConfigChanged()));
