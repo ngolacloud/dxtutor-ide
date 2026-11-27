@@ -1,0 +1,57 @@
+name: codev-review
+# H6b (docs/v2/AUDIT-harness.md §6): the Co-Dev reviews each pull request against this project's rules and comments
+# its findings — `dxtutor-ide agent review`, read-only (nothing is changed, no plan is approved). Advisory: it never
+# blocks a merge. It needs the repository secret ANTHROPIC_API_KEY; without it the job says so and skips. Pull requests
+# from forks never get the secret, so they are skipped too.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "pull request number"
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: codev-review-${{ github.event.pull_request.number || github.event.inputs.pr }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: Co-Dev review (advisory)
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository) }}
+    runs-on: ubuntu-22.04
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      PR: ${{ github.event.pull_request.number || github.event.inputs.pr }}
+      BASE: ${{ github.event.pull_request.base.ref || 'develop' }}
+    steps:
+      - name: Without a model key, skip
+        if: env.ANTHROPIC_API_KEY == ''
+        run: echo "::notice::No ANTHROPIC_API_KEY secret in this repository — the Co-Dev review is skipped"
+      - if: env.ANTHROPIC_API_KEY != ''
+        uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - if: env.ANTHROPIC_API_KEY != '' && github.event_name == 'workflow_dispatch'
+        run: gh pr checkout "$PR"
+        env: { GH_TOKEN: "${{ github.token }}" }
+      - if: env.ANTHROPIC_API_KEY != ''
+        uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - if: env.ANTHROPIC_API_KEY != ''
+        uses: dtolnay/rust-toolchain@stable
+      - if: env.ANTHROPIC_API_KEY != ''
+        uses: Swatinem/rust-cache@v2
+      - if: env.ANTHROPIC_API_KEY != ''
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev libssl-dev patchelf bubblewrap
+      # the IDE's binary embeds ui-app/dist at compile time
+      - if: env.ANTHROPIC_API_KEY != ''
+        run: npm ci && npm run ui:build && cargo build -p dxtutor-ide
+      - name: Review and comment
+        if: env.ANTHROPIC_API_KEY != ''
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: ./target/debug/dxtutor-ide agent review --base "origin/$BASE" --post "$PR"

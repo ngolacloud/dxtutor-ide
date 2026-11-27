@@ -9,7 +9,7 @@ use std::process::Command;
 use std::sync::{Arc, Mutex};
 
 /// The IDE's binary: Cargo's path when it gives one, else next to this test's (`target/<profile>/`).
-fn bin() -> std::path::PathBuf {
+fn bin_path() -> std::path::PathBuf {
     if let Some(p) = option_env!("CARGO_BIN_EXE_dxtutor-ide") {
         return p.into();
     }
@@ -94,7 +94,7 @@ fn a_headless_run_writes_refuses_what_needs_a_human_and_answers() {
     let home = tempfile::tempdir().unwrap();
     let proj = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(proj.path().join("build")).unwrap();
-    let out = Command::new(bin())
+    let out = Command::new(bin_path())
         .args([
             "agent",
             "-p",
@@ -152,11 +152,114 @@ fn a_headless_run_writes_refuses_what_needs_a_human_and_answers() {
 #[test]
 fn usage_errors_exit_2() {
     let home = tempfile::tempdir().unwrap();
-    let out = Command::new(bin())
+    let out = Command::new(bin_path())
         .args(["agent", "--mode", "yolo", "-p", "x"])
         .env("HOME", home.path())
         .output()
         .unwrap();
     assert_eq!(out.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&out.stderr).contains("--mode"));
+}
+
+/// H6b: `agent review` reads the branch's changes, cannot change anything (a write the model tries is refused by the
+/// plan mode), and `--post` comments the answer on the PR through `gh` (a fake one here, that keeps what it got).
+#[cfg(unix)]
+#[test]
+fn a_review_reads_only_and_is_posted_on_the_pr() {
+    use std::os::unix::fs::PermissionsExt;
+    let (port, seen) = fake_ollama(vec![
+        serde_json::json!({"role": "assistant", "content": "", "tool_calls": [
+            {"function": {"name": "write", "arguments": {"path": "a.rs", "content": "fn a() {}\n"}}}
+        ]}),
+        serde_json::json!({"role": "assistant", "content": "## Summary\nMakes a call unsafe.\n## Findings\n- **high** `a.rs:1` — unsafe_thing is not defined — it does not compile — define it\n## Verdict\nrequest changes"}),
+    ]);
+    let home = tempfile::tempdir().unwrap();
+    let proj = tempfile::tempdir().unwrap();
+    let p = proj.path();
+    let g = |a: &[&str]| {
+        let o = Command::new("git")
+            .arg("-C")
+            .arg(p)
+            .args(a)
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@e")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@e")
+            .output()
+            .unwrap();
+        assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    };
+    g(&["init", "-q", "--initial-branch=main"]);
+    std::fs::write(p.join("a.rs"), "fn a() {}\n").unwrap();
+    g(&["add", "-A"]);
+    g(&["commit", "-q", "-m", "base"]);
+    g(&["checkout", "-q", "-b", "feat"]);
+    std::fs::write(p.join("a.rs"), "fn a() { unsafe_thing() }\n").unwrap();
+    g(&["commit", "-qam", "make a unsafe"]);
+    // a fake gh that keeps its arguments and the comment
+    let bin = home.path().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let got = home.path().join("gh-got.txt");
+    std::fs::write(
+        bin.join("gh"),
+        format!(
+            "#!/bin/sh\necho \"$@\" > '{0}'\ncat >> '{0}'\n",
+            got.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(bin.join("gh"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let out = Command::new(bin_path())
+        .args([
+            "agent",
+            "review",
+            "--base",
+            "main",
+            "--post",
+            "42",
+            "--provider",
+            "ollama",
+            "--model",
+            "fake",
+        ])
+        .current_dir(p)
+        .env_clear()
+        .env("PATH", path)
+        .env("HOME", home.path())
+        .env("DXTUTOR_CONFIG_DIR", home.path().join("cfg"))
+        .env("DXTUTOR_DATA_DIR", home.path().join("data"))
+        .env("OLLAMA_HOST", format!("http://127.0.0.1:{port}"))
+        .env("DXTUTOR_KEYCHAIN_SERVICE", "dxtutor-headless-test")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stdout: {stdout}\nstderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(stdout.contains("## Verdict") && stdout.contains("Co-Dev review"));
+    // nothing changed: the write the model tried was refused by the plan mode
+    assert_eq!(
+        std::fs::read_to_string(p.join("a.rs")).unwrap(),
+        "fn a() { unsafe_thing() }\n"
+    );
+    // the request held the branch's diff
+    let seen = seen.lock().unwrap();
+    assert!(seen[0]["messages"]
+        .to_string()
+        .contains("+fn a() { unsafe_thing() }"));
+    // posted on PR 42
+    let posted = std::fs::read_to_string(&got).unwrap();
+    assert!(
+        posted.starts_with("pr comment 42 --body-file -"),
+        "{posted}"
+    );
+    assert!(posted.contains("request changes") && posted.contains("Co-Dev review"));
 }

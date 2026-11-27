@@ -1725,8 +1725,15 @@ pergunta perigosa continua a perguntar — e é recusada). `--cwd`, `--provider`
 `--output text|json|stream-json` (`stream-json`: cada `AgentEvent` numa linha e no fim `{type: "result"}`). Saída: 0
 terminou; 1 não correu (sem chave, sem pasta, erro do fornecedor); 2 uso; 3 parou antes (limite, recusa, cancelado).
 Chaves e base como a app: `DXTUTOR_CONFIG_DIR`/`DXTUTOR_DATA_DIR` ou as pastas XDG de `ao.ngolacloud.dxtutor-ide`.
-Os comandos de teste e lint são os do projecto da raiz do workspace. Testes: `cargo test -p dxtutor-ide headless` e
-`--test headless_agent` (o binário real contra um Ollama falso: escreve, recusa o `rm -rf`, responde, código 0).
+Os comandos de teste e lint são os do projecto da raiz do workspace. `--plan` = só leitura (o modo plano, e aqui nem um
+plano é aprovado).
+- **H6b — `dxtutor-ide agent review [--base REF] [--post N]`:** revê as mudanças do ramo desde a base (`base...HEAD`;
+  por omissão `origin/HEAD`, `origin/develop`, `origin/main` ou `main`) numa corrida só de leitura, contra as regras do
+  projecto, e responde com `## Summary` / `## Findings` (`**high|medium|low** path:line — …`) / `## Verdict`; `--post N`
+  comenta-a no PR N pelo `gh`. O workflow `.github/workflows/codev-review.yml` corre-a em cada PR do repositório (não de
+  forks), ACONSELHADORA (nunca bloqueia), só com o segredo `ANTHROPIC_API_KEY` — sem ele diz que saltou.
+Testes: `cargo test -p dxtutor-ide headless` e `--test headless_agent` (o binário real contra um Ollama falso: escreve,
+recusa o `rm -rf`, responde, código 0; a revisão não muda nada e é comentada no PR por um `gh` falso).
 
 ## A ferramenta `ide` e as skills do IDE (H3/H4, `src-tauri/src/ide_tool.rs`, `ide_tool/ops.rs`, `tutor_agent::extensions`)
 
