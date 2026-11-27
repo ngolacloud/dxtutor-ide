@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "id": "django",
+  "name": "Django",
+  "version": "1.0.0",
+  "description": "Django: Web Apps the Batteries-Included Way — views and URLs, models and migrations, the ORM, templates, forms, the admin, tests and a JSON API with plain Django, up to a small reading-list app. Graded offline with Django's own test runner against the real Django 5.2 LTS.",
+  "authors": ["dxtutor"],
+  "license": "MIT OR Apache-2.0",
+  "repository": "https://github.com/ngolacloud/dxtutor-course-django",
+  "engine": ">=0.7.0",
+  "kind": "course",
+  "category": "framework",
+  "subject": {
+    "id": "django",
+    "name": "Django",
+    "icon": "🎸",
+    "docs": "https://docs.djangoproject.com/en/5.2/"
+  },
+  "language": {
+    "id": "python",
+    "name": "Python",
+    "icon": "🐍",
+    "extension": "py",
+    "indent": "4",
+    "testCommand": "python3 manage.py test"
+  },
+  "courses": ["courses/django.toml"]
+}

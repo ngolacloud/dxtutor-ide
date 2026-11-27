@@ -95,11 +95,25 @@ export interface Course {
 }
 
 /** O estado da preparação de um curso que se avalia offline contra uma cache. */
+/** Um pacote que a preparação de um curso descarrega (vem do backend). */
+export interface CoursePackage {
+  name: string;
+  /** A versão exacta (pip), o requisito (cargo `1`, `=1.2.3`) ou a referência git (`tag v0.2.0`). */
+  version: string;
+  /** De onde vem: `PyPI`, `crates.io`, o URL do repositório git… */
+  source: string;
+  pinned: boolean;
+}
+
 export interface PrepareStatus {
   needed: boolean;
   state: "not-needed" | "missing" | "stale" | "ready";
   /** Os comandos exactos a aprovar (vêm do backend). */
   command: string;
+  /** O gestor de pacotes da cache: `cargo` (compila) ou `pip` (venv do curso). */
+  kind: "cargo" | "pip" | "";
+  /** Os pacotes que a preparação descarrega, para o diálogo de aprovação. */
+  packages: CoursePackage[];
   /** A pasta da cache do curso. */
   dir: string;
   timeoutSecs: number;
