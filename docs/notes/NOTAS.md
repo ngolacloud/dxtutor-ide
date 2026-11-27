@@ -2038,7 +2038,7 @@ Percursos guiados para aprender uma linguagem, um framework ou uma ferramenta: l
 | [O curso Dxjs: da primeira signal a uma pequena app](#o-curso-dxjs-da-primeira-signal-a-uma-pequena-app) | Learning Track › «Choose what to learn» › «Frameworks & tools» › Dxjs |
 | [O curso Django: de uma vista a uma pequena app de leituras](#o-curso-django-de-uma-vista-a-uma-pequena-app-de-leituras) | Learning Track › «Choose what to learn» › «Frameworks & tools» › Django |
 | [Os cursos de Kubernetes e do Delonix: manifestos avaliados sem cluster](#os-cursos-de-kubernetes-e-do-delonix-manifestos-avaliados-sem-cluster) | Learning Track › «Choose what to learn» › «Frameworks & tools» › Kubernetes ou Delonix Engine |
-| [Preparar um curso (Seiva, Django): descarregar as dependências uma vez](#preparar-um-curso-seiva-django-descarregar-as-dependencias-uma-vez) | Learning Track › um passo do curso Seiva ou Django › cartão «Prepare this course» |
+| [Preparar um curso (Seiva, Django, Docker, Podman): descarregar as dependências uma vez](#preparar-um-curso-seiva-django-docker-podman-descarregar-as-dependencias-uma-vez) | Learning Track › um passo do curso Seiva, Django, Docker ou Podman › cartão «Prepare this course» |
 | [O cluster de prática do Kubernetes: arrancar, apagar, e avaliar ao vivo](#o-cluster-de-pratica-do-kubernetes-arrancar-apagar-e-avaliar-ao-vivo) | Learning Track › Kubernetes › um passo das unidades 12 a 18 › cartões «Prepare this course» e «Practice cluster» |
 
 ### Escolher o que aprender: linguagens e «Frameworks & tools»
@@ -2196,37 +2196,38 @@ Dois cursos de ferramentas em que se escreve YAML: o de Kubernetes (11 unidades,
 
 <sub>Cobre: `lt-pick`, `submit_step`</sub>
 
-### Preparar um curso (Seiva, Django): descarregar as dependências uma vez
+### Preparar um curso (Seiva, Django, Docker, Podman): descarregar as dependências uma vez
 
-**Onde:** Learning Track › um passo do curso Seiva ou Django › cartão «Prepare this course»
+**Onde:** Learning Track › um passo do curso Seiva, Django, Docker ou Podman › cartão «Prepare this course»
 
-Um curso que usa bibliotecas de fora (o Seiva 0.2.0, o tokio e o axum; o Django 5.2) avalia-se sempre sem rede. Antes da primeira avaliação, «Prepare course» descarrega essas bibliotecas uma vez para uma cache deste curso; depois, cada passo corre offline em poucos segundos.
+Um curso que usa bibliotecas de fora (o Seiva 0.2.0, o tokio e o axum; o Django 5.2) ou imagens base de contentores (Docker e Podman) avalia-se sempre sem rede. Antes da primeira avaliação, «Prepare course» descarrega essas bibliotecas uma vez para uma cache deste curso; depois, cada passo corre offline em poucos segundos.
 
 **Como usar**
 
 1. Abre um passo do curso: enquanto o curso não está preparado, aparece o cartão «Prepare this course».
 2. Carrega em «Prepare course» e lê, no diálogo, os pacotes que vão ser descarregados (nome, versão e origem), os comandos exactos e a pasta onde correm.
-3. Aprova: o Seiva demora cerca de um minuto, o Django uns segundos; no fim o cartão desaparece e «Submit» já avalia.
+3. Aprova: o Seiva demora cerca de um minuto, o Django e as imagens dos cursos de contentores uns segundos; no fim o cartão desaparece e «Submit» já avalia.
 
 **Fluxo (por dentro)**
 
 1. O backend constrói os comandos e a lista de pacotes (`course_prepare_status`). Num curso Rust: `cargo fetch` (a única ida à rede) e `cargo test --offline --no-run`, com um `CARGO_HOME` e um `target` só do curso — o `~/.cargo` não é tocado.
 2. Num curso Python: `python3 -m venv` cria um venv só do curso, `pip install --require-hashes --only-binary=:all:` instala do PyPI as versões exactas (a única ida à rede; um pacote sem hash ou não fixado faz o pip recusar; nenhum `setup.py` corre; a configuração e a cache do pip do utilizador ficam de fora) e `pip check` confirma o resultado sem rede. O Python do utilizador não ganha pacotes.
-3. O diálogo de aprovação partilhado mostra os pacotes e os comandos. Uma recusa vai para o registo de auditoria e nada corre.
-4. Aprovado, `course_prepare` só corre se o comando aprovado for o plano actual; regista a operação na auditoria antes de correr e outra vez com o resultado.
-5. No fim fica um marcador com a impressão digital das dependências; cada avaliação corre contra essa cache (`--offline` no Rust, o Python do venv com `PIP_NO_INDEX` no Python) e com o tempo limite do curso.
-6. Sem preparação (ou se o curso mudou as dependências), a avaliação recusa com `COURSE_NOT_PREPARED` e o cartão volta a aparecer.
+3. Num curso de contentores (Docker, Podman): `podman pull` de cada imagem base pelo seu digest sha256 (a única ida à rede) e `podman tag` com o nome que os `FROM` usam, para o sandbox Podman rootless do dxtutor (`<cache>/.sandbox/podman`: armazenamento e configuração próprios). As imagens e os contentores do utilizador não são tocados, e o daemon do Docker nunca é usado.
+4. O diálogo de aprovação partilhado mostra os pacotes e os comandos. Uma recusa vai para o registo de auditoria e nada corre.
+5. Aprovado, `course_prepare` só corre se o comando aprovado for o plano actual; regista a operação na auditoria antes de correr e outra vez com o resultado.
+6. No fim fica um marcador com a impressão digital das dependências; cada avaliação corre contra essa cache (`--offline` no Rust, o Python do venv com `PIP_NO_INDEX` no Python, `--pull=never` nos contentores, que confirmam o digest de cada imagem antes de avaliar) e com o tempo limite do curso.
+7. Sem preparação (ou se o curso mudou as dependências), a avaliação recusa com `COURSE_NOT_PREPARED` e o cartão volta a aparecer.
 
 **Dicas**
 
-- Na linha de comandos, `dxt plugin prepare courses/seiva` (ou `courses/django`) faz o mesmo para a mesma cache.
-- A cache fica em `<dados do utilizador>/dxtutor/course-cache/<id do curso>` (o Seiva uns 650 MB, o Django uns 60 MB); apagá-la só obriga a preparar outra vez.
+- Na linha de comandos, `dxt plugin prepare courses/seiva` (ou `courses/django`, `courses/docker`, `courses/podman`) faz o mesmo para a mesma cache.
+- A cache fica em `<dados do utilizador>/dxtutor/course-cache/<id do curso>` (o Seiva uns 650 MB, o Django uns 60 MB; as imagens dos cursos de contentores, uns 330 MB, no sandbox ao lado); apagá-la só obriga a preparar outra vez.
 - Um curso de terceiros pode declarar as dependências que quiser: confere a lista do diálogo antes de aprovar.
 
 **Limites**
 
-- Só na app desktop, e só para cursos avaliados em Rust (cargo), Python (pip) ou — o Kubernetes — YAML (o cluster de prática).
-- Precisa de rede na preparação (crates.io e GitHub; o PyPI; o GitHub e o Docker Hub no Kubernetes).
+- Só na app desktop, e só para cursos avaliados em Rust (cargo), Python (pip), Dockerfile (imagens; precisa do Podman rootless, só em Linux) ou — o Kubernetes — YAML (o cluster de prática).
+- Precisa de rede na preparação (crates.io e GitHub; o PyPI; o Docker Hub; o GitHub e o Docker Hub no Kubernetes).
 
 <sub>Cobre: `lt-prepare`</sub>
 

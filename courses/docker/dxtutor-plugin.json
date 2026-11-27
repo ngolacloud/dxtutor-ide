@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "id": "docker",
+  "name": "Docker",
+  "version": "1.0.0",
+  "description": "Docker: Dockerfiles That Ship — images and layers, Dockerfile instructions, ENTRYPOINT and CMD, multi-stage builds, users and least privilege, volumes, networks, Compose, health checks, image size and caching. Docker syntax and CLI, graded live in a private rootless Podman sandbox (Podman's Docker-compatible build and run), offline, never through the Docker daemon.",
+  "authors": ["dxtutor"],
+  "license": "MIT OR Apache-2.0",
+  "repository": "https://github.com/ngolacloud/dxtutor-course-docker",
+  "engine": ">=0.7.0",
+  "kind": "course",
+  "category": "tool",
+  "subject": {
+    "id": "docker",
+    "name": "Docker",
+    "icon": "🐳",
+    "docs": "https://docs.docker.com/"
+  },
+  "language": {
+    "id": "dockerfile",
+    "name": "Dockerfile",
+    "icon": "🐳",
+    "extension": "dockerfile",
+    "indent": "4",
+    "testCommand": "docker build"
+  },
+  "courses": ["courses/docker.toml"]
+}

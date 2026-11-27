@@ -1582,6 +1582,9 @@ pub fn run_course_program(
     let lang = language.trim().to_ascii_lowercase();
     // Um drill de um curso de ferramentas é um ficheiro YAML: «corrê-lo» é lê-lo (sem
     // ferramentas, sem rede). Os ficheiros de apoio não entram num drill YAML.
+    if tutor_core::toolcheck::containerfile_language(&lang) {
+        return Ok(crate::tool_runner::run_containerfile_program(code));
+    }
     if tutor_core::toolcheck::graded_by_checks(&lang) {
         return Ok(crate::tool_runner::run_yaml_program(code));
     }

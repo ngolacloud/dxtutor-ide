@@ -23,8 +23,16 @@
 //! Uma ferramenta em falta é um ERRO com o que instalar ([`tutor_core::toolcheck::Tool::install_hint`]),
 //! nunca um «falhou» obscuro nem um «passou».
 //!
-//! A avaliação corre sempre no anfitrião (mesmo com o sandbox de contentores ligado): os comandos
-//! permitidos só lêem ficheiros.
+//! A avaliação destes comandos corre no anfitrião (mesmo com o sandbox de contentores ligado): só
+//! lêem ficheiros.
+//!
+//! # Contentores (Learn P3a)
+//!
+//! Os cursos de Docker e de Podman (linguagem `dockerfile`) juntam os comandos de contentores de
+//! [`tutor_core::podcmd`]: correm no sandbox Podman rootless (`crate::sandbox`,
+//! `crate::container_check`) contra as imagens que «Prepare course» puxou — nunca no daemon do
+//! Docker nem no armazenamento do Podman do utilizador, e nunca puxam nada. Um curso que não foi
+//! preparado recusa com `COURSE_NOT_PREPARED`; sem `podman`, diz o que instalar.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
@@ -45,9 +53,22 @@ const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 /// Quanto da saída de um comando entra no relatório.
 const OUTPUT_TAIL: usize = 3000;
 
-/// O avaliador dos cursos cujos passos se avaliam por verificações (`yaml`).
+/// O avaliador dos cursos cujos passos se avaliam por verificações (`yaml`, e `dockerfile` nos
+/// cursos de contentores, cujos ficheiros principais são Containerfiles).
 #[derive(Debug, Clone, Copy, Default)]
-pub struct ToolRunner;
+pub struct ToolRunner {
+    /// Os ficheiros dos drills e os diagnósticos são de Containerfiles (não de YAML).
+    pub containerfile: bool,
+}
+
+impl ToolRunner {
+    /// O avaliador de um curso em `language`.
+    pub fn for_language(language: &str) -> Self {
+        ToolRunner {
+            containerfile: toolcheck::containerfile_language(language),
+        }
+    }
+}
 
 impl LanguageRunner for ToolRunner {
     fn check_correctness(&self, phase: &Phase, _student_code: &str) -> Result<Correctness> {
@@ -62,6 +83,17 @@ impl LanguageRunner for ToolRunner {
     }
 
     fn diagnostics(&self, student_code: &str) -> Result<Vec<Diagnostic>> {
+        if self.containerfile {
+            return Ok(match tutor_core::containerfile::parse(student_code) {
+                Ok(_) => Vec::new(),
+                Err(e) => vec![Diagnostic {
+                    line: e.line,
+                    col: 1,
+                    severity: Severity::Error,
+                    message: e.message,
+                }],
+            });
+        }
         Ok(match yaml_documents(student_code) {
             Ok(_) => Vec::new(),
             Err(e) => vec![Diagnostic {
@@ -74,7 +106,13 @@ impl LanguageRunner for ToolRunner {
     }
 
     fn check_project(&self, phase: &Phase, tree: &BTreeMap<String, String>) -> Result<Correctness> {
-        grade(phase, tree, &find_tool, &open_kind_cluster)
+        grade(
+            phase,
+            tree,
+            &find_tool,
+            crate::course_cache::root().as_deref(),
+            &open_kind_cluster,
+        )
     }
 
     fn grades_support_files(&self) -> bool {
@@ -224,11 +262,31 @@ pub fn run_yaml_program(code: &str) -> RunOutput {
     }
 }
 
+/// O caminho dos drills de um curso de contentores: «correr» o Containerfile é lê-lo e dizer que
+/// instruções e estágios tem. Sem construir nada, sem Podman e sem rede.
+pub fn run_containerfile_program(code: &str) -> RunOutput {
+    match tutor_core::containerfile::parse(code) {
+        Ok(instrs) => RunOutput {
+            ok: true,
+            stdout: tutor_core::containerfile::describe(&instrs),
+            stderr: String::new(),
+        },
+        Err(e) => RunOutput {
+            ok: false,
+            stdout: String::new(),
+            stderr: format!("not a valid Containerfile: {e}"),
+        },
+    }
+}
+
 // ── Ferramentas ──────────────────────────────────────────────────────────────────────────
 
 /// Onde está o executável de `tool`: no `PATH` de quem avalia, senão nas pastas habituais (a app
 /// desktop pode arrancar com um `PATH` curto).
 pub fn find_tool(tool: Tool) -> Option<PathBuf> {
+    if tool == Tool::Podman {
+        return crate::sandbox::find_podman();
+    }
     let bin = tool.binary();
     let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
         .map(|p| std::env::split_paths(&p).collect())
@@ -350,6 +408,11 @@ fn tool_version(tool: Tool) -> std::result::Result<String, String> {
             .chain(lines.iter().filter(|l| l.starts_with("commit:")).copied())
             .collect::<Vec<_>>()
             .join(" · "),
+        // «podman version 4.9.3»: o que os cursos de contentores correm (o rootless, no sandbox).
+        Tool::Podman => format!(
+            "{}, rootless sandbox",
+            lines.first().copied().unwrap_or_default()
+        ),
     })
 }
 
@@ -521,6 +584,8 @@ fn guard(cmd: &ToolCommand, work: &Path) -> std::result::Result<(), String> {
         ToolCommand::KubectlKustomize { .. } => kustomize_guard(work),
         ToolCommand::DelonixComposeConfig { file, .. } => compose_guard(work, file),
         ToolCommand::DelonixManifestRender { .. } => Ok(()),
+        // Os comandos de contentores têm a sua guarda (`container_check`); o `append` não corre nada.
+        ToolCommand::Pod { .. } | ToolCommand::Append { .. } => Ok(()),
     }
 }
 
@@ -551,13 +616,25 @@ fn grade(
     phase: &Phase,
     tree: &BTreeMap<String, String>,
     find: &dyn Fn(Tool) -> Option<PathBuf>,
+    cache_root: Option<&Path>,
     open_cluster: OpenCluster,
 ) -> Result<Correctness> {
     let project = phase
         .project
         .as_ref()
         .with_context(|| format!("step `{}` is not a project step", phase.id))?;
-    let errs = toolcheck::check_step(project);
+    let images = phase
+        .build
+        .cache
+        .as_ref()
+        .filter(|c| c.kind() == Some(tutor_core::CacheKind::Images))
+        .map(|c| {
+            c.dependencies
+                .iter()
+                .filter_map(|d| tutor_core::image_reference(d).ok())
+                .collect::<Vec<_>>()
+        });
+    let errs = toolcheck::check_step_with(project, images.as_deref());
     if !errs.is_empty() {
         bail!("invalid checks in step `{}`: {}", phase.id, errs.join("; "));
     }
@@ -587,7 +664,7 @@ fn grade(
         .context("resolve the grading folder")?;
     let work = base.join("work");
     std::fs::create_dir_all(&work).context("create the work folder")?;
-    let sandbox = ToolSandbox::create(&base.join("sandbox"))?;
+    let tool_sandbox = ToolSandbox::create(&base.join("sandbox"))?;
     let mut written: BTreeMap<String, String> = BTreeMap::new();
     for (rel, content) in tree
         .iter()
@@ -608,9 +685,61 @@ fn grade(
     let mut saved: BTreeMap<String, std::result::Result<Vec<Value>, String>> = BTreeMap::new();
     let mut raw_saved: BTreeMap<String, String> = BTreeMap::new();
 
+    // O sandbox de contentores, se algum comando o usa: o curso tem de estar preparado (as imagens
+    // no sandbox), e a sessão limpa tudo o que criar ao cair.
+    let sandbox = match bins.get(&Tool::Podman) {
+        None => None,
+        Some(bin) => {
+            let env = crate::course_cache::images_env_in(cache_root, &phase.build)?
+                .with_context(|| {
+                    format!(
+                        "step `{}` runs container commands, but its course declares no base images: list them in [build] dependencies (with prepare = true)",
+                        phase.id
+                    )
+                })?;
+            Some((
+                crate::sandbox::Sandbox::with_bin(&env.layout.images_sandbox, bin)?,
+                env,
+            ))
+        }
+    };
+    let mut session = match &sandbox {
+        None => None,
+        Some((sb, env)) => Some(crate::container_check::PodSession::start(
+            sb,
+            &work,
+            env.images.clone(),
+            &env.key,
+            env.timeout,
+        )?),
+    };
+    if let Some(s) = &session {
+        report.push(format!(
+            "Graded in the private rootless Podman sandbox ({}); nothing is pulled and everything it creates is removed afterwards.\n",
+            s.version
+        ));
+    }
+
     for run in &checks.runs {
         let cmd = toolcheck::parse_command(&run.cmd).map_err(anyhow::Error::msg)?;
         let shown = cmd.display();
+        if let ToolCommand::Append { file, text } = &cmd {
+            use std::io::Write;
+            let path = work.join(file);
+            let res = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&path)
+                .and_then(|mut f| f.write_all(text.as_bytes()));
+            outcomes.push(Outcome {
+                ok: res.is_ok(),
+                label: format!("the grader changed `{file}` (appended a line)"),
+                detail: match res {
+                    Ok(()) => String::new(),
+                    Err(e) => format!("{} (`{file}`: {e})", run.message),
+                },
+            });
+            continue;
+        }
         if let Err(why) = guard(&cmd, &work) {
             outcomes.push(Outcome {
                 ok: false,
@@ -622,37 +751,44 @@ fn grade(
             }
             continue;
         }
-        let bin = &bins[&cmd.tool()];
-        let out = sandbox.run(bin, &cmd.args(), &work)?;
-        let both = format!("{}\n{}", out.stdout, out.stderr);
-        let status_ok = match run.expect {
-            Expect::Success => out.ok,
-            Expect::Failure => !out.ok,
-        };
-        let missing: Vec<&String> = run
-            .output_contains
-            .iter()
-            .filter(|s| !both.contains(s.as_str()))
-            .collect();
-        let ok = status_ok && missing.is_empty();
-        let mut detail = String::new();
-        if !ok {
-            let why = if !status_ok {
-                match run.expect {
-                    Expect::Success => "it failed".to_string(),
-                    Expect::Failure => "it succeeded, but it should refuse this input".to_string(),
+        let mut attempt = 0;
+        let (out, verdict) = loop {
+            let out = match (&cmd, session.as_mut()) {
+                (ToolCommand::Pod { cmd: pod, .. }, Some(s)) => match s.exec(pod)? {
+                    Ok(o) => o,
+                    Err(why) => {
+                        break (
+                            RunOutput {
+                                ok: false,
+                                stdout: String::new(),
+                                stderr: String::new(),
+                            },
+                            Err(format!("not run: {why}")),
+                        )
+                    }
+                },
+                (ToolCommand::Pod { .. }, None) => bail!("no container sandbox for `{shown}`"),
+                _ => {
+                    let tool = cmd.tool().context("a command without a tool")?;
+                    tool_sandbox.run(&bins[&tool], &cmd.args(), &work)?
                 }
-            } else {
-                format!(
-                    "the output lacks {}",
-                    missing
-                        .iter()
-                        .map(|s| format!("`{s}`"))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
             };
-            detail = format!("{} ({why})\n{}", run.message, indent(&tail(&both)));
+            let verdict = judge(run, &out);
+            attempt += 1;
+            if verdict.is_ok() || attempt > run.retries {
+                break (out, verdict);
+            }
+            std::thread::sleep(Duration::from_secs(1));
+        };
+        let both = format!("{}\n{}", out.stdout, out.stderr);
+        let ok = verdict.is_ok();
+        let mut detail = String::new();
+        if let Err(why) = verdict {
+            detail = if both.trim().is_empty() {
+                format!("{} ({why})", run.message)
+            } else {
+                format!("{} ({why})\n{}", run.message, indent(&tail(&both)))
+            };
         }
         outcomes.push(Outcome {
             ok,
@@ -762,6 +898,37 @@ fn grade(
         },
         raw: report.join("\n"),
     })
+}
+
+/// O veredicto de um comando: o código de saída esperado e as regras da saída.
+fn judge(run: &toolcheck::Run, out: &RunOutput) -> std::result::Result<(), String> {
+    let both = format!("{}\n{}", out.stdout, out.stderr);
+    match (run.expect, out.ok) {
+        (Expect::Success, false) => return Err("it failed".into()),
+        (Expect::Failure, true) => {
+            return Err("it succeeded, but it should refuse this input".into())
+        }
+        _ => {}
+    }
+    let missing: Vec<String> = run
+        .output_contains
+        .iter()
+        .filter(|s| !both.contains(s.as_str()))
+        .map(|s| format!("`{s}`"))
+        .collect();
+    if !missing.is_empty() {
+        return Err(format!("the output lacks {}", missing.join(", ")));
+    }
+    for re in &run.output_matches {
+        let rx = regex::Regex::new(re).map_err(|e| format!("bad regex: {e}"))?;
+        if !rx.is_match(&both) {
+            return Err(format!("the output does not match `{re}`"));
+        }
+    }
+    if let Some(s) = run.output_lacks.iter().find(|s| both.contains(s.as_str())) {
+        return Err(format!("the output contains `{s}`"));
+    }
+    Ok(())
 }
 
 // ── Ao vivo (Learn P3b) ──────────────────────────────────────────────────────────────────
@@ -1244,7 +1411,7 @@ mod tests {
             &[("pod.yaml", "spec:\n  containers:\n  - image: nginx\n")],
             checks,
         );
-        let r = ToolRunner;
+        let r = ToolRunner::default();
         let bad = r
             .check_project(&p, &p.project.as_ref().unwrap().starter)
             .unwrap();
@@ -1279,7 +1446,7 @@ mod tests {
             &[("a.yaml", "a: 1\n")],
             "[[run]]\ncmd = [\"kubectl\", \"apply\", \"-f\", \"a.yaml\"]\nmessage = \"m\"\n",
         );
-        let e = ToolRunner
+        let e = ToolRunner::default()
             .check_project(&p, &BTreeMap::new())
             .unwrap_err()
             .to_string();
@@ -1374,6 +1541,7 @@ mod tests {
             &p,
             &p.project.as_ref().unwrap().starter,
             &|_| None,
+            None,
             &no_cluster,
         )
         .unwrap_err()
@@ -1403,11 +1571,11 @@ mod tests {
             let p = phase(&[("pod.yaml", manifest)], checks);
             let good: BTreeMap<String, String> =
                 [("pod.yaml".to_string(), manifest.to_string())].into();
-            let r = ToolRunner.check_project(&p, &good).unwrap();
+            let r = ToolRunner::default().check_project(&p, &good).unwrap();
             assert!(r.passed, "{}", r.raw);
             let typo: BTreeMap<String, String> =
                 [("pod.yaml".to_string(), manifest.replace("image:", "imgae:"))].into();
-            let r = ToolRunner.check_project(&p, &typo).unwrap();
+            let r = ToolRunner::default().check_project(&p, &typo).unwrap();
             assert!(
                 !r.passed && r.raw.contains("The manifest must load."),
                 "{}",
@@ -1423,7 +1591,7 @@ mod tests {
                 ],
                 checks,
             );
-            let r = ToolRunner
+            let r = ToolRunner::default()
                 .check_project(&p, &p.project.as_ref().unwrap().starter)
                 .unwrap();
             assert!(r.passed, "{}", r.raw);
@@ -1529,7 +1697,14 @@ message = "Two replicas."
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect();
-        let r = grade(&p, &tree, &|_| Some(PathBuf::from("/usr/bin/true")), &open).unwrap();
+        let r = grade(
+            &p,
+            &tree,
+            &|_| Some(PathBuf::from("/usr/bin/true")),
+            None,
+            &open,
+        )
+        .unwrap();
         (r, calls)
     }
 
@@ -1635,6 +1810,7 @@ message = "Two replicas."
             &p,
             &p.project.as_ref().unwrap().starter,
             &|_| Some(PathBuf::from("/usr/bin/true")),
+            None,
             &no_cluster,
         )
         .unwrap();

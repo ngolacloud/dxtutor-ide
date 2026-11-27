@@ -228,7 +228,7 @@ fn runner_for(language: &str) -> Box<dyn LanguageRunner> {
         // Os cursos de ferramentas (Kubernetes, Delonix): verificações declarativas + comandos
         // offline da lista permitida (`tutor_core::toolcheck`).
         other if tutor_core::toolcheck::graded_by_checks(other) => {
-            Box::new(crate::tool_runner::ToolRunner)
+            Box::new(crate::tool_runner::ToolRunner::for_language(other))
         }
         other => {
             // Um plugin declarativo registado tem prioridade sobre o fallback Rust.

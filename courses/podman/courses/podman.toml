@@ -1,0 +1,2742 @@
+# Podman — the official dxtutor course for Podman (Learn P3a).
+#
+# A TOOL course graded LIVE. The learner writes Containerfiles (and a compose file); every
+# challenge is a project step whose hidden `checks.toml` builds and runs the learner's image in a
+# private rootless Podman sandbox (tutor_core::podcmd has the allow-list; tutor_eval::sandbox the
+# sandbox): its own storage and configuration, limits, no capabilities, no network, labels on
+# everything and nothing left behind. Grading never pulls: «Prepare course» pulls the three base
+# images below, by digest, once. Written against Podman 4.9.3 (Buildah 1.33).
+
+id = "podman-basics"
+language = "dockerfile"
+category = "tool"
+subject = "podman"
+title = "Podman: Images and Containers, Rootless"
+level = "beginner"
+summary = "Build images and run containers with Podman, rootless: layers, Containerfile instructions, ENTRYPOINT and CMD, multi-stage builds, least privilege, volumes, networks, compose, health checks, size and caching — graded live in a private sandbox."
+
+overview = '''
+**Podman** builds and runs OCI containers without a daemon and, by default, without root: every
+container is a child process of your own user, inside a user namespace. Its command line is
+compatible with Docker's (`podman run`, `podman build`, `podman images`…), it builds with
+**Buildah** underneath, and it adds what Docker does not have — **pods**, rootless by default, and
+`podman kube play` for Kubernetes YAML.
+
+This course teaches you to write **Containerfiles** (the same format as a Dockerfile) that build
+small, safe images, and to run them the way production expects: as a non-root user, with data in
+volumes, health checks that mean something, and builds that reuse their cache. Every challenge is
+graded **live**: your Containerfile is built and run by Podman, and hidden checks look at what came
+out — the output, the image configuration (`podman image inspect`), the files inside the image, a
+port answering, a volume keeping its data.
+
+What you will learn, in order:
+
+1. **images and layers** — what an image is, tags and digests, fully qualified names;
+2. **Containerfile instructions** — `FROM`, `WORKDIR`, `COPY`, `RUN`, `ENV`, `ARG`, `LABEL`;
+3. **ENTRYPOINT and CMD** — exec form, overriding at run time, detached containers and logs;
+4. **multi-stage builds** — compile in one stage, ship only the binary;
+5. **users and least privilege** — a fixed non-root UID, read-only code, no capabilities;
+6. **volumes** — data that outlives the container, and who owns it;
+7. **networks** — namespaces, `localhost` in a pod, user-defined networks and DNS;
+8. **compose** — a multi-service application described in one file;
+9. **health checks** — `HEALTHCHECK`, and why Podman needs `--format docker` for it;
+10. **image size and caching** — layer order, `.containerignore`, clean up in the same layer.
+
+**How grading works — honestly.** Grading runs in a **private rootless Podman sandbox** that
+dxtutor creates for the Learning Track: its own image storage and configuration (your own Podman
+images and containers are never read or touched, and the Docker daemon is never used), resource
+limits (memory, processes, CPU), no Linux capabilities, `--network none`, and every container,
+volume and image it creates is labelled and removed afterwards. Grading **never pulls an image**:
+the base images below are downloaded once, pinned by digest, when you choose **Prepare course**
+(you approve the exact commands first). After that, everything is offline.
+
+The sandbox cannot do everything your own Podman can: it publishes no ports on your machine (a check
+reaches a service from a second container that shares its network namespace), and it creates no
+user-defined networks (in rootless Podman they share one network namespace per user, so they would
+collide with yours). Compose files are checked by reading them, not by `podman compose up`. Each unit
+says where this matters.
+
+**What you need.** **Podman 4.4 or newer**, rootless, on **Linux** with a systemd user session
+(https://podman.io/docs/installation). The course was written and validated against **Podman 4.9.3**.
+On macOS and Windows Podman runs inside a virtual machine (`podman machine`), which this grader does
+not drive: the lessons still apply, grading does not run there.
+
+The prepared base images: `docker.io/library/alpine:3.24.4`, `docker.io/library/python:3.15.2-alpine3.24`
+and `docker.io/library/golang:1.27.4-alpine3.24`.
+
+Official documentation: https://docs.podman.io/en/v4.9.3/ — the man pages of `podman build`,
+`podman run` and the other commands used here are linked in each unit.
+'''
+
+[build]
+prepare = true
+timeout_secs = 300
+dependencies = [
+  "docker.io/library/alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf",
+  "docker.io/library/python:3.15.2-alpine3.24@sha256:0f9552bb28711333da16915ec146f5e6bb44a7fdac9ced15dc17c2e0206346dd",
+  "docker.io/library/golang:1.27.4-alpine3.24@sha256:70bd7ddea8b6cbe5d6943cde279d6b67feb10cc924fb9100d1d8757c1575b280",
+]
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+[[unit]]
+id = "pm-u1-images"
+title = "Images and layers"
+level = "basic"
+difficulty = 1
+intro = "An image is a stack of read-only layers plus a configuration; a container is that image running, with one writable layer on top."
+concepts = '''
+An **image** is two things: a stack of **layers** (each one a tarball of filesystem changes) and a
+small **configuration** (the command to run, the environment, the working directory, the user, the
+exposed ports, labels). A **container** is a process started from an image: Podman stacks the image's
+layers read-only, adds one empty writable layer on top, and runs the configured command. Delete the
+container and its writable layer goes with it; the image is unchanged and can start many containers.
+
+**Where layers come from.** Every `RUN`, `COPY` and `ADD` instruction of a Containerfile adds a layer.
+`FROM` starts from the base image's layers. The other instructions — `CMD`, `ENTRYPOINT`, `ENV`,
+`WORKDIR`, `LABEL`, `USER`, `EXPOSE` — only change the configuration and add no filesystem layer.
+`podman history <image>` lists the steps that made an image, with their sizes, and
+`podman image inspect <image>` prints the configuration and the layer digests (`RootFS.Layers`) as JSON.
+
+**Names, tags and digests.** A full image name is `registry/repository:tag`, for example
+`docker.io/library/alpine:3.24.4`. The tag is a movable label: the publisher can point `3.24` at a new
+build tomorrow. A **digest** (`@sha256:…`) is the hash of the image manifest itself: it can never
+point at anything else. Production pins by digest (or at least by an exact tag); this course's base
+images are pinned by digest when you prepare it.
+
+**Short names.** Docker silently turns `alpine` into `docker.io/library/alpine:latest`. Podman is more
+careful: it looks the short name up in `registries.conf`, and in "enforcing" mode asks you which
+registry you meant. Writing the registry in full (`FROM docker.io/library/alpine:3.24.4`) removes the
+ambiguity, and it is what this course does.
+
+**Rootless.** Podman needs no daemon and no root. Your images live in your home folder
+(`~/.local/share/containers/storage`), and "root" inside a container is your own user, mapped through
+a user namespace. Grading uses a separate, private storage of the same kind.
+
+| Command | What it does |
+|---|---|
+| `podman build -t hello .` | build the Containerfile in `.` and name the image `hello` |
+| `podman run --rm hello` | start a container from it, remove it when it exits |
+| `podman images` | list the local images |
+| `podman history hello` | the steps (and layers) that made `hello` |
+| `podman image inspect hello` | its configuration, as JSON |
+
+Official docs: https://docs.podman.io/en/v4.9.3/markdown/podman-build.1.html and
+https://docs.podman.io/en/v4.9.3/markdown/podman-image-inspect.1.html
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "pm-c1-images"
+title = "Layers and a configuration"
+points = 5
+difficulty = 1
+intro = '''
+What `podman build` produces, and what `podman run` does with it.
+'''
+body = '''
+A Containerfile is a recipe. Each line is an **instruction**, executed in order:
+
+```dockerfile
+FROM docker.io/library/alpine:3.24.4   # start from these layers
+COPY motd.txt /etc/motd                # + one layer: the file
+CMD ["cat", "/etc/motd"]               # configuration only: what runs
+```
+
+`podman build -t motd .` turns it into an image with **two layers** (Alpine's, and the one with
+`/etc/motd`) and a configuration whose command is `cat /etc/motd`. `podman run --rm motd` starts a
+container from that image, prints the file and removes the container.
+
+In this unit you write that image and look inside it the way the grader does: by running it, by
+reading its configuration with `podman image inspect`, and by counting its layers.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "pm-d1-hello"
+title = "The smallest useful Containerfile"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+A base image and a command: enough for `podman run` to do something.
+'''
+prompt = '''
+Type the Containerfile. It starts from Alpine Linux, pinned to an exact tag, and prints a greeting.
+'''
+target = '''
+FROM docker.io/library/alpine:3.24.4
+CMD ["echo", "hello, podman"]
+'''
+line_comments = [
+  "The base image, written in full: registry, repository and an exact tag.",
+  "The default command, in exec form: a JSON list, no shell involved.",
+]
+explanation = "`podman build -t hello .` then `podman run --rm hello` prints `hello, podman`. The image has Alpine's single layer: CMD adds configuration, not files."
+
+[[unit.step]]
+kind = "drill"
+id = "pm-d1-layers"
+title = "One layer per file change"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+Which instructions add layers, and which only change the configuration.
+'''
+prompt = '''
+Type the Containerfile. Note which lines add a layer to the image.
+'''
+target = '''
+FROM docker.io/library/alpine:3.24.4
+LABEL org.opencontainers.image.title="notes"
+WORKDIR /srv
+COPY notes.txt notes.txt
+RUN wc -l notes.txt > count.txt
+CMD ["cat", "/srv/count.txt"]
+'''
+line_comments = [
+  "Alpine's layers are the starting point.",
+  "A label: metadata in the configuration, no layer.",
+  "Sets the working directory (and creates it): configuration.",
+  "Copies a file from the build context: a new layer.",
+  "Runs a command at build time; its file changes become a layer.",
+  "The default command: configuration again.",
+]
+explanation = "`podman history` would show COPY and RUN as the steps with a size; LABEL, WORKDIR and CMD are 0 bytes."
+
+[[unit.step]]
+kind = "challenge"
+id = "pm-p1-motd"
+title = "Your first image"
+points = 30
+difficulty = 2
+intro = '''
+Build an image that prints a message of the day, and see it the way Podman does.
+'''
+instructions = '''
+`motd.txt` holds a message of the day. Write the `Containerfile` so that:
+
+- it starts from `docker.io/library/alpine:3.24.4`;
+- it copies `motd.txt` to `/etc/motd` in the image;
+- running the image (`podman run --rm motd`) prints the file with `cat /etc/motd`, in **exec form**;
+- it has the label `org.opencontainers.image.title` set to `motd`;
+- the image has exactly **two layers**: Alpine's and yours (only the copy adds one).
+
+The grader builds it with `podman build -t motd .`, runs it, and reads `podman image inspect motd`.
+'''
+
+[unit.step.project]
+main = "Containerfile"
+readonly = ["motd.txt"]
+explanation = '''
+`COPY` is the only instruction here that changes files, so it is the only one that adds a layer;
+`LABEL` and `CMD` go into the configuration (`Config.Labels`, `Config.Cmd`). The exec form
+`["cat", "/etc/motd"]` runs `cat` directly — the shell form `CMD cat /etc/motd` would run
+`/bin/sh -c "cat /etc/motd"` instead.
+'''
+
+[unit.step.project.starter]
+"Containerfile" = '''
+# Build an image that prints motd.txt (see the instructions).
+FROM docker.io/library/alpine:3.24.4
+'''
+"motd.txt" = '''
+Welcome to the Podman course! Everything here runs rootless.
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[run]]
+cmd = ["podman", "build", "-t", "motd", "."]
+message = "The Containerfile must build."
+
+[[run]]
+cmd = ["podman", "run", "--rm", "motd"]
+output_contains = ["Welcome to the Podman course!"]
+message = "Running the image must print the message of the day."
+
+[[run]]
+cmd = ["podman", "run", "--rm", "--mount", "type=image,source=motd,target=/img", "docker.io/library/alpine:3.24.4", "cat", "/img/etc/motd"]
+output_contains = ["Welcome to the Podman course!"]
+message = "The file must be in the image at /etc/motd."
+
+[[run]]
+cmd = ["podman", "image", "inspect", "motd"]
+save = "image.json"
+message = "The image must exist."
+
+[[check]]
+file = "image.json"
+path = "[0].Config.Cmd"
+equals = ["cat", "/etc/motd"]
+message = "CMD runs [\"cat\", \"/etc/motd\"], in exec form."
+
+[[check]]
+file = "image.json"
+path = '[0].Config.Labels["org.opencontainers.image.title"]'
+equals = "motd"
+message = "The label org.opencontainers.image.title is motd."
+
+[[check]]
+file = "image.json"
+path = "[0].RootFS.Layers"
+len = 2
+message = "The image has two layers: Alpine's and the one COPY adds."
+'''
+
+[unit.step.project.solution]
+"Containerfile" = '''
+FROM docker.io/library/alpine:3.24.4
+LABEL org.opencontainers.image.title="motd"
+COPY motd.txt /etc/motd
+CMD ["cat", "/etc/motd"]
+'''
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+[[unit]]
+id = "pm-u2-instructions"
+title = "Containerfile instructions"
+level = "basic"
+difficulty = 2
+intro = "FROM, WORKDIR, COPY, RUN, ENV, ARG and LABEL: the instructions almost every image uses."
+concepts = '''
+A Containerfile is read top to bottom. Instructions are written in capitals by convention (they are
+case-insensitive), one per line; a long line continues with `\` at its end, and `#` starts a comment.
+
+| Instruction | What it does |
+|---|---|
+| `FROM image` | the base image; the first instruction (only `ARG` may come before it) |
+| `WORKDIR /app` | the working directory of the next instructions and of the container; created if missing |
+| `COPY src dest` | copies files from the **build context** into the image; relative `dest` is under `WORKDIR` |
+| `RUN command` | runs a command at build time and keeps its file changes as a layer |
+| `ENV KEY=value` | an environment variable for the next instructions **and** for the running container |
+| `ARG NAME=default` | a build-time variable (`--build-arg NAME=value`); gone in the running container |
+| `LABEL key=value` | metadata in the configuration; the `org.opencontainers.image.*` keys are standard |
+
+**The build context.** `podman build -t app .` sends the folder `.` to the builder. `COPY` can only
+read files inside it — never `../something` and never an absolute host path — which is why images
+build the same everywhere. A `.containerignore` file (Docker's `.dockerignore` works too) lists what
+not to send.
+
+**ENV versus ARG.** `ENV GREETING=Hello` is baked into the image: `podman run` sees it, and
+`podman run -e GREETING=Hi` overrides it. `ARG VERSION=1.0` exists only while building: use it in
+`LABEL org.opencontainers.image.version=$VERSION` or in `RUN`, then pass another value with
+`podman build --build-arg VERSION=2.0`. Never pass secrets as build arguments: they are recorded in
+the image history. (A Buildah 1.33 quirk, measured: with the layer cache, an `ENV` or `LABEL` that uses
+an argument can come from the cache after the argument's value changed. Add `--no-cache` when you
+change a build argument; the grader builds without the cache once build arguments are involved.)
+
+**RUN, shell form.** `RUN python -m compileall -q .` runs through `/bin/sh -c`, so `&&`, pipes and
+variables work. Each `RUN` is a layer; combine related commands with `&&` (unit 10 shows why).
+
+**Overriding at run time.** `podman run IMAGE args…` replaces `CMD` with `args…`; `-e KEY=value` sets
+or overrides an environment variable; `-w /dir` changes the working directory.
+
+In the grader, builds run with `--pull=never` and no network: `RUN` cannot download anything, and
+`FROM` must name one of the course's prepared images.
+
+Official docs: https://docs.podman.io/en/v4.9.3/markdown/podman-build.1.html (it documents
+Containerfiles and `.containerignore`) and https://docs.docker.com/reference/dockerfile/ (the format is
+the same).
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "pm-c2-instructions"
+title = "Configuration you can override"
+points = 5
+difficulty = 1
+intro = '''
+What ends up in the image's configuration, and what a `podman run` can change.
+'''
+body = '''
+After a build, `podman image inspect app` shows the configuration the instructions wrote:
+
+```json
+"Config": {
+  "Env": ["PATH=...", "GREETING=Hello"],
+  "Cmd": ["python", "greet.py"],
+  "WorkingDir": "/app",
+  "Labels": {"org.opencontainers.image.version": "1.0"}
+}
+```
+
+Each of these is a **default**. `podman run -e GREETING=Hi app` changes the variable for that
+container only; `podman run app python greet.py Ana` replaces the command. The image itself never
+changes — which is why the same image can run in every environment with different settings.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "pm-d2-python"
+title = "A small Python image"
+points = 10
+difficulty = 1
+placeholder_policy = "shown"
+intro = '''
+The everyday shape of an application image.
+'''
+prompt = '''
+Type the Containerfile of a small Python script.
+'''
+target = '''
+FROM docker.io/library/python:3.15.2-alpine3.24
+ENV PYTHONUNBUFFERED=1
+WORKDIR /app
+COPY app.py .
+CMD ["python", "app.py"]
+'''
+line_comments = [
+  "The official Python image on Alpine, pinned to an exact version.",
+  "Print output immediately: useful for `podman logs`.",
+  "Everything below happens in /app.",
+  "Copy the script into /app (the `.` is relative to WORKDIR).",
+  "Run it with the image's Python.",
+]
+explanation = "Five lines cover most application images: a base, an environment, a folder, the code and a command."
+
+[[unit.step]]
+kind = "drill"
+id = "pm-d2-args"
+title = "Build arguments and labels"
+points = 10
+difficulty = 2
+placeholder_policy = "shown"
+intro = '''
+A value chosen at build time, recorded in the image's metadata.
+'''
+prompt = '''
+Type the Containerfile. `VERSION` can be changed with `--build-arg VERSION=…`.
+'''
+target = '''
+FROM docker.io/library/alpine:3.24.4
+ARG VERSION=1.0
+LABEL org.opencontainers.image.version=$VERSION
+ENV APP_VERSION=$VERSION
+RUN echo "built $VERSION" > /built.txt
+CMD ["cat", "/built.txt"]
+'''
+line_comments = [
+  "Any prepared base will do.",
+  "A build argument with a default: only exists while building.",
+  "The standard OCI label for the version, filled from the argument.",
+  "Copy it into an ENV to keep it at run time.",
+  "Build arguments are visible to RUN as variables.",
+  "Prints the file written at build time.",
+]
+explanation = "`podman build --build-arg VERSION=2.0 -t app .` writes 2.0 in the label, the variable and the file."
+
+[[unit.step]]
+kind = "challenge"
+id = "pm-p2-greet"
+title = "A configurable greeter"
+points = 30
+difficulty = 2
+intro = '''
+Write the Containerfile of a script whose greeting comes from the environment.
+'''
+instructions = '''
+`greet.py` prints `<GREETING>, <name>!`, reading `GREETING` from the environment and the name from
+its first argument. Write the `Containerfile` so that:
+
+- it starts from `docker.io/library/python:3.15.2-alpine3.24`;
+- the working directory is `/app`, and `greet.py` is copied there;
+- `GREETING` is `Hello` by default (`podman run -e GREETING=… ` can change it);
+- the build compiles the script once with `RUN python -m compileall -q .` (in `/app`);
+- the default command is `python greet.py`, in exec form, so `podman run --rm greet` prints
+  `Hello, world!`;
+- a build argument `VERSION` (default `1.0`) is recorded in the label
+  `org.opencontainers.image.version`, so `--build-arg VERSION=2.0` changes it.
+'''
+
+[unit.step.project]
+main = "Containerfile"
+readonly = ["greet.py"]
+explanation = '''
+`ENV` sets a default the container can override with `-e`; `ARG` is only for the build and reaches
+the image through `LABEL ...=$VERSION`. `WORKDIR /app` makes `COPY greet.py .`, `RUN` and `CMD` all
+work in `/app`, which is where the compiled `__pycache__` ends up.
+'''
+
+[unit.step.project.starter]
+"Containerfile" = '''
+FROM docker.io/library/python:3.15.2-alpine3.24
+COPY greet.py /greet.py
+CMD ["python", "/greet.py"]
+'''
+"greet.py" = '''
+import os
+import sys
+
+greeting = os.environ.get("GREETING", "Hi")
+name = sys.argv[1] if len(sys.argv) > 1 else "world"
+print(f"{greeting}, {name}!")
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[run]]
+cmd = ["podman", "build", "-t", "greet", "."]
+message = "The Containerfile must build."
+
+[[run]]
+cmd = ["podman", "run", "--rm", "greet"]
+output_contains = ["Hello, world!"]
+message = "By default the image greets with Hello: GREETING is Hello and CMD runs python greet.py."
+
+[[run]]
+cmd = ["podman", "run", "--rm", "-e", "GREETING=Bom dia", "greet"]
+output_contains = ["Bom dia, world!"]
+message = "podman run -e GREETING=… overrides the greeting."
+
+[[run]]
+cmd = ["podman", "run", "--rm", "greet", "python", "greet.py", "Ana"]
+output_contains = ["Hello, Ana!"]
+message = "Arguments after the image replace CMD and run in /app."
+
+[[run]]
+cmd = ["podman", "run", "--rm", "--mount", "type=image,source=greet,target=/img", "docker.io/library/alpine:3.24.4", "test", "-d", "/img/app/__pycache__"]
+message = "The build compiles greet.py in /app (RUN python -m compileall -q .)."
+
+[[run]]
+cmd = ["podman", "image", "inspect", "greet"]
+save = "image.json"
+message = "The image must exist."
+
+[[check]]
+file = "image.json"
+path = "[0].Config.WorkingDir"
+equals = "/app"
+message = "The working directory is /app."
+
+[[check]]
+file = "image.json"
+path = "[0].Config.Env"
+contains = "GREETING=Hello"
+message = "ENV GREETING=Hello sets the default."
+
+[[check]]
+file = "image.json"
+path = '[0].Config.Labels["org.opencontainers.image.version"]'
+equals = "1.0"
+message = "The label org.opencontainers.image.version comes from ARG VERSION (default 1.0)."
+
+[[run]]
+cmd = ["podman", "build", "-t", "greet:v2", "--build-arg", "VERSION=2.0", "."]
+message = "The image must build with --build-arg VERSION=2.0."
+
+[[run]]
+cmd = ["podman", "image", "inspect", "greet:v2"]
+save = "image2.json"
+message = "The second build must exist."
+
+[[check]]
+file = "image2.json"
+path = '[0].Config.Labels["org.opencontainers.image.version"]'
+equals = "2.0"
+message = "--build-arg VERSION=2.0 changes the version label."
+'''
+
+[unit.step.project.solution]
+"Containerfile" = '''
+FROM docker.io/library/python:3.15.2-alpine3.24
+ARG VERSION=1.0
+LABEL org.opencontainers.image.version=$VERSION
+ENV GREETING=Hello
+WORKDIR /app
+COPY greet.py .
+RUN python -m compileall -q .
+CMD ["python", "greet.py"]
+'''
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+[[unit]]
+id = "pm-u3-entrypoint"
+title = "ENTRYPOINT, CMD and running containers"
+level = "basic"
+difficulty = 3
+intro = "What runs when a container starts, how to change it, and how to watch a container that runs in the background."
+concepts = '''
+Two instructions decide the process a container starts:
+
+- **`ENTRYPOINT`** — the program. Arguments given to `podman run` are **appended** to it.
+- **`CMD`** — the default arguments (or, with no `ENTRYPOINT`, the default command). Arguments given
+  to `podman run` **replace** it.
+
+With `ENTRYPOINT ["python", "/app/count.py"]` and `CMD ["--help"]`, `podman run count` runs
+`python /app/count.py --help`, and `podman run count one two` runs `python /app/count.py one two`. The
+image behaves like a command-line tool. To run something else entirely, `--entrypoint` replaces the
+entrypoint for one container: `podman run --entrypoint python count -c "print(1)"`.
+
+**Exec form versus shell form.** `CMD ["python", "app.py"]` (a JSON list) starts `python` directly,
+as process 1 of the container. `CMD python app.py` (shell form) starts `/bin/sh -c "python app.py"`:
+the shell is process 1, signals such as the `SIGTERM` of `podman stop` reach the shell and not your
+program, and an `ENTRYPOINT` in shell form ignores the arguments of `podman run`. Use the exec form for
+`ENTRYPOINT` and `CMD` unless you need a shell feature.
+
+**Running in the background.** `podman run -d --name job IMAGE` starts the container detached and
+prints its ID. `podman ps` lists running containers (`-a` also the stopped ones), `podman logs job`
+prints what it wrote to stdout and stderr — even after it stopped — and `podman exec job CMD` runs
+another command inside a running container. `podman stop job` sends `SIGTERM`, then `SIGKILL` after 10
+seconds; `podman rm job` deletes it; `--rm` on `podman run` deletes it as soon as it exits.
+
+| Run-time option | Effect |
+|---|---|
+| `podman run IMAGE a b` | replaces `CMD` with `a b` (appended to `ENTRYPOINT`) |
+| `--entrypoint prog` | replaces `ENTRYPOINT` (and clears `CMD`) |
+| `-d` · `--name n` | detached · a name for later commands |
+| `podman logs n` · `podman exec n cmd` | its output · a command inside it |
+
+Official docs: https://docs.podman.io/en/v4.9.3/markdown/podman-run.1.html and
+https://docs.docker.com/reference/dockerfile/#entrypoint
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "pm-c3-entrypoint"
+title = "A program and its default arguments"
+points = 5
+difficulty = 1
+intro = '''
+How ENTRYPOINT and CMD combine into the command line of process 1.
+'''
+body = '''
+| Containerfile | `podman run img` | `podman run img x y` |
+|---|---|---|
+| `CMD ["echo", "hi"]` | `echo hi` | `x y` |
+| `ENTRYPOINT ["echo"]` + `CMD ["hi"]` | `echo hi` | `echo x y` |
+| `ENTRYPOINT ["echo"]` | `echo` | `echo x y` |
+
+An image meant to be **used like a command** sets `ENTRYPOINT` to the program and `CMD` to a sensible
+default (often `--help`). An image meant to be **a service** usually sets only `CMD`, so an operator
+can run a shell or a one-off task with `podman run img sh` without fighting the entrypoint.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "pm-d3-tool"
+title = "An image that behaves like a command"
+points = 10
+difficulty = 2
+placeholder_policy = "shown"
+intro = '''
+ENTRYPOINT for the program, CMD for its default argument.
+'''
+prompt = '''
+Type the Containerfile of a `date` wrapper: arguments to `podman run` become arguments of `date`.
+'''
+target = '''
+FROM docker.io/library/alpine:3.24.4
+ENTRYPOINT ["date", "-u"]
+CMD ["+%Y-%m-%dT%H:%M:%SZ"]
+'''
+line_comments = [
+  "Alpine's busybox has `date`.",
+  "The program, always run, in exec form.",
+  "The default format; `podman run img +%s` replaces it.",
+]
+explanation = "`podman run --rm img` prints an ISO date; `podman run --rm img +%s` prints seconds since 1970."
+
+[[unit.step]]
+kind = "drill"
+id = "pm-d3-service"
+title = "A service image with only CMD"
+points = 10
+difficulty = 2
+placeholder_policy = "shown"
+intro = '''
+A long-running process, in exec form so it receives the stop signal.
+'''
+prompt = '''
+Type the Containerfile of a tiny service that prints a heartbeat every five seconds.
+'''
+target = '''
+FROM docker.io/library/alpine:3.24.4
+STOPSIGNAL SIGTERM
+CMD ["sh", "-c", "trap 'exit 0' TERM; while true; do echo beat; sleep 5 & wait $!; done"]
+'''
+line_comments = [
+  "The base image.",
+  "The signal `podman stop` sends (SIGTERM is the default; written here to be explicit).",
+  "A shell loop that exits cleanly on SIGTERM: `podman logs` shows the beats.",
+]
+explanation = "`podman run -d --name beat img`, then `podman logs beat`; `podman stop beat` returns at once because the loop traps SIGTERM."
+
+[[unit.step]]
+kind = "challenge"
+id = "pm-p3-count"
+title = "A word counter in a container"
+points = 30
+difficulty = 3
+intro = '''
+Package a small command-line tool so the image is used exactly like the command.
+'''
+instructions = '''
+`count.py` prints how many words it was given, or its usage with no arguments (or `--help`). Write the
+`Containerfile` so that:
+
+- it starts from `docker.io/library/python:3.15.2-alpine3.24` and copies `count.py` to `/app/count.py`;
+- the **entrypoint** is `python /app/count.py`, in exec form;
+- the **default arguments** are `--help`, so `podman run --rm count` prints the usage;
+- `podman run --rm count one two three` prints `3 words`;
+- `podman run --rm --entrypoint python count -c "..."` can still run Python directly.
+
+The grader also runs it detached (`podman run -d --name job count a b`) and reads `podman logs job`.
+'''
+
+[unit.step.project]
+main = "Containerfile"
+readonly = ["count.py"]
+explanation = '''
+With `ENTRYPOINT` + `CMD` in exec form, the arguments of `podman run` replace only `CMD`. The starter's
+shell-form `CMD` made `podman run count one two three` try to run a program called `one`.
+'''
+
+[unit.step.project.starter]
+"Containerfile" = '''
+FROM docker.io/library/python:3.15.2-alpine3.24
+COPY count.py /app/count.py
+CMD python /app/count.py
+'''
+"count.py" = '''
+import sys
+
+words = sys.argv[1:]
+if not words or words == ["--help"]:
+    print("usage: count WORD...")
+    sys.exit(0)
+print(f"{len(words)} words")
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[run]]
+cmd = ["podman", "build", "-t", "count", "."]
+message = "The Containerfile must build."
+
+[[run]]
+cmd = ["podman", "run", "--rm", "count"]
+output_contains = ["usage: count WORD..."]
+message = "With no arguments, the image runs count.py --help (CMD)."
+
+[[run]]
+cmd = ["podman", "run", "--rm", "count", "one", "two", "three"]
+output_contains = ["3 words"]
+message = "Arguments to podman run are appended to the ENTRYPOINT: python /app/count.py one two three."
+
+[[run]]
+cmd = ["podman", "run", "--rm", "--entrypoint", "python", "count", "-c", "print('entrypoint replaced')"]
+output_contains = ["entrypoint replaced"]
+message = "--entrypoint replaces the entrypoint."
+
+[[run]]
+cmd = ["podman", "run", "-d", "--name", "job", "count", "a", "b"]
+message = "The image runs detached."
+
+[[run]]
+cmd = ["podman", "logs", "job"]
+retries = 5
+output_contains = ["2 words"]
+message = "podman logs shows what the detached container printed."
+
+[[run]]
+cmd = ["podman", "image", "inspect", "count"]
+save = "image.json"
+message = "The image must exist."
+
+[[check]]
+file = "image.json"
+path = "[0].Config.Entrypoint"
+equals = ["python", "/app/count.py"]
+message = "ENTRYPOINT is [\"python\", \"/app/count.py\"], in exec form."
+
+[[check]]
+file = "image.json"
+path = "[0].Config.Cmd"
+equals = ["--help"]
+message = "CMD is [\"--help\"]: the default arguments."
+'''
+
+[unit.step.project.solution]
+"Containerfile" = '''
+FROM docker.io/library/python:3.15.2-alpine3.24
+COPY count.py /app/count.py
+ENTRYPOINT ["python", "/app/count.py"]
+CMD ["--help"]
+'''
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+[[unit]]
+id = "pm-u4-multistage"
+title = "Multi-stage builds"
+level = "intermediate"
+difficulty = 4
+intro = "Compile in a stage with the whole toolchain, then copy only the result into a small final image."
+concepts = '''
+A compiler, its standard library and the build cache are needed to **build** a program, not to
+**run** it. A **multi-stage** Containerfile has several `FROM` lines; each starts a new stage, and only
+the last stage becomes the image (unless you pick another with `--target`). A later stage copies what
+it needs from an earlier one with `COPY --from=<stage>`:
+
+```dockerfile
+FROM docker.io/library/golang:1.27.4-alpine3.24 AS build
+WORKDIR /src
+COPY go.mod main.go ./
+RUN CGO_ENABLED=0 go build -o /out/hello .
+
+FROM scratch
+COPY --from=build /out/hello /hello
+ENTRYPOINT ["/hello"]
+```
+
+The `golang` image is about 270 MB; the final image here is the binary alone, under 2 MB, with no
+shell, no package manager and nothing to patch but your program.
+
+**Naming stages.** `AS build` names a stage; `COPY --from=build` uses the name (`--from=0` would use its
+position, which breaks when you add a stage). `podman build --target build -t hello-build .` stops at
+that stage — handy to debug the build environment, or to run the tests in it.
+
+**`scratch`** is the empty image: no files at all. It only works for programs that need nothing from an
+operating system — a static binary. Go makes one with `CGO_ENABLED=0` (no C library). For programs
+that need a C library, CA certificates or time zones, use a minimal base instead (`alpine`, or a
+"distroless" image).
+
+**What stays behind.** Nothing from a stage reaches the final image unless it is copied: no compiler,
+no source code, no build cache, no secrets used while building. That is the main reason to use
+multi-stage builds, even more than size.
+
+Podman builds multi-stage Containerfiles with Buildah, exactly as Docker does with BuildKit. In the
+grader, every stage builds offline: `go build` here needs only the standard library.
+
+Official docs: https://docs.docker.com/build/building/multi-stage/ and
+https://docs.podman.io/en/v4.9.3/markdown/podman-build.1.html (`--target`)
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "pm-c4-multistage"
+title = "Build here, ship there"
+points = 5
+difficulty = 1
+intro = '''
+Why the image you run should not contain the tools that built it.
+'''
+body = '''
+Compare two ways to ship the same Go program:
+
+| | single stage (`FROM golang`) | multi-stage (`FROM scratch`) |
+|---|---|---|
+| size | ~270 MB | ~1.5 MB |
+| contains | Go toolchain, Alpine, your source, the binary | the binary |
+| a shell to exploit | yes | no |
+| security updates to track | Alpine + Go + your code | your code |
+
+The program behaves the same. The multi-stage image is smaller to pull, faster to start, and has far
+less in it that an attacker could use or a scanner could flag.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "pm-d4-stages"
+title = "Two stages"
+points = 10
+difficulty = 2
+placeholder_policy = "shown"
+intro = '''
+The classic shape: build with the SDK, run from scratch.
+'''
+prompt = '''
+Type the multi-stage Containerfile of a static Go program.
+'''
+target = '''
+FROM docker.io/library/golang:1.27.4-alpine3.24 AS build
+WORKDIR /src
+COPY go.mod main.go ./
+RUN CGO_ENABLED=0 go build -trimpath -o /out/app .
+
+FROM scratch
+COPY --from=build /out/app /app
+ENTRYPOINT ["/app"]
+'''
+line_comments = [
+  "The build stage: the Go SDK on Alpine, named `build`.",
+  "Work in /src.",
+  "Copy the module file and the source.",
+  "A static binary (no C library), without local paths in it.",
+  "",
+  "The final stage starts from nothing at all.",
+  "Only the binary crosses over from the build stage.",
+  "Run it directly: there is no shell in scratch.",
+]
+explanation = "Only the last stage becomes the image; `--target build` would stop at the first one."
+
+[[unit.step]]
+kind = "drill"
+id = "pm-d4-alpine-runtime"
+title = "A small runtime instead of scratch"
+points = 10
+difficulty = 2
+placeholder_policy = "shown"
+intro = '''
+When the program needs a few files from an operating system, ship a minimal one.
+'''
+prompt = '''
+Type the Containerfile: the final stage is Alpine, with a non-root user and the binary.
+'''
+target = '''
+FROM docker.io/library/golang:1.27.4-alpine3.24 AS build
+WORKDIR /src
+COPY . .
+RUN go build -o /out/server ./cmd/server
+
+FROM docker.io/library/alpine:3.24.4
+COPY --from=build /out/server /usr/local/bin/server
+USER 65532:65532
+CMD ["server"]
+'''
+line_comments = [
+  "Build stage.",
+  "Work in /src.",
+  "The whole build context (a .containerignore keeps it lean).",
+  "Builds the command in ./cmd/server.",
+  "",
+  "Runtime stage: Alpine, a few megabytes, with CA certificates and a shell.",
+  "Only the binary is copied, onto the PATH.",
+  "A numeric non-root user: no /etc/passwd entry needed.",
+  "The default command.",
+]
+explanation = "The runtime stage keeps Alpine's libc and certificates, which a dynamically linked program or one that calls HTTPS needs."
+
+[[unit.step]]
+kind = "challenge"
+id = "pm-p4-hello"
+title = "From 270 MB to under 5 MB"
+points = 40
+difficulty = 4
+intro = '''
+Turn a single-stage Go image into a multi-stage one that ships only the binary.
+'''
+instructions = '''
+The starter `Containerfile` builds `main.go` in the `golang` image and ships the whole SDK. Rewrite it
+as a **multi-stage** build:
+
+- a first stage named **`build`**, from `docker.io/library/golang:1.27.4-alpine3.24`, that compiles a
+  **static** binary (`CGO_ENABLED=0 go build …`) from `go.mod` and `main.go`;
+- a final stage **`FROM scratch`** that contains only that binary, at `/hello`, and runs it with
+  `ENTRYPOINT ["/hello"]`;
+- `podman run --rm hello Ana` prints `hello, Ana (static Go binary)`;
+- the image is under **5 MB** and has a single layer, and the Go toolchain is not in it;
+- `podman build --target build` still builds the first stage (the grader runs `go version` in it).
+'''
+
+[unit.step.project]
+main = "Containerfile"
+readonly = ["go.mod", "main.go"]
+explanation = '''
+`CGO_ENABLED=0` makes Go link everything statically, so the binary runs in `scratch`, which has no C
+library. `COPY --from=build` is the only thing that crosses stages, so the final image is one layer
+with one file. The `build` stage still exists for `--target build`.
+'''
+
+[unit.step.project.starter]
+"Containerfile" = '''
+FROM docker.io/library/golang:1.27.4-alpine3.24
+WORKDIR /src
+COPY go.mod main.go ./
+RUN go build -o /usr/local/bin/hello .
+ENTRYPOINT ["hello"]
+'''
+"go.mod" = '''
+module example.com/hello
+
+go 1.27
+'''
+"main.go" = '''
+package main
+
+import (
+	"fmt"
+	"os"
+)
+
+func main() {
+	name := "world"
+	if len(os.Args) > 1 {
+		name = os.Args[1]
+	}
+	fmt.Printf("hello, %s (static Go binary)\n", name)
+}
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[run]]
+cmd = ["podman", "build", "-t", "hello", "."]
+message = "The Containerfile must build."
+
+[[run]]
+cmd = ["podman", "run", "--rm", "hello", "Ana"]
+output_contains = ["hello, Ana (static Go binary)"]
+message = "The image runs the program with the arguments of podman run."
+
+[[run]]
+cmd = ["podman", "image", "inspect", "hello"]
+save = "image.json"
+message = "The image must exist."
+
+[[check]]
+file = "image.json"
+path = "[0].Size"
+at_most = 5000000
+message = "The final image is under 5 MB: only the binary, FROM scratch."
+
+[[check]]
+file = "image.json"
+path = "[0].RootFS.Layers"
+len = 1
+message = "The final image has one layer: the binary copied from the build stage."
+
+[[check]]
+file = "image.json"
+path = "[0].Config.Entrypoint"
+equals = ["/hello"]
+message = "ENTRYPOINT is [\"/hello\"]."
+
+[[run]]
+cmd = ["podman", "run", "--rm", "--mount", "type=image,source=hello,target=/img", "docker.io/library/alpine:3.24.4", "sh", "-c", "test -x /img/hello && test ! -e /img/usr/local/go"]
+message = "The binary is at /hello and the Go toolchain is not in the image."
+
+[[run]]
+cmd = ["podman", "build", "-t", "hello-build", "--target", "build", "."]
+message = "The first stage is named build (podman build --target build)."
+
+[[run]]
+cmd = ["podman", "run", "--rm", "hello-build", "go", "version"]
+output_contains = ["go1.27.4"]
+message = "The build stage is the Go 1.27.4 SDK."
+'''
+
+[unit.step.project.solution]
+"Containerfile" = '''
+FROM docker.io/library/golang:1.27.4-alpine3.24 AS build
+WORKDIR /src
+COPY go.mod main.go ./
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/hello .
+
+FROM scratch
+COPY --from=build /out/hello /hello
+ENTRYPOINT ["/hello"]
+'''
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+[[unit]]
+id = "pm-u5-users"
+title = "Users and least privilege"
+level = "intermediate"
+difficulty = 5
+intro = "Run as a fixed non-root user, keep the code read-only for it, and give the container nothing it does not need."
+concepts = '''
+Unless the image says otherwise, the process in a container runs as **root** (UID 0) of the
+container. Rootless Podman maps that root to your own user on the host, which limits the damage — but
+inside the container it can still rewrite the application, read everything, and use whatever
+capabilities the container has. Production images run as an unprivileged user.
+
+**`USER`.** `USER 10001:10001` makes the following `RUN`, `CMD` and `ENTRYPOINT` run as that UID and
+GID. A **numeric** UID is best: it works without an `/etc/passwd` entry, and Kubernetes can check it
+(`runAsNonRoot` cannot verify a name). Create a matching user for tools that look the name up:
+
+```dockerfile
+RUN addgroup -S -g 10001 app && adduser -S -D -H -u 10001 -G app app
+USER 10001:10001
+```
+
+(On Alpine `adduser`/`addgroup` come from busybox; on Debian-based images use `useradd`/`groupadd`.)
+
+**Who owns the code.** `COPY` creates files owned by root unless you write `COPY --chown=…`. For the
+application's own code that is exactly right: the non-root user can read and run it but cannot change
+it — so a compromised process cannot plant code that survives a restart. Give the user write access only
+where it must write (a data folder, a volume, `/tmp`).
+
+**Ports below 1024.** A non-root process cannot bind port 80 without the `NET_BIND_SERVICE`
+capability. Listen on a high port (8080) instead, and let the platform map it.
+
+**Capabilities and a read-only root.** Podman starts containers with a small default set of Linux
+capabilities. `--cap-drop=ALL` removes them all (the grader always does), `--cap-add=X` returns one
+that a service really needs, and `--read-only` makes the container's root filesystem read-only (with
+`--tmpfs /tmp` for scratch space). An image that runs as a non-root user and writes nowhere but its
+volumes works under all three.
+
+Official docs: https://docs.docker.com/reference/dockerfile/#user,
+https://docs.podman.io/en/v4.9.3/markdown/podman-run.1.html (`--user`, `--cap-drop`, `--read-only`)
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "pm-c5-users"
+title = "Root in a container is still root"
+points = 5
+difficulty = 1
+intro = '''
+What a process running as UID 0 can do inside its container, even rootless.
+'''
+body = '''
+Run `podman run --rm img id` on an image without `USER`: `uid=0(root)`. That process can:
+
+- overwrite the application's code and configuration in the container;
+- install tools, if the image has a package manager;
+- read every file of the image, including keys someone forgot there;
+- use the container's capabilities (changing file owners, binding low ports, …).
+
+Rootless Podman maps that UID 0 to your unprivileged user on the host, so an escape gains little. But
+"inside the container" is where the application and its data live. Running as a fixed, non-root UID,
+with code it cannot write, removes most of that power at no cost.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "pm-d5-user"
+title = "A dedicated user"
+points = 10
+difficulty = 2
+placeholder_policy = "shown"
+intro = '''
+Create a system user with a fixed UID and switch to it.
+'''
+prompt = '''
+Type the Containerfile. The code stays owned by root; only `/app/data` belongs to the user.
+'''
+target = '''
+FROM docker.io/library/python:3.15.2-alpine3.24
+RUN addgroup -S -g 10001 app && adduser -S -D -H -u 10001 -G app app
+WORKDIR /app
+COPY app.py .
+RUN mkdir data && chown 10001:10001 data
+USER 10001:10001
+CMD ["python", "app.py"]
+'''
+line_comments = [
+  "The base image.",
+  "A system group and user, both 10001, no password, no home.",
+  "The application folder.",
+  "The code, owned by root: readable, not writable, by the user.",
+  "The one folder the user may write to.",
+  "Everything from here on runs as 10001.",
+  "Started as 10001.",
+]
+explanation = "`podman run --rm img id -u` prints 10001; writing to /app fails, writing to /app/data works."
+
+[[unit.step]]
+kind = "drill"
+id = "pm-d5-chown"
+title = "COPY --chown for data that must be writable"
+points = 10
+difficulty = 2
+placeholder_policy = "shown"
+intro = '''
+Give the user ownership of exactly the files it must change, at copy time.
+'''
+prompt = '''
+Type the Containerfile. The seed database is copied owned by the user; the code is not.
+'''
+target = '''
+FROM docker.io/library/alpine:3.24.4
+RUN adduser -S -D -H -u 10001 svc
+COPY --chown=10001:10001 seed.db /var/lib/svc/data.db
+COPY run.sh /usr/local/bin/run.sh
+USER 10001
+CMD ["sh", "/usr/local/bin/run.sh"]
+'''
+line_comments = [
+  "Alpine base.",
+  "A system user with UID 10001.",
+  "Owned by the user at copy time: no extra chown layer.",
+  "The script stays owned by root.",
+  "Switch to the user.",
+  "Run the script as 10001.",
+]
+explanation = "`COPY --chown` avoids a separate `RUN chown`, which would copy the file again into a new layer."
+
+[[unit.step]]
+kind = "challenge"
+id = "pm-p5-server"
+title = "A web server that is not root"
+points = 40
+difficulty = 4
+intro = '''
+Make a small HTTP server run as a fixed non-root user that cannot modify its own code.
+'''
+instructions = '''
+`server.py` answers every request with `ok uid=<its uid>` on port 8080. Write the `Containerfile` so
+that:
+
+- it starts from `docker.io/library/python:3.15.2-alpine3.24`;
+- it creates a user and group `app` with UID and GID **10001**, and runs the server as that user
+  (`USER`, numeric or by name);
+- `server.py` is in `/app`, **owned by root**, so the server cannot change it;
+- it documents port **8080** (`EXPOSE`) and runs `python server.py` by default;
+- the image also works with a read-only root filesystem (`podman run --read-only`).
+
+The grader starts it (`podman run -d --name web web`), asks it for a page from a second container that
+shares its network namespace, and runs `id -u` inside it.
+'''
+
+[unit.step.project]
+main = "Containerfile"
+readonly = ["server.py"]
+explanation = '''
+`USER 10001:10001` makes the server run unprivileged; `COPY` without `--chown` leaves the code owned by
+root, so the server can read it but not write it. Nothing in the image needs to write outside `/tmp`,
+so `--read-only` works too.
+'''
+
+[unit.step.project.starter]
+"Containerfile" = '''
+FROM docker.io/library/python:3.15.2-alpine3.24
+WORKDIR /app
+COPY server.py .
+CMD ["python", "server.py"]
+'''
+"server.py" = '''
+import http.server
+import os
+
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = f"ok uid={os.getuid()}\n".encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, fmt, *args):
+        print(fmt % args, flush=True)
+
+
+http.server.ThreadingHTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[run]]
+cmd = ["podman", "build", "-t", "web", "."]
+message = "The Containerfile must build."
+
+[[run]]
+cmd = ["podman", "image", "inspect", "web"]
+save = "image.json"
+message = "The image must exist."
+
+[[check]]
+file = "image.json"
+path = "[0].Config.User"
+matches = '^(10001|app)(:(10001|app))?$'
+message = "The image runs as the app user (UID 10001): USER 10001:10001 or USER app."
+
+[[check]]
+file = "image.json"
+path = "[0].Config.ExposedPorts"
+contains = { "8080/tcp" = {} }
+message = "EXPOSE 8080 documents the port."
+
+[[run]]
+cmd = ["podman", "run", "-d", "--name", "web", "web"]
+message = "The server starts."
+
+[[run]]
+cmd = ["podman", "run", "--rm", "--network", "container:web", "docker.io/library/alpine:3.24.4", "wget", "-q", "-T", "3", "-O", "-", "http://127.0.0.1:8080/"]
+retries = 10
+message = "The server answers on port 8080 (asked from a second container in its network namespace)."
+
+[[run]]
+cmd = ["podman", "run", "--rm", "--network", "container:web", "docker.io/library/alpine:3.24.4", "wget", "-q", "-T", "3", "-O", "-", "http://127.0.0.1:8080/"]
+output_contains = ["ok uid=10001"]
+message = "The server runs as UID 10001."
+
+[[run]]
+cmd = ["podman", "exec", "web", "id", "-u"]
+output_contains = ["10001"]
+message = "Inside the container, the process runs as 10001."
+
+[[run]]
+cmd = ["podman", "exec", "web", "sh", "-c", "echo hacked >> /app/server.py"]
+expect = "failure"
+message = "The server's user cannot modify its own code: server.py stays owned by root."
+
+[[run]]
+cmd = ["podman", "run", "--rm", "--read-only", "web", "python", "-c", "import os; print('read-only ok', os.getuid())"]
+output_contains = ["read-only ok 10001"]
+message = "The image works with a read-only root filesystem."
+'''
+
+[unit.step.project.solution]
+"Containerfile" = '''
+FROM docker.io/library/python:3.15.2-alpine3.24
+RUN addgroup -S -g 10001 app && adduser -S -D -H -u 10001 -G app app
+WORKDIR /app
+COPY server.py .
+USER 10001:10001
+EXPOSE 8080
+CMD ["python", "server.py"]
+'''
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+[[unit]]
+id = "pm-u6-volumes"
+title = "Volumes"
+level = "intermediate"
+difficulty = 6
+intro = "Data that must outlive a container goes in a volume — and the user who writes it must own it."
+concepts = '''
+A container's writable layer disappears with the container. Anything that must survive a restart, an
+upgrade to a new image or a `podman rm` — a database, uploaded files, a counter — belongs in a
+**volume**: storage managed by Podman, mounted into the container at a path.
+
+```sh
+podman volume create data
+podman run --rm -v data:/data app     # writes /data/count
+podman run --rm -v data:/data app     # sees what the first one wrote
+```
+
+**Named volumes** (`-v data:/data`) live in Podman's storage
+(`~/.local/share/containers/storage/volumes` for rootless) and are listed by `podman volume ls`. They
+outlive every container until `podman volume rm`. **Bind mounts** (`-v /host/path:/data`) map a host
+folder instead; they depend on the machine they run on, and the grader never uses them.
+
+**`VOLUME /data` in a Containerfile** declares that `/data` holds data. When a container starts without
+a volume there, Podman creates an **anonymous** volume for it, so writes never go to the container
+layer. `podman run --rm` removes that anonymous volume with the container — only a **named** volume
+keeps data between runs.
+
+**Ownership.** When an empty named volume is first mounted, Podman copies into it what the image has at
+that path — files **and ownership**. So an image that runs as a non-root user should create the folder
+and give it to that user:
+
+```dockerfile
+RUN mkdir /data && chown 10001:10001 /data
+USER 10001
+VOLUME /data
+```
+
+If the image has `/data` but it belongs to root (a plain `RUN mkdir /data`), the new volume belongs to
+root too and the non-root process gets "Permission denied" — the most common volume bug. (When the
+path does not exist in the image at all, Podman — unlike Docker — gives the new volume to the
+container's user. Do not rely on it: create the folder and give it to the user, which works with both.)
+
+**`:ro`.** `-v data:/data:ro` mounts the volume read-only: useful for a container that only reads
+configuration or another service's output.
+
+Official docs: https://docs.podman.io/en/v4.9.3/markdown/podman-volume-create.1.html and
+https://docs.docker.com/engine/storage/volumes/
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "pm-c6-volumes"
+title = "Containers are disposable, data is not"
+points = 5
+difficulty = 1
+intro = '''
+Where a container's writes go, and which of them survive.
+'''
+body = '''
+| Written to | Survives `podman rm`? | Survives a new image? |
+|---|---|---|
+| the container layer | no | no |
+| an anonymous volume (`VOLUME`, no `-v`) | not with `--rm` | no |
+| a named volume (`-v data:/data`) | yes | yes |
+
+Upgrading an application means removing its container and starting a new one from the new image. If
+its data is in a named volume, the new container mounts the same volume and carries on.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "pm-d6-volume"
+title = "A folder ready to be a volume"
+points = 10
+difficulty = 2
+placeholder_policy = "shown"
+intro = '''
+Create the data folder, give it to the user, declare it.
+'''
+prompt = '''
+Type the Containerfile of a service that keeps its state in /var/lib/notes.
+'''
+target = '''
+FROM docker.io/library/python:3.15.2-alpine3.24
+RUN adduser -S -D -H -u 10001 notes \
+ && mkdir -p /var/lib/notes \
+ && chown 10001 /var/lib/notes
+COPY notes.py /app/notes.py
+USER 10001
+VOLUME /var/lib/notes
+CMD ["python", "/app/notes.py"]
+'''
+line_comments = [
+  "The base image.",
+  "A non-root user…",
+  "…the data folder…",
+  "…owned by that user (copied into a new volume on first use).",
+  "The code, owned by root.",
+  "Run as the user.",
+  "Declare where the data lives.",
+  "The default command.",
+]
+explanation = "`podman run -v notes:/var/lib/notes img` keeps the notes in the named volume `notes` across containers."
+
+[[unit.step]]
+kind = "drill"
+id = "pm-d6-readonly"
+title = "Reading another container's data"
+points = 10
+difficulty = 2
+placeholder_policy = "shown"
+intro = '''
+An image that only reads a volume, mounted read-only.
+'''
+prompt = '''
+Type the Containerfile of a report job that reads files from /data.
+'''
+target = '''
+FROM docker.io/library/alpine:3.24.4
+WORKDIR /data
+USER 65534
+CMD ["sh", "-c", "ls -l /data && wc -c /data/*"]
+'''
+line_comments = [
+  "The base image.",
+  "It works in the mounted folder.",
+  "`nobody`: it only reads.",
+  "List and measure what another container wrote.",
+]
+explanation = "Run it with `-v data:/data:ro`: the volume is shared, and this container cannot change it."
+
+[[unit.step]]
+kind = "challenge"
+id = "pm-p6-counter"
+title = "A visit counter that remembers"
+points = 40
+difficulty = 4
+intro = '''
+Make a non-root program keep its state in a named volume.
+'''
+instructions = '''
+`counter.py` reads `/data/count`, adds one, writes it back and prints `visit N`. Write the
+`Containerfile` so that:
+
+- it starts from `docker.io/library/python:3.15.2-alpine3.24` and copies `counter.py` to
+  `/app/counter.py`;
+- it runs as a non-root user with UID **10001**;
+- `/data` exists in the image, is **owned by UID 10001**, and is declared with `VOLUME`;
+- the default command runs `python /app/counter.py`.
+
+The grader creates a named volume, runs `podman run --rm -v data:/data counter` twice and expects
+`visit 1` then `visit 2`; then runs it without a named volume and expects `visit 1` again.
+'''
+
+[unit.step.project]
+main = "Containerfile"
+readonly = ["counter.py"]
+explanation = '''
+A new named volume starts as a copy of the image's `/data`, ownership included: the starter's
+`/data` belonged to root, so UID 10001 could not write to the volume. The `chown` in the image fixes it. `VOLUME /data` makes Podman create an anonymous volume when no
+named one is given; with `--rm` it is removed with the container, so the count starts again.
+'''
+
+[unit.step.project.starter]
+"Containerfile" = '''
+FROM docker.io/library/python:3.15.2-alpine3.24
+RUN mkdir /data
+COPY counter.py /app/counter.py
+USER 10001
+CMD ["python", "/app/counter.py"]
+'''
+"counter.py" = '''
+from pathlib import Path
+
+store = Path("/data/count")
+count = int(store.read_text()) + 1 if store.exists() else 1
+store.write_text(str(count))
+print(f"visit {count}")
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[run]]
+cmd = ["podman", "build", "-t", "counter", "."]
+message = "The Containerfile must build."
+
+[[run]]
+cmd = ["podman", "volume", "create", "data"]
+message = "A named volume."
+
+[[run]]
+cmd = ["podman", "run", "--rm", "-v", "data:/data", "counter"]
+output_contains = ["visit 1"]
+message = "The first run writes /data/count as UID 10001: /data must be owned by 10001."
+
+[[run]]
+cmd = ["podman", "run", "--rm", "-v", "data:/data", "counter"]
+output_contains = ["visit 2"]
+message = "The second run sees what the first wrote: the data lives in the named volume."
+
+[[run]]
+cmd = ["podman", "run", "--rm", "counter"]
+output_contains = ["visit 1"]
+message = "Without a named volume, VOLUME /data gives each container its own anonymous volume."
+
+[[run]]
+cmd = ["podman", "image", "inspect", "counter"]
+save = "image.json"
+message = "The image must exist."
+
+[[check]]
+file = "image.json"
+path = "[0].Config.Volumes"
+contains = { "/data" = {} }
+message = "VOLUME /data declares the data folder."
+
+[[check]]
+file = "image.json"
+path = "[0].Config.User"
+matches = '^(10001|[a-z][a-z0-9_-]*)(:.*)?$'
+message = "The image runs as the non-root user."
+
+[[run]]
+cmd = ["podman", "run", "--rm", "--entrypoint", "id", "counter", "-u"]
+output_contains = ["10001"]
+message = "The user's UID is 10001."
+'''
+
+[unit.step.project.solution]
+"Containerfile" = '''
+FROM docker.io/library/python:3.15.2-alpine3.24
+RUN adduser -S -D -H -u 10001 app \
+ && mkdir /data \
+ && chown 10001 /data
+COPY counter.py /app/counter.py
+USER 10001
+VOLUME /data
+CMD ["python", "/app/counter.py"]
+'''
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+[[unit]]
+id = "pm-u7-networks"
+title = "Networks"
+level = "intermediate"
+difficulty = 7
+intro = "Every container has its own network namespace; containers reach each other by sharing one, or through a network with DNS."
+concepts = '''
+Each container gets its own **network namespace**: its own interfaces, its own routing table and its
+own `localhost`. A server listening on `127.0.0.1:8080` in one container is invisible from another
+container's `localhost`. There are three ways to connect containers:
+
+1. **Share a namespace.** `podman run --network container:api client` puts `client` in `api`'s
+   namespace: they share interfaces and `localhost`, so the client reaches the server at
+   `http://127.0.0.1:8080`. A **pod** (`podman pod create --name shop`, then `podman run --pod shop …`)
+   is a group of containers that share one namespace this way — exactly like a Kubernetes Pod.
+2. **A user-defined network.** `podman network create shop`, then `podman run --network shop --name api …`
+   and `podman run --network shop client`: each container has its own address on the network, and
+   Podman's DNS server (aardvark-dns) resolves the **container names**, so the client uses
+   `http://api:8080`. `--internal` makes a network with no route to the outside world.
+3. **Publish a port on the host.** `podman run -p 8080:8080 api` forwards the host's port 8080 to the
+   container. That is how users reach a service; containers talking to each other should not need it.
+
+`--network none` gives a container only a loopback interface: nothing in, nothing out. It is the
+safest default for a job that needs no network — and what the grader uses for everything.
+
+**Rootless networking.** Without root, Podman cannot create real bridges on the host. Rootless
+containers on the default network go out through a user-mode network stack (`slirp4netns` or `pasta`),
+and every rootless user-defined network of a user lives inside one shared "rootless network namespace".
+Ports below 1024 cannot be published without changing a system setting.
+
+**In this sandbox.** The grader creates no user-defined networks — inside the shared rootless
+namespace they would collide with your own — and publishes no ports. It uses `--network none` and
+`--network container:<name>`, which is enough to test the pod pattern: two containers that talk over
+`localhost`. On your machine, try the network variant too: create a network, run the API with
+`--name api`, and point the client at `http://api:8080`.
+
+Official docs: https://docs.podman.io/en/v4.9.3/markdown/podman-network.1.html,
+https://docs.podman.io/en/v4.9.3/markdown/podman-pod-create.1.html and
+https://docs.podman.io/en/v4.9.3/markdown/podman-run.1.html (`--network`)
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "pm-c7-networks"
+title = "Whose localhost?"
+points = 5
+difficulty = 1
+intro = '''
+The same URL means different things depending on the namespace a container is in.
+'''
+body = '''
+| The client runs with | `http://127.0.0.1:8080` reaches | `http://api:8080` reaches |
+|---|---|---|
+| its own namespace (default, or `--network none`) | the client itself: nothing there | nothing (no such name) |
+| `--network container:api` / the same pod | the API | nothing (no DNS in a shared namespace) |
+| a user-defined network with the API on it | the client itself | the API, through Podman's DNS |
+
+So a client's configuration depends on how it is deployed. That is why the URL belongs in an
+environment variable with a sensible default, not in the code.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "pm-d7-client"
+title = "A configurable client"
+points = 10
+difficulty = 2
+placeholder_policy = "shown"
+intro = '''
+The address of a dependency is configuration: an ENV with a default.
+'''
+prompt = '''
+Type the Containerfile of a client whose API address comes from `API_URL`.
+'''
+target = '''
+FROM docker.io/library/python:3.15.2-alpine3.24
+COPY client.py /app/client.py
+ENV API_URL=http://127.0.0.1:8080
+USER 10001
+CMD ["python", "/app/client.py"]
+'''
+line_comments = [
+  "The base image.",
+  "The client code.",
+  "A default for the pod pattern; `-e API_URL=http://api:8080` on a network.",
+  "Non-root.",
+  "Run the client.",
+]
+explanation = "The same image works in a pod (localhost) and on a user-defined network (the service name), by changing one variable."
+
+[[unit.step]]
+kind = "drill"
+id = "pm-d7-server"
+title = "A server that listens on all interfaces"
+points = 10
+difficulty = 2
+placeholder_policy = "shown"
+intro = '''
+Bind to 0.0.0.0, or nothing outside the container's own localhost can reach you.
+'''
+prompt = '''
+Type the Containerfile of a server that takes its port from the environment.
+'''
+target = '''
+FROM docker.io/library/python:3.15.2-alpine3.24
+ENV PORT=8080
+EXPOSE 8080
+USER 10001
+CMD ["sh", "-c", "exec python -m http.server \"$PORT\" --bind 0.0.0.0"]
+'''
+line_comments = [
+  "The base image.",
+  "The port, as configuration.",
+  "Documents it (it publishes nothing by itself).",
+  "Non-root, so a port above 1024.",
+  "`exec` keeps Python as process 1; `0.0.0.0` accepts connections from other containers and published ports.",
+]
+explanation = "A server bound to 127.0.0.1 only answers inside its own namespace: published ports and other containers on a network cannot reach it."
+
+[[unit.step]]
+kind = "challenge"
+id = "pm-p7-pod"
+title = "Two containers, one localhost"
+points = 40
+difficulty = 4
+intro = '''
+Configure a client so it reaches an API in the same network namespace, the way containers in a pod do.
+'''
+instructions = '''
+`api/` is a finished service: it answers `healthy` on `http://<host>:8080/health`. `client/check.py`
+fetches the URL in `API_URL` and prints the answer. Write `client/Containerfile` so that:
+
+- it starts from `docker.io/library/python:3.15.2-alpine3.24` and copies `check.py` to `/app/check.py`;
+- `API_URL` defaults to the API's health URL **as seen from the API's own network namespace** (the
+  grader runs the client with `--network container:api`, like two containers in one pod);
+- it runs as a non-root user (UID 10001) and runs `python /app/check.py` by default.
+
+The grader builds both images, starts `api`, runs the client in its namespace (it must print
+`healthy`), and runs the client alone (with its own namespace it must fail: nothing listens there).
+'''
+
+[unit.step.project]
+main = "client/Containerfile"
+readonly = ["api/Containerfile", "api/server.py", "client/check.py"]
+explanation = '''
+In a shared network namespace there is one `localhost` and no DNS, so the client reaches the API at
+`http://127.0.0.1:8080/health`. The name `api` would only resolve on a user-defined network, where
+Podman's DNS knows the container names.
+'''
+
+[unit.step.project.starter]
+"client/Containerfile" = '''
+FROM docker.io/library/python:3.15.2-alpine3.24
+COPY check.py /app/check.py
+ENV API_URL=http://api:8080/health
+CMD ["python", "/app/check.py"]
+'''
+"client/check.py" = '''
+import os
+import sys
+import urllib.request
+
+url = os.environ.get("API_URL", "")
+if not url:
+    sys.exit("API_URL is not set")
+try:
+    with urllib.request.urlopen(url, timeout=3) as response:
+        print(response.read().decode().strip(), "from", url)
+except OSError as error:
+    sys.exit(f"cannot reach {url}: {error}")
+'''
+"api/Containerfile" = '''
+FROM docker.io/library/python:3.15.2-alpine3.24
+COPY server.py /app/server.py
+USER 10001
+EXPOSE 8080
+CMD ["python", "/app/server.py"]
+'''
+"api/server.py" = '''
+import http.server
+
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        ok = self.path == "/health"
+        body = b"healthy\n" if ok else b"not found\n"
+        self.send_response(200 if ok else 404)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+http.server.ThreadingHTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[run]]
+cmd = ["podman", "build", "-t", "api", "api"]
+message = "The API image must build."
+
+[[run]]
+cmd = ["podman", "build", "-t", "client", "client"]
+message = "client/Containerfile must build."
+
+[[run]]
+cmd = ["podman", "image", "inspect", "client"]
+save = "client.json"
+message = "The client image must exist."
+
+[[check]]
+file = "client.json"
+path = "[0].Config.User"
+matches = '^(10001|[a-z][a-z0-9_-]*)(:.*)?$'
+message = "The client runs as a non-root user (USER 10001)."
+
+[[run]]
+cmd = ["podman", "run", "-d", "--name", "api", "api"]
+message = "The API starts."
+
+[[run]]
+cmd = ["podman", "run", "--rm", "--network", "container:api", "docker.io/library/alpine:3.24.4", "wget", "-q", "-T", "3", "-O", "-", "http://127.0.0.1:8080/health"]
+retries = 10
+message = "The API starts answering on port 8080."
+
+[[run]]
+cmd = ["podman", "run", "--rm", "--network", "container:api", "client"]
+output_contains = ["healthy from http://"]
+message = "In the API's network namespace, the client reaches it through API_URL: there, the API is at localhost (127.0.0.1), port 8080, path /health."
+
+[[run]]
+cmd = ["podman", "run", "--rm", "client"]
+expect = "failure"
+output_contains = ["cannot reach"]
+message = "With its own namespace the client cannot reach the API: each container has its own localhost."
+
+[[run]]
+cmd = ["podman", "run", "--rm", "--network", "container:api", "--entrypoint", "id", "client", "-u"]
+output_contains = ["10001"]
+message = "The client's UID is 10001."
+'''
+
+[unit.step.project.solution]
+"client/Containerfile" = '''
+FROM docker.io/library/python:3.15.2-alpine3.24
+COPY check.py /app/check.py
+ENV API_URL=http://127.0.0.1:8080/health
+USER 10001
+CMD ["python", "/app/check.py"]
+'''
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+[[unit]]
+id = "pm-u8-compose"
+title = "Compose"
+level = "advanced"
+difficulty = 8
+intro = "A multi-service application in one YAML file: services, their images, configuration, dependencies, volumes, networks and secrets."
+concepts = '''
+Running an application by hand means a `podman run` per service, with the right networks, volumes,
+environment and start order. The **Compose specification** describes all of it in one file,
+`compose.yaml`:
+
+```yaml
+services:
+  web:
+    build: ./web                 # or image: … to use a ready image
+    ports: ["8080:8080"]
+    environment:
+      DATABASE_HOST: db          # services find each other by name
+    depends_on:
+      db:
+        condition: service_healthy
+  db:
+    image: docker.io/library/postgres:17.12-alpine3.24
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+volumes:
+  db-data: {}
+```
+
+The pieces you will use most:
+
+| Key | Meaning |
+|---|---|
+| `build` / `image` | build from a folder, or run an existing image (pin the tag) |
+| `ports` | `"HOST:CONTAINER"` — quote it: YAML reads `60:60` as a number in base 60 |
+| `environment` | variables; `${VAR}` is interpolated from your shell or `.env` file |
+| `depends_on` + `condition: service_healthy` | start only after the dependency's health check passes |
+| `volumes` | named volumes (declared at the top level) or bind mounts |
+| `networks` | user-defined networks; `internal: true` cuts them off from the outside |
+| `secrets` | files mounted at `/run/secrets/<name>` instead of passwords in the environment |
+| `healthcheck` | the same as `HEALTHCHECK`, per service |
+
+**Secrets do not go in `environment`.** A `POSTGRES_PASSWORD: hunter2` in `compose.yaml` ends up in
+git, in `podman inspect` and in every process listing. The official PostgreSQL image reads
+`POSTGRES_PASSWORD_FILE` instead, pointing at a secret file.
+
+**Running it with Podman.** `podman compose up` hands the file to a compose provider — `docker-compose`
+(talking to Podman's API socket) or `podman-compose` (which turns it into `podman` commands). Podman
+also has its own path: `podman kube play pod.yaml` runs Kubernetes YAML, and `podman kube generate`
+writes it from running containers.
+
+**In this course** the compose file is graded by **reading it**: hidden checks verify each service, its
+dependencies, networks, volumes and secrets, the way a reviewer would. `podman compose up` is not run —
+it would publish ports on your machine and create networks next to your own. The web service's image
+is still built and started for real.
+
+Official docs: https://docs.podman.io/en/v4.9.3/markdown/podman-compose.1.html and
+https://docs.docker.com/reference/compose-file/
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "pm-c8-compose"
+title = "One file instead of ten commands"
+points = 5
+difficulty = 1
+intro = '''
+What a compose file replaces, line by line.
+'''
+body = '''
+| By hand | In `compose.yaml` |
+|---|---|
+| `podman network create backend --internal` | `networks: {backend: {internal: true}}` |
+| `podman volume create db-data` | `volumes: {db-data: {}}` |
+| `podman run -d --name db --network backend -v db-data:/var/lib/postgresql/data postgres` | `services.db` |
+| wait until the database is ready | `depends_on: {db: {condition: service_healthy}}` |
+| `podman build -t web ./web && podman run -d -p 8080:8080 web` | `services.web` |
+
+The file is also documentation: anyone can read which services exist, how they connect and what they
+persist, and review a change to it like any other code.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "pm-d8-image"
+title = "The image a compose service builds"
+points = 10
+difficulty = 2
+placeholder_policy = "shown"
+intro = '''
+The web service of the challenge is built from this Containerfile.
+'''
+prompt = '''
+Type the Containerfile of the shop's web service.
+'''
+target = '''
+FROM docker.io/library/python:3.15.2-alpine3.24
+WORKDIR /app
+COPY app.py .
+ENV DATABASE_HOST=localhost
+USER 10001
+EXPOSE 8080
+CMD ["python", "app.py"]
+'''
+line_comments = [
+  "The base image.",
+  "The application folder.",
+  "The code.",
+  "A default; compose sets DATABASE_HOST=db.",
+  "Non-root.",
+  "The port compose publishes.",
+  "The server.",
+]
+explanation = "Compose builds it from `build: ./web` and passes `environment` to the container, overriding the ENV default."
+
+[[unit.step]]
+kind = "drill"
+id = "pm-d8-healthy"
+title = "A dependency that reports when it is ready"
+points = 10
+difficulty = 3
+placeholder_policy = "shown"
+intro = '''
+A database image whose health check compose can wait for.
+'''
+prompt = '''
+Type the Containerfile of a database-like service with a health check.
+'''
+target = '''
+FROM docker.io/library/alpine:3.24.4
+RUN adduser -S -D -H -u 70 db
+USER 70
+HEALTHCHECK --interval=5s --timeout=3s --retries=5 CMD test -f /tmp/ready
+CMD ["sh", "-c", "sleep 3 && touch /tmp/ready && exec sleep infinity"]
+'''
+line_comments = [
+  "The base image.",
+  "A service user.",
+  "Run as that user.",
+  "Healthy once /tmp/ready exists; `depends_on: condition: service_healthy` waits for it.",
+  "Pretends to start up for three seconds, then reports ready.",
+]
+explanation = "With Podman, build it with `--format docker` so the HEALTHCHECK is kept (unit 9)."
+
+[[unit.step]]
+kind = "challenge"
+id = "pm-p8-shop"
+title = "Describe the shop in compose.yaml"
+points = 50
+difficulty = 5
+intro = '''
+Write the compose file of a web service and its PostgreSQL database, the way production wants it.
+'''
+instructions = '''
+The shop has a web service (`web/`, finished) and a PostgreSQL database. Write `compose.yaml` with:
+
+- a service **`web`** built from `./web`, named `localhost/shop-web:1.0`, publishing `"8080:8080"`, with
+  `DATABASE_HOST: db` in its `environment` (a mapping), starting only when `db` is **healthy**
+  (`depends_on` with `condition: service_healthy`), on the networks `frontend` and `backend`;
+- a service **`db`** from the image `docker.io/library/postgres:17.12-alpine3.24`, only on `backend`,
+  publishing **no** port, with its data in the named volume `db-data` at `/var/lib/postgresql/data`, a
+  health check `["CMD", "pg_isready", "-U", "postgres"]`, and its password from a **secret**: the
+  secret `db_password` (from the file `./db_password.txt`) and `POSTGRES_PASSWORD_FILE:
+  /run/secrets/db_password` — never `POSTGRES_PASSWORD` in the file;
+- top-level `networks` (`frontend`, and `backend` with `internal: true`), `volumes` (`db-data`) and
+  `secrets`.
+
+The grader reads the file and also builds and starts the web image from `./web`.
+'''
+
+[unit.step.project]
+main = "compose.yaml"
+readonly = ["web/Containerfile", "web/app.py"]
+explanation = '''
+`depends_on` with `service_healthy` uses the database's health check, so the web service never starts
+against a database that is still initialising. The `backend` network is internal and the database
+publishes no port: only `web` can reach it. The password lives in a secret file, mounted at
+`/run/secrets/db_password`, which the PostgreSQL image reads through `POSTGRES_PASSWORD_FILE`.
+'''
+
+[unit.step.project.starter]
+"compose.yaml" = '''
+# The shop: a web service built from ./web and a PostgreSQL database.
+services:
+  web:
+    image: localhost/shop-web:1.0
+'''
+"web/Containerfile" = '''
+FROM docker.io/library/python:3.15.2-alpine3.24
+WORKDIR /app
+COPY app.py .
+USER 10001
+EXPOSE 8080
+CMD ["python", "app.py"]
+'''
+"web/app.py" = '''
+import http.server
+import os
+import sys
+
+DATABASE_HOST = os.environ.get("DATABASE_HOST", "")
+
+if "--check" in sys.argv:
+    print(f"config ok: database at {DATABASE_HOST or '(unset)'}")
+    sys.exit(0 if DATABASE_HOST else 1)
+
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = f"shop is up, database at {DATABASE_HOST}\n".encode()
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+http.server.ThreadingHTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[run]]
+cmd = ["podman", "build", "-t", "shop-web", "web"]
+message = "The web service's image builds from ./web."
+
+[[run]]
+cmd = ["podman", "run", "--rm", "-e", "DATABASE_HOST=db", "shop-web", "python", "app.py", "--check"]
+output_contains = ["config ok: database at db"]
+message = "The web image reads DATABASE_HOST."
+
+[[check]]
+file = "compose.yaml"
+doc_count = 1
+message = "compose.yaml is one YAML document."
+
+[[check]]
+file = "compose.yaml"
+path = "services"
+only_keys = ["web", "db"]
+message = "There are two services: web and db."
+
+[[check]]
+file = "compose.yaml"
+path = "services.web.build"
+one_of = ["./web", "web"]
+message = "web is built from ./web."
+
+[[check]]
+file = "compose.yaml"
+path = "services.web.image"
+equals = "localhost/shop-web:1.0"
+message = "The built image is named localhost/shop-web:1.0."
+
+[[check]]
+file = "compose.yaml"
+path = "services.web.ports"
+contains = "8080:8080"
+message = "web publishes \"8080:8080\" (quoted)."
+
+[[check]]
+file = "compose.yaml"
+path = "services.web.environment.DATABASE_HOST"
+equals = "db"
+message = "web finds the database by its service name: DATABASE_HOST: db (environment as a mapping)."
+
+[[check]]
+file = "compose.yaml"
+path = "services.web.depends_on.db.condition"
+equals = "service_healthy"
+message = "web waits for db to be healthy: depends_on: {db: {condition: service_healthy}}."
+
+[[check]]
+file = "compose.yaml"
+path = "services.web.networks"
+contains = "frontend"
+message = "web is on the frontend network."
+
+[[check]]
+file = "compose.yaml"
+path = "services.web.networks"
+contains = "backend"
+message = "web is on the backend network too, to reach the database."
+
+[[check]]
+file = "compose.yaml"
+path = "services.db.image"
+equals = "docker.io/library/postgres:17.12-alpine3.24"
+message = "db runs docker.io/library/postgres:17.12-alpine3.24 (a pinned tag)."
+
+[[check]]
+file = "compose.yaml"
+path = "services.db.networks"
+equals = ["backend"]
+message = "db is only on the backend network."
+
+[[check]]
+file = "compose.yaml"
+path = "services.db.ports"
+exists = false
+message = "db publishes no port: only web reaches it, over backend."
+
+[[check]]
+file = "compose.yaml"
+path = "services.db.volumes"
+contains = "db-data:/var/lib/postgresql/data"
+message = "The database files live in the named volume db-data at /var/lib/postgresql/data."
+
+[[check]]
+file = "compose.yaml"
+path = "services.db.healthcheck.test"
+equals = ["CMD", "pg_isready", "-U", "postgres"]
+message = "db's health check is [\"CMD\", \"pg_isready\", \"-U\", \"postgres\"]."
+
+[[check]]
+file = "compose.yaml"
+path = "services.db.environment.POSTGRES_PASSWORD"
+exists = false
+message = "Never write the password in compose.yaml (no POSTGRES_PASSWORD)."
+
+[[check]]
+file = "compose.yaml"
+path = "services.db.environment.POSTGRES_PASSWORD_FILE"
+equals = "/run/secrets/db_password"
+message = "PostgreSQL reads the password from the secret: POSTGRES_PASSWORD_FILE: /run/secrets/db_password."
+
+[[check]]
+file = "compose.yaml"
+path = "services.db.secrets"
+contains = "db_password"
+message = "db uses the secret db_password."
+
+[[check]]
+file = "compose.yaml"
+path = "secrets.db_password.file"
+equals = "./db_password.txt"
+message = "The secret db_password comes from the file ./db_password.txt."
+
+[[check]]
+file = "compose.yaml"
+path = "volumes.db-data"
+exists = true
+message = "The volume db-data is declared at the top level (db-data: {})."
+
+[[check]]
+file = "compose.yaml"
+path = "networks.backend.internal"
+equals = true
+message = "The backend network is internal: no route to the outside."
+
+[[check]]
+file = "compose.yaml"
+path = "networks.frontend"
+exists = true
+message = "The frontend network is declared (frontend: {})."
+'''
+
+[unit.step.project.solution]
+"compose.yaml" = '''
+services:
+  web:
+    build: ./web
+    image: localhost/shop-web:1.0
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_HOST: db
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - frontend
+      - backend
+  db:
+    image: docker.io/library/postgres:17.12-alpine3.24
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets:
+      - db_password
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - backend
+
+networks:
+  frontend: {}
+  backend:
+    internal: true
+
+volumes:
+  db-data: {}
+
+secrets:
+  db_password:
+    file: ./db_password.txt
+'''
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+[[unit]]
+id = "pm-u9-health"
+title = "Health checks"
+level = "advanced"
+difficulty = 9
+intro = "A container that runs is not necessarily a service that works: a health check asks the service itself."
+concepts = '''
+`podman ps` says a container is `Up` as long as its main process runs. A web server that deadlocked,
+lost its database or is still loading its cache is `Up` too. A **health check** is a command that runs
+inside the container at intervals and says whether the service really works: exit code 0 is healthy,
+1 is unhealthy.
+
+```dockerfile
+HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
+  CMD wget -q -O /dev/null http://127.0.0.1:8080/health || exit 1
+```
+
+| Option | Meaning |
+|---|---|
+| `--interval` | time between checks (default 30s) |
+| `--timeout` | a check that takes longer counts as a failure (default 30s) |
+| `--start-period` | failures in this first period do not count — time to start up (default 0) |
+| `--retries` | consecutive failures before the container is `unhealthy` (default 3) |
+
+The status — `starting`, `healthy`, `unhealthy` — shows in `podman ps` and in
+`podman inspect --format '{{.State.Health.Status}}' web`; `podman healthcheck run web` runs the check
+once, now. Compose waits for it (`condition: service_healthy`), and an orchestrator can restart an
+unhealthy container. Kubernetes ignores `HEALTHCHECK` and uses its own probes, but the endpoint you
+expose (`/health`) is the same.
+
+**A good check** tests the service the way a client would (an HTTP request to the app, not "is the
+process alive"), is cheap, has a timeout, and uses a tool that exists in the image — Alpine has
+busybox `wget`; a `scratch` image has nothing, so its program must provide its own check command.
+
+**Podman and the OCI format.** `HEALTHCHECK` is part of the **Docker** image format, not of the OCI
+image specification. Podman builds **OCI** images by default and, building one, warns
+"HEALTHCHECK is not supported for OCI image format and will be ignored". Build with
+**`podman build --format docker`** (or `BUILDAH_FORMAT=docker`) to keep it. Podman's `inspect` shows the
+check at the top level (`Healthcheck`), Docker's under `Config.Healthcheck`. And on a running container,
+Podman runs the checks from a systemd timer; `podman run --health-cmd …` can also set or replace one.
+
+Official docs: https://docs.docker.com/reference/dockerfile/#healthcheck and
+https://docs.podman.io/en/v4.9.3/markdown/podman-healthcheck-run.1.html
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "pm-c9-health"
+title = "Up is not healthy"
+points = 5
+difficulty = 1
+intro = '''
+What the health status adds to "the process is running".
+'''
+body = '''
+| Situation | `podman ps` status | health |
+|---|---|---|
+| just started, loading | Up 2 seconds | starting |
+| serving requests | Up 5 minutes | healthy |
+| deadlocked, every request times out | Up 5 minutes | unhealthy |
+| crashed | Exited (1) | — |
+
+Only the health check can tell the second and third rows apart. Remember, with Podman, to build with
+`--format docker`: an OCI image has no place to keep the check.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "pm-d9-healthcheck"
+title = "An HTTP health check"
+points = 10
+difficulty = 2
+placeholder_policy = "shown"
+intro = '''
+Ask the service on its health endpoint, with a timeout and a start period.
+'''
+prompt = '''
+Type the Containerfile of a web service with a health check.
+'''
+target = '''
+FROM docker.io/library/python:3.15.2-alpine3.24
+COPY app.py /app/app.py
+USER 10001
+EXPOSE 8080
+HEALTHCHECK --interval=15s --timeout=2s --start-period=10s --retries=3 \
+  CMD wget -q -O /dev/null http://127.0.0.1:8080/health || exit 1
+CMD ["python", "/app/app.py"]
+'''
+line_comments = [
+  "The base image.",
+  "The service.",
+  "Non-root.",
+  "Its port.",
+  "Every 15 s, at most 2 s each, ignoring failures in the first 10 s, unhealthy after 3 in a row…",
+  "…by fetching /health with busybox wget; any failure exits 1.",
+  "The server.",
+]
+explanation = "Build it with `podman build --format docker -t app .`, or Podman drops the HEALTHCHECK."
+
+[[unit.step]]
+kind = "drill"
+id = "pm-d9-none"
+title = "Turning an inherited health check off"
+points = 10
+difficulty = 2
+placeholder_policy = "shown"
+intro = '''
+A base image's HEALTHCHECK is inherited; NONE removes it.
+'''
+prompt = '''
+Type the Containerfile of a batch job built on a service image that had a health check.
+'''
+target = '''
+FROM docker.io/library/python:3.15.2-alpine3.24
+HEALTHCHECK NONE
+COPY job.py /app/job.py
+USER 10001
+CMD ["python", "/app/job.py"]
+'''
+line_comments = [
+  "The base (imagine it declared a HEALTHCHECK).",
+  "A one-off job has no endpoint to check: disable the inherited one.",
+  "The job.",
+  "Non-root.",
+  "Runs and exits.",
+]
+explanation = "Health checks are for long-running services; a job is judged by its exit code."
+
+[[unit.step]]
+kind = "challenge"
+id = "pm-p9-health"
+title = "A service that knows when it is healthy"
+points = 50
+difficulty = 5
+intro = '''
+Add a health check that tests the real endpoint, and build the image so Podman keeps it.
+'''
+instructions = '''
+`app.py` serves `/` and a health endpoint `/health` on port 8080. Fix the `Containerfile` so that:
+
+- the `HEALTHCHECK` fetches `http://127.0.0.1:8080/health` (the starter checks the wrong port), with
+  `--interval=10s`, `--timeout=3s`, `--start-period=5s` and `--retries=3`;
+- the service runs as UID 10001 and `EXPOSE`s 8080.
+
+The grader builds it with `podman build --format docker` (so the check is kept), starts it, runs
+`podman healthcheck run app` until it passes, and expects the container to be `healthy`. It also
+builds it once in the default **OCI** format, to show you that the check is gone there.
+'''
+
+[unit.step.project]
+main = "Containerfile"
+readonly = ["app.py"]
+explanation = '''
+The check now asks the endpoint the service really serves, with a timeout. The intervals end up in
+the image in nanoseconds (`Interval: 10000000000`). Built as OCI, the same Containerfile has no
+`Healthcheck` at all: that format has no field for it.
+'''
+
+[unit.step.project.starter]
+"Containerfile" = '''
+FROM docker.io/library/python:3.15.2-alpine3.24
+WORKDIR /app
+COPY app.py .
+USER 10001
+EXPOSE 8080
+HEALTHCHECK CMD wget -q -O /dev/null http://127.0.0.1:8000/health || exit 1
+CMD ["python", "app.py"]
+'''
+"app.py" = '''
+import http.server
+
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/health":
+            body, status = b"ok\n", 200
+        elif self.path == "/":
+            body, status = b"hello\n", 200
+        else:
+            body, status = b"not found\n", 404
+        self.send_response(status)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, fmt, *args):
+        pass
+
+
+http.server.ThreadingHTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[run]]
+cmd = ["podman", "build", "-t", "app", "--format", "docker", "."]
+message = "The Containerfile must build (in the Docker format, which keeps HEALTHCHECK)."
+
+[[run]]
+cmd = ["podman", "image", "inspect", "app"]
+save = "image.json"
+message = "The image must exist."
+
+[[check]]
+file = "image.json"
+path = "[0].Healthcheck.Test[1]"
+matches = '127\.0\.0\.1:8080/health'
+message = "The health check fetches http://127.0.0.1:8080/health."
+
+[[check]]
+file = "image.json"
+path = "[0].Healthcheck.Interval"
+equals = 10000000000
+message = "--interval=10s (stored in nanoseconds)."
+
+[[check]]
+file = "image.json"
+path = "[0].Healthcheck.Timeout"
+equals = 3000000000
+message = "--timeout=3s."
+
+[[check]]
+file = "image.json"
+path = "[0].Healthcheck.StartPeriod"
+equals = 5000000000
+message = "--start-period=5s."
+
+[[check]]
+file = "image.json"
+path = "[0].Healthcheck.Retries"
+equals = 3
+message = "--retries=3."
+
+[[check]]
+file = "image.json"
+path = "[0].Config.User"
+matches = '^10001(:.*)?$'
+message = "The service runs as UID 10001."
+
+[[run]]
+cmd = ["podman", "run", "-d", "--name", "app", "app"]
+message = "The service starts."
+
+[[run]]
+cmd = ["podman", "healthcheck", "run", "app"]
+retries = 10
+message = "podman healthcheck run app passes once the server listens."
+
+[[run]]
+cmd = ["podman", "inspect", "app"]
+save = "container.json"
+message = "The container can be inspected."
+
+[[check]]
+file = "container.json"
+path = "[0].State.Health.Status"
+equals = "healthy"
+message = "After a passing check the container is healthy."
+
+[[run]]
+cmd = ["podman", "build", "-t", "app-oci", "."]
+message = "The same Containerfile builds in the default OCI format."
+
+[[run]]
+cmd = ["podman", "image", "inspect", "app-oci"]
+save = "oci.json"
+message = "The OCI image must exist."
+
+[[check]]
+file = "oci.json"
+path = "[0].Healthcheck"
+exists = false
+message = "In the OCI format the HEALTHCHECK is dropped: that is why the course builds with --format docker."
+'''
+
+[unit.step.project.solution]
+"Containerfile" = '''
+FROM docker.io/library/python:3.15.2-alpine3.24
+WORKDIR /app
+COPY app.py .
+USER 10001
+EXPOSE 8080
+HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
+  CMD wget -q -O /dev/null http://127.0.0.1:8080/health || exit 1
+CMD ["python", "app.py"]
+'''
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+[[unit]]
+id = "pm-u10-size"
+title = "Image size and build cache"
+level = "advanced"
+difficulty = 10
+intro = "Order the instructions so the cache does the work, send the builder only what it needs, and clean up in the layer that made the mess."
+concepts = '''
+**The build cache.** For each instruction, Podman (Buildah) looks for a layer it already built from the
+same parent with the same instruction — and, for `COPY`/`ADD`, the same file contents. If it finds one
+it prints `--> Using cache` and skips the work. The first instruction whose input changed, and **every
+instruction after it**, run again. So order the Containerfile from what changes least to what changes
+most:
+
+```dockerfile
+COPY words.txt build_index.py ./     # changes rarely
+RUN … build the index …              # slow: cached while the two files above do not change
+COPY . .                             # the code: changes on every commit
+```
+
+Put `COPY . .` first and every code change re-runs the slow step.
+
+**`.containerignore`.** The whole build context is sent to the builder and `COPY . .` copies all of it:
+notes, test data, `.git`, local secrets. A `.containerignore` file (Podman also reads Docker's
+`.dockerignore`) lists patterns to leave out — `notes/`, `*.log`, `.git`. Smaller context, faster
+builds, nothing private in the image, and fewer cache misses caused by irrelevant files.
+
+**Layers only add.** Deleting a file in a later `RUN` hides it, but the earlier layer still carries its
+bytes: the image does not shrink. Create and delete temporary things in the **same** `RUN`:
+
+```dockerfile
+RUN python -m venv /opt/build \
+ && /opt/build/bin/python build_index.py \
+ && rm -rf /opt/build
+```
+
+**Smaller images**, beyond that: a small base (`alpine`, `-slim`, distroless, `scratch` with a
+multi-stage build), no package manager caches (`apk add --no-cache`, `pip install --no-cache-dir`),
+and nothing that is only needed to build. `podman image inspect --format '{{.Size}}'` and
+`podman history` show where the bytes are.
+
+Official docs: https://docs.docker.com/build/cache/,
+https://docs.docker.com/build/building/best-practices/ and
+https://docs.podman.io/en/v4.9.3/markdown/podman-build.1.html (`.containerignore`, `--layers`)
+'''
+
+[[unit.step]]
+kind = "concept"
+id = "pm-c10-size"
+title = "Every instruction after a change runs again"
+points = 5
+difficulty = 1
+intro = '''
+How one changed file decides how much of the build is repeated.
+'''
+body = '''
+Change one line of `app.py` and rebuild:
+
+| Order | Steps re-run |
+|---|---|
+| `COPY . .` then `RUN` (slow) then `CMD` | `COPY`, the slow `RUN`, everything after |
+| `COPY deps` then `RUN` (slow) then `COPY . .` | only the last `COPY` |
+
+The second order turns a two-minute rebuild into two seconds — on your machine and in CI. `podman
+build` tells you which: every reused step prints `--> Using cache <id>`.
+'''
+
+[[unit.step]]
+kind = "drill"
+id = "pm-d10-order"
+title = "Dependencies before code"
+points = 10
+difficulty = 3
+placeholder_policy = "shown"
+intro = '''
+The classic cache-friendly order for a Python service.
+'''
+prompt = '''
+Type the Containerfile. The dependency step is cached until `requirements.txt` changes.
+'''
+target = '''
+FROM docker.io/library/python:3.15.2-alpine3.24
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+USER 10001
+CMD ["python", "app.py"]
+'''
+line_comments = [
+  "The base image.",
+  "The application folder.",
+  "Only the dependency list first…",
+  "…so this slow step is reused until the list changes; no pip cache in the layer.",
+  "The code last: it changes on every commit.",
+  "Non-root.",
+  "The server.",
+]
+explanation = "With a `.containerignore` next to it, `COPY . .` copies only what the app needs."
+
+[[unit.step]]
+kind = "drill"
+id = "pm-d10-cleanup"
+title = "Clean up in the same layer"
+points = 10
+difficulty = 3
+placeholder_policy = "shown"
+intro = '''
+Download, use and delete inside one RUN, so the bytes never reach a layer.
+'''
+prompt = '''
+Type the Containerfile. The archive is unpacked and removed in a single step.
+'''
+target = '''
+FROM docker.io/library/alpine:3.24.4
+COPY site.tar.gz /tmp/site.tar.gz
+RUN mkdir -p /srv/site \
+ && tar -xzf /tmp/site.tar.gz -C /srv/site \
+ && rm /tmp/site.tar.gz
+'''
+line_comments = [
+  "The base image.",
+  "The archive lands in its own layer here — see the explanation.",
+  "One RUN: make the folder…",
+  "…unpack…",
+  "…and delete the archive in the same layer.",
+]
+explanation = "The COPY layer still holds the archive. To avoid even that, unpack it in a build stage and COPY --from the result, or use `ADD site.tar.gz /srv/site/`, which unpacks a local archive itself."
+
+[[unit.step]]
+kind = "challenge"
+id = "pm-p10-words"
+title = "A lean, cache-friendly build"
+points = 60
+difficulty = 5
+intro = '''
+Reorder a slow build, keep junk out of the context, and stop a temporary toolchain from bloating the image.
+'''
+instructions = '''
+The build creates `index.json` from `words.txt` with `build_index.py`, inside a throw-away virtual
+environment in `/opt/build`, and `app.py` prints a summary from the index. Fix the `Containerfile` and
+`.containerignore` so that:
+
+- the slow step (create the venv, run `build_index.py` with its Python, delete the venv) is **one**
+  `RUN`, so the venv never ends up in a layer — the image stays under **65 MB** (the base is ~56 MB; the venv
+  alone would add ~14 MB);
+- that step comes **before** the application code is copied, and only needs `words.txt` and
+  `build_index.py`: after a change to `app.py` the grader rebuilds and expects that step to come from
+  the cache (`--> Using cache`);
+- `COPY . .` (the rest of the code, into `/app`) stays, but `.containerignore` keeps `notes/` out of the
+  image;
+- the program runs as UID 10001 with `python app.py` in `/app`.
+'''
+
+[unit.step.project]
+main = "Containerfile"
+readonly = ["app.py", "build_index.py", "words.txt", "notes/todo.md"]
+explanation = '''
+Layers only add bytes, so the venv must be created and deleted in the same `RUN`. Copying only the
+index's inputs before that step means a change to `app.py` invalidates just the final `COPY . .`.
+`.containerignore` removes `notes/` from the build context, so `COPY . .` cannot copy it.
+'''
+
+[unit.step.project.starter]
+"Containerfile" = '''
+FROM docker.io/library/python:3.15.2-alpine3.24
+WORKDIR /app
+COPY . .
+RUN python -m venv /opt/build && /opt/build/bin/python build_index.py
+RUN rm -rf /opt/build
+USER 10001
+CMD ["python", "app.py"]
+'''
+".containerignore" = '''
+# Files and folders the build does not need (one pattern per line).
+'''
+"app.py" = '''
+import json
+from pathlib import Path
+
+index = json.loads(Path("/app/index.json").read_text())
+print(f"{index['words']} words, longest: {index['longest']}")
+'''
+"build_index.py" = '''
+import json
+import sys
+from pathlib import Path
+
+words = [w.strip() for w in Path("words.txt").read_text().splitlines() if w.strip()]
+index = {"words": len(words), "longest": max(words, key=len), "python": sys.version.split()[0]}
+Path("index.json").write_text(json.dumps(index))
+print("indexed", len(words), "words")
+'''
+"words.txt" = '''
+container
+image
+layer
+volume
+network
+rootless
+namespace
+healthcheck
+registry
+digest
+compose
+podman
+'''
+"notes/todo.md" = '''
+# Private notes — must never end up in the image
+
+- ask the team about the registry credentials
+'''
+
+[unit.step.project.tests]
+"checks.toml" = '''
+[[run]]
+cmd = ["podman", "build", "-t", "words", "."]
+message = "The Containerfile must build."
+
+[[run]]
+cmd = ["podman", "run", "--rm", "words"]
+output_contains = ["12 words, longest: healthcheck"]
+message = "The program prints the summary from /app/index.json."
+
+[[run]]
+cmd = ["podman", "image", "inspect", "words"]
+save = "image.json"
+message = "The image must exist."
+
+[[check]]
+file = "image.json"
+path = "[0].Size"
+at_most = 65000000
+message = "The image stays under 65 MB: create and delete the venv in the same RUN (a later RUN rm does not shrink the image)."
+
+[[check]]
+file = "image.json"
+path = "[0].Config.User"
+matches = '^10001(:.*)?$'
+message = "The program runs as UID 10001."
+
+[[run]]
+cmd = ["podman", "run", "--rm", "--mount", "type=image,source=words,target=/img", "docker.io/library/alpine:3.24.4", "sh", "-c", "test -f /img/app/index.json && test ! -e /img/opt/build"]
+message = "index.json is built into /app and the venv in /opt/build is gone."
+
+[[run]]
+cmd = ["podman", "run", "--rm", "--mount", "type=image,source=words,target=/img", "docker.io/library/alpine:3.24.4", "test", "!", "-e", "/img/app/notes"]
+message = ".containerignore keeps notes/ out of the build context, so it is not in the image."
+
+[[run]]
+cmd = ["append", "app.py", "\n# a small change to the code\n"]
+message = "The grader changes app.py."
+
+[[run]]
+cmd = ["podman", "build", "-t", "words:2", "."]
+output_matches = ['STEP \d+/\d+: RUN [^\n]*venv[^\n]*\n--> Using cache']
+message = "After a change to app.py, the venv step comes from the cache: copy only words.txt and build_index.py before it, and the rest of the code after."
+'''
+
+[unit.step.project.solution]
+"Containerfile" = '''
+FROM docker.io/library/python:3.15.2-alpine3.24
+WORKDIR /app
+COPY words.txt build_index.py ./
+RUN python -m venv /opt/build \
+ && /opt/build/bin/python build_index.py \
+ && rm -rf /opt/build
+COPY . .
+USER 10001
+CMD ["python", "app.py"]
+'''
+".containerignore" = '''
+notes/
+Containerfile
+.containerignore
+'''

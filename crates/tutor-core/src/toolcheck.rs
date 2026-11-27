@@ -10,8 +10,9 @@
 //!   tamanho, tipo, igual a outro caminho, está entre os valores de outro caminho, um selector
 //!   que escolhe as etiquetas de outro documento, número de documentos);
 //! - **comandos** (`[[run]]`): uma ferramenta real a correr sobre os ficheiros, mas SÓ os
-//!   comandos da lista de [`parse_command`] (sem rede, sem cluster, sem tocar no motor de
-//!   contentores). A saída pode ser guardada (`save`) e verificada como um ficheiro.
+//!   comandos da lista de [`parse_command`] (sem rede, sem cluster; o motor de contentores só pelo
+//!   sandbox Podman rootless dos cursos de Docker e de Podman — [`crate::podcmd`]). A saída pode ser
+//!   guardada (`save`) e verificada como um ficheiro.
 //!
 //! ```toml
 //! [[run]]
@@ -51,14 +52,23 @@ pub const CHECKS_FILE: &str = "checks.toml";
 
 /// Máximo de verificações e de comandos de um passo.
 const MAX_CHECKS: usize = 200;
-const MAX_RUNS: usize = 8;
+const MAX_RUNS: usize = 24;
 
 /// `true` se os passos de um curso nesta linguagem se avaliam por verificações declarativas
 /// (o avaliador de ferramentas do `tutor-eval`), e não por testes numa linguagem.
 pub fn graded_by_checks(language: &str) -> bool {
     matches!(
         language.trim().to_ascii_lowercase().as_str(),
-        "yaml" | "yml"
+        "yaml" | "yml" | "dockerfile" | "containerfile"
+    )
+}
+
+/// `true` se os ficheiros dos drills de um curso nesta linguagem são Containerfiles (os cursos de
+/// Docker e de Podman): «correr» um drill é lê-lo com [`crate::containerfile`].
+pub fn containerfile_language(language: &str) -> bool {
+    matches!(
+        language.trim().to_ascii_lowercase().as_str(),
+        "dockerfile" | "containerfile"
     )
 }
 
@@ -103,6 +113,16 @@ pub struct Run {
     /// Textos que a saída (stdout + stderr) tem de conter.
     #[serde(default)]
     pub output_contains: Vec<String>,
+    /// Expressões regulares que a saída tem de satisfazer (`(?m)`/`(?s)` à escolha do autor).
+    #[serde(default)]
+    pub output_matches: Vec<String>,
+    /// Textos que a saída NÃO pode conter.
+    #[serde(default)]
+    pub output_lacks: Vec<String>,
+    /// Quantas vezes repetir (um segundo entre tentativas) até o comando fazer o esperado: um
+    /// serviço que demora a arrancar, um healthcheck. 0 = uma só vez.
+    #[serde(default)]
+    pub retries: u32,
     /// O que dizer ao aluno quando o comando não faz o esperado.
     #[serde(default)]
     pub message: String,
@@ -217,6 +237,12 @@ pub struct Check {
     pub selects: Option<Ref>,
     #[serde(default)]
     pub doc_count: Option<usize>,
+    /// O valor é um número menor ou igual (o tamanho de uma imagem, um número de camadas).
+    #[serde(default)]
+    pub at_most: Option<f64>,
+    /// O valor é um número maior ou igual.
+    #[serde(default)]
+    pub at_least: Option<f64>,
 }
 
 impl Check {
@@ -241,6 +267,8 @@ impl Check {
         add(self.among.is_some(), "among");
         add(self.selects.is_some(), "selects");
         add(self.doc_count.is_some(), "doc_count");
+        add(self.at_most.is_some(), "at_most");
+        add(self.at_least.is_some(), "at_least");
         out
     }
 }
@@ -423,6 +451,9 @@ pub fn resolve<'a>(root: &'a Value, segs: &[Seg]) -> Vec<&'a Value> {
 pub enum Tool {
     Kubectl,
     Delonix,
+    /// O Podman rootless do sandbox de contentores (os cursos de Docker e de Podman; os comandos
+    /// `docker …` também correm nele).
+    Podman,
 }
 
 impl Tool {
@@ -431,6 +462,7 @@ impl Tool {
         match self {
             Tool::Kubectl => "kubectl",
             Tool::Delonix => "delonix",
+            Tool::Podman => "podman",
         }
     }
 
@@ -439,6 +471,7 @@ impl Tool {
         match self {
             Tool::Kubectl => &["version", "--client"],
             Tool::Delonix => &["--version"],
+            Tool::Podman => &["--version"],
         }
     }
 
@@ -457,6 +490,14 @@ impl Tool {
                  the course again. Grading only runs `delonix manifest render` and `delonix compose \
                  config`, which read the files and never touch the engine."
             }
+            Tool::Podman => {
+                "podman is not installed. Install Podman 4.4 or newer for your Linux distribution \
+                 (https://podman.io/docs/installation — e.g. `sudo apt install podman` or `sudo dnf \
+                 install podman`), rootless, and open the course again. Grading runs only in a private \
+                 rootless Podman sandbox: it never uses the Docker daemon nor your own Podman images \
+                 and containers. Linux only: on macOS and Windows Podman runs in a VM, which this \
+                 grader does not drive."
+            }
         }
     }
 }
@@ -472,19 +513,32 @@ pub enum ToolCommand {
     /// `delonix compose config -f <file> -p <project>`: valida e resolve um compose (sem criar
     /// nada).
     DelonixComposeConfig { file: String, project: String },
+    /// Um comando de contentores ([`crate::podcmd`]) que corre no sandbox Podman; `argv` é como o
+    /// curso o escreveu (para o relatório).
+    Pod {
+        cmd: crate::podcmd::PodCommand,
+        argv: Vec<String>,
+    },
+    /// `append <file> <text>`: junta texto a um ficheiro da pasta de trabalho, entre dois comandos
+    /// (uma mudança no código para ver a cache de construção a funcionar). Não corre nada.
+    Append { file: String, text: String },
 }
 
 /// Os comandos permitidos, para as mensagens.
 pub const ALLOWED_COMMANDS: &str =
-    "`kubectl kustomize <dir>`, `delonix manifest render -f <file>` \
-     and `delonix compose config -f <file> -p <project>`";
+    "`kubectl kustomize <dir>`, `delonix manifest render -f <file>`, \
+     `delonix compose config -f <file> -p <project>`, the container commands of the Docker and \
+     Podman courses (`podman …`/`docker …`, run in the rootless sandbox) and `append <file> <text>`";
 
 impl ToolCommand {
-    pub fn tool(&self) -> Tool {
+    /// A ferramenta que o comando corre (`None` para o `append`, que não corre nada).
+    pub fn tool(&self) -> Option<Tool> {
         match self {
-            ToolCommand::KubectlKustomize { .. } => Tool::Kubectl,
+            ToolCommand::KubectlKustomize { .. } => Some(Tool::Kubectl),
             ToolCommand::DelonixManifestRender { .. }
-            | ToolCommand::DelonixComposeConfig { .. } => Tool::Delonix,
+            | ToolCommand::DelonixComposeConfig { .. } => Some(Tool::Delonix),
+            ToolCommand::Pod { .. } => Some(Tool::Podman),
+            ToolCommand::Append { .. } => None,
         }
     }
 
@@ -504,14 +558,22 @@ impl ToolCommand {
                 s("-p"),
                 project.clone(),
             ],
+            ToolCommand::Pod { argv, .. } => argv[1..].to_vec(),
+            ToolCommand::Append { file, text } => vec![file.clone(), text.clone()],
         }
     }
 
     /// O comando como se escreve (para o relatório).
     pub fn display(&self) -> String {
-        let mut parts = vec![self.tool().binary().to_string()];
-        parts.extend(self.args());
-        parts.join(" ")
+        match self {
+            ToolCommand::Pod { argv, .. } => argv.join(" "),
+            ToolCommand::Append { file, .. } => format!("append to {file}"),
+            _ => {
+                let mut parts = vec![self.tool().map(Tool::binary).unwrap_or("").to_string()];
+                parts.extend(self.args());
+                parts.join(" ")
+            }
+        }
     }
 }
 
@@ -540,7 +602,19 @@ pub fn parse_command(argv: &[String]) -> Result<ToolCommand, String> {
             words.join(" ")
         )
     };
+    if matches!(words.first(), Some(&"podman") | Some(&"docker")) {
+        return crate::podcmd::parse(argv).map(|cmd| ToolCommand::Pod {
+            cmd,
+            argv: argv.to_vec(),
+        });
+    }
     match words.as_slice() {
+        ["append", file, text] if safe_project_path(file) && !text.is_empty() => {
+            Ok(ToolCommand::Append {
+                file: file.to_string(),
+                text: text.to_string(),
+            })
+        }
         ["kubectl", "kustomize", dir] if rel_path_arg(dir) => Ok(ToolCommand::KubectlKustomize {
             dir: dir.to_string(),
         }),
@@ -602,7 +676,7 @@ impl Checks {
             .runs
             .iter()
             .filter_map(|r| parse_command(&r.cmd).ok())
-            .map(|c| c.tool())
+            .filter_map(|c| c.tool())
             .collect();
         if self.needs_cluster() {
             out.insert(Tool::Kubectl);
@@ -634,10 +708,27 @@ impl Checks {
             .any(|f| saves.contains(f))
     }
 
+    /// `true` se algum comando corre no sandbox de contentores.
+    pub fn uses_sandbox(&self) -> bool {
+        self.tools().contains(&Tool::Podman)
+    }
+
     /// Erros de forma (vazio = válidas). `files` são os ficheiros que existem na pasta de
     /// trabalho (os do aluno e os ocultos); os guardados pelos `[[run]]` juntam-se aqui.
     pub fn check(&self, files: &BTreeSet<String>) -> Vec<String> {
+        self.check_with(files, None)
+    }
+
+    /// [`Checks::check`] sabendo que imagens o curso preparou (`prepared` diz se uma referência é
+    /// uma delas; `None` = não verificar): os comandos de contentores só correm imagens construídas
+    /// no passo ou preparadas.
+    pub fn check_with(
+        &self,
+        files: &BTreeSet<String>,
+        prepared: Option<&dyn Fn(&str) -> bool>,
+    ) -> Vec<String> {
         let mut errs = Vec::new();
+        let mut pods: Vec<(usize, crate::podcmd::PodCommand)> = Vec::new();
         if self.runs.is_empty() && self.checks.is_empty() && self.live.is_empty() {
             errs.push(format!(
                 "{CHECKS_FILE}: no [[check]], [[run]] or [[live]]: nothing would be verified"
@@ -672,7 +763,19 @@ impl Checks {
                     let target = match &cmd {
                         ToolCommand::KubectlKustomize { .. } => None,
                         ToolCommand::DelonixManifestRender { file }
-                        | ToolCommand::DelonixComposeConfig { file, .. } => Some(file),
+                        | ToolCommand::DelonixComposeConfig { file, .. }
+                        | ToolCommand::Append { file, .. } => Some(file),
+                        ToolCommand::Pod { cmd, .. } => {
+                            if let crate::podcmd::Op::Run(spec) = &cmd.op {
+                                if spec.name.is_some() && r.retries > 0 {
+                                    errs.push(format!(
+                                        "{at}: a `run --name` cannot be retried (the name would be taken); retry an `exec` or an unnamed run instead"
+                                    ));
+                                }
+                            }
+                            pods.push((n + 1, cmd.clone()));
+                            None
+                        }
                     };
                     if let Some(f) = target {
                         if !known.contains(f) {
@@ -681,8 +784,24 @@ impl Checks {
                     }
                 }
             }
-            if r.output_contains.iter().any(|s| s.is_empty()) {
-                errs.push(format!("{at}: an empty `output_contains` entry"));
+            if r.output_contains
+                .iter()
+                .chain(&r.output_lacks)
+                .any(|s| s.is_empty())
+            {
+                errs.push(format!(
+                    "{at}: an empty `output_contains`/`output_lacks` entry"
+                ));
+            }
+            for re in &r.output_matches {
+                if let Err(e) = regex::Regex::new(re) {
+                    errs.push(format!(
+                        "{at}: `output_matches` `{re}` is not a valid regex: {e}"
+                    ));
+                }
+            }
+            if r.retries > 30 {
+                errs.push(format!("{at}: `retries` is at most 30"));
             }
             if r.message.trim().is_empty() {
                 errs.push(format!(
@@ -703,6 +822,11 @@ impl Checks {
                     ));
                 }
             }
+        }
+        let seq: Vec<(usize, &crate::podcmd::PodCommand)> =
+            pods.iter().map(|(n, c)| (*n, c)).collect();
+        for e in crate::podcmd::check_sequence(&seq, files, prepared) {
+            errs.push(format!("{CHECKS_FILE}: {e}"));
         }
         for (n, c) in self.checks.iter().enumerate() {
             let at = format!("{CHECKS_FILE}: check #{} ({})", n + 1, c.file);
@@ -1107,6 +1231,22 @@ fn evaluate_one(c: &Check, docs: &BTreeMap<String, Result<Vec<Value>, String>>) 
             }
         });
     }
+    if c.at_most.is_some() || c.at_least.is_some() {
+        return check_all(&|v| {
+            let Some(x) = v.as_f64() else {
+                return Err(format!("found {}, which is not a number", show(v)));
+            };
+            match (c.at_most, c.at_least) {
+                (Some(max), _) if x > max => {
+                    Err(format!("found {}, expected at most {max}", show(v)))
+                }
+                (_, Some(min)) if x < min => {
+                    Err(format!("found {}, expected at least {min}", show(v)))
+                }
+                _ => Ok(()),
+            }
+        });
+    }
     if let Some(t) = c.is {
         return check_all(&|v| {
             if t.holds(v) {
@@ -1218,6 +1358,15 @@ pub fn course_tools(course: &crate::Course) -> BTreeSet<Tool> {
 /// Erros de um passo de projecto de um curso avaliado por verificações (vazio = válido): o
 /// [`CHECKS_FILE`] existe nos ocultos, lê-se e é válido contra os ficheiros do passo.
 pub fn check_step(project: &crate::ProjectFiles) -> Vec<String> {
+    check_step_with(project, None)
+}
+
+/// [`check_step`] com as imagens preparadas do curso (`Some` num curso de contentores: os comandos
+/// só correm imagens construídas no passo ou estas).
+pub fn check_step_with(
+    project: &crate::ProjectFiles,
+    images: Option<&[crate::build::ImageRef]>,
+) -> Vec<String> {
     let Some(raw) = project.tests.get(CHECKS_FILE) else {
         return vec![format!(
             "project.tests has no `{CHECKS_FILE}`: a step graded by checks declares them there"
@@ -1233,7 +1382,27 @@ pub fn check_step(project: &crate::ProjectFiles) -> Vec<String> {
         .chain(project.tests.keys().filter(|k| *k != CHECKS_FILE))
         .cloned()
         .collect();
-    checks.check(&files)
+    match images {
+        Some(imgs) => {
+            let prepared = |r: &str| imgs.iter().any(|i| i.matches(r));
+            checks.check_with(&files, Some(&prepared))
+        }
+        None => checks.check(&files),
+    }
+}
+
+/// As imagens preparadas de um curso de contentores (as linhas de `[build] dependencies`, já
+/// validadas no parse); vazio noutro curso.
+pub fn course_images(course: &crate::Course) -> Vec<crate::build::ImageRef> {
+    if crate::build::CacheKind::of(&course.language) != Some(crate::build::CacheKind::Images) {
+        return Vec::new();
+    }
+    course
+        .build
+        .dependencies
+        .iter()
+        .filter_map(|d| crate::build::image_reference(d).ok())
+        .collect()
 }
 
 #[cfg(test)]
@@ -1465,7 +1634,16 @@ mod tests {
         );
         assert_eq!(
             parse_command(&argv("kubectl kustomize .")).unwrap().tool(),
-            Tool::Kubectl
+            Some(Tool::Kubectl)
+        );
+        let pod = parse_command(&argv("docker build -t app .")).unwrap();
+        assert_eq!(
+            (pod.tool(), pod.display()),
+            (Some(Tool::Podman), "docker build -t app .".to_string())
+        );
+        assert_eq!(
+            parse_command(&argv("append app.py x")).unwrap().tool(),
+            None
         );
         let r = parse_command(&argv("delonix manifest render -f m.yaml")).unwrap();
         assert_eq!(r.display(), "delonix manifest render -f m.yaml");
@@ -1543,6 +1721,34 @@ message = "post by reference"
     #[test]
     fn yaml_languages_are_graded_by_checks() {
         assert!(graded_by_checks("yaml") && graded_by_checks(" YML "));
-        assert!(!graded_by_checks("python"));
+        assert!(graded_by_checks("dockerfile") && containerfile_language("Containerfile"));
+        assert!(!graded_by_checks("python") && !containerfile_language("yaml"));
+    }
+
+    #[test]
+    fn numbers_compare_and_outputs_have_their_own_rules() {
+        let d = docs(&[(
+            "i.json",
+            vec![json!([{"Size": 9_000_000, "RootFS": {"Layers": ["a", "b"]}}])],
+        )]);
+        assert!(one("i.json", "path = \"[0].Size\"\nat_most = 10000000", &d).ok);
+        let o = one("i.json", "path = \"[0].Size\"\nat_most = 5000000", &d);
+        assert!(!o.ok && o.detail.contains("at most 5000000"), "{o:?}");
+        assert!(one("i.json", "path = \"[0].RootFS.Layers\"\nlen = 2", &d).ok);
+        assert!(!one("i.json", "path = \"[0].Size\"\nat_least = 10000000", &d).ok);
+        let files: BTreeSet<String> = ["Containerfile".to_string()].into();
+        let c = Checks::parse(
+            "[[run]]\ncmd = [\"podman\", \"build\", \"-t\", \"app\", \".\"]\nmessage = \"m\"\noutput_matches = [\"(\"]\nretries = 31\n",
+        )
+        .unwrap();
+        let e = c.check(&files).join("\n");
+        assert!(
+            e.contains("not a valid regex") && e.contains("at most 30"),
+            "{e}"
+        );
+        let c = Checks::parse("[[run]]\ncmd = [\"podman\", \"run\", \"app\"]\nmessage = \"m\"\n")
+            .unwrap();
+        assert!(c.check(&files).join("\n").contains("image `app`"));
+        assert!(c.uses_sandbox());
     }
 }

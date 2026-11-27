@@ -45,7 +45,7 @@ fn the_fixture_validates_strictly_and_every_step_passes() {
         out.contains("framework `minishop`, graded as python"),
         "{out}"
     );
-    assert!(out.contains("✓ challenge msf-p1-cart (4 files)"), "{out}");
+    assert!(out.contains("✓ challenge msf-p1-cart (4 files, "), "{out}");
     assert!(out.contains("3 ok, 0 failed"), "{out}");
 }
 

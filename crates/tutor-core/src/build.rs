@@ -38,6 +38,11 @@
 //!   URLs, de `-e`, de índices nem de outras opções: o curso escolhe pacotes e versões, nunca
 //!   de onde vêm ([`pip_requirement`]). Num curso Python as dependências só existem numa cache
 //!   preparada, por isso `dependencies` sem `prepare = true` é um erro.
+//! - `dockerfile` (imagens, Learn P3a): uma imagem base, com o nome COMPLETO, a tag e o digest —
+//!   `docker.io/library/alpine:3.24.4@sha256:<64 hex>` ([`image_reference`]). A preparação puxa-a
+//!   pelo digest para o armazenamento do sandbox de contentores e dá-lhe a tag (para um `FROM
+//!   alpine:3.24.4` a encontrar); a avaliação nunca puxa (`--pull=never`). Como no pip, sem
+//!   `prepare = true` é um erro.
 //! - `yaml` (cluster, Learn P3b): uma IMAGEM de contentor que os passos ao vivo usam, com o
 //!   registo, a etiqueta e o digest — `docker.io/library/nginx:1.27.5-alpine@sha256:<64 hex>`
 //!   ([`image_reference`]). A preparação descarrega o kind fixado e a imagem do nó (fixados no
@@ -126,6 +131,8 @@ pub enum CacheKind {
     Cargo,
     /// Um venv do curso com `pip install --require-hashes --only-binary=:all:`.
     Pip,
+    /// Imagens base fixadas pelo digest, puxadas para o sandbox de contentores (Learn P3a).
+    Images,
     /// O cluster de prática dos cursos de Kubernetes (Learn P3b): o kind fixado, a imagem do nó
     /// e as imagens dos passos ao vivo, num armazenamento do Podman só do curso.
     Cluster,
@@ -138,6 +145,7 @@ impl CacheKind {
         match language.trim().to_ascii_lowercase().as_str() {
             "rust" | "rs" => Some(CacheKind::Cargo),
             "python" | "py" | "python3" => Some(CacheKind::Pip),
+            "dockerfile" | "containerfile" => Some(CacheKind::Images),
             "yaml" | "yml" => Some(CacheKind::Cluster),
             _ => None,
         }
@@ -147,6 +155,7 @@ impl CacheKind {
         match self {
             CacheKind::Cargo => "cargo",
             CacheKind::Pip => "pip",
+            CacheKind::Images => "images",
             CacheKind::Cluster => "cluster",
         }
     }
@@ -505,6 +514,25 @@ pub fn resolve(course: &mut crate::Course) -> Result<(), String> {
             }
         }
     }
+    if CacheKind::of(&course.language) == Some(CacheKind::Images) && !all.is_empty() {
+        if !course.build.prepare {
+            return Err(format!(
+                "build.dependencies of a course graded in `{}` are images pulled only into the prepared container sandbox: set build.prepare = true",
+                course.language
+            ));
+        }
+        let mut names = Vec::new();
+        for line in &all {
+            let img = image_reference(line).map_err(|e| format!("build.dependencies: {e}"))?;
+            if names.contains(&img.name()) {
+                return Err(format!(
+                    "build.dependencies: `{}` is listed more than once",
+                    img.name()
+                ));
+            }
+            names.push(img.name());
+        }
+    }
     if CacheKind::of(&course.language) == Some(CacheKind::Pip) && !all.is_empty() {
         if !course.build.prepare {
             return Err(format!(
@@ -572,6 +600,87 @@ pub fn resolve(course: &mut crate::Course) -> Result<(), String> {
 mod tests {
     use super::*;
     use crate::{Course, CourseFormat, Level};
+
+    const ALPINE: &str = "sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf";
+
+    #[test]
+    fn image_references_are_normalised_like_docker_does() {
+        let n = |s: &str| normalize_image(s).map(|n| (n.repo, n.tag, n.digest));
+        assert_eq!(
+            n("alpine:3.24.4"),
+            Some((
+                "docker.io/library/alpine".into(),
+                Some("3.24.4".into()),
+                None
+            ))
+        );
+        assert_eq!(
+            n("user/app"),
+            Some(("docker.io/user/app".into(), None, None))
+        );
+        assert_eq!(
+            n("localhost:5000/team/app:v1"),
+            Some(("localhost:5000/team/app".into(), Some("v1".into()), None))
+        );
+        assert_eq!(
+            n(&format!("index.docker.io/library/alpine@{ALPINE}")).map(|x| x.0),
+            Some("docker.io/library/alpine".into())
+        );
+        for bad in [
+            "",
+            "Alpine:3",
+            "a b",
+            "$BASE",
+            "alpine:",
+            "x@sha256:12",
+            "a//b",
+            "-x",
+        ] {
+            assert_eq!(normalize_image(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn course_images_need_the_registry_the_tag_and_the_digest() {
+        let img = image_reference(&format!("docker.io/library/alpine:3.24.4@{ALPINE}")).unwrap();
+        assert_eq!(img.name(), "docker.io/library/alpine:3.24.4");
+        assert_eq!(img.pinned(), format!("docker.io/library/alpine@{ALPINE}"));
+        assert_eq!(img.short(), "alpine:3.24.4");
+        assert!(img.matches("alpine:3.24.4"));
+        assert!(img.matches("docker.io/library/alpine:3.24.4"));
+        assert!(img.matches(&format!("alpine@{ALPINE}")));
+        assert!(!img.matches("alpine:3.24"));
+        assert!(!img.matches("alpine"));
+        assert!(!img.matches("evil/alpine:3.24.4"));
+        for (bad, frag) in [
+            (format!("alpine:3.24.4@{ALPINE}"), "registry in full"),
+            ("docker.io/library/alpine:3.24.4".to_string(), "digest"),
+            (format!("docker.io/library/alpine@{ALPINE}"), "tag"),
+        ] {
+            let e = image_reference(&bad).unwrap_err();
+            assert!(e.contains(frag), "{bad}: {e}");
+        }
+    }
+
+    #[test]
+    fn a_container_course_pins_its_images_and_prepares_them() {
+        let course = |deps: &str, prepare: bool| {
+            format!(
+                "id = \"c\"\nlanguage = \"dockerfile\"\ncategory = \"tool\"\nsubject = \"podman\"\ntitle = \"T\"\nlevel = \"beginner\"\nsummary = \"s\"\n[build]\nprepare = {prepare}\ndependencies = [{deps}]\n[[unit]]\nid = \"u\"\ntitle = \"U\"\n[[unit.step]]\nkind = \"concept\"\nid = \"c1\"\ntitle = \"C\"\nbody = \"b\"\n"
+            )
+        };
+        let ok = format!("\"docker.io/library/alpine:3.24.4@{ALPINE}\"");
+        let c = Course::parse(&course(&ok, true), CourseFormat::Toml).expect("valid");
+        assert_eq!(CacheKind::of(&c.language), Some(CacheKind::Images));
+        let e = Course::parse(&course(&ok, false), CourseFormat::Toml).unwrap_err();
+        assert!(e.to_string().contains("build.prepare"), "{e}");
+        let other = ok.replace("f59a", "0000");
+        let twice = format!("{ok}, {other}");
+        let e = Course::parse(&course(&twice, true), CourseFormat::Toml).unwrap_err();
+        assert!(e.to_string().contains("more than once"), "{e}");
+        let e = Course::parse(&course("\"alpine:3.24\"", true), CourseFormat::Toml).unwrap_err();
+        assert!(e.to_string().contains("registry"), "{e}");
+    }
 
     const COURSE: &str = r##"
 id = "fw-basics"

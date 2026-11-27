@@ -24,12 +24,17 @@ fn report(dir: &Path) -> tutor_plugins::Report {
 
 #[test]
 fn the_official_tool_courses_are_valid() {
-    for (id, steps) in [("kubernetes", 72), ("delonix", 36)] {
+    for (id, language, steps) in [
+        ("kubernetes", "yaml", 72),
+        ("delonix", "yaml", 36),
+        ("podman", "dockerfile", 40),
+        ("docker", "dockerfile", 40),
+    ] {
         let r = report(&course_dir(id));
         assert!(r.errors.is_empty(), "{id}: {:#?}", r.errors);
         assert!(r.warnings.is_empty(), "{id}: {:#?}", r.warnings);
         let c = &r.courses[0];
-        assert_eq!(c.language, "yaml");
+        assert_eq!(c.language, language);
         assert_eq!(c.category, tutor_core::CourseCategory::Tool);
         assert_eq!(c.subject, id);
         let n: usize = c.units.iter().map(|u| u.steps.len()).sum();

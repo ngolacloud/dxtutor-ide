@@ -507,6 +507,55 @@ message = "The Service must have 2 endpoints."
 - `dxt plugin validate` checks every `checks.toml` (form, paths, assertions, allowed commands, files
   that exist); `dxt plugin test` prints the version of each tool the course uses.
 
+### Container courses: `language = "dockerfile"`
+
+The Docker and Podman courses are tool courses written in **`dockerfile`**: drills are Containerfiles
+(running one parses it and lists its instructions and stages), challenges are project steps whose
+`checks.toml` builds and runs the learner's image **live**, in dxtutor's private rootless Podman
+sandbox (`tutor_eval::sandbox`): its own storage and configuration (the learner's own images are never
+touched; the Docker daemon is never used), memory/process/CPU limits verified before grading,
+`--cap-drop=ALL`, `no-new-privileges`, `--network none`, `--pull=never`, labels on everything, and
+everything removed after each run.
+
+The base images are the course's `[build] dependencies`, each **fully qualified, with a tag and a
+digest**, and `prepare = true` is required:
+
+```toml
+[build]
+prepare = true
+timeout_secs = 300            # each build
+dependencies = ["docker.io/library/alpine:3.24.4@sha256:<64 hex>"]
+```
+
+«Prepare course» (or `dxt plugin prepare`) pulls each image by digest into the sandbox and tags it, so
+`FROM alpine:3.24.4` (or the full name) resolves offline. Before every build, a guard refuses a `FROM`
+or `COPY --from` that is not a prepared image, a stage or `scratch`, `--platform`, `ADD <url>`,
+`RUN --network` (other than `none`), `ssh`/`secret` mounts and heredocs.
+
+Commands (`podman …` or `docker …`, the same grammar; `docker build` always builds Docker-format
+images): `build -t <name> [-f <file>] [--target <stage>] [--build-arg K=V]… [--no-cache] [--format
+docker|oci] <dir>`, `run [-d] [--rm] [--name n] [-e K=V] [-v <volume>:/path[:ro]] [--mount
+type=image,source=<image>,target=/path] [--network none|container:<name>] [-u u] [-w /dir]
+[--entrypoint e] [--read-only] [--tmpfs /path] [--cap-add CHOWN|DAC_OVERRIDE|FOWNER|SETGID|SETUID|NET_BIND_SERVICE|KILL]
+<image> [args…]`, `volume create <name>`, `exec [-u] [-w] [-e] <container> <cmd…>`, `healthcheck run
+<container>`, `image inspect <image>`, `inspect <container>`, `history <image>`, `logs <container>`,
+`stop [-t N] <container>`, and the built-in `append <file> <text>` (changes a file between two
+builds, to check the build cache). Names you give (images, containers, volumes) are private to the run;
+a `run` may only use images built earlier in the step or prepared by the course, and volumes created
+earlier. Anything else — host folders, `-p`, host network, `--privileged`, devices, `network create`,
+`pull` — is refused when the plugin is validated.
+
+`[[run]]` also takes `retries` (up to 30, one second apart: a server that takes a moment to start),
+`output_matches` (regexes) and `output_lacks`; `[[check]]` adds `at_most`/`at_least` for numbers. Save
+`image inspect`/`inspect` output (`save = "image.json"`) and check it: `[0].Config.User`,
+`[0].Config.Cmd`, `[0].RootFS.Layers` (`len`), `[0].Size` (`at_most`), `[0].Healthcheck` (Podman puts it
+at the top level; build with `--format docker` to keep it), `[0].State.Health.Status`.
+
+Two things the sandbox does not do, by design: it publishes no ports (check a service from a second
+container with `--network container:<name>`) and creates no user-defined networks (rootless networks
+share one namespace per user). Healthcheck timers are disabled; run `healthcheck run` yourself. A
+missing Podman is an error that says what to install; the sandbox is Linux-only.
+
 ### Ids
 
 Step ids must be unique across **all** installed courses, including the ones built into

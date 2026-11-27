@@ -1,12 +1,14 @@
 //! `tutor-core` — modelo de domínio e conteúdo curado do dxtutor.
 
 pub mod build;
+pub mod containerfile;
 pub mod content;
 pub mod course;
 pub mod curriculum;
 pub mod glossary;
 pub mod livecheck;
 pub mod model;
+pub mod podcmd;
 pub mod project;
 pub mod study;
 pub mod support;

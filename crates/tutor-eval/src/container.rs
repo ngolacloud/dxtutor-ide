@@ -233,6 +233,87 @@ pub struct ContainerSpec {
     /// `true` dá rede ao container (necessário para `go get`/`cargo add`/`pip`);
     /// `false` corre com `--net none` (isolado, sem conectividade).
     pub network: bool,
+    /// Limites e endurecimento (Learn P3a): memória, processos, CPU, capacidades, raiz só de
+    /// leitura, `no-new-privileges`, `--pull=never` e etiquetas. Por omissão nenhum (o
+    /// comportamento de antes). Aplicam-se no Docker e no Podman; o CLI do delonix não os conhece
+    /// e não os recebe.
+    pub limits: ContainerLimits,
+}
+
+/// Limites e endurecimento de um contentor (ver [`ContainerSpec::limits`]). O sandbox de avaliação
+/// (`crate::sandbox`) usa [`ContainerLimits::grading`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ContainerLimits {
+    /// `--memory` e `--memory-swap` iguais (sem swap), em MiB.
+    pub memory_mb: Option<u64>,
+    /// `--pids-limit`.
+    pub pids: Option<u32>,
+    /// `--cpus`, em milésimos de CPU (1000 = um CPU).
+    pub millicpus: Option<u32>,
+    /// `--cap-drop=ALL` (as de [`cap_add`](Self::cap_add) voltam).
+    pub cap_drop_all: bool,
+    /// `--cap-add` (nomes sem o prefixo `CAP_`).
+    pub cap_add: Vec<String>,
+    /// `--read-only`: a raiz do contentor só de leitura.
+    pub read_only: bool,
+    /// `--security-opt no-new-privileges`.
+    pub no_new_privileges: bool,
+    /// `--pull=never`: só imagens que já estão no armazenamento.
+    pub pull_never: bool,
+    /// `--label chave=valor`.
+    pub labels: Vec<(String, String)>,
+}
+
+impl ContainerLimits {
+    /// Os limites de um contentor de avaliação: 512 MiB sem swap, 128 processos, um CPU, sem
+    /// capacidades, `no-new-privileges` e nunca puxar imagens.
+    pub fn grading() -> Self {
+        ContainerLimits {
+            memory_mb: Some(512),
+            pids: Some(128),
+            millicpus: Some(1000),
+            cap_drop_all: true,
+            cap_add: Vec::new(),
+            read_only: false,
+            no_new_privileges: true,
+            pull_never: true,
+            labels: Vec::new(),
+        }
+    }
+
+    /// As flags de `run` (Docker e Podman aceitam as mesmas).
+    pub fn run_args(&self) -> Vec<String> {
+        let mut a = Vec::new();
+        if self.pull_never {
+            a.push("--pull=never".to_string());
+        }
+        if let Some(m) = self.memory_mb {
+            a.push(format!("--memory={m}m"));
+            a.push(format!("--memory-swap={m}m"));
+        }
+        if let Some(p) = self.pids {
+            a.push(format!("--pids-limit={p}"));
+        }
+        if let Some(c) = self.millicpus {
+            a.push(format!("--cpus={}.{:03}", c / 1000, c % 1000));
+        }
+        if self.cap_drop_all {
+            a.push("--cap-drop=ALL".to_string());
+        }
+        for cap in &self.cap_add {
+            a.push(format!("--cap-add={cap}"));
+        }
+        if self.read_only {
+            a.push("--read-only".to_string());
+        }
+        if self.no_new_privileges {
+            a.push("--security-opt=no-new-privileges".to_string());
+        }
+        for (k, v) in &self.labels {
+            a.push(format!("--label={k}={v}"));
+        }
+        a
+    }
 }
 
 impl ContainerSpec {
@@ -251,6 +332,7 @@ impl ContainerSpec {
             env: Vec::new(),
             cache_volumes: Vec::new(),
             network: false,
+            limits: ContainerLimits::default(),
         }
     }
 }
@@ -653,6 +735,9 @@ pub fn run_in_container(spec: ContainerSpec) -> Result<RunOutput> {
         cmd.arg("-e");
         cmd.arg(format!("{k}={v}"));
     }
+    if matches!(engine, SandboxEngine::Docker | SandboxEngine::Podman) {
+        cmd.args(spec.limits.run_args());
+    }
     cmd.arg(&spec.image);
     cmd.args(&spec.cmd);
 
@@ -918,6 +1003,34 @@ mod tests {
             vec![("dxtutor-go".to_string(), "/go".to_string())]
         );
         assert!(cache_volumes_for("cobol").is_empty());
+    }
+
+    #[test]
+    fn os_limites_viram_flags_e_por_omissao_nada_muda() {
+        assert!(ContainerLimits::default().run_args().is_empty());
+        let mut l = ContainerLimits::grading();
+        l.cap_add = vec!["NET_BIND_SERVICE".into()];
+        l.read_only = true;
+        l.labels = vec![("io.dxtutor.sandbox".into(), "grade".into())];
+        assert_eq!(
+            l.run_args(),
+            [
+                "--pull=never",
+                "--memory=512m",
+                "--memory-swap=512m",
+                "--pids-limit=128",
+                "--cpus=1.000",
+                "--cap-drop=ALL",
+                "--cap-add=NET_BIND_SERVICE",
+                "--read-only",
+                "--security-opt=no-new-privileges",
+                "--label=io.dxtutor.sandbox=grade",
+            ]
+        );
+        assert_eq!(
+            ContainerSpec::new("img", "/tmp", vec![]).limits,
+            ContainerLimits::default()
+        );
     }
 
     #[test]

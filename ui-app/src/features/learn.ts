@@ -174,19 +174,26 @@ function ltPrepareCard(c:Course,s?:Step):string{
   if(st&&st!=='loading'&&st.kind==='cluster'&&!s?.project?.live)return '';
   const note=LT_PREP_MSG?`<p class="lt-note${LT_PREP_MSG.bad?' bad':''}">${esc(LT_PREP_MSG.text)}</p>${LT_PREP_MSG.output?`<pre class="notr">${esc(LT_PREP_MSG.output.slice(-4000))}</pre>`:''}`:'';
   if(!st||st==='loading'||!needsPreparing(st))return note?`<div class="lt-card">${note}</div>`:'';
-  return `<div class="lt-card lt-prep"><h3>${esc(tt("prepareHeading"))}</h3><p>${esc(st.state==='stale'?tt("prepareStale"):st.kind==='pip'?tt("prepareBodyPip"):st.kind==='cluster'?tt("prepareBodyCluster"):tt("prepareBody"))}</p>${note}<button class="mini pri" data-action="lt-prepare" ${LT_PREPARING?'disabled':''}>${esc(LT_PREPARING?tt(st.kind==='pip'?"preparingPip":st.kind==='cluster'?"preparingCluster":"preparing"):tt("prepareButton"))}</button></div>`;
+  return `<div class="lt-card lt-prep"><h3>${esc(tt("prepareHeading"))}</h3><p>${esc(st.state==='stale'?tt("prepareStale"):tt(LT_PREP_TEXT[st.kind||'cargo'].body))}</p>${note}<button class="mini pri" data-action="lt-prepare" ${LT_PREPARING?'disabled':''}>${esc(LT_PREPARING?tt(LT_PREP_TEXT[st.kind||'cargo'].preparing):tt("prepareButton"))}</button></div>`;
 }
+/** Os textos da preparação por gestor da cache: cargo (compila), pip (venv), images (o sandbox de contentores). */
+const LT_PREP_TEXT={
+  cargo:{body:"prepareBody",preparing:"preparing",title:"prepareTitle",done:"prepareDone",packages:"preparePackagesCargo"},
+  pip:{body:"prepareBodyPip",preparing:"preparingPip",title:"prepareTitlePip",done:"prepareDonePip",packages:"preparePackagesPip"},
+  images:{body:"prepareBodyImages",preparing:"preparingImages",title:"prepareTitleImages",done:"prepareDoneImages",packages:"preparePackagesImages"},
+  cluster:{body:"prepareBodyCluster",preparing:"preparingCluster",title:"prepareTitleCluster",done:"prepareDoneCluster",packages:"preparePackagesCluster"},
+} as const;
 async function ltPrepare(){
   const c=course();if(!c||LT_PREPARING)return;
   LT_PREPARING=true;LT_PREP_MSG=null;ltRes();
   try{
-    const ps=ltPrepState(c);const kind=ps&&ps!=='loading'?ps.kind:'';
-    const r=await prepareCourse({gw:tauriCourseGateway,human:{approve:req=>requestApproval(req)},audit:tauriLearnAudit,title:tt(kind==='pip'?"prepareTitlePip":kind==='cluster'?"prepareTitleCluster":"prepareTitle",{course:c.title}),
-      packagesText:k=>({heading:tt("preparePackages"),note:tt(k==='pip'?"preparePackagesPip":k==='cluster'?"preparePackagesCluster":"preparePackagesCargo")})},c.id);
+    const ps=ltPrepState(c);const kind=ps&&ps!=='loading'&&ps.kind?ps.kind:'cargo';
+    const r=await prepareCourse({gw:tauriCourseGateway,human:{approve:req=>requestApproval(req)},audit:tauriLearnAudit,title:tt(LT_PREP_TEXT[kind].title,{course:c.title}),
+      packagesText:k=>({heading:tt("preparePackages"),note:tt(LT_PREP_TEXT[k||'cargo'].packages)})},c.id);
     if(r.kind==='refused')LT_PREP_MSG={text:tt("prepareRefused"),bad:true};
     else{LT_PREP[c.id]=r.status;
       if(r.kind==='failed')LT_PREP_MSG={text:tt("prepareFailed"),bad:true,output:r.output};
-      else if(r.kind==='prepared'){LT_PREP_MSG={text:tt(r.status.kind==='pip'?"prepareDonePip":r.status.kind==='cluster'?"prepareDoneCluster":"prepareDone",{fetch:Math.round(r.status.fetchSecs??0),warm:Math.round(r.status.warmSecs??0)}),bad:false};delete LT_CLUSTER[c.id];}}
+      else if(r.kind==='prepared'){LT_PREP_MSG={text:tt(LT_PREP_TEXT[r.status.kind||'cargo'].done,{fetch:Math.round(r.status.fetchSecs??0),warm:Math.round(r.status.warmSecs??0)}),bad:false};delete LT_CLUSTER[c.id];}}
   }catch(e){LT_PREP_MSG={text:`${tt("prepareFailed")} ${msg(e)}`,bad:true};}
   finally{LT_PREPARING=false;ltRes();}
 }

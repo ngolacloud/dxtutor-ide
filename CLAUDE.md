@@ -918,6 +918,34 @@ cpp, sql.
   (o `yaml`: extensão e indentação, fora do tecto de 10). Testes: `cargo test -p tutor-core
   toolcheck tool_course`, `-p tutor-eval tool_runner`, `-p tutor-plugins --test tool_courses`,
   `tests/learn.tools.test.ts`; guia em `docs/plugins/README.md`.
+- **Sandbox de contentores e cursos de Docker e de Podman (Learn P3a):** `courses/podman/` e
+  `courses/docker/` (10 unidades cada, categoria `tool`, linguagem `dockerfile`, só no backend; o de Docker
+  ensina a sintaxe e o CLI do Docker — as verificações escrevem `docker …` — mas avalia no MESMO sandbox,
+  nunca no daemon do Docker, e diz onde difere). O motor é `tutor_eval::sandbox` (reutilizável; o kind do
+  Learn P3b tem a sua caixa, `kindbox`): Podman rootless com armazenamento, volumes, redes e configuração próprios em
+  `<cache dos cursos>/.sandbox/podman` (ou `DXTUTOR_SANDBOX_ROOT`), runroot em `$XDG_RUNTIME_DIR/dxtutor-sbx-<hash>`
+  (o Podman recusa > 50 caracteres), ambiente limpo e flags globais (o `~/.local/share/containers` do
+  utilizador nunca é lido); etiquetas `io.dxtutor.sandbox=<propósito>` + `io.dxtutor.run=<id>`; limpeza
+  por etiqueta no fim de cada corrida e dos restos (`grade`) no início, com uma tranca `flock`; os limites
+  (`ContainerLimits`: memória, pids, CPU, `--cap-drop=ALL`, `no-new-privileges`, `--pull=never`) confirmam-se
+  num contentor de prova antes de avaliar (precisa da sessão systemd; sem ela, recusa). A sonda pergunta a versão
+  SEM as flags globais e recusa abaixo do Podman 4.4 com o que instalar (o 3.4.4 do Ubuntu 22.04, o do CI, não conhece
+  `--volumepath` nem `--network-config-dir`); os testes reais saltam com o motivo. As imagens base são o
+  `[build] dependencies` (`registo/repo:tag@sha256`, `CacheKind::Images`): «Prepare course» faz `podman pull`
+  pelo digest + `podman tag` no sandbox; a avaliação confirma o digest e nunca puxa. Os comandos vêm da
+  gramática de `tutor_core::podcmd` (build/run/volume create/exec/healthcheck run/inspect/history/logs/stop
+  + `append`), o Containerfile passa antes pela guarda `tutor_core::containerfile`, e `container_check` gera
+  o comando real (nomes prefixados pela corrida, `--health-interval=disable`, `--network none|container:`,
+  construções `--isolation=oci` com memória/CPU/`nproc` e numa fatia systemd própria, que mata um `RUN` fora
+  de tempo). GOTCHAs medidos (Podman 4.9.3): com o `XDG_RUNTIME_DIR` da sessão (o desta caixa), as redes rootless partilham
+  o `rootless-netns` do utilizador (por isso nada de `network create` nem `-p`); o temporizador de healthcheck chamaria `podman` sem as flags
+  do sandbox; o OCI deita fora o `HEALTHCHECK` (`--format docker`); o Buildah 1.33 reutiliza `ENV`/`LABEL`
+  da cache depois de mudar um `--build-arg` (a corrida passa a `--no-cache`); o `storage/overlay` fica
+  montado no espaço do processo de pausa (`destroy` desmonta e apaga no mesmo `podman unshare`).
+  `dxt plugin test --verbose` mostra o relatório de cada solução e de cada início. Testes: `cargo test
+  -p tutor-core build podcmd containerfile toolcheck tool_course`, `-p tutor-eval sandbox container_check`,
+  `--test sandbox_real` e `--test container_grade_real` (sandbox real, sem rede: imagem do `busybox`
+  estático), `tests/learn.tools.test.ts`; guia em `docs/plugins/README.md`.
 - **Kubernetes ao vivo (Learn P3b):** as unidades 12–18 de `courses/kubernetes/` aplicam os manifestos num
   **cluster de prática** — kind v0.33.0 sobre Podman sem root, Kubernetes v1.36.4 — e lêem o resultado. As regras
   vivem no Rust: `tutor_core::livecheck` (os `[[live]]` do `checks.toml`, a lista permitida — `apply`, `get -o

@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "id": "podman",
+  "name": "Podman",
+  "version": "1.0.0",
+  "description": "Podman: Images and Containers, Rootless — images and layers, Containerfile instructions, ENTRYPOINT and CMD, multi-stage builds, users and least privilege, volumes, networks, compose, health checks, image size and caching. Graded live in a private rootless Podman sandbox, offline, against pinned base images.",
+  "authors": ["dxtutor"],
+  "license": "MIT OR Apache-2.0",
+  "repository": "https://github.com/ngolacloud/dxtutor-course-podman",
+  "engine": ">=0.7.0",
+  "kind": "course",
+  "category": "tool",
+  "subject": {
+    "id": "podman",
+    "name": "Podman",
+    "icon": "🦭",
+    "docs": "https://docs.podman.io/en/v4.9.3/"
+  },
+  "language": {
+    "id": "dockerfile",
+    "name": "Containerfile",
+    "icon": "📦",
+    "extension": "dockerfile",
+    "indent": "4",
+    "testCommand": "podman build"
+  },
+  "courses": ["courses/podman.toml"]
+}

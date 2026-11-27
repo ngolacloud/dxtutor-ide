@@ -398,7 +398,12 @@ fn check_course(
                     // Um curso avaliado por verificações (ferramentas): o `checks.toml` oculto
                     // lê-se, só corre comandos da lista permitida e só nomeia ficheiros do passo.
                     if tutor_core::toolcheck::graded_by_checks(&c.language) {
-                        for msg in tutor_core::toolcheck::check_step(p) {
+                        // Um curso de contentores: os comandos só correm imagens construídas no
+                        // passo ou preparadas pelo curso.
+                        let images = tutor_core::toolcheck::course_images(c);
+                        let prepared = tutor_core::toolcheck::containerfile_language(&c.language)
+                            .then_some(images.as_slice());
+                        for msg in tutor_core::toolcheck::check_step_with(p, prepared) {
                             e(r, format!("{at}: {msg}"));
                         }
                         // Um passo ao vivo corre no cluster de prática, que só existe num curso
