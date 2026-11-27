@@ -143,7 +143,7 @@ export const LEARN_NOTES: FeatureNotes = {
       ],
       limits: [
         "Só na app desktop; no browser os cartões ficam «Coming soon».",
-        "Esta é a parte offline: correr os manifestos num cluster local (kind sobre Podman sem root) fica para uma fase seguinte.",
+        "As unidades 1 a 11 do Kubernetes são offline; as unidades 12 a 18 correm os manifestos no cluster de prática do curso (ver «O cluster de prática do Kubernetes»).",
         "O `delonix manifest validate` não é usado na avaliação: lê o estado do motor (e mexe nos cgroups do anfitrião); as referências entre documentos são verificadas pelo curso, a partir dos teus ficheiros.",
       ],
       covers: ["lt-pick", "submit_step"],
@@ -171,10 +171,38 @@ export const LEARN_NOTES: FeatureNotes = {
         "Um curso de terceiros pode declarar as dependências que quiser: confere a lista do diálogo antes de aprovar.",
       ],
       limits: [
-        "Só na app desktop, e só para cursos avaliados em Rust (cargo) ou Python (pip).",
-        "Precisa de rede na preparação (crates.io e GitHub; o PyPI).",
+        "Só na app desktop, e só para cursos avaliados em Rust (cargo), Python (pip) ou — o Kubernetes — YAML (o cluster de prática).",
+        "Precisa de rede na preparação (crates.io e GitHub; o PyPI; o GitHub e o Docker Hub no Kubernetes).",
       ],
       covers: ["lt-prepare"],
+    },
+    {
+      title: "O cluster de prática do Kubernetes: arrancar, apagar, e avaliar ao vivo",
+      where: ["Learning Track › Kubernetes › um passo das unidades 12 a 18 › cartões «Prepare this course» e «Practice cluster»"],
+      what: "As sete últimas unidades do curso de Kubernetes aplicam os teus manifestos num Kubernetes a sério — um cluster de um nó (Kubernetes v1.36.4) feito com o kind sobre o Podman sem root, só deste curso — e verificam o que o Kubernetes fez: um rollout, Pods prontos, um Job completo, um Service com endpoints, um contentor morto por passar o limite de memória.",
+      howTo: [
+        "Num passo ao vivo, prepara o curso uma vez («Prepare course»): o diálogo mostra o kind, a imagem do nó e as três imagens que as unidades usam, cada uma fixada pelo digest (cerca de 1 GB).",
+        "Carrega em «Submit»: na primeira vez o cluster é criado (cerca de 45 segundos); depois é reutilizado.",
+        "O cartão «Practice cluster» diz se o cluster está a correr, a memória que usa e a que horas é apagado se ninguém o usar. «Start practice cluster» arranca-o antes de submeteres; «Delete cluster» apaga-o já.",
+      ],
+      flow: [
+        "Cada avaliação cria um namespace novo (`dxt-<passo>-<aleatório>`), aplica os teus ficheiros com `kubectl apply`, espera pelo que o passo pede (`rollout status`, `wait --for=condition`, ou uma consulta repetida até um valor bater) e lê o resultado com `kubectl get -o json`; no fim apaga o namespace.",
+        "Antes de tocar no cluster correm as verificações que não precisam dele; se falharem, a parte ao vivo nem começa.",
+        "Os comandos vêm do curso, mas só correm os da lista permitida no backend (`apply`, `get`, `rollout status|undo|history`, `wait`, `logs`): nada de `exec`, `port-forward` nem escritas fora do namespace. O kubeconfig, o contexto e o namespace são sempre os do avaliador.",
+        "Antes de cada `apply`, o backend recusa o que sairia do namespace ou do cluster: tipos fora da lista (Namespace, RBAC, CRDs…), `metadata.namespace`, `hostNetwork`, `hostPath`, `hostPort`, contentores privilegiados, e imagens que não sejam as preparadas (`:latest` e `imagePullPolicy: Always` incluídos).",
+        "O Podman do cluster usa o armazenamento, a pasta de execução e a configuração deste curso, e o cluster corre numa rede interna: não descarrega nada durante a avaliação. O teu `~/.kube/config`, os teus contentores e as tuas imagens nunca são lidos nem mudados.",
+        "«Start practice cluster» e «Delete cluster» mostram o comando exacto no diálogo partilhado; `learn_cluster_start`/`learn_cluster_delete` só correm esse, e registam na auditoria antes e com o resultado. Uma recusa também fica registada.",
+        "Um cluster sem uso há 20 minutos é apagado, e um que uma execução anterior deixou também (só os `dxtutor-*` das caixas do dxtutor); as imagens preparadas ficam.",
+      ],
+      tips: [
+        "Na linha de comandos: `dxt plugin prepare courses/kubernetes` e `dxt plugin test courses/kubernetes` (cria o cluster, mede os tempos e a memória e apaga-o no fim).",
+        "O cluster ocupa uns 600 MB de memória enquanto corre; apaga-o quando acabares.",
+      ],
+      limits: [
+        "Só na app desktop, com o Podman 4.9 ou mais recente sem root, cgroup v2 com os controladores cpu, memory e pids delegados, user namespaces e a sessão D-Bus do utilizador. Sem isso, o cartão diz o que falta e as unidades offline continuam a ser avaliadas.",
+        "Só linux-x64 e linux-arm64 (as releases do kind).",
+      ],
+      covers: ["lt-cluster-start", "lt-cluster-delete", "learn_cluster_status"],
     },
   ],
 };

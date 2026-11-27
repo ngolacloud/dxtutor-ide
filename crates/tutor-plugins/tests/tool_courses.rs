@@ -24,7 +24,7 @@ fn report(dir: &Path) -> tutor_plugins::Report {
 
 #[test]
 fn the_official_tool_courses_are_valid() {
-    for (id, steps) in [("kubernetes", 44), ("delonix", 36)] {
+    for (id, steps) in [("kubernetes", 72), ("delonix", 36)] {
         let r = report(&course_dir(id));
         assert!(r.errors.is_empty(), "{id}: {:#?}", r.errors);
         assert!(r.warnings.is_empty(), "{id}: {:#?}", r.warnings);

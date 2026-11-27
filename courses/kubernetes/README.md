@@ -2,7 +2,8 @@
 
 The official [Kubernetes](https://kubernetes.io/docs/) course for the
 [dxtutor IDE](https://github.com/ngolacloud/dxtutor-ide) Learning Track — a **tool** course whose
-exercises are YAML manifests, graded **offline**.
+exercises are YAML manifests. Units 1–11 are graded **offline**; units 12–18 run your manifests
+**live** on the course's own practice cluster (kind on rootless Podman).
 
 | Unit | Level | What you write |
 |---|---|---|
@@ -17,8 +18,15 @@ exercises are YAML manifests, graded **offline**.
 | Ingress | Advanced | host and path routing with TLS |
 | Kustomize | Advanced | a production overlay, built with `kubectl kustomize` |
 | Capstone | Advanced | generated configuration, a strategic-merge patch and an overlay |
+| On a real cluster (live) | Advanced | a Deployment that rolls out, then is upgraded to a new image |
+| Services with endpoints (live) | Advanced | a Service whose EndpointSlice lists exactly its Pods, not a stranger |
+| Probes at work (live) | Advanced | a slow start survived, a busy moment out of traffic, no restart |
+| Jobs (live) | Advanced | three completions, two at a time, with the logs read back |
+| Configuration, mounted (live) | Advanced | a ConfigMap as a file and as a variable, proven by the logs |
+| Limits, enforced (live) | Advanced | a quota, Guaranteed Pods and an `OOMKilled` memory hog |
+| Rollback (live) | Advanced | a bad release that stalls at full capacity, is detected and undone |
 
-11 units, 44 steps: each unit has a concepts text, a concept step, two drills (retype a manifest,
+18 units, 72 steps: each unit has a concepts text, a concept step, two drills (retype a manifest,
 a comment on every line) and a project challenge.
 
 ## How it is graded
@@ -41,17 +49,40 @@ Every object in the drills and solutions (and the kustomize builds of the soluti
 strictly — unknown fields as errors — against the official OpenAPI spec of **Kubernetes v1.36.0**
 while the course was written.
 
+## Live units: the practice cluster
+
+Units 12–18 add `[[live]]` checks (`tutor_core::livecheck` in dxtutor): the learner's files are
+applied to a **fresh namespace** of a one-node Kubernetes **v1.36.4** made with **kind v0.33.0** on
+**rootless Podman**, the grader waits for what the step asks (a rollout, a condition, or a query
+repeated until a value matches) and reads the result with `kubectl get -o json`; the namespace is
+deleted afterwards. Only allow-listed `kubectl` commands run, always with the cluster's own
+kubeconfig, context and the grading namespace (no `exec`, no `port-forward`, no writes outside the
+namespace), and each `apply` is checked first: namespaced kinds only, no host access, and only the
+three images the course pins by digest — `nginx:1.27.5-alpine`, `nginx:1.28.0-alpine` and
+`busybox:1.37.0`.
+
+The cluster lives in the course cache with its own Podman storage, runtime folder, registries
+configuration and kubeconfig, on an **internal** network: it never reads `~/.kube/config`, never
+touches the learner's containers or images, and cannot download anything while grading. «Prepare
+course» (or `dxt plugin prepare courses/kubernetes`) downloads, once and with approval, the kind
+release (checked by its SHA-256), the node image and the three images (by digest), about 1 GB. The
+cluster is created when a live step is first graded (about 45 s; about 600 MB of memory), and deleted
+after 20 minutes without use, with «Delete cluster», or at the end of `dxt plugin test`.
+
 ## Requirements
 
 - **kubectl** (https://kubernetes.io/docs/tasks/tools/), for the Kustomize units and the capstone.
   Written against kubectl **v1.36.6** with Kustomize **v5.8.1**. Without kubectl, those steps say
   what to install instead of failing.
-- No cluster. Applying the manifests to a local cluster (kind on rootless Podman) is a separate,
-  later part.
+- Units 1–11: no cluster.
+- Units 12–18: **Podman 4.9+**, rootless (cgroup v2 with the `cpu`, `memory` and `pids` controllers
+  delegated to the user, user namespaces and `/etc/subuid`, and the user's D-Bus session). Without
+  them the live steps say what is missing; the offline units still grade.
 
 ## Contribute
 
 ```sh
 dxt plugin validate courses/kubernetes
+dxt plugin prepare courses/kubernetes  # once: kind, the node image and the three images
 dxt plugin test courses/kubernetes     # every solution passes, every starter fails
 ```

@@ -18,7 +18,7 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 - [Platform — a minha fila, revisão de PR de infra e incidentes](#platform-a-minha-fila-revisao-de-pr-de-infra-e-incidentes) — 3 acções
 - [Vault — segredos, sessão e credenciais dinâmicas](#vault-segredos-sessao-e-credenciais-dinamicas) — 3 acções
 - [Deploy guiado — staging e produção](#deploy-guiado-staging-e-producao) — 3 acções
-- [Learning Track](#learning-track) — 6 acções
+- [Learning Track](#learning-track) — 7 acções
 - [Novo projecto: um projecto completo a partir dos templates do Delonix](#novo-projecto-um-projecto-completo-a-partir-dos-templates-do-delonix) — 1 acção
 
 ---
@@ -1963,6 +1963,7 @@ Percursos guiados para aprender uma linguagem, um framework ou uma ferramenta: l
 | [O curso Django: de uma vista a uma pequena app de leituras](#o-curso-django-de-uma-vista-a-uma-pequena-app-de-leituras) | Learning Track › «Choose what to learn» › «Frameworks & tools» › Django |
 | [Os cursos de Kubernetes e do Delonix: manifestos avaliados sem cluster](#os-cursos-de-kubernetes-e-do-delonix-manifestos-avaliados-sem-cluster) | Learning Track › «Choose what to learn» › «Frameworks & tools» › Kubernetes ou Delonix Engine |
 | [Preparar um curso (Seiva, Django): descarregar as dependências uma vez](#preparar-um-curso-seiva-django-descarregar-as-dependencias-uma-vez) | Learning Track › um passo do curso Seiva ou Django › cartão «Prepare this course» |
+| [O cluster de prática do Kubernetes: arrancar, apagar, e avaliar ao vivo](#o-cluster-de-pratica-do-kubernetes-arrancar-apagar-e-avaliar-ao-vivo) | Learning Track › Kubernetes › um passo das unidades 12 a 18 › cartões «Prepare this course» e «Practice cluster» |
 
 ### Escolher o que aprender: linguagens e «Frameworks & tools»
 
@@ -2114,7 +2115,7 @@ Dois cursos de ferramentas em que se escreve YAML: o de Kubernetes (11 unidades,
 **Limites**
 
 - Só na app desktop; no browser os cartões ficam «Coming soon».
-- Esta é a parte offline: correr os manifestos num cluster local (kind sobre Podman sem root) fica para uma fase seguinte.
+- As unidades 1 a 11 do Kubernetes são offline; as unidades 12 a 18 correm os manifestos no cluster de prática do curso (ver «O cluster de prática do Kubernetes»).
 - O `delonix manifest validate` não é usado na avaliação: lê o estado do motor (e mexe nos cgroups do anfitrião); as referências entre documentos são verificadas pelo curso, a partir dos teus ficheiros.
 
 <sub>Cobre: `lt-pick`, `submit_step`</sub>
@@ -2148,10 +2149,44 @@ Um curso que usa bibliotecas de fora (o Seiva 0.2.0, o tokio e o axum; o Django 
 
 **Limites**
 
-- Só na app desktop, e só para cursos avaliados em Rust (cargo) ou Python (pip).
-- Precisa de rede na preparação (crates.io e GitHub; o PyPI).
+- Só na app desktop, e só para cursos avaliados em Rust (cargo), Python (pip) ou — o Kubernetes — YAML (o cluster de prática).
+- Precisa de rede na preparação (crates.io e GitHub; o PyPI; o GitHub e o Docker Hub no Kubernetes).
 
 <sub>Cobre: `lt-prepare`</sub>
+
+### O cluster de prática do Kubernetes: arrancar, apagar, e avaliar ao vivo
+
+**Onde:** Learning Track › Kubernetes › um passo das unidades 12 a 18 › cartões «Prepare this course» e «Practice cluster»
+
+As sete últimas unidades do curso de Kubernetes aplicam os teus manifestos num Kubernetes a sério — um cluster de um nó (Kubernetes v1.36.4) feito com o kind sobre o Podman sem root, só deste curso — e verificam o que o Kubernetes fez: um rollout, Pods prontos, um Job completo, um Service com endpoints, um contentor morto por passar o limite de memória.
+
+**Como usar**
+
+1. Num passo ao vivo, prepara o curso uma vez («Prepare course»): o diálogo mostra o kind, a imagem do nó e as três imagens que as unidades usam, cada uma fixada pelo digest (cerca de 1 GB).
+2. Carrega em «Submit»: na primeira vez o cluster é criado (cerca de 45 segundos); depois é reutilizado.
+3. O cartão «Practice cluster» diz se o cluster está a correr, a memória que usa e a que horas é apagado se ninguém o usar. «Start practice cluster» arranca-o antes de submeteres; «Delete cluster» apaga-o já.
+
+**Fluxo (por dentro)**
+
+1. Cada avaliação cria um namespace novo (`dxt-<passo>-<aleatório>`), aplica os teus ficheiros com `kubectl apply`, espera pelo que o passo pede (`rollout status`, `wait --for=condition`, ou uma consulta repetida até um valor bater) e lê o resultado com `kubectl get -o json`; no fim apaga o namespace.
+2. Antes de tocar no cluster correm as verificações que não precisam dele; se falharem, a parte ao vivo nem começa.
+3. Os comandos vêm do curso, mas só correm os da lista permitida no backend (`apply`, `get`, `rollout status|undo|history`, `wait`, `logs`): nada de `exec`, `port-forward` nem escritas fora do namespace. O kubeconfig, o contexto e o namespace são sempre os do avaliador.
+4. Antes de cada `apply`, o backend recusa o que sairia do namespace ou do cluster: tipos fora da lista (Namespace, RBAC, CRDs…), `metadata.namespace`, `hostNetwork`, `hostPath`, `hostPort`, contentores privilegiados, e imagens que não sejam as preparadas (`:latest` e `imagePullPolicy: Always` incluídos).
+5. O Podman do cluster usa o armazenamento, a pasta de execução e a configuração deste curso, e o cluster corre numa rede interna: não descarrega nada durante a avaliação. O teu `~/.kube/config`, os teus contentores e as tuas imagens nunca são lidos nem mudados.
+6. «Start practice cluster» e «Delete cluster» mostram o comando exacto no diálogo partilhado; `learn_cluster_start`/`learn_cluster_delete` só correm esse, e registam na auditoria antes e com o resultado. Uma recusa também fica registada.
+7. Um cluster sem uso há 20 minutos é apagado, e um que uma execução anterior deixou também (só os `dxtutor-*` das caixas do dxtutor); as imagens preparadas ficam.
+
+**Dicas**
+
+- Na linha de comandos: `dxt plugin prepare courses/kubernetes` e `dxt plugin test courses/kubernetes` (cria o cluster, mede os tempos e a memória e apaga-o no fim).
+- O cluster ocupa uns 600 MB de memória enquanto corre; apaga-o quando acabares.
+
+**Limites**
+
+- Só na app desktop, com o Podman 4.9 ou mais recente sem root, cgroup v2 com os controladores cpu, memory e pids delegados, user namespaces e a sessão D-Bus do utilizador. Sem isso, o cartão diz o que falta e as unidades offline continuam a ser avaliadas.
+- Só linux-x64 e linux-arm64 (as releases do kind).
+
+<sub>Cobre: `lt-cluster-start`, `lt-cluster-delete`, `learn_cluster_status`</sub>
 
 ---
 

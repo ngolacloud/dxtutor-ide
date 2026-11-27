@@ -19,7 +19,7 @@ import goCourse from "../content/courses/go.json";
 import { EVALUATION_LANGUAGES, LANGUAGE_CATALOG, findLanguage, findSubject, languageCards, subjectCards } from "./learn/domain/catalog";
 import { baseName, isReadonly, projectPaths, projectSubmission } from "./learn/domain/project";
 import { fromEmbedded } from "./learn/domain/course-adapter";
-import type { ClusterState, Course, PluginRow, PrepareStatus } from "./learn/domain/types";
+import type { ClusterState, Course, PluginRow, PrepareStatus, Step } from "./learn/domain/types";
 import type { Grade } from "./learn/application/ports";
 import { gradeStep, installPlugin, loadCatalog, msg, removePlugin } from "./learn/application/catalog-service";
 import { isNotPrepared, needsPreparing, prepareCourse } from "./learn/application/prepare-service";
@@ -168,7 +168,7 @@ function ltPrepState(c:Course):PrepareStatus|"loading"|null{
   return LT_PREP[c.id];
 }
 /** O cartão «Prepare this course» enquanto o curso não está pronto (e o resultado da última vez). */
-function ltPrepareCard(c:Course,s?:any):string{
+function ltPrepareCard(c:Course,s?:Step):string{
   const st=ltPrepState(c);
   /* Num curso de cluster só os passos ao vivo precisam da preparação (os outros são offline). */
   if(st&&st!=='loading'&&st.kind==='cluster'&&!s?.project?.live)return '';
@@ -200,7 +200,7 @@ function ltClusterState(c:Course):ClusterState|"loading"|null{
   return LT_CLUSTER[c.id];
 }
 /** O cartão do cluster num passo ao vivo: porque não corre aqui, ou o seu estado e as acções. */
-function ltClusterCard(c:Course,s:any):string{
+function ltClusterCard(c:Course,s:Step):string{
   if(!s?.project?.live)return '';
   const st=ltClusterState(c);if(!st||st==='loading'||!st.live)return '';
   const note=LT_CLUSTER_MSG?`<p class="lt-note${LT_CLUSTER_MSG.bad?' bad':''}">${esc(LT_CLUSTER_MSG.text)}</p>`:'';
