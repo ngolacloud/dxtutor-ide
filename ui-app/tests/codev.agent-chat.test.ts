@@ -123,6 +123,8 @@ test("abre a sessão com os comandos detectados e o modo, faz streaming do texto
     architecture: false,
     // toolset 11: a backlog session only for /backlog and /project
     backlog: false,
+    // H2: the project of the workspace (none here)
+    project: null,
   });
   expect(t.gateway.send).toHaveBeenCalledWith("S1", "olá", { kind: "chat" });
   expect(t.calls).toContain("reasoning vou ver");

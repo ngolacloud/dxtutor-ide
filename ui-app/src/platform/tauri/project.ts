@@ -28,8 +28,8 @@ export const projectClient = (inv: Invoker = invoke) => ({
   /** `/project`: creates the Project from `.dxtutor/backlog.json` and the plan Co-Dev proposed, if the file is still
    *  the one the plan was made from (`hash`); `ready` approves as Ready the issues that lack nothing else (audited).
    *  `{project, created, existing, sprints, ready, notReady}`. */
-  createFromBacklog: (root: string, hash: string, plan: unknown, ready: boolean, lang: string): Promise<unknown> =>
-    inv<unknown>("project_create_from_backlog", { root, hash, plan, ready, lang }),
+  createFromBacklog: (root: string, hash: string, plan: unknown, ready: boolean, lang: string, draftRoot: string | null = null): Promise<unknown> =>
+    inv<unknown>("project_create_from_backlog", { root, hash, plan, ready, lang, draftRoot }),
 });
 
 /** `backlog://proposal` — a backlog session's tool (`backlog_propose`/`project_propose`) proposed something:

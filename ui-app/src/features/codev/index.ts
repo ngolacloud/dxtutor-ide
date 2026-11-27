@@ -68,6 +68,7 @@ import type { CommandRules } from "./domain/policy";
 import { currentLocale, translator } from "../../app/i18n";
 import { makeLocalProposals, type ProposalResult } from "./application/local-proposals";
 import { services } from "../../app/services";
+import { workspaceProjects } from "../../app/workspace-projects";
 import { CODEV_ENGINE_MESSAGES } from "./application/messages";
 
 /* os textos dos casos de uso na língua da interface, e a língua em que o modelo responde (i18n dos motores) */
@@ -375,6 +376,10 @@ export const codevSessions = makeCodevSessions({
       },
       /* conjunto 9: só as sessões de arquitectura levam `arch_propose` */
       architecture: (first) => architectureSession(bridge.studioOpen(), first),
+      project: () => {
+        const p = workspaceProjects.currentPath();
+        return p === "." ? null : p;
+      },
       // RF-S09: the live hunks also go to a PairCode guest (same stream, same highlight)
       hunks: {
         ...hunkReview.sink,

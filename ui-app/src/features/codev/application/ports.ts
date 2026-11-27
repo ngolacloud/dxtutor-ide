@@ -273,6 +273,8 @@ export interface AgentGateway {
     architecture?: boolean;
     /** A backlog session (toolset 11, `/backlog` and `/project`): only these carry `backlog_propose`/`project_propose`. */
     backlog?: boolean;
+    /** H2: the project of the workspace the session works in (relative; `null`: the whole workspace). */
+    project?: string | null;
     /** Multi Co-Dev (phase 3): the issue's session works in its worktree (the backend finds it). */
     worktree?: boolean;
   }): Promise<string>;
@@ -346,6 +348,8 @@ export interface AgentChatDeps {
   /** Toolset 9: does a new session start as an architecture session (Studio open, or a first
    *  request about architecture)? Only those carry `arch_propose`. */
   architecture?(firstRequest: string): boolean;
+  /** H2: the current project of the workspace (relative; `null`: the root or no workspace). */
+  project?(): string | null;
   /** Live hunks in the editor (RF-CODEV-STREAM); absent → edits are approved per call. */
   hunks?: HunkSink;
   /** Saves what the editor has to disk before the agent reads it (autosave flush). */
