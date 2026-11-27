@@ -1444,7 +1444,7 @@ mod tests {
     /// A scripted practice cluster: records every kubectl call (namespace, args) and answers with
     /// `reply(args, how many times these args were seen before)`.
     struct Scripted {
-        calls: std::sync::Arc<std::sync::Mutex<Vec<(Option<String>, Vec<String>)>>>,
+        calls: Calls,
         reply: Reply,
     }
 

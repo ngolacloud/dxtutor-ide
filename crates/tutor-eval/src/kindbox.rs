@@ -1177,7 +1177,8 @@ mod tests {
     #[test]
     fn the_sandbox_cannot_run_without_podman_cgroup2_delegation_userns_or_dbus() {
         assert!(support_from(&facts()).ok);
-        let cases: Vec<(Box<dyn Fn(&mut HostFacts)>, &str)> = vec![
+        type Change = Box<dyn Fn(&mut HostFacts)>;
+        let cases: Vec<(Change, &str)> = vec![
             (
                 Box::new(|f| f.podman_version = None),
                 "Podman is not installed",
