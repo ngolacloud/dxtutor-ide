@@ -17,7 +17,7 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 - [Platform — a minha fila, revisão de PR de infra e incidentes](#platform-a-minha-fila-revisao-de-pr-de-infra-e-incidentes) — 3 acções
 - [Vault — segredos, sessão e credenciais dinâmicas](#vault-segredos-sessao-e-credenciais-dinamicas) — 3 acções
 - [Deploy guiado — staging e produção](#deploy-guiado-staging-e-producao) — 3 acções
-- [Learning Track](#learning-track) — 4 acções
+- [Learning Track](#learning-track) — 5 acções
 
 ---
 
@@ -1729,7 +1729,8 @@ Percursos guiados para aprender uma linguagem, um framework ou uma ferramenta: l
 | [Escolher o que aprender: linguagens e «Frameworks & tools»](#escolher-o-que-aprender-linguagens-e-frameworks-tools) | Learning Track › «Choose what to learn» · o selector que abre quando não há percurso |
 | [Passo de projecto: vários ficheiros](#passo-de-projecto-varios-ficheiros) | Learning Track › um desafio com a lista de ficheiros por cima do editor |
 | [O curso Dxjs: da primeira signal a uma pequena app](#o-curso-dxjs-da-primeira-signal-a-uma-pequena-app) | Learning Track › «Choose what to learn» › «Frameworks & tools» › Dxjs |
-| [Preparar um curso (Seiva): descarregar as bibliotecas uma vez](#preparar-um-curso-seiva-descarregar-as-bibliotecas-uma-vez) | Learning Track › um passo do curso Seiva › cartão «Prepare this course» |
+| [O curso Django: de uma vista a uma pequena app de leituras](#o-curso-django-de-uma-vista-a-uma-pequena-app-de-leituras) | Learning Track › «Choose what to learn» › «Frameworks & tools» › Django |
+| [Preparar um curso (Seiva, Django): descarregar as dependências uma vez](#preparar-um-curso-seiva-django-descarregar-as-dependencias-uma-vez) | Learning Track › um passo do curso Seiva ou Django › cartão «Prepare this course» |
 
 ### Escolher o que aprender: linguagens e «Frameworks & tools»
 
@@ -1789,7 +1790,7 @@ Um desafio pode ser um pequeno projecto: vários ficheiros (um aberto primeiro, 
 **Limites**
 
 - Só na app desktop.
-- Hoje os avaliadores de Python (`unittest`), de TypeScript (`node --test`) e de Rust (`cargo test`, um crate ou um workspace) correm passos de projecto; as outras linguagens dizem que ainda não o suportam.
+- Hoje os avaliadores de Python (`unittest`; num projecto com `manage.py` na raiz, o `manage.py test` do Django), de TypeScript (`node --test`) e de Rust (`cargo test`, um crate ou um workspace) correm passos de projecto; as outras linguagens dizem que ainda não o suportam.
 - Não se criam ficheiros novos: o passo traz todos os ficheiros com que se trabalha.
 
 <sub>Cobre: `lt-file`, `learn:go`</sub>
@@ -1824,35 +1825,67 @@ O curso oficial do dxjs, o motor de interfaces reactivas da NgolaCloud: 12 unida
 
 <sub>Cobre: `lt-pick`, `submit_step`</sub>
 
-### Preparar um curso (Seiva): descarregar as bibliotecas uma vez
+### O curso Django: de uma vista a uma pequena app de leituras
 
-**Onde:** Learning Track › um passo do curso Seiva › cartão «Prepare this course»
+**Onde:** Learning Track › «Choose what to learn» › «Frameworks & tools» › Django
 
-Um curso que compila contra bibliotecas de fora (o Seiva 0.2.0, o tokio, o axum) avalia-se sempre sem rede. Antes da primeira avaliação, «Prepare course» descarrega essas bibliotecas uma vez para uma cache deste curso e compila-as; depois, cada passo compila offline em poucos segundos.
+O curso oficial de Django 5.2 LTS: 9 unidades — vistas e URLs, modelos e migrações, o ORM, templates, formulários, o admin, testes e uma API JSON só com Django — que constroem uma pequena app de leituras (livros, autores e críticas). Os exercícios correm contra o Django verdadeiro, com o próprio executor de testes do Django.
 
 **Como usar**
 
-1. Abre um passo do curso Seiva: enquanto o curso não está preparado, aparece o cartão «Prepare this course».
-2. Carrega em «Prepare course» e lê, no diálogo, os comandos exactos e a pasta onde correm.
-3. Aprova: a preparação demora cerca de um minuto; no fim o cartão desaparece e «Submit» já avalia.
+1. Escolhe o cartão Django na secção «Frameworks & tools» e os níveis que queres.
+2. Na primeira vez, prepara o curso (cartão «Prepare this course»): instala o Django num ambiente Python só deste curso.
+3. Lê os conceitos de cada unidade, escreve os drills linha a linha e resolve os projectos: cada um é um projecto Django com `manage.py`, onde só os ficheiros da tarefa são editáveis.
 
 **Fluxo (por dentro)**
 
-1. O backend constrói os comandos (`course_prepare_status`): `cargo fetch` (a única ida à rede) e `cargo test --offline --no-run`, com um `CARGO_HOME` e um `target` só do curso — o `~/.cargo` não é tocado.
-2. O diálogo de aprovação partilhado mostra-os. Uma recusa vai para o registo de auditoria e nada corre.
-3. Aprovado, `course_prepare` só corre se o comando aprovado for o plano actual; regista a operação na auditoria antes de correr e outra vez com o resultado.
-4. No fim fica um marcador com a impressão digital das dependências e o `Cargo.lock`; cada avaliação corre com `--offline`, essa cache e o tempo limite do curso.
-5. Sem preparação (ou se o curso mudou as bibliotecas), a avaliação recusa com `COURSE_NOT_PREPARED` e o cartão volta a aparecer.
+1. O curso vem embutido no backend (`courses/django/`, `include_str!`), na categoria `framework`, avaliado pelo descritor de Python.
+2. As dependências (Django, asgiref e sqlparse) estão fixadas no `[build]` do curso, cada uma com a versão exacta e o hash sha256; a avaliação usa o venv do curso, sem rede e só com SQLite.
+3. Num passo de projecto, o descritor vê o `manage.py` na raiz e corre `manage.py test`: a base de dados de teste é criada em memória, as migrações correm e os testes ocultos decidem; um teste que não corre nunca conta como aprovado.
 
 **Dicas**
 
-- Na linha de comandos, `dxt plugin prepare courses/seiva` faz o mesmo para a mesma cache.
-- A cache fica em `<dados do utilizador>/dxtutor/course-cache/seiva-basics` (uns 650 MB); apagá-la só obriga a preparar outra vez.
+- Precisa do Python 3.10 ou mais recente com o módulo `venv` (no Debian/Ubuntu, o pacote `python3-venv`).
+- No primeiro passo, «About» leva à documentação oficial do Django 5.2, em docs.djangoproject.com/en/5.2.
 
 **Limites**
 
-- Só na app desktop, e só para cursos avaliados em Rust.
-- Precisa de rede na preparação (crates.io e GitHub).
+- Só na app desktop; no browser o cartão fica «Coming soon».
+- Não se criam ficheiros novos: uma migração a escrever já vem no passo, vazia.
+
+<sub>Cobre: `lt-pick`, `submit_step`</sub>
+
+### Preparar um curso (Seiva, Django): descarregar as dependências uma vez
+
+**Onde:** Learning Track › um passo do curso Seiva ou Django › cartão «Prepare this course»
+
+Um curso que usa bibliotecas de fora (o Seiva 0.2.0, o tokio e o axum; o Django 5.2) avalia-se sempre sem rede. Antes da primeira avaliação, «Prepare course» descarrega essas bibliotecas uma vez para uma cache deste curso; depois, cada passo corre offline em poucos segundos.
+
+**Como usar**
+
+1. Abre um passo do curso: enquanto o curso não está preparado, aparece o cartão «Prepare this course».
+2. Carrega em «Prepare course» e lê, no diálogo, os pacotes que vão ser descarregados (nome, versão e origem), os comandos exactos e a pasta onde correm.
+3. Aprova: o Seiva demora cerca de um minuto, o Django uns segundos; no fim o cartão desaparece e «Submit» já avalia.
+
+**Fluxo (por dentro)**
+
+1. O backend constrói os comandos e a lista de pacotes (`course_prepare_status`). Num curso Rust: `cargo fetch` (a única ida à rede) e `cargo test --offline --no-run`, com um `CARGO_HOME` e um `target` só do curso — o `~/.cargo` não é tocado.
+2. Num curso Python: `python3 -m venv` cria um venv só do curso, `pip install --require-hashes --only-binary=:all:` instala do PyPI as versões exactas (a única ida à rede; um pacote sem hash ou não fixado faz o pip recusar; nenhum `setup.py` corre; a configuração e a cache do pip do utilizador ficam de fora) e `pip check` confirma o resultado sem rede. O Python do utilizador não ganha pacotes.
+3. O diálogo de aprovação partilhado mostra os pacotes e os comandos. Uma recusa vai para o registo de auditoria e nada corre.
+4. Aprovado, `course_prepare` só corre se o comando aprovado for o plano actual; regista a operação na auditoria antes de correr e outra vez com o resultado.
+5. No fim fica um marcador com a impressão digital das dependências; cada avaliação corre contra essa cache (`--offline` no Rust, o Python do venv com `PIP_NO_INDEX` no Python) e com o tempo limite do curso.
+6. Sem preparação (ou se o curso mudou as dependências), a avaliação recusa com `COURSE_NOT_PREPARED` e o cartão volta a aparecer.
+
+**Dicas**
+
+- Na linha de comandos, `dxt plugin prepare courses/seiva` (ou `courses/django`) faz o mesmo para a mesma cache.
+- A cache fica em `<dados do utilizador>/dxtutor/course-cache/<id do curso>` (o Seiva uns 650 MB, o Django uns 60 MB); apagá-la só obriga a preparar outra vez.
+- Um curso de terceiros pode declarar as dependências que quiser: confere a lista do diálogo antes de aprovar.
+
+**Limites**
+
+- Só na app desktop, e só para cursos avaliados em Rust (cargo) ou Python (pip).
+- Precisa de rede na preparação (crates.io e GitHub; o PyPI).
 
 <sub>Cobre: `lt-prepare`</sub>
 

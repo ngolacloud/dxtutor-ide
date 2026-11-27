@@ -28,6 +28,9 @@ export interface ApprovalRequest {
   reasonRequired?: boolean;
   /** palavra que o humano tem de escrever para o botão acender (p.ex. o nome do pod) */
   confirmText?: string;
+  /** o que a acção traz consigo, item a item (p.ex. os pacotes que se descarregam, com a versão),
+   *  com uma nota opcional por baixo — mostrado antes do comando */
+  list?: { heading: string; items: string[]; note?: string };
 }
 
 export interface ApprovalDecision {
@@ -60,6 +63,7 @@ export function requestApproval(req: ApprovalRequest, now: () => number = Date.n
   box.innerHTML =
     `<div class="dlg-box appr-box"><h2>${esc(req.title)}</h2><p class="appr-lede">${esc(t("lede"))}</p>` +
     (req.scope ? `<div class="appr-scope"><span>${esc(t("scope"))}</span> ${esc(req.scope)}</div>` : "") +
+    (req.list ? `<h3>${esc(req.list.heading)}</h3><ul class="appr-list">${req.list.items.map(i => `<li>${esc(i)}</li>`).join("")}</ul>` + (req.list.note ? `<p class="appr-note">${esc(req.list.note)}</p>` : "") : "") +
     `<h3>${esc(t("command"))}</h3><pre class="appr-cmd">${esc(req.command)}</pre>` +
     (req.reasonRequired ? `<h3>${esc(t("reason"))}</h3><textarea id="appr-reason" rows="2" placeholder="${esc(t("reasonPh"))}"></textarea>` : "") +
     (req.confirmText ? `<h3>${t("typeToConfirm", { word: `<code>${esc(req.confirmText)}</code>` })}</h3><input id="appr-typed" class="inp" autocomplete="off" spellcheck="false">` : "") +

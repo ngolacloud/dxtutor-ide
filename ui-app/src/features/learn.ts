@@ -164,17 +164,19 @@ function ltPrepareCard(c:Course):string{
   const st=ltPrepState(c);
   const note=LT_PREP_MSG?`<p class="lt-note${LT_PREP_MSG.bad?' bad':''}">${esc(LT_PREP_MSG.text)}</p>${LT_PREP_MSG.output?`<pre class="notr">${esc(LT_PREP_MSG.output.slice(-4000))}</pre>`:''}`:'';
   if(!st||st==='loading'||!needsPreparing(st))return note?`<div class="lt-card">${note}</div>`:'';
-  return `<div class="lt-card lt-prep"><h3>${esc(tt("prepareHeading"))}</h3><p>${esc(st.state==='stale'?tt("prepareStale"):tt("prepareBody"))}</p>${note}<button class="mini pri" data-action="lt-prepare" ${LT_PREPARING?'disabled':''}>${esc(LT_PREPARING?tt("preparing"):tt("prepareButton"))}</button></div>`;
+  return `<div class="lt-card lt-prep"><h3>${esc(tt("prepareHeading"))}</h3><p>${esc(st.state==='stale'?tt("prepareStale"):st.kind==='pip'?tt("prepareBodyPip"):tt("prepareBody"))}</p>${note}<button class="mini pri" data-action="lt-prepare" ${LT_PREPARING?'disabled':''}>${esc(LT_PREPARING?tt("preparing"):tt("prepareButton"))}</button></div>`;
 }
 async function ltPrepare(){
   const c=course();if(!c||LT_PREPARING)return;
   LT_PREPARING=true;LT_PREP_MSG=null;ltRes();
   try{
-    const r=await prepareCourse({gw:tauriCourseGateway,human:{approve:req=>requestApproval(req)},audit:tauriLearnAudit,title:tt("prepareTitle",{course:c.title})},c.id);
+    const ps=ltPrepState(c);const isPip=!!ps&&ps!=='loading'&&ps.kind==='pip';
+    const r=await prepareCourse({gw:tauriCourseGateway,human:{approve:req=>requestApproval(req)},audit:tauriLearnAudit,title:tt(isPip?"prepareTitlePip":"prepareTitle",{course:c.title}),
+      packagesText:kind=>({heading:tt("preparePackages"),note:tt(kind==='pip'?"preparePackagesPip":"preparePackagesCargo")})},c.id);
     if(r.kind==='refused')LT_PREP_MSG={text:tt("prepareRefused"),bad:true};
     else{LT_PREP[c.id]=r.status;
       if(r.kind==='failed')LT_PREP_MSG={text:tt("prepareFailed"),bad:true,output:r.output};
-      else if(r.kind==='prepared')LT_PREP_MSG={text:tt("prepareDone",{fetch:Math.round(r.status.fetchSecs??0),warm:Math.round(r.status.warmSecs??0)}),bad:false};}
+      else if(r.kind==='prepared')LT_PREP_MSG={text:tt(r.status.kind==='pip'?"prepareDonePip":"prepareDone",{fetch:Math.round(r.status.fetchSecs??0),warm:Math.round(r.status.warmSecs??0)}),bad:false};}
   }catch(e){LT_PREP_MSG={text:`${tt("prepareFailed")} ${msg(e)}`,bad:true};}
   finally{LT_PREPARING=false;ltRes();}
 }

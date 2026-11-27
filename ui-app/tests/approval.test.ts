@@ -33,6 +33,20 @@ describe("requestApproval", () => {
     expect($("#approval")).toBeNull();
   });
 
+  it("uma lista opcional (p.ex. os pacotes a descarregar) aparece antes do comando, escapada, com a nota", async () => {
+    const p = requestApproval({ title: "Prepare", command: "pip install -r r.txt", list: { heading: "Packages", items: ["Django 5.2.19 · PyPI", "<evil> 1 · x"], note: "Exact <versions>." } });
+    expect([...document.querySelectorAll(".appr-list li")].map(li => li.textContent)).toEqual(["Django 5.2.19 · PyPI", "<evil> 1 · x"]);
+    expect($(".appr-list")?.innerHTML).toContain("&lt;evil&gt;");
+    expect($(".appr-note")?.textContent).toBe("Exact <versions>.");
+    const order = [...document.querySelectorAll("#approval h3, #approval .appr-cmd")].map(e => e.className || e.textContent);
+    expect(order.indexOf("Packages")).toBeLessThan(order.indexOf("appr-cmd"));
+    click("#appr-no");
+    expect((await p).approved).toBe(false);
+    requestApproval({ title: "t", command: "c" });
+    expect($(".appr-list")).toBeNull();
+    click("#appr-no");
+  });
+
   it("Cancelar, Esc e clicar fora recusam", async () => {
     let p = requestApproval({ title: "t", command: "c" });
     click("#appr-no");
