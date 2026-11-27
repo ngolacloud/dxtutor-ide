@@ -938,7 +938,9 @@ cpp, sql.
   `$XDG_RUNTIME_DIR/containers`) e a base do libpod guarda-os da 1.ª vez: a caixa define tudo desde a 1.ª
   chamada. Testes: `cargo test -p tutor-core livecheck build toolcheck`, `-p tutor-eval kindbox tool_runner`,
   `tests/learn.cluster.test.ts`; `dxt plugin prepare courses/kubernetes` + `dxt plugin test courses/kubernetes`
-  (cria, mede e apaga o cluster). Módulo Podman isolado em `kindbox/podman.rs` (a trocar pela caixa do Learn P3a).
+  (cria, mede e apaga o cluster). O Podman do kind fica em `kindbox/podman.rs`, à parte da caixa do Learn P3a:
+  o kind chama o `podman` sem as flags por comando dessa caixa e precisa de uma rede interna e de um nó privilegiado
+  (rootless), que ela proíbe; o `ImageRef`/`normalize_image` do `tutor_core::build` é o mesmo texto do P3a.
 - Testes: `cargo test -p tutor-plugins`, `ui-app/tests/learn.domain.test.ts`,
   `learn.onboarding.test.ts`, `learn.frameworks.test.ts`; o plugin-fixture só de testes
   `crates/tutor-plugins/tests/fixtures/framework-project` passa por `dxt plugin test`
