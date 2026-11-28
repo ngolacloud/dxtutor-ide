@@ -120,6 +120,7 @@ function setup() {
       { key: "claude", name: "Claude", model: state.provider === "claude" ? state.model : "claude-opus-5-5", on: true },
       { key: "gemini", name: "Gemini", model: "gemini-pro", on: true },
       { key: "ollama", name: "Ollama", model: state.provider === "ollama" ? state.model : "qwen2.5-coder:14b", on: true },
+      ...(state.provider === "gateway" ? [{ key: "gateway", name: "Gateway", model: state.model, on: true }] : []),
     ],
     selectModel: (p, m) => {
       state.provider = p;
@@ -142,7 +143,7 @@ function setup() {
     dictation: () => dictation,
     dictationLang: () => dictLang.v,
     setDictationLang: (l) => (dictLang.v = l),
-    localModels: async () => ["llama3.1:8b", "qwen2.5-coder:14b"],
+    localModels: async (p?: string) => (p === "gateway" ? ["support-chat", "code-review"] : ["llama3.1:8b", "qwen2.5-coder:14b"]),
   };
   resetComposer();
   mountComposer(host);
@@ -322,6 +323,22 @@ test("Ollama: a lista são os modelos instalados no servidor local", async () =>
   expect(pop).toContain("Instalado no Ollama");
   t.click('[data-action="cc-model"][data-on="ollama|llama3.1:8b"]');
   expect(t.state.model).toBe("llama3.1:8b");
+});
+
+test("gateway da organização: a lista são as rotas que a chave pode usar; sem rotas, diz onde ver", async () => {
+  const t = setup();
+  t.state.provider = "gateway";
+  t.state.model = "";
+  refreshComposer();
+  t.click("#cc-model");
+  await flush();
+  const pop = t.$("#cc-pop").textContent!;
+  expect(pop).toContain("support-chat");
+  expect(pop).toContain("Rota do gateway");
+  expect(pop).not.toContain("llama3.1:8b");
+  t.click('[data-action="cc-model"][data-on="gateway|code-review"]');
+  expect(t.state.provider).toBe("gateway");
+  expect(t.state.model).toBe("code-review");
 });
 
 test("microfone (whisper.cpp): grava, pára, transcreve para o cursor; Esc cancela; por configurar avisa", async () => {

@@ -6,7 +6,7 @@
    vinha depois da delegação) do bridge.ts, verbatim. */
 
 import { detectCommands, summarizeRun, type VerifyKind } from "../../features/codev/domain/project-commands";
-import type { ProvidersConfig, ProviderInfo } from "../tauri/providers";
+import type { ProvidersConfig, ProviderInfo, LlmPolicy } from "../tauri/providers";
 import type { Tool, SampleOpts, SampleMsg, VerifyOutcome } from "./types";
 import type { CodevDesktop } from "../../features/codev/application/ports";
 import { desktopPorts } from "../../app/desktop";
@@ -18,8 +18,12 @@ import { LLM_MESSAGES } from "./llm.messages";
 import { STOP } from "../../features/codev";
 import { agentStore } from "../../app/store";
 import { services } from "../../app/services";
+import { LS } from "../../app/store/storage";
+import { GATEWAY_MESSAGES } from "./gateway-messages";
+import { allowedBy, providerOrder, routesHtml, sectionHtml } from "./gateway";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(LLM_MESSAGES);
+const gtxt = translator(GATEWAY_MESSAGES);
 
 export function installLlm(ctx: DesktopContext): void {
 const { T, R, providers, sh, escH, ansi, idle } = ctx;
@@ -29,7 +33,7 @@ const envFor = () => ctx.envFor();
 const termLineDom = (t: string, e?: boolean) => ctx.termLine(t, e);
 /* ───── LLM providers ───── */
 /** UI prov-key → id do provider de streaming do backend (codex é a marca OpenAI do protótipo). */
-const STREAM_PROV: Record<string, string> = { claude: "claude", codex: "openai", gemini: "gemini", ollama: "ollama" };
+const STREAM_PROV: Record<string, string> = { claude: "claude", codex: "openai", gemini: "gemini", ollama: "ollama", gateway: "gateway" };
 /** Config real de providers em memória (fonte única: providers.json via tutor-llm). */
 let CFG: ProvidersConfig | null = null;
 let PROVCAPS: ProviderInfo[] = [];
@@ -39,14 +43,46 @@ let PROVCAPS: ProviderInfo[] = [];
 async function loadKeys(): Promise<void> {
   try {
     CFG = await providers.getConfig();
-    R.keys = { claude: CFG.anthropicKey || "", codex: CFG.openaiKey || "", gemini: CFG.geminiKey || "" };
+    R.keys = { claude: CFG.anthropicKey || "", codex: CFG.openaiKey || "", gemini: CFG.geminiKey || "", gateway: CFG.gatewayKey || "" };
   } catch { CFG = null; R.keys = {}; }
   try { PROVCAPS = await providers.list(); } catch { PROVCAPS = []; }
 }
-const usable = (k: string) => !!(PROV[k] && PROV[k].on && (PROV[k].local || R.keys[k]));
+/* ───── o gateway de IA da organização (a política é do Rust; aqui só se mostra e se escolhe dentro dela) ───── */
+let POLICY: LlmPolicy | null = null;
+/** O `PROV.gateway` existe só quando a política tem um gateway (nunca no browser: os goldens ficam iguais). O
+ *  `loadCfg` corre antes dele existir, por isso o modelo (a rota), o ligado e o activo guardados repõem-se aqui. */
+function syncGatewayProv(): void {
+  const P = PROV as Record<string, typeof PROV[string]>;
+  const gw = POLICY?.gateway;
+  if (gw) {
+    if (!P.gateway) {
+      const saved = LS.get<{ ACTIVE?: string; prov?: Record<string, { on?: boolean; model?: string }> } | null>("cfg", null);
+      P.gateway = { name: "Gateway", model: saved?.prov?.gateway?.model || "", ep: gw.url, on: saved?.prov?.gateway?.on ?? true, col: "var(--yellow)" };
+      if (saved?.ACTIVE === "gateway") agentStore.provider = "gateway";
+      agentStore.providerChanged("gateway");
+    }
+    P.gateway.ep = gw.url;
+  } else if (P.gateway) {
+    delete P.gateway;
+    if (agentStore.provider === "gateway") agentStore.provider = "claude";
+    agentStore.providerChanged("gateway");
+  }
+  // com o gateway exigido, o fornecedor activo passa a um que a política deixa usar
+  if (POLICY?.requireGateway && !allowedBy(POLICY, agentStore.provider)) {
+    if (P.gateway) agentStore.provider = "gateway";
+    else if (POLICY.allowLocal && P.ollama) agentStore.provider = "ollama";
+  }
+}
+async function refreshPolicy(): Promise<void> {
+  try { POLICY = await providers.policyStatus(R.root || null); } catch { POLICY = null; }
+  syncGatewayProv();
+  try { updateAgentUI(); } catch { /* o Co-Dev ainda não montou */ }
+}
+const usable = (k: string) => !!(PROV[k] && PROV[k].on && allowedBy(POLICY, k) && (PROV[k].local || R.keys[k]));
 function pickProv(): string {
   if (usable(ACTIVE)) return ACTIVE;
-  const k = ["claude", "codex", "gemini", "ollama"].find(usable);
+  const k = providerOrder(POLICY).find(usable);
+  if (!k && POLICY?.requireGateway) throw new Error(gtxt("noneUsable"));
   if (!k) throw new Error("No model is configured — add an API key in Settings, or start Ollama.");
   return k;
 }
@@ -233,18 +269,18 @@ async function desktopSample(input: string | SampleMsg[], o: SampleOpts = {}) {
 SAMPLE = desktopSample;
 LIVE_OK = true;
 /** UI prov-key → campo da config real (camelCase). Ollama não tem chave (é local). */
-const CFG_FIELD: Record<string, "anthropicKey" | "openaiKey" | "geminiKey"> = { claude: "anthropicKey", codex: "openaiKey", gemini: "geminiKey" };
+const CFG_FIELD: Record<string, "anthropicKey" | "openaiKey" | "geminiKey" | "gatewayKey"> = { claude: "anthropicKey", codex: "openaiKey", gemini: "geminiKey", gateway: "gatewayKey" };
 /* a porta desktop do Co-Dev (ADR-0004, U4h5): o codev.ts consulta-a no updateAgentUI/testProv que
    publica e o app.ts no provState/VIEW.settings — antes eram reatribuídos no `window`. Corpos
    iguais; a versão simulada chega como último argumento (o provState/testProv reais nunca a
    usaram; o updateAgentUI real deixa de passar argumentos à base, que não os lê). O SAMPLE e o
    LIVE_OK acima são estado que o desktop configura, não decorações. */
 const codevLlm: CodevDesktop = {
-provState(k) { return PROV[k].local ? "local" : R.keys[k] ? "live" : "no key"; },
+provState(k) { return !allowedBy(POLICY, k) ? gtxt("blocked") : PROV[k].local ? "local" : R.keys[k] ? "live" : "no key"; },
 updateAgentUI(_updateAgentUI) {
   _updateAgentUI();
   const n = $("#live-note");
-  if (n) n.innerHTML = `<span class="tag live">desktop</span> free-form questions go to the selected model (${["claude", "codex", "gemini", "ollama"].filter(usable).map(k => PROV[k].name).join(", ") || "none configured — add a key in Settings"}), with access to the files of ${R.root ? "<b>" + escH(R.name) + "</b>" : "this workspace"}${R.root ? " and to the terminal" : ""}.`;
+  if (n) n.innerHTML = `<span class="tag live">desktop</span> free-form questions go to the selected model (${providerOrder(POLICY).filter(usable).map(k => PROV[k].name).join(", ") || "none configured — add a key in Settings"}), with access to the files of ${R.root ? "<b>" + escH(R.name) + "</b>" : "this workspace"}${R.root ? " and to the terminal" : ""}.`;
 },
 async testProv(k, btn) {
   btn.textContent = "testing…";
@@ -286,10 +322,52 @@ settings(t, host, _settings) {
       } catch (e) { toast("Não consegui guardar a chave: " + e); }
     };
   });
+  gatewaySection(host, grid as HTMLElement | undefined);
   const sub = host.querySelector(".sub");
   if (sub) sub.textContent = `App desktop ${R.info.version || ""} · as chaves vivem em ~/.config/dxtutor/providers.json (só legível por ti, 0600), ou lidas de ANTHROPIC_API_KEY, OPENAI_API_KEY e GEMINI_API_KEY. O streaming e o tool-loop lêem a mesma config.`;
 },
 };
+/** A secção do gateway nas Definições (antes da grelha dos fornecedores): o aviso da política, o URL e a API
+ *  da própria pessoa (fechados quando vêm da organização ou do projecto), e as rotas. O cartão «Gateway» da
+ *  grelha (só existe com um gateway) guarda a chave como os outros; o endpoint dele é o da política. */
+function gatewaySection(host: HTMLElement, grid: HTMLElement | undefined): void {
+  if (!grid || !POLICY) return;
+  const own = { url: CFG?.gatewayUrl || "", api: CFG?.gatewayApi || "anthropic" };
+  grid.insertAdjacentHTML("beforebegin", sectionHtml(POLICY, own, gtxt, escH));
+  const ep = [...grid.querySelectorAll<HTMLInputElement>('input[data-action="set-prov-ep"]')].find((i) => i.dataset.on === "gateway");
+  if (ep) ep.disabled = true;
+  const save = host.querySelector<HTMLButtonElement>("#gw-save");
+  if (save) save.onclick = async () => {
+    const url = (host.querySelector<HTMLInputElement>("#gw-url")?.value || "").trim();
+    const api = host.querySelector<HTMLSelectElement>("#gw-api")?.value || "anthropic";
+    try {
+      const base: ProvidersConfig = CFG || (await providers.getConfig());
+      await providers.saveConfig({ ...base, gatewayUrl: url, gatewayApi: api });
+      await loadKeys(); await refreshPolicy();
+      toast(gtxt("saved"));
+      show(cur);
+    } catch (e) { toast(gtxt("saveFailed", { e: String(e) })); }
+  };
+  const list = host.querySelector<HTMLElement>("#gw-route-list");
+  const load = host.querySelector<HTMLButtonElement>("#gw-routes");
+  if (load && list) load.onclick = async () => {
+    list.textContent = gtxt("routesLoading");
+    try {
+      const routes = await providers.gatewayRoutes(R.root || null);
+      list.innerHTML = routesHtml(routes, PROV.gateway?.model || "", gtxt, escH);
+      list.querySelectorAll<HTMLButtonElement>("[data-gw-route]").forEach((b) => {
+        b.onclick = () => {
+          if (!PROV.gateway) return;
+          PROV.gateway.model = b.dataset.gwRoute || "";
+          agentStore.providerChanged("gateway");
+          (window as unknown as { save?: () => void }).save?.();
+          toast(gtxt("routePicked", { route: PROV.gateway.model }));
+          show(cur);
+        };
+      });
+    } catch (e) { list.textContent = gtxt("routesFailed", { e: String(e) }); }
+  };
+}
 Object.assign((desktopPorts.codev ??= {}), codevLlm);
 /* sensible real model ids instead of the prototype's placeholders */
 if (PROV.gemini.model === "gemini-pro") PROV.gemini.model = "gemini-2.5-flash";
@@ -297,9 +375,8 @@ if (PROV.codex.model === "gpt-codex") PROV.codex.model = "gpt-4.1";
 ctx.loadKeys = loadKeys; ctx.desktopSample = desktopSample; ctx.provCaps = () => PROVCAPS;
 /* a política de chamadas a modelos (gateway da organização) é do Rust: ao abrir uma pasta, o
    backend fica a saber qual é, para o chat, o streaming e o estudo aplicarem a do projecto */
-document.addEventListener("dx:workspace", () => {
-  void providers.policyStatus(R.root || null).catch(() => undefined);
-});
+document.addEventListener("dx:workspace", () => { void refreshPolicy(); });
+void refreshPolicy();
 }
 
 const DX = (): Desktop => window.DXR as unknown as Desktop;

@@ -84,6 +84,8 @@ export const providersClient = (inv: Invoker = invoke) => ({
   /** A política de chamadas a modelos para `root` (a pasta aberta); o backend lembra a pasta
    *  para os caminhos que não recebem uma (chat, streaming, estudo). */
   policyStatus: (root: string | null): Promise<LlmPolicy> => inv<LlmPolicy>("llm_policy_status", { root }),
+  /** As rotas que a chave do gateway efectivo pode usar (`GET /v1/models` do gateway, no backend). */
+  gatewayRoutes: (root: string | null): Promise<string[]> => inv<string[]>("llm_gateway_routes", { root }),
 });
 
 export type ProvidersClient = ReturnType<typeof providersClient>;

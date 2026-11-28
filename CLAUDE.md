@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 352 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 353 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -1440,7 +1440,7 @@ O separador IaC do Ops tem Pipeline · Plano · Segurança e política · Drift 
   apply do ficheiro revisto, bloqueio, aceitação, segredo no estado), `cargo test -p tutor-board accepted_risks`,
   `tests/ops.test.ts` e o passo `iac` do auto-teste.
 
-## O gateway de IA da organização (fase A, `tutor_llm::gateway`, `src-tauri/src/llm_policy.rs`)
+## O gateway de IA da organização (`tutor_llm::gateway`, `src-tauri/src/llm_policy.rs`, `platform/desktop/gateway.ts`)
 
 O dxtutor pode ser cliente do gateway de IA da organização (a ideia do LiteLLM, sem ele: um serviço na rede, como o
 `seiva-ai-gateway`). A política decide-se e aplica-se no Rust, em CADA caminho que chama um modelo — o Co-Dev e o seu
@@ -1459,10 +1459,17 @@ chega à rede. Regras (`Policy::load`/`check`, com testes):
   Bearer, `max_tokens`); o modelo é a ROTA do gateway (obrigatória, nunca adivinhada); sem betas, sem fallbacks do
   servidor, sem o workspace da Anthropic. A chave é `llm:gateway` no keychain, ou `DXTUTOR_GATEWAY_KEY`.
 - `llm_policy_status(root)` (só leitura) devolve a política e lembra a pasta aberta para os caminhos que não recebem
-  uma; a UI chama-o no `dx:workspace` (`platform/desktop/llm.ts`). A fase B é a UI (cartão nas Definições, rotas,
-  aviso da política).
+  uma; a UI chama-o no arranque e no `dx:workspace` (`platform/desktop/llm.ts`).
+- **UI (fase B, só desktop):** o `PROV.gateway` só existe quando a política tem um gateway (nunca no browser: nenhum
+  golden muda); o `loadCfg` corre antes dele, por isso a rota, o ligado e o activo guardados repõem-se no
+  `syncGatewayProv`. Com o gateway exigido, o activo passa a um fornecedor permitido e os outros dizem «bloqueado
+  pela política». As Definições ganham a secção do gateway (`platform/desktop/gateway.ts`, puro: o aviso, o URL/API
+  da pessoa — fechados quando vêm da organização ou do projecto — e as rotas); o cartão «Gateway» guarda a chave como
+  os outros. As rotas vêm de `llm_gateway_routes` (o `GET /v1/models` do gateway, no backend; a chave nunca chega à
+  página) e aparecem também na lista de modelos do compositor (`localModels("gateway")`).
 - Testes: `cargo test -p tutor-llm gateway`, `cargo test -p dxtutor-ide llm_policy gateway keys::` (servidores locais
-  verificam o caminho, os cabeçalhos e a rota em cada API).
+  verificam o caminho, os cabeçalhos e a rota em cada API), `tests/desktop.gateway.test.ts` e o caso do gateway em
+  `tests/codev.composer.test.ts`.
 
 ## Keychain e Vault (r23 F4c1, `crates/tutor-platform`, `ui-app/src/features/vault/`)
 

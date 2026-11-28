@@ -168,8 +168,9 @@ export function parseApproval(payload: unknown): { session: string; request: App
 }
 
 /** Provedores com agente v2 (F8): o backend escolhe o adaptador — Anthropic para o Claude,
- *  Chat Completions OpenAI-compatível para Codex/OpenAI, Gemini e Ollama. */
-export const AGENT_PROVIDERS: readonly string[] = ["claude", "codex", "gemini", "ollama"];
+ *  Chat Completions OpenAI-compatível para Codex/OpenAI, Gemini e Ollama; o gateway da organização na API
+ *  que ele fala (o modelo é uma rota dele; só existe no desktop, quando a política tem um gateway). */
+export const AGENT_PROVIDERS: readonly string[] = ["claude", "codex", "gemini", "ollama", "gateway"];
 
 export const isAgentProvider = (p: string): boolean => AGENT_PROVIDERS.includes(p);
 
