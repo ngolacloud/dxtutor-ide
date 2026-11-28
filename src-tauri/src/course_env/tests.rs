@@ -332,3 +332,58 @@ fn a_base_image_reads_as_name_tag_and_short_digest() {
         ("localhost:5000/img", "")
     );
 }
+
+/// Com um runtime VERDADEIRO e um curso com `.devcontainer/`: «Prepare course» (o build do plano aprovado) e a avaliação
+/// do primeiro desafio de um ficheiro — a solução passa, o início falha — com as opções do `run` da IDE. Usa o
+/// armazenamento de imagens do utilizador, por isso só corre a pedido:
+/// `DXTUTOR_REAL_COURSE_ENV=<pasta do curso> cargo test -p dxtutor-ide --lib course_env -- --ignored`.
+#[test]
+#[ignore = "needs a container runtime and DXTUTOR_REAL_COURSE_ENV=<course dir>"]
+fn a_real_runtime_prepares_and_grades_a_course() {
+    use tutor_core::grade::GradeRequest;
+    use tutor_core::StepKind;
+    let Some(dir) = std::env::var_os("DXTUTOR_REAL_COURSE_ENV") else {
+        eprintln!("skipped: DXTUTOR_REAL_COURSE_ENV is not set");
+        return;
+    };
+    let dir = PathBuf::from(dir);
+    let (_, courses) = tutor_plugins::load_dir(&dir).expect("the course loads");
+    let course = &courses[0];
+    let rt = Runtime::detect().expect("podman or docker on the login shell's PATH");
+    let env = of_dir(&dir, &course.id).expect("the devcontainer is accepted");
+    eprintln!("runtime {} · image {}", rt.name, env.tag);
+
+    let plan = plan(&rt, &env);
+    assert!(matches!(
+        build(&rt, &env, "podman build stale"),
+        Err(EnvError::StalePlan)
+    ));
+    let built = build(&rt, &env, &plan).expect("the build runs");
+    assert!(built.ok, "the build failed:\n{}", built.output);
+    assert!(image_ready(&rt, &env));
+
+    let step = course
+        .units
+        .iter()
+        .flat_map(|u| &u.steps)
+        .find(|s| s.kind == StepKind::Challenge && s.project.is_none() && s.gabarito.is_some())
+        .expect("a one-file challenge");
+    let ask = |code: &str| {
+        GradeRequest::new(
+            step.id.clone(),
+            Some(course.language.clone()),
+            Submission::Code { code: code.into() },
+        )
+    };
+    let timeout = Duration::from_secs(180);
+    let solution = &step.gabarito.as_ref().unwrap().solution;
+    let r = grade(&rt, &env, &ask(solution), timeout).expect("the solution is graded");
+    assert_eq!(r.outcome, Outcome::Passed, "{r:?}");
+    assert_eq!(r.course.as_deref(), Some(course.id.as_str()));
+    let r = grade(&rt, &env, &ask(&step.starter), timeout).expect("the starter is graded");
+    assert_eq!(r.outcome, Outcome::Failed, "{r:?}");
+    eprintln!(
+        "{} · solution passed, starter failed ({})",
+        step.id, r.grader
+    );
+}
