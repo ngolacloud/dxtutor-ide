@@ -823,10 +823,14 @@ cpp, sql.
   a instalação dos cursos e o LSP. O contrato é o `tutor_core::grade` (protocolo 1: `GradeRequest` no stdin,
   `GradeReport` no stdout, sem a solução, códigos estáveis) e o avaliador é o `dxtutor-grade` (`crates/tutor-grade`),
   que entra na imagem do curso por `COPY --from` fixado por digest e corre com `run --rm -i --network none`, o curso
-  só de leitura em `/dxtutor/course`. `tutor_plugins::load_dir` lê um curso de uma pasta com erros explícitos. O que
+  só de leitura em `/dxtutor/course`. `tutor_plugins::load_dir` lê um curso de uma pasta com erros explícitos. Na IDE (F2, `src-tauri/src/course_env.rs`), um
+  curso instalado com `.devcontainer/` prepara-se construindo a imagem (o «Prepare course» de sempre, tipo `container`) e o
+  `submit_step` avalia-o no contentor; os outros seguem o caminho antigo. A imagem do avaliador (`grader/`) publica-se
+  numa tag `grader-v<versão>` (`.github/workflows/grader-image.yml`, que a prova em cada PR numa imagem de curso). O que
   está abaixo sobre avaliadores, caches preparadas, sandbox e kind é o caminho ANTIGO, a remover por fases (F2–F4 no
   ADR): trabalho novo de cursos vai para o devcontainer, nunca para runners novos nem `include_str!`. Testes:
-  `cargo test -p tutor-grade` (o binário com o curso de Python do repositório) e `-p tutor-core grade`.
+  `cargo test -p tutor-grade` (o binário com o curso de Python do repositório), `-p tutor-core grade` e
+  `cargo test -p dxtutor-ide --lib course_env` (um runtime falso: plano, build aprovado, opções do `run`, relatórios).
 - **Fonte única dos cursos Rust/Go: `courses/<id>/`** (plugin oficial completo, publicado em
   `ngolacloud/dxtutor-course-<id>` com `scripts/publish-course.sh`). O `tutor-core` embute o TOML. O JSON
   da UI (`ui-app/src/content/courses/*.json`) é **gerado**: editar só o TOML e correr

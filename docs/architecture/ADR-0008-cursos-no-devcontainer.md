@@ -99,7 +99,7 @@ Só `linux/amd64` por agora.
 Para o binário ser estático, o keychain do `tutor-protect` passou a uma feature (`keychain`, ligada por omissão):
 o `tutor-eval` usa-o sem ela, e o avaliador nunca guarda um segredo.
 
-### Como a IDE o corre (F2)
+### Como a IDE o corre (F2, `src-tauri/src/course_env.rs`)
 
 - `run --rm -i --network none` da imagem do devcontainer, e não um `exec` no devcontainer em uso: um `exec` não
   consegue desligar a rede, e o código do aluno não deve ter rede nem deixar nada para a avaliação seguinte.
@@ -109,9 +109,17 @@ o `tutor-eval` usa-o sem ela, e o avaliador nunca guarda um segredo.
   `--tmpfs` do docker é `noexec` por omissão, e os cursos que compilam correm o binário lá); limites de memória,
   processos e CPU, `--cap-drop=ALL`, `no-new-privileges`, utilizador sem root, e o tempo limite do lado da IDE
   (mata o contentor).
-- O setup do curso: verificar o runtime (podman, docker ou delonix) e dizer o que falta; construir a imagem — a
-  **única ida à rede**, aprovada e auditada como o «Prepare course» de hoje; confirmar que a imagem responde a
-  `dxtutor-grade --protocol` com o número que a IDE fala.
+- O setup do curso é o «Prepare course» de sempre (`course_prepare_status`/`course_prepare`, tipo `container`):
+  o runtime é o primeiro na PATH da shell de login (podman, depois docker; sem nenhum, a mensagem diz o que
+  instalar); o comando é o `build` da imagem, a **única ida à rede**, aprovado no diálogo partilhado (com as imagens
+  base listadas) e auditado antes e com o resultado; só corre se for o plano de agora.
+- O `devcontainer.json` tem de ter `build.dockerfile` (e `build.context`, por omissão a pasta `.devcontainer`), os
+  dois dentro do curso, e todas as imagens dos `FROM` e dos `COPY --from` fixadas por digest — senão o curso é
+  recusado com o porquê. A etiqueta é `localhost/dxtutor-course-<curso>:<hash do contexto>`: um curso mudado é outra
+  imagem e volta a pedir a preparação.
+- Um relatório de outro passo, sem JSON ou incoerente nunca é uma nota; um relatório de erro chega à UI com o código
+  do avaliador à frente (`COURSE_NOT_PREPARED` faz a UI oferecer a preparação).
+- O delonix como runtime da avaliação fica por verificar (as opções do `run` acima); até lá, podman ou docker.
 
 ### Pontos que ficam para a F3
 
@@ -125,7 +133,7 @@ o `tutor-eval` usa-o sem ela, e o avaliador nunca guarda um segredo.
 | Fase | O quê | Estado |
 |---|---|---|
 | F1 | Este ADR; o contrato (`tutor_core::grade`); o avaliador `dxtutor-grade` (`crates/tutor-grade`); `tutor_plugins::load_dir` (ler um curso de uma pasta com erros explícitos) | feito |
-| F2 | A imagem do avaliador (`ghcr.io/ngolacloud/dxtutor-grade`, feita); na IDE, o setup do curso e a avaliação por contentor, ao lado do caminho actual; o curso de Python migrado de ponta a ponta | por fazer |
+| F2 | A imagem do avaliador (`grader/`, `grader-image.yml`); na IDE, `src-tauri/src/course_env.rs`: um curso instalado com `.devcontainer/` prepara-se construindo a imagem (o «Prepare course» de sempre, tipo `container`, com o diálogo e a auditoria) e avalia-se no contentor (`submit_step`); os outros seguem o caminho antigo. Falta o curso de Python com o seu `.devcontainer/`, que precisa do digest da imagem publicada | feito, menos o curso de Python |
 | F3 | Os outros cursos migrados (devcontainer + dependências na imagem) e republicados com versão major nova; o `dxt plugin test` a correr no devcontainer, o que serve de CI aos repositórios dos cursos | por fazer |
 | F4 | Remover da IDE: os `include_str!` dos cursos, os avaliadores por linguagem, `tool_runner`, `sandbox`, `kindbox`, `container_check`, `odoo_check`, `course_cache`, o JSON da UI, o `sync-ui-courses.py` e a avaliação no browser (antes, confirmar que nada fora dos cursos usa os runners de Rust, Go e JS) | por fazer |
 

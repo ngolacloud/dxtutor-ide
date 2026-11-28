@@ -24,6 +24,7 @@ mod codev_pr;
 mod codev_review;
 mod codev_worktree;
 mod commands;
+pub mod course_env;
 pub mod debug;
 pub mod devcontainer;
 pub mod dictation;
@@ -691,6 +692,46 @@ pub(crate) fn assessment_dto(a: &Assessment, phase: &Phase) -> AssessmentDto {
         // Honesty contract: no solution in the payload unless the tests passed.
         gabarito: reveal_gabarito(a.correctness.passed, &phase.gabarito).map(|mut g| {
             // A project step's solution is its files; they follow the same gate.
+            if let Some(p) = &phase.project {
+                g.files = p.solution.clone();
+            }
+            g
+        }),
+    }
+}
+
+/// The same payload as [`assessment_dto`], from the report of the grader that ran in the course's container
+/// (ADR-0008). The solution follows the same gate: only when the report says the tests passed.
+pub(crate) fn report_dto(r: &tutor_core::grade::GradeReport, phase: &Phase) -> AssessmentDto {
+    let passed = r.outcome == tutor_core::grade::Outcome::Passed
+        && r.correctness.as_ref().is_some_and(|c| c.passed);
+    let correctness = r
+        .correctness
+        .clone()
+        .unwrap_or(tutor_core::grade::Correctness {
+            passed: false,
+            summary: String::new(),
+            raw: String::new(),
+        });
+    AssessmentDto {
+        correctness: CorrectnessDto {
+            passed,
+            summary: correctness.summary,
+            raw: correctness.raw,
+        },
+        complexity: r.complexity.as_ref().map(|c| ComplexityDto {
+            big_o: c.big_o.clone(),
+            r_squared: finite(c.r_squared),
+            exponent: finite(c.exponent),
+            confidence: c.confidence.clone(),
+            ranking: c
+                .ranking
+                .iter()
+                .map(|(b, r2)| (b.clone(), finite(*r2)))
+                .collect(),
+        }),
+        expected: r.expected.clone(),
+        gabarito: reveal_gabarito(passed, &phase.gabarito).map(|mut g| {
             if let Some(p) = &phase.project {
                 g.files = p.solution.clone();
             }

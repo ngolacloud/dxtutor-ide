@@ -165,6 +165,7 @@ export const LEARN_NOTES: FeatureNotes = {
         "Aprovado, `course_prepare` só corre se o comando aprovado for o plano actual; regista a operação na auditoria antes de correr e outra vez com o resultado.",
         "No fim fica um marcador com a impressão digital das dependências; cada avaliação corre contra essa cache (`--offline` no Rust, o Python do venv com `PIP_NO_INDEX` no Python, `--pull=never` nos contentores, que confirmam o digest de cada imagem antes de avaliar) e com o tempo limite do curso.",
         "Sem preparação (ou se o curso mudou as dependências), a avaliação recusa com `COURSE_NOT_PREPARED` e o cartão volta a aparecer.",
+        "Um curso instalado com `.devcontainer/` (ADR-0008) prepara-se de outra maneira: o comando é o build da imagem do devcontainer com o runtime do utilizador (`podman build` ou `docker build`, etiqueta `localhost/dxtutor-course-<curso>:<hash>`), e o diálogo lista as imagens base, cada uma fixada pelo digest. Daí em diante cada «Submit» corre o `dxtutor-grade` dessa imagem (`run --rm -i --network none --read-only`, sem capacidades, com limites), com o curso montado só de leitura e o trabalho do aluno enviado no pedido; nada da pasta do aluno é montado.",
       ],
       tips: [
         "Na linha de comandos, `dxt plugin prepare courses/seiva` (ou `courses/django`, `courses/docker`, `courses/podman`) faz o mesmo para a mesma cache.",
