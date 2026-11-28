@@ -8,8 +8,8 @@ export const CODEV_NOTES: FeatureNotes = {
   title: "Co-Dev: o assistente escreve no editor e mostra quem está a trabalhar",
   summary:
     "Quando o Co-Dev cria ou edita código, escreve-o no próprio editor: abre o ficheiro, escreve só as linhas que mudam, no sítio delas (as antigas riscadas, as novas a aparecer), e no fim aceitas ou rejeitas cada bloco com as diferenças à vista. Nada fica no ficheiro sem o teu «Aceitar».",
-  code: ["ui-app/src/features/codev/application/codev-sessions.ts", "ui-app/src/features/codev/ui/session-view.ts", "ui-app/src/features/codev/ui/codevs-view.ts", "ui-app/src/features/codev/domain/scope-overlap.ts", "ui-app/src/features/codev/domain/agent-map.ts", "ui-app/src/features/codev/application/agent-map.ts", "ui-app/src/features/codev/ui/agent-map-view.ts", "ui-app/src/features/codev/application/hunk-review.ts", "ui-app/src/features/codev/application/local-proposals.ts", "ui-app/src/features/codev/domain/proposal.ts", "crates/tutor-agent/src/hunks.rs", "ui-app/src/features/codev/domain/backlog.ts", "ui-app/src/features/codev/ui/backlog-view.ts", "src-tauri/src/backlog.rs", "crates/tutor-board/src/project/backlog.rs"],
-  updated: "2026-11-26",
+  code: ["ui-app/src/features/codev/application/codev-sessions.ts", "ui-app/src/features/codev/ui/session-view.ts", "ui-app/src/features/codev/ui/codevs-view.ts", "ui-app/src/features/codev/domain/scope-overlap.ts", "ui-app/src/features/codev/domain/agent-map.ts", "ui-app/src/features/codev/application/agent-map.ts", "ui-app/src/features/codev/ui/agent-map-view.ts", "ui-app/src/features/codev/application/hunk-review.ts", "ui-app/src/features/codev/application/local-proposals.ts", "ui-app/src/features/codev/domain/proposal.ts", "crates/tutor-agent/src/hunks.rs", "ui-app/src/features/codev/domain/backlog.ts", "ui-app/src/features/codev/ui/backlog-view.ts", "src-tauri/src/backlog.rs", "crates/tutor-board/src/project/backlog.rs", "ui-app/src/platform/desktop/gateway.ts", "crates/tutor-llm/src/gateway.rs"],
+  updated: "2026-11-28",
   actions: [
     {
       title: "Gerar o backlog e criar o Project (/backlog e /project)",
@@ -130,6 +130,25 @@ export const CODEV_NOTES: FeatureNotes = {
         "Integrar o ramo no principal é a fase 4 (o revisor e a porta de integração).",
       ],
       covers: ["codev:codevs-files", "codev:codevs-commit", "codev:codevs-cleanup"],
+    },
+    {
+      title: "Usar o gateway de IA da organização",
+      where: ["Definições › «Gateway de IA da organização» e o cartão «Gateway» dos modelos e provedores", "chat do Co-Dev › lista de modelos (com o Gateway activo, as rotas)"],
+      what:
+        "As chamadas aos modelos podem passar pelo gateway da organização, que trata da identidade, do orçamento, da máscara de dados, dos guardrails e da auditoria. O Co-Dev fala com ele como com um fornecedor: um URL, uma chave do gateway e uma rota no lugar do modelo. Quando a organização ou o projecto exige o gateway, os outros fornecedores ficam bloqueados (o Ollama desta máquina continua, salvo se a política o proibir) e as Definições dizem quem o exige.",
+      howTo: [
+        "Se a organização já definiu o gateway (/etc/dxtutor/llm.json), o URL aparece fechado; senão escreve o URL e a API (Anthropic ou OpenAI) e carrega em «Guardar».",
+        "No cartão «Gateway» cola a chave do gateway (fica no keychain).",
+        "Carrega em «Carregar rotas» e escolhe a rota; no chat do Co-Dev, com o Gateway activo, a lista de modelos mostra as mesmas rotas.",
+        "Um .dxtutor/llm.json do projecto que traz outro gateway só conta depois de confiares nele em «/comandos».",
+      ],
+      flow: [
+        "A política é do Rust (`tutor_llm::gateway`): o ficheiro da organização manda, o do projecto só aperta, e cada chamada a um modelo é verificada no backend (Co-Dev, revisor, chat, assistente e estudo); uma chamada recusada nunca sai da máquina.",
+        "As Definições lêem-na com `llm_policy_status` e as rotas com `llm_gateway_routes` (o `GET /v1/models` do gateway, feito no backend: a chave nunca chega à página).",
+      ],
+      tips: ["Um gateway que não responde ou uma chave recusada aparecem por baixo de «Carregar rotas», com a mensagem do gateway."],
+      limits: ["Só na app desktop.", "O URL tem de ser https (http só para um gateway nesta máquina)."],
+      covers: ["desktop:gateway-settings", "desktop:gateway-routes", "codev:gateway-route"],
     },
   ],
 };

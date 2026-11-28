@@ -38,6 +38,7 @@ import { codevIssue } from "../app/codev-issue";
 import { exportMarkdown, parseDictationLang, parseEffort } from "./codev/domain/composer";
 import { dictationGateway } from "./codev/infrastructure/dictation-gateway";
 import { ollamaModels } from "../platform/tauri/assistant";
+import { providersClient } from "../platform/tauri/providers";
 import { isDesktop } from "../platform/tauri/core";
 import { currentLocale, translator } from "../app/i18n";
 import { CODEV_ENGINE_MESSAGES } from "./codev/application/messages";
@@ -445,7 +446,8 @@ const composerHost: ComposerHost = {
   writePace: () => bridge.writePace() ?? "normal",
   setWritePace: (id) => bridge.setWritePace(id),
   setDictationLang: (l) => bridge.setDictationLang(l),
-  localModels: () => (isDesktop() ? ollamaModels() : Promise.resolve([])),
+  // o gateway: as rotas da chave dele (o backend usa a pasta aberta que o desktop lhe deu)
+  localModels: (p) => (!isDesktop() ? Promise.resolve([]) : p === "gateway" ? providersClient().gatewayRoutes(null) : ollamaModels()),
 };
 mountComposer(composerHost);
 

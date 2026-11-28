@@ -20,3 +20,25 @@ pub async fn llm_policy_status(root: Option<String>) -> Result<tutor_llm::gatewa
     .await
     .map_err(|e| format!("policy task failed: {e}"))
 }
+
+/// The routes the effective gateway offers to this person's gateway key (`GET /v1/models`),
+/// for the Settings card and the Co-Dev's model picker. Refused when the policy has no
+/// gateway or there is no key; the key never leaves the backend.
+#[tauri::command]
+pub async fn llm_gateway_routes(
+    app: tauri::AppHandle,
+    root: Option<String>,
+) -> Result<Vec<String>, String> {
+    use tauri::Manager;
+    let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    let root = root
+        .map(|r| r.trim().to_string())
+        .filter(|r| !r.is_empty())
+        .map(PathBuf::from);
+    tauri::async_runtime::spawn_blocking(move || {
+        let (gateway, key) = crate::llm_policy::gateway_with_key(&dir, root.as_deref())?;
+        tutor_llm::gateway::list_routes(&gateway, &key)
+    })
+    .await
+    .map_err(|e| format!("gateway task failed: {e}"))?
+}

@@ -111,8 +111,9 @@ export interface ComposerHost {
   /** RF-S02: the editor's writing pace (`slow`/`normal`/`fast`/`instant`). */
   writePace?(): string;
   setWritePace?(id: string): void;
-  /** Os modelos instalados no Ollama local. */
-  localModels(): Promise<string[]>;
+  /** Os modelos que um fornecedor lista ao vivo: os instalados no Ollama local (`provider` omisso ou
+   *  `ollama`) ou as rotas do gateway da organização (`gateway`). */
+  localModels(provider?: string): Promise<string[]>;
 }
 
 /* ───── ícones próprios do compositor (16×16, traço, como os do `svg()` do core) ───── */
@@ -152,8 +153,10 @@ let planNext = false;
 let open: "" | "plus" | "slash" | "model" | "mode" = "";
 /** Microfone: parado, a gravar (whisper ou motor web) ou a transcrever. */
 let mic: "idle" | "rec" | "busy" = "idle";
-/** Os modelos do Ollama (carregados ao abrir a lista com o Ollama activo). */
-let ollamaList: string[] | null = null;
+/** Os fornecedores cujos modelos se listam ao vivo, ao abrir a lista com ele activo. */
+const LISTED: Record<string, string> = { ollama: "Instalado no Ollama", gateway: "Rota do gateway" };
+/** Os modelos listados ao vivo (do Ollama ou as rotas do gateway), por fornecedor. */
+let listed: { provider: string; ids: string[] } | null = null;
 let slashFilter = "";
 let slashSel = 0;
 /** Quantos agentes trabalham agora (o mapa de agentes conta-os: `setAgentCount`). */
@@ -297,8 +300,8 @@ function effortRow(): string {
 
 function catalogOf(p: ProviderChoice): Array<{ id: string; label: string; desc: string; recommended?: boolean }> {
   const cat =
-    p.key === "ollama" && ollamaList?.length
-      ? ollamaList.map((id) => ({ id, label: id, desc: "Instalado no Ollama" }))
+    LISTED[p.key] && listed?.provider === p.key && listed.ids.length
+      ? listed.ids.map((id) => ({ id, label: id, desc: LISTED[p.key] }))
       : (MODEL_CATALOG[p.key] ?? []);
   const m = effectiveModel(p.model);
   return cat.some((x) => x.id === m) || !m ? cat : [{ id: m, label: modelLabel(p.key, m), desc: "Configurado nas Definições" }, ...cat];
@@ -318,7 +321,7 @@ function modelCards(): string {
     : [];
   const effort = supportsEffort(prov) ? `${effortRow()}<div class="cc-foot">O esforço vale para novas conversas.</div>` : "";
   const title = me ? `Modelos ${me.name}` : "Escolhe um modelo";
-  const empty = !rows.length ? `<div class="cc-empty">${prov === "ollama" ? "Sem modelos instalados no Ollama (ex.: <code>ollama pull qwen2.5-coder</code>)." : "Sem modelos."}</div>` : "";
+  const empty = !rows.length ? `<div class="cc-empty">${prov === "ollama" ? "Sem modelos instalados no Ollama (ex.: <code>ollama pull qwen2.5-coder</code>)." : prov === "gateway" ? "Sem rotas — confirma o URL e a chave do gateway nas Definições." : "Sem modelos."}</div>` : "";
   return `<div class="cc-menu"><div class="cc-gh cc-title">${esc(title)}</div><div class="cc-list">${rows.join("")}${empty}</div>${effort}<div class="cc-sep"></div>${popItem(
     "cc-do",
     "providers",
@@ -393,12 +396,13 @@ function toggle(kind: typeof open): void {
   open = open === kind ? "" : kind;
   if (open === "slash") slashSel = 0;
   renderPop();
-  // Ollama: a lista são os modelos instalados no servidor local
-  if (open === "model" && host?.provider() === "ollama") {
+  // Ollama: a lista são os modelos instalados no servidor local; gateway: as rotas que a chave pode usar
+  const prov = host?.provider() ?? "";
+  if (open === "model" && host && LISTED[prov]) {
     void host
-      .localModels()
+      .localModels(prov)
       .then((list) => {
-        ollamaList = list;
+        listed = { provider: prov, ids: list };
         if (open === "model") renderPop();
       })
       .catch(() => undefined);

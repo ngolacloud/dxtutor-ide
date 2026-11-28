@@ -6,7 +6,7 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 
 ## Índice
 
-- [Co-Dev: o assistente escreve no editor e mostra quem está a trabalhar](#co-dev-o-assistente-escreve-no-editor-e-mostra-quem-esta-a-trabalhar) — 5 acções
+- [Co-Dev: o assistente escreve no editor e mostra quem está a trabalhar](#co-dev-o-assistente-escreve-no-editor-e-mostra-quem-esta-a-trabalhar) — 6 acções
 - [Rever e integrar (a porta de integração do Multi Co-Dev)](#rever-e-integrar-a-porta-de-integracao-do-multi-co-dev) — 6 acções
 - [Explain · Code review · Under the hood](#explain-code-review-under-the-hood) — 9 acções
 - [Quadro (backlog, sprints e kanban)](#quadro-backlog-sprints-e-kanban) — 2 acções
@@ -27,7 +27,7 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 
 Quando o Co-Dev cria ou edita código, escreve-o no próprio editor: abre o ficheiro, escreve só as linhas que mudam, no sítio delas (as antigas riscadas, as novas a aparecer), e no fim aceitas ou rejeitas cada bloco com as diferenças à vista. Nada fica no ficheiro sem o teu «Aceitar».
 
-<sub>Código: `ui-app/src/features/codev/application/codev-sessions.ts`, `ui-app/src/features/codev/ui/session-view.ts`, `ui-app/src/features/codev/ui/codevs-view.ts`, `ui-app/src/features/codev/domain/scope-overlap.ts`, `ui-app/src/features/codev/domain/agent-map.ts`, `ui-app/src/features/codev/application/agent-map.ts`, `ui-app/src/features/codev/ui/agent-map-view.ts`, `ui-app/src/features/codev/application/hunk-review.ts`, `ui-app/src/features/codev/application/local-proposals.ts`, `ui-app/src/features/codev/domain/proposal.ts`, `crates/tutor-agent/src/hunks.rs`, `ui-app/src/features/codev/domain/backlog.ts`, `ui-app/src/features/codev/ui/backlog-view.ts`, `src-tauri/src/backlog.rs`, `crates/tutor-board/src/project/backlog.rs` · revisto em 2026-11-26</sub>
+<sub>Código: `ui-app/src/features/codev/application/codev-sessions.ts`, `ui-app/src/features/codev/ui/session-view.ts`, `ui-app/src/features/codev/ui/codevs-view.ts`, `ui-app/src/features/codev/domain/scope-overlap.ts`, `ui-app/src/features/codev/domain/agent-map.ts`, `ui-app/src/features/codev/application/agent-map.ts`, `ui-app/src/features/codev/ui/agent-map-view.ts`, `ui-app/src/features/codev/application/hunk-review.ts`, `ui-app/src/features/codev/application/local-proposals.ts`, `ui-app/src/features/codev/domain/proposal.ts`, `crates/tutor-agent/src/hunks.rs`, `ui-app/src/features/codev/domain/backlog.ts`, `ui-app/src/features/codev/ui/backlog-view.ts`, `src-tauri/src/backlog.rs`, `crates/tutor-board/src/project/backlog.rs`, `ui-app/src/platform/desktop/gateway.ts`, `crates/tutor-llm/src/gateway.rs` · revisto em 2026-11-28</sub>
 
 | Acção | Onde |
 |---|---|
@@ -36,6 +36,7 @@ Quando o Co-Dev cria ou edita código, escreve-o no próprio editor: abre o fich
 | [Mapa de agentes](#mapa-de-agentes) | chat do Co-Dev › barra do compositor › chip «● N agentes» |
 | [Vários Co-Devs ao mesmo tempo (a faixa «Co-Devs»)](#varios-co-devs-ao-mesmo-tempo-a-faixa-co-devs) | Project › painel da issue › «Work on it with Co-Dev» · chat do Co-Dev › faixa «Co-Devs» por cima da conversa · mapa de agentes › detalhe de uma sessão › «Ver no chat» |
 | [Uma worktree por Co-Dev e os ficheiros reservados](#uma-worktree-por-co-dev-e-os-ficheiros-reservados) | Project › painel da issue › «Work on it with Co-Dev» (com outro Co-Dev aberto) · chat do Co-Dev › faixa «Co-Devs» › ☰ «Ficheiros», ✓ «Commit», ⌫ «Limpar» · chat do Co-Dev › barra da revisão de hunks (o ramo, «Ver no editor») |
+| [Usar o gateway de IA da organização](#usar-o-gateway-de-ia-da-organizacao) | Definições › «Gateway de IA da organização» e o cartão «Gateway» dos modelos e provedores · chat do Co-Dev › lista de modelos (com o Gateway activo, as rotas) |
 
 ### Gerar o backlog e criar o Project (/backlog e /project)
 
@@ -195,6 +196,35 @@ Quando já há um Co-Dev aberto, a issue seguinte trabalha numa worktree git pr�
 - Integrar o ramo no principal é a fase 4 (o revisor e a porta de integração).
 
 <sub>Cobre: `codev:codevs-files`, `codev:codevs-commit`, `codev:codevs-cleanup`</sub>
+
+### Usar o gateway de IA da organização
+
+**Onde:** Definições › «Gateway de IA da organização» e o cartão «Gateway» dos modelos e provedores · chat do Co-Dev › lista de modelos (com o Gateway activo, as rotas)
+
+As chamadas aos modelos podem passar pelo gateway da organização, que trata da identidade, do orçamento, da máscara de dados, dos guardrails e da auditoria. O Co-Dev fala com ele como com um fornecedor: um URL, uma chave do gateway e uma rota no lugar do modelo. Quando a organização ou o projecto exige o gateway, os outros fornecedores ficam bloqueados (o Ollama desta máquina continua, salvo se a política o proibir) e as Definições dizem quem o exige.
+
+**Como usar**
+
+1. Se a organização já definiu o gateway (/etc/dxtutor/llm.json), o URL aparece fechado; senão escreve o URL e a API (Anthropic ou OpenAI) e carrega em «Guardar».
+2. No cartão «Gateway» cola a chave do gateway (fica no keychain).
+3. Carrega em «Carregar rotas» e escolhe a rota; no chat do Co-Dev, com o Gateway activo, a lista de modelos mostra as mesmas rotas.
+4. Um .dxtutor/llm.json do projecto que traz outro gateway só conta depois de confiares nele em «/comandos».
+
+**Fluxo (por dentro)**
+
+1. A política é do Rust (`tutor_llm::gateway`): o ficheiro da organização manda, o do projecto só aperta, e cada chamada a um modelo é verificada no backend (Co-Dev, revisor, chat, assistente e estudo); uma chamada recusada nunca sai da máquina.
+2. As Definições lêem-na com `llm_policy_status` e as rotas com `llm_gateway_routes` (o `GET /v1/models` do gateway, feito no backend: a chave nunca chega à página).
+
+**Dicas**
+
+- Um gateway que não responde ou uma chave recusada aparecem por baixo de «Carregar rotas», com a mensagem do gateway.
+
+**Limites**
+
+- Só na app desktop.
+- O URL tem de ser https (http só para um gateway nesta máquina).
+
+<sub>Cobre: `desktop:gateway-settings`, `desktop:gateway-routes`, `codev:gateway-route`</sub>
 
 ---
 

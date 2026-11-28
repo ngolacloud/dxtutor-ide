@@ -87,6 +87,11 @@ impl GatewaySpec {
         }
     }
 
+    /// Where the gateway lists the routes a caller may use (`GET`, both APIs).
+    pub fn models_endpoint(&self) -> String {
+        format!("{}/v1/models", self.url.trim().trim_end_matches('/'))
+    }
+
     /// Check the URL: `https`, or plain `http` only to this machine (a local gateway); no
     /// credentials, query or fragment in it.
     pub fn validate(&self) -> Result<(), String> {
@@ -336,6 +341,52 @@ impl Policy {
     }
 }
 
+/// The routes this gateway key may use: `GET /v1/models`, the `id` of each entry of `data`
+/// (the shape both the Anthropic and the OpenAI model lists share), in the gateway's order.
+/// The key goes the way the gateway's API expects it; the URL is validated first.
+pub fn list_routes(gateway: &GatewaySpec, key: &str) -> Result<Vec<String>, String> {
+    gateway.validate()?;
+    let mut req = ureq::get(&gateway.models_endpoint()).timeout(std::time::Duration::from_secs(10));
+    req = match gateway.api {
+        GatewayApi::Anthropic => req
+            .set("x-api-key", key)
+            .set("anthropic-version", crate::ANTHROPIC_VERSION),
+        GatewayApi::Openai => req.set("authorization", &format!("Bearer {key}")),
+    };
+    let resp = match req.call() {
+        Ok(r) => r,
+        Err(ureq::Error::Status(401 | 403, _)) => return Err("the gateway refused the key".into()),
+        Err(ureq::Error::Status(code, r)) => {
+            let detail: String = r
+                .into_string()
+                .unwrap_or_default()
+                .chars()
+                .take(300)
+                .collect();
+            return Err(format!("the gateway returned {code}: {detail}"));
+        }
+        Err(ureq::Error::Transport(t)) => return Err(format!("could not reach the gateway: {t}")),
+    };
+    let body: serde_json::Value = resp
+        .into_json()
+        .map_err(|e| format!("the gateway's model list is not JSON: {e}"))?;
+    let data = body
+        .get("data")
+        .and_then(|d| d.as_array())
+        .ok_or("the gateway's model list has no `data`")?;
+    let mut routes: Vec<String> = Vec::new();
+    for id in data
+        .iter()
+        .filter_map(|m| m.get("id").and_then(|v| v.as_str()))
+    {
+        let id = id.trim();
+        if !id.is_empty() && !routes.iter().any(|r| r == id) {
+            routes.push(id.to_string());
+        }
+    }
+    Ok(routes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -352,6 +403,84 @@ mod tests {
             url: url.into(),
             api: GatewayApi::Anthropic,
         }
+    }
+
+    /// Serve one HTTP request from a local socket with `body`; hand back what was asked.
+    fn serve_once(
+        status: &'static str,
+        body: &'static str,
+    ) -> (String, std::thread::JoinHandle<String>) {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let h = std::thread::spawn(move || {
+            let (mut sock, _) = listener.accept().unwrap();
+            let mut buf = Vec::new();
+            let mut chunk = [0u8; 4096];
+            while !String::from_utf8_lossy(&buf).contains("\r\n\r\n") {
+                let n = sock.read(&mut chunk).unwrap();
+                if n == 0 {
+                    break;
+                }
+                buf.extend_from_slice(&chunk[..n]);
+            }
+            let reply = format!(
+                "{status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            sock.write_all(reply.as_bytes()).unwrap();
+            String::from_utf8_lossy(&buf).to_string()
+        });
+        (url, h)
+    }
+
+    #[test]
+    fn the_routes_come_from_the_gateways_model_list_with_the_key_its_api_expects() {
+        let list = r#"{"object":"list","data":[{"id":"support-chat"},{"id":"code-review"},{"id":"support-chat"},{"id":" "}]}"#;
+        let (url, server) = serve_once("HTTP/1.1 200 OK", list);
+        let anth = GatewaySpec {
+            url: format!("{url}/"),
+            api: GatewayApi::Anthropic,
+        };
+        assert_eq!(
+            list_routes(&anth, "sk-gw").unwrap(),
+            ["support-chat", "code-review"]
+        );
+        let asked = server.join().unwrap().to_ascii_lowercase();
+        assert!(asked.starts_with("get /v1/models "), "{asked}");
+        assert!(
+            asked.contains("x-api-key: sk-gw") && asked.contains("anthropic-version"),
+            "{asked}"
+        );
+
+        let (url, server) = serve_once("HTTP/1.1 200 OK", list);
+        let oai = GatewaySpec {
+            url,
+            api: GatewayApi::Openai,
+        };
+        assert_eq!(list_routes(&oai, "sk-gw").unwrap().len(), 2);
+        let asked = server.join().unwrap().to_ascii_lowercase();
+        assert!(
+            asked.contains("authorization: bearer sk-gw") && !asked.contains("x-api-key"),
+            "{asked}"
+        );
+    }
+
+    #[test]
+    fn a_refused_key_or_a_bad_url_lists_nothing() {
+        let (url, server) = serve_once("HTTP/1.1 401 Unauthorized", r#"{"error":"no"}"#);
+        let err = list_routes(
+            &GatewaySpec {
+                url,
+                api: GatewayApi::Openai,
+            },
+            "bad",
+        )
+        .unwrap_err();
+        assert!(err.contains("refused the key"), "{err}");
+        server.join().unwrap();
+        let err = list_routes(&gw("http://ai.example.org"), "k").unwrap_err();
+        assert!(err.contains("https"), "{err}");
     }
 
     #[test]
