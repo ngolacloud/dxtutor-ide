@@ -7,7 +7,8 @@ authors.workspace = true
 
 [dependencies]
 # r23 F4a (X03): the secret scan before every commit the app makes
-tutor-protect = { path = "../tutor-protect" }
+# without the keychain: tutor-eval never uses it, and the course grader (ADR-0008) builds static
+tutor-protect = { path = "../tutor-protect", default-features = false }
 # r23 F4a: the built-in IaC rules (iacfind)
 regex = "1"
 # r23 F4b: a reviewed plan is kept under its SHA-256

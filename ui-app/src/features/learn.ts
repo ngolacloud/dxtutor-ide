@@ -182,6 +182,7 @@ const LT_PREP_TEXT={
   pip:{body:"prepareBodyPip",preparing:"preparingPip",title:"prepareTitlePip",done:"prepareDonePip",packages:"preparePackagesPip"},
   images:{body:"prepareBodyImages",preparing:"preparingImages",title:"prepareTitleImages",done:"prepareDoneImages",packages:"preparePackagesImages"},
   cluster:{body:"prepareBodyCluster",preparing:"preparingCluster",title:"prepareTitleCluster",done:"prepareDoneCluster",packages:"preparePackagesCluster"},
+  container:{body:"prepareBodyContainer",preparing:"preparingContainer",title:"prepareTitleContainer",done:"prepareDoneContainer",packages:"preparePackagesContainer"},
 } as const;
 async function ltPrepare(){
   const c=course();if(!c||LT_PREPARING)return;

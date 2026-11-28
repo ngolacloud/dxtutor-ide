@@ -176,8 +176,9 @@ export interface CoursePrepareDto {
   state: "not-needed" | "missing" | "stale" | "ready";
   /** Os comandos exactos a aprovar (construídos no backend). */
   command: string;
-  /** O gestor de pacotes da cache: `cargo` ou `pip` (vazio sem nada a preparar). */
-  kind: "cargo" | "pip" | "cluster" | "";
+  /** O que a preparação faz: `cargo`, `pip`, `images`, `cluster`, ou `container` (construir a imagem do
+   *  devcontainer do curso, ADR-0008); vazio sem nada a preparar. */
+  kind: "cargo" | "pip" | "images" | "cluster" | "container" | "";
   /** Os pacotes que a preparação descarrega (o diálogo de aprovação lista-os). */
   packages: CoursePackageDto[];
   /** A pasta da cache do curso. */

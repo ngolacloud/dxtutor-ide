@@ -752,12 +752,19 @@ pub(crate) fn install_hardening(cmd: &mut Command, rlimits: Option<Rlimits>) {
     }
 }
 
+/// O tipo do recurso do `setrlimit`: a glibc tem um seu, o musl usa `c_int` (o avaliador dos cursos,
+/// ADR-0008, compila estático para musl).
+#[cfg(target_env = "gnu")]
+type RlimitResource = libc::__rlimit_resource_t;
+#[cfg(not(target_env = "gnu"))]
+type RlimitResource = libc::c_int;
+
 /// Aplica um `setrlimit` (soft == hard). Melhor-esforço: uma falha não deve
 /// abortar o `exec`.
 ///
 /// # Safety
 /// Chamada apenas de dentro de `pre_exec`.
-unsafe fn set_rlimit(resource: libc::__rlimit_resource_t, value: u64) {
+unsafe fn set_rlimit(resource: RlimitResource, value: u64) {
     let lim = libc::rlimit {
         rlim_cur: value as libc::rlim_t,
         rlim_max: value as libc::rlim_t,

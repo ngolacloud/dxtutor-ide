@@ -17,6 +17,7 @@ members = [
     "crates/tutor-protect",
     "crates/tutor-platform",
     "crates/tutor-scaffold",
+    "crates/tutor-grade",
     "src-tauri",
 ]
 

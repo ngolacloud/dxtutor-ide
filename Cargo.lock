@@ -1175,6 +1175,7 @@ dependencies = [
  "reqwest 0.12.28",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
@@ -5492,6 +5493,18 @@ dependencies = [
  "tutor-protect",
  "ureq",
  "zip",
+]
+
+[[package]]
+name = "tutor-grade"
+version = "0.7.0"
+dependencies = [
+ "anyhow",
+ "serde_json",
+ "tempfile",
+ "tutor-core",
+ "tutor-eval",
+ "tutor-plugins",
 ]
 
 [[package]]

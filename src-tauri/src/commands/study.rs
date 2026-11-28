@@ -205,6 +205,17 @@ pub async fn submit_step(
     files: Option<std::collections::BTreeMap<String, String>>,
 ) -> Result<AssessmentDto, String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<AssessmentDto, String> {
+        // A course installed with a devcontainer is graded in its container (ADR-0008); the rest, as before.
+        let submission = match &files {
+            Some(files) => study::Submission::Files(files),
+            None => study::Submission::Code(&code),
+        };
+        if let Some((report, phase)) =
+            study::grade_in_container(&step_id, language.as_deref(), submission)
+                .map_err(|e| e.to_string())?
+        {
+            return Ok(crate::report_dto(&report, &phase));
+        }
         let (assessment, phase) = match &files {
             Some(files) => study::grade_step_files(&step_id, language.as_deref(), files),
             None => study::grade_step_in(&step_id, language.as_deref(), &code),
@@ -304,6 +315,10 @@ fn cache_root() -> Result<std::path::PathBuf, String> {
 #[tauri::command]
 pub async fn course_prepare_status(course_id: String) -> Result<CoursePrepareDto, String> {
     tauri::async_runtime::spawn_blocking(move || {
+        // A course with a devcontainer is prepared by building its image (ADR-0008).
+        if let Some(env) = study::course_env_of(&course_id).map_err(|e| e.to_string())? {
+            return container_status(&course_id, &env);
+        }
         let root = cache_root()?;
         study::prepare_status_in(&study::all_courses(), &course_id, &root)
             .map(|st| prepare_dto(&st))
@@ -351,11 +366,87 @@ pub async fn course_prepare(
         .map_err(|e| e.to_string())?
 }
 
+/// The preparation of a course graded in its container: building its image (ADR-0008).
+fn container_status(
+    course_id: &str,
+    env: &crate::course_env::CourseEnv,
+) -> Result<CoursePrepareDto, String> {
+    use crate::course_env as ce;
+    let rt = ce::Runtime::detect().ok_or_else(|| ce::NO_RUNTIME.to_string())?;
+    let timeout_secs = study::all_courses()
+        .iter()
+        .find(|c| c.id == course_id)
+        .map(|c| c.build.timeout_secs)
+        .unwrap_or(0);
+    Ok(CoursePrepareDto {
+        needed: true,
+        state: if ce::image_ready(&rt, env) {
+            "ready"
+        } else {
+            "missing"
+        }
+        .into(),
+        command: ce::plan(&rt, env),
+        kind: "container".into(),
+        packages: env.bases.iter().map(|b| ce::image_package(b)).collect(),
+        dir: env.plugin_dir.display().to_string(),
+        timeout_secs,
+        prepared_at: None,
+        fetch_secs: None,
+        warm_secs: None,
+    })
+}
+
+/// Builds the course's image with exactly the approved command, audited before and with the result.
+fn container_prepare(
+    app: &tauri::AppHandle,
+    course_id: &str,
+    env: &crate::course_env::CourseEnv,
+    decision: &PrepareDecision,
+) -> Result<CoursePreparedDto, String> {
+    use crate::course_env as ce;
+    let rt = ce::Runtime::detect().ok_or_else(|| ce::NO_RUNTIME.to_string())?;
+    let command = ce::plan(&rt, env);
+    if decision.command != command {
+        return Err(ce::EnvError::StalePlan.to_string());
+    }
+    let dir = env.plugin_dir.display().to_string();
+    let row = |outcome: &str| crate::board::IdeAudit {
+        feature: "learn".into(),
+        action: "course.prepare".into(),
+        command: command.clone(),
+        scope: Some(format!("course {course_id} · {dir}")),
+        approved: true,
+        reason: decision.reason.clone().filter(|r| !r.trim().is_empty()),
+        outcome: Some(outcome.into()),
+        decided_at: decision.decided_at,
+    };
+    crate::board::record_ide_audit(app, &dir, &row("sent"))
+        .map_err(|e| format!("not audited, nothing ran: {}", e.message))?;
+    let built = match ce::build(&rt, env, &decision.command) {
+        Ok(b) => b,
+        Err(e) => {
+            let _ = crate::board::record_ide_audit(app, &dir, &row("failed"));
+            return Err(e.to_string());
+        }
+    };
+    let _ = crate::board::record_ide_audit(app, &dir, &row(if built.ok { "ok" } else { "failed" }));
+    let tail: Vec<&str> = built.output.lines().rev().take(40).collect();
+    Ok(CoursePreparedDto {
+        ok: built.ok,
+        output: tail.into_iter().rev().collect::<Vec<_>>().join("\n"),
+        status: container_status(course_id, env)?,
+    })
+}
+
 fn prepare_blocking(
     app: &tauri::AppHandle,
     course_id: &str,
     decision: &PrepareDecision,
 ) -> Result<CoursePreparedDto, String> {
+    if let Some(env) = study::course_env_of(course_id).map_err(|e| e.to_string())? {
+        return container_prepare(app, course_id, &env, decision);
+    }
     let root = cache_root()?;
     let plan = study::approved_plan_in(&study::all_courses(), course_id, &root, &decision.command)
         .map_err(|e| e.to_string())?;

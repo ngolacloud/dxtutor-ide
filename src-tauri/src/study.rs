@@ -361,6 +361,72 @@ pub fn grade_in(
     Err(StudyError::StepNotFound(step_id.to_string()))
 }
 
+// ── Avaliar no contentor do curso (ADR-0008, F2) ──────────────────────────────────────────
+
+/// O curso e o passo `step_id` (na linguagem pedida, se veio uma), entre `courses`.
+fn course_of_step<'a>(
+    courses: &'a [Course],
+    step_id: &str,
+    language: Option<&str>,
+) -> Option<(&'a Course, &'a tutor_core::Step)> {
+    courses.iter().find_map(|c| {
+        if language.is_some_and(|l| !c.language.eq_ignore_ascii_case(l.trim())) {
+            return None;
+        }
+        c.step(step_id).map(|s| (c, s))
+    })
+}
+
+/// O ambiente de contentor do curso `course_id`, se está instalado com um `.devcontainer/`.
+pub fn course_env_of(course_id: &str) -> Result<Option<crate::course_env::CourseEnv>, StudyError> {
+    let Ok(store) = tutor_plugins::Store::open_default() else {
+        return Ok(None);
+    };
+    crate::course_env::find(&store, course_id).map_err(|e| StudyError::Eval(e.to_string()))
+}
+
+/// Avalia o passo no contentor do curso quando o curso o tem (`None`: o curso não tem `.devcontainer/` e segue
+/// o caminho antigo, [`grade_in`]). Devolve o relatório do avaliador e o `Phase` (a IDE é que revela a solução).
+pub fn grade_in_container(
+    step_id: &str,
+    language: Option<&str>,
+    submission: Submission<'_>,
+) -> Result<Option<(tutor_core::grade::GradeReport, Phase)>, StudyError> {
+    let courses = all_courses();
+    let Some((course, step)) = course_of_step(&courses, step_id, language) else {
+        return Ok(None);
+    };
+    let Some(env) = course_env_of(&course.id)? else {
+        return Ok(None);
+    };
+    let phase = course
+        .phase(step, Level::Basico)
+        .ok_or_else(|| StudyError::NotAChallenge(step_id.to_string()))?;
+    let rt = crate::course_env::Runtime::detect()
+        .ok_or_else(|| StudyError::Eval(crate::course_env::NO_RUNTIME.to_string()))?;
+    let submission = match submission {
+        Submission::Code(code) => tutor_core::grade::Submission::Code {
+            code: code.to_string(),
+        },
+        Submission::Files(files) => tutor_core::grade::Submission::Files {
+            files: files.clone(),
+        },
+    };
+    let req =
+        tutor_core::grade::GradeRequest::new(step_id, Some(course.language.clone()), submission);
+    let timeout = match course.build.timeout_secs {
+        0 => crate::course_env::DEFAULT_TIMEOUT,
+        s => std::time::Duration::from_secs(s + 60),
+    };
+    match crate::course_env::grade(&rt, &env, &req, timeout) {
+        Ok(report) => Ok(Some((report, phase))),
+        Err(e @ crate::course_env::EnvError::NotPrepared(_)) => {
+            Err(StudyError::NotPrepared(e.to_string()))
+        }
+        Err(e) => Err(StudyError::Eval(e.to_string())),
+    }
+}
+
 // ── Preparar um curso (Learn P1): a única porta para a rede, aprovada pelo humano ────────
 
 /// Recusa com [`StudyError::NotPrepared`] um curso cuja cache não está pronta.

@@ -359,6 +359,11 @@ pub fn session_down(base: &Path) -> Result<(), DevcontainerError> {
 
 /// Strip `//` line and `/* */` block comments (JSONC) outside of string literals. Only the
 /// devcontainer group reads JSONC, so this lives with the use case that needs it.
+/// O JSONC do `devcontainer.json` sem comentários (o ambiente dos cursos, `course_env`, lê-o também).
+pub(crate) fn strip_jsonc(src: &str) -> String {
+    strip_jsonc_comments(src)
+}
+
 fn strip_jsonc_comments(src: &str) -> String {
     let b = src.as_bytes();
     let mut out = String::with_capacity(src.len());
