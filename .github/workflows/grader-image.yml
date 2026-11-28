@@ -84,7 +84,8 @@ jobs:
 
       - name: Prove it in a course image, run as the IDE will run it
         run: |
-          docker build --build-arg GRADER=dxtutor-grade:ci -t dxtutor-grade-smoke:ci grader/smoke
+          docker build --build-arg GRADER=dxtutor-grade:ci -t dxtutor-grade-smoke:ci \
+            -f grader/smoke/Containerfile grader/smoke
           grade() {
             python3 grader/smoke/request.py courses/python/courses/python.toml "$1" \
               | docker run --rm -i --network none --read-only --tmpfs /tmp:rw,exec,nosuid,size=512m \
