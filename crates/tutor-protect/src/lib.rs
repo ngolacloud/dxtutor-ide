@@ -11,6 +11,7 @@
 //! - [`hook`]: the pre-commit hook that runs the same scan on a commit made in a terminal.
 
 pub mod hook;
+#[cfg(feature = "keychain")]
 pub mod keychain;
 pub mod redact;
 pub mod scan;

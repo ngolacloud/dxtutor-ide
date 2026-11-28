@@ -11,7 +11,13 @@ regex = "1"
 serde = { workspace = true }
 serde_json = "1"
 # the OS keychain (model keys, the Vault token): the Secret Service over D-Bus (libdbus), encrypted session
-keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
+keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"], optional = true }
+
+[features]
+# The OS keychain (`tutor_protect::keychain`), on by default. The course grader (`tutor-grade`, ADR-0008) reaches
+# this crate through `tutor-eval` without it: it never holds a secret, and libdbus would stop its static build.
+default = ["keychain"]
+keychain = ["dep:keyring"]
 
 [dev-dependencies]
 tempfile = { workspace = true }

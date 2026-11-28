@@ -87,14 +87,28 @@ Lê um pedido no stdin e escreve um relatório no stdout, os dois em JSON (`tuto
 - O avaliador procura o passo, constrói o `Phase` com os ficheiros de apoio e avalia-o com o mesmo motor de sempre
   (`tutor_eval::assess`/`assess_project`), com o motor `Host`: já está no contentor e nunca lança outro.
 
+### A imagem do avaliador
+
+`ghcr.io/ngolacloud/dxtutor-grade:<versão>` tem só o binário estático (musl, `FROM scratch`, `grader/Containerfile`),
+para entrar em qualquer imagem de curso (Debian, Alpine, distroless). O `.github/workflows/grader-image.yml` compila-o,
+constrói a imagem e prova-a em cada PR que lhe toca — numa imagem de curso (`grader/smoke/`) corrida com as opções
+abaixo, a solução do curso de Python passa e o início falha — e publica-a numa tag `grader-v<versão>` (a versão do
+crate; nunca `latest`, nunca substitui uma versão publicada), com a atestação da proveniência e o digest no resumo.
+Só `linux/amd64` por agora.
+
+Para o binário ser estático, o keychain do `tutor-protect` passou a uma feature (`keychain`, ligada por omissão):
+o `tutor-eval` usa-o sem ela, e o avaliador nunca guarda um segredo.
+
 ### Como a IDE o corre (F2)
 
 - `run --rm -i --network none` da imagem do devcontainer, e não um `exec` no devcontainer em uso: um `exec` não
   consegue desligar a rede, e o código do aluno não deve ter rede nem deixar nada para a avaliação seguinte.
 - O curso montado **só de leitura** em `/dxtutor/course`. Nada da pasta do aluno é montado: os ficheiros entregues vão
   dentro do pedido.
-- Limites de memória, processos e CPU, `--cap-drop=ALL`, `no-new-privileges`, utilizador sem root, e o tempo limite
-  do lado da IDE (mata o contentor).
+- Raiz só de leitura (`--read-only`) com um `/tmp` em memória **executável** (`--tmpfs /tmp:rw,exec,nosuid`: o
+  `--tmpfs` do docker é `noexec` por omissão, e os cursos que compilam correm o binário lá); limites de memória,
+  processos e CPU, `--cap-drop=ALL`, `no-new-privileges`, utilizador sem root, e o tempo limite do lado da IDE
+  (mata o contentor).
 - O setup do curso: verificar o runtime (podman, docker ou delonix) e dizer o que falta; construir a imagem — a
   **única ida à rede**, aprovada e auditada como o «Prepare course» de hoje; confirmar que a imagem responde a
   `dxtutor-grade --protocol` com o número que a IDE fala.
@@ -111,7 +125,7 @@ Lê um pedido no stdin e escreve um relatório no stdout, os dois em JSON (`tuto
 | Fase | O quê | Estado |
 |---|---|---|
 | F1 | Este ADR; o contrato (`tutor_core::grade`); o avaliador `dxtutor-grade` (`crates/tutor-grade`); `tutor_plugins::load_dir` (ler um curso de uma pasta com erros explícitos) | feito |
-| F2 | A imagem do avaliador (`ghcr.io/ngolacloud/dxtutor-grade`); na IDE, o setup do curso e a avaliação por contentor, ao lado do caminho actual; o curso de Python migrado de ponta a ponta | por fazer |
+| F2 | A imagem do avaliador (`ghcr.io/ngolacloud/dxtutor-grade`, feita); na IDE, o setup do curso e a avaliação por contentor, ao lado do caminho actual; o curso de Python migrado de ponta a ponta | por fazer |
 | F3 | Os outros cursos migrados (devcontainer + dependências na imagem) e republicados com versão major nova; o `dxt plugin test` a correr no devcontainer, o que serve de CI aos repositórios dos cursos | por fazer |
 | F4 | Remover da IDE: os `include_str!` dos cursos, os avaliadores por linguagem, `tool_runner`, `sandbox`, `kindbox`, `container_check`, `odoo_check`, `course_cache`, o JSON da UI, o `sync-ui-courses.py` e a avaliação no browser (antes, confirmar que nada fora dos cursos usa os runners de Rust, Go e JS) | por fazer |
 

@@ -1,0 +1,16 @@
+# A imagem do avaliador dos cursos (ADR-0008): só o binário estático do `dxtutor-grade` (musl), para a imagem
+# de cada curso o trazer, fixado por digest:
+#
+#   COPY --from=ghcr.io/ngolacloud/dxtutor-grade:<versão>@sha256:<digest> /dxtutor-grade /usr/local/bin/dxtutor-grade
+#
+# Construída e publicada pelo `.github/workflows/grader-image.yml` numa tag `grader-v<versão>`; o binário é
+# compilado antes, no runner, e copiado para esta pasta.
+FROM scratch
+ARG VERSION=dev
+LABEL org.opencontainers.image.title="dxtutor-grade" \
+      org.opencontainers.image.description="The dxtutor course grader: a GradeRequest on stdin, a GradeReport on stdout (ADR-0008)" \
+      org.opencontainers.image.source="https://github.com/ngolacloud/dxtutor-ide" \
+      org.opencontainers.image.licenses="MIT OR Apache-2.0" \
+      org.opencontainers.image.version="${VERSION}"
+COPY dxtutor-grade /dxtutor-grade
+ENTRYPOINT ["/dxtutor-grade"]

@@ -1,0 +1,135 @@
+name: grader-image
+# A imagem do avaliador dos cursos (ADR-0008): ghcr.io/ngolacloud/dxtutor-grade.
+#
+# Em cada PR que lhe toca: compila o `dxtutor-grade` estático (musl), constrói a imagem e prova-a numa imagem de
+# curso com as opções que a IDE vai usar (sem rede, raiz só de leitura, sem capacidades, sem root): a solução do
+# curso de Python passa e o início falha. Numa tag `grader-v<versão>` (a versão do crate), publica-a — nunca com
+# `latest`: os cursos fixam-na por digest, que fica no resumo da execução.
+on:
+  push:
+    tags: ["grader-v*"]
+  pull_request:
+    paths:
+      - "crates/tutor-grade/**"
+      - "crates/tutor-core/**"
+      - "crates/tutor-eval/**"
+      - "crates/tutor-plugins/**"
+      - "crates/tutor-protect/**"
+      - "courses/python/**"
+      - "grader/**"
+      - "Cargo.lock"
+      - ".github/workflows/grader-image.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: grader-image-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  IMAGE: ghcr.io/ngolacloud/dxtutor-grade
+
+jobs:
+  image:
+    name: Build, prove and (on a tag) publish the grader image
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version (a tag must match the crate)
+        id: version
+        run: |
+          v=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "tutor-grade") | .version')
+          if [[ "$GITHUB_REF" == refs/tags/grader-v* ]]; then
+            tag="${GITHUB_REF_NAME#grader-v}"
+            if [[ "$tag" != "$v" ]]; then
+              echo "::error::tag grader-v$tag does not match the tutor-grade version $v"
+              exit 1
+            fi
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: x86_64-unknown-linux-musl }
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Test the grader
+        run: cargo test -p tutor-grade --locked
+
+      - name: Build the static binary
+        env:
+          CC_x86_64_unknown_linux_musl: musl-gcc
+        run: |
+          cargo build --release --locked --target x86_64-unknown-linux-musl -p tutor-grade
+          bin=target/x86_64-unknown-linux-musl/release/dxtutor-grade
+          file "$bin"
+          file "$bin" | grep -q 'static'
+          test "$("$bin" --protocol)" = 1
+          cp "$bin" grader/dxtutor-grade
+
+      - name: Build the image
+        run: |
+          docker build --build-arg VERSION=${{ steps.version.outputs.version }} \
+            -t dxtutor-grade:ci -f grader/Containerfile grader
+          docker run --rm dxtutor-grade:ci --version
+
+      - name: Prove it in a course image, run as the IDE will run it
+        run: |
+          docker build --build-arg GRADER=dxtutor-grade:ci -t dxtutor-grade-smoke:ci grader/smoke
+          grade() {
+            python3 grader/smoke/request.py courses/python/courses/python.toml "$1" \
+              | docker run --rm -i --network none --read-only --tmpfs /tmp:rw,exec,nosuid,size=512m \
+                  --cap-drop=ALL --security-opt no-new-privileges \
+                  --memory 512m --pids-limit 256 --cpus 1 \
+                  -v "$PWD/courses/python:/dxtutor/course:ro" \
+                  dxtutor-grade-smoke:ci dxtutor-grade
+          }
+          set +e
+          pass=$(grade solution); pass_rc=$?
+          fail=$(grade starter); fail_rc=$?
+          set -e
+          echo "solution ($pass_rc): $pass"
+          echo "starter ($fail_rc): $fail"
+          test "$pass_rc" = 0 && test "$(jq -r .outcome <<<"$pass")" = passed
+          test "$fail_rc" = 0 && test "$(jq -r .outcome <<<"$fail")" = failed
+
+      - name: Publish
+        if: startsWith(github.ref, 'refs/tags/grader-v')
+        id: push
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          ref="$IMAGE:${{ steps.version.outputs.version }}"
+          if docker manifest inspect "$ref" >/dev/null 2>&1; then
+            echo "::error::$ref already exists; a published version is never replaced (bump the crate version)"
+            exit 1
+          fi
+          docker tag dxtutor-grade:ci "$ref"
+          docker push "$ref"
+          digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$ref" | cut -d@ -f2)
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          {
+            echo "### $ref"
+            echo
+            echo "Pin it in a course image:"
+            echo
+            echo '```dockerfile'
+            echo "COPY --from=$ref@$digest /dxtutor-grade /usr/local/bin/dxtutor-grade"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Attest the build
+        if: startsWith(github.ref, 'refs/tags/grader-v')
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
