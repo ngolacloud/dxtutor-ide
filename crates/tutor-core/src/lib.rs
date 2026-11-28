@@ -6,6 +6,7 @@ pub mod content;
 pub mod course;
 pub mod curriculum;
 pub mod glossary;
+pub mod grade;
 pub mod livecheck;
 pub mod model;
 pub mod odootest;
