@@ -1,0 +1,24 @@
+[package]
+name = "tutor-grade"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "O avaliador dos cursos do dxtutor que corre no devcontainer do curso (ADR-0008): lê um GradeRequest no stdin e escreve um GradeReport no stdout."
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "dxtutor-grade"
+path = "src/main.rs"
+
+[dependencies]
+tutor-core = { path = "../tutor-core" }
+tutor-eval = { path = "../tutor-eval" }
+tutor-plugins = { path = "../tutor-plugins" }
+serde_json = "1"
+anyhow.workspace = true
+
+[dev-dependencies]
+tempfile = { workspace = true }

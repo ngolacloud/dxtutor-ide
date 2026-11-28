@@ -818,6 +818,15 @@ ADR-0005. Os cursos de linguagem são **plugins** (dados, não código): um repo
 (`learn/domain/catalog.ts`): rust, go, python, typescript, java, kotlin, swift, csharp,
 cpp, sql.
 
+- **A avaliação sai da IDE (ADR-0008, decisão do dono de 2026-11-28).** O executor é o devcontainer do curso e só
+  ele; nenhum curso fica embutido; a sandbox Podman própria, o kind e a avaliação no browser saem; a IDE fica com a UI,
+  a instalação dos cursos e o LSP. O contrato é o `tutor_core::grade` (protocolo 1: `GradeRequest` no stdin,
+  `GradeReport` no stdout, sem a solução, códigos estáveis) e o avaliador é o `dxtutor-grade` (`crates/tutor-grade`),
+  que entra na imagem do curso por `COPY --from` fixado por digest e corre com `run --rm -i --network none`, o curso
+  só de leitura em `/dxtutor/course`. `tutor_plugins::load_dir` lê um curso de uma pasta com erros explícitos. O que
+  está abaixo sobre avaliadores, caches preparadas, sandbox e kind é o caminho ANTIGO, a remover por fases (F2–F4 no
+  ADR): trabalho novo de cursos vai para o devcontainer, nunca para runners novos nem `include_str!`. Testes:
+  `cargo test -p tutor-grade` (o binário com o curso de Python do repositório) e `-p tutor-core grade`.
 - **Fonte única dos cursos Rust/Go: `courses/<id>/`** (plugin oficial completo, publicado em
   `ngolacloud/dxtutor-course-<id>` com `scripts/publish-course.sh`). O `tutor-core` embute o TOML. O JSON
   da UI (`ui-app/src/content/courses/*.json`) é **gerado**: editar só o TOML e correr
@@ -1906,6 +1915,7 @@ O IDE tem de ser leve e nunca travar a máquina. Regras medidas (amostragem da t
 - `docs/architecture/ADR-0005-learning-track-plugins.md` — plugins de curso, 10 linguagens, VS Code.
 - `docs/architecture/ADR-0006-ide-real.md` — o fim dos dados de demonstração e cada feature no backend real (R0–R6).
 - `docs/architecture/ADR-0007-studio-arquitectura-sistema.md` — o Studio de arquitectura de sistema (painéis, grupos, setas, Mermaid, o agente propõe).
+- `docs/architecture/ADR-0008-cursos-no-devcontainer.md` — a avaliação dos cursos no devcontainer do curso (`dxtutor-grade`), nada embutido na IDE.
 - `docs/plugins/README.md` — guia para quem escreve cursos (em inglês, para contribuidores).
 - `docs/architecture/ARCHITECTURE.md` — visão geral; §6 (CSP) liga a migração dos
   `onclick` inline ao endurecimento de `script-src 'unsafe-inline'`.
