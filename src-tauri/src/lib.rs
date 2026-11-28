@@ -34,6 +34,7 @@ pub mod headless;
 pub mod ide_tool;
 mod keys;
 mod llm;
+mod llm_policy;
 mod lsp;
 pub mod missions;
 pub mod pair;
@@ -119,6 +120,7 @@ use commands::git::{
 };
 use commands::hood::{hood_line_asm, hood_python_bytecode, measure_growth};
 use commands::iac::{iac_apply_command, iac_pipeline_run, iac_state};
+use commands::llm_policy::llm_policy_status;
 use commands::lsp_install::{lsp_install_download, lsp_install_plan};
 use commands::metrics::{
     incident_metrics_check, metrics_status, metrics_token_clear, metrics_token_set,
@@ -1219,6 +1221,7 @@ pub fn run() {
             pty::pty_info,
             problems_scan,
             protect_learn,
+            llm_policy_status,
             metrics_status,
             metrics_token_set,
             metrics_token_clear,

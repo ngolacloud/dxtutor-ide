@@ -13,7 +13,7 @@
 
 use crate::assistant::{self, ChatMsg, ChatReply, Diagnostic, ProviderInfo, ProvidersConfig};
 use std::sync::atomic::Ordering;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 /// Dev Assistant: the locally-available Ollama models (empty if none/offline).
 #[tauri::command]
@@ -114,7 +114,26 @@ pub fn assistant_chat_stream(
             );
             true
         };
-        let res = assistant::run_stream(&prep.provider, &prep.messages, model.as_deref(), emit);
+        // The model-call policy decides here, off the UI thread (it reads files): a refused
+        // provider never streams; the gateway's URL and key come from the policy.
+        let gateway = (|| -> Result<Option<(tutor_llm::gateway::GatewaySpec, String)>, String> {
+            if prep.provider == "gateway" {
+                let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+                return crate::llm_policy::gateway_with_key(&dir, None).map(Some);
+            }
+            let host = tutor_llm::chat::ollama_host();
+            crate::llm_policy::check(&prep.provider, Some(&host), None).map(|_| None)
+        })();
+        let res = match &gateway {
+            Err(e) => Err(e.clone()),
+            Ok(gw) => assistant::run_stream(
+                &prep.provider,
+                &prep.messages,
+                model.as_deref(),
+                gw.as_ref().map(|(g, k)| (g, k.as_str())),
+                emit,
+            ),
+        };
         assistant::remove_cancel(&request_id);
         match res {
             Ok(reply) => {

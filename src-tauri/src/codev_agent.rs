@@ -222,7 +222,7 @@ fn session_sandbox(
 pub const NO_TOOLS_MARK: &str = "[sem-ferramentas] ";
 
 /// Os provedores que o agente v2 conhece.
-pub const PROVIDERS: [&str; 4] = ["claude", "codex", "gemini", "ollama"];
+pub const PROVIDERS: [&str; 5] = ["claude", "codex", "gemini", "ollama", "gateway"];
 
 /// O que cada provedor suporta no agente v2 (a matriz da F8). As ferramentas, permissões,
 /// checkpoints, hooks, MCP, skills e sessões são do harness — iguais para todos; o resto
@@ -239,6 +239,8 @@ pub struct ProviderFeatures {
 
 pub fn provider_features(provider: &str) -> ProviderFeatures {
     let claude = provider == "claude";
+    // The organisation's gateway gets none of the provider-specific extras (betas, server
+    // compaction, fallbacks, thinking): a gateway may refuse fields it does not know.
     ProviderFeatures {
         tools: true,
         thinking: claude,
@@ -291,6 +293,7 @@ fn provider_label(p: &str) -> &str {
         "codex" => "Codex/OpenAI",
         "gemini" => "Gemini",
         "ollama" => "Ollama (local)",
+        "gateway" => "Gateway da organização",
         _ => "Claude",
     }
 }
@@ -302,6 +305,8 @@ pub fn default_model(provider: &str) -> &'static str {
         "codex" => "gpt-4.1",
         "gemini" => "gemini-2.5-flash",
         "ollama" => "qwen2.5-coder:14b",
+        // the gateway has routes, not models: the person picks one (no default)
+        "gateway" => "",
         _ => anthropic::DEFAULT_MODEL,
     }
 }
@@ -315,12 +320,14 @@ pub fn resolve_model(provider: &str, model: Option<&str>) -> String {
     }
 }
 
-/// Constrói o provedor. `key` é a chave desse provedor (o Ollama não precisa).
+/// Constrói o provedor. `key` é a chave desse provedor (o Ollama não precisa). `gateway` é o
+/// gateway da organização que a política resolveu (só para o provedor `gateway`).
 pub fn make_provider(
     provider: &str,
     key: Option<String>,
     ollama_host: Option<&str>,
     workspace_id: Option<String>,
+    gateway: Option<&tutor_llm::gateway::GatewaySpec>,
 ) -> Result<Arc<dyn Provider>, String> {
     let key = key.map(|k| k.trim().to_string()).filter(|k| !k.is_empty());
     let need = |what: &str, env: &str| {
@@ -343,8 +350,33 @@ pub fn make_provider(
         "ollama" => Arc::new(OpenAiCompat::new(openai::Config::ollama(
             ollama_host.unwrap_or(""),
         ))),
+        "gateway" => {
+            let gw = gateway.ok_or("sem gateway da organização configurado")?;
+            let key = key.ok_or_else(|| need("chave do gateway", "DXTUTOR_GATEWAY_KEY"))?;
+            gateway_provider(gw, key)
+        }
         other => return Err(format!("provedor desconhecido para o agente: {other}")),
     })
+}
+
+/// The organisation's gateway as an agent provider, in the API it speaks. The gateway key
+/// goes where a provider key would (`x-api-key` / `Authorization: Bearer`); no Anthropic
+/// workspace id, no betas.
+pub fn gateway_provider(gw: &tutor_llm::gateway::GatewaySpec, key: String) -> Arc<dyn Provider> {
+    match gw.api {
+        tutor_llm::gateway::GatewayApi::Anthropic => {
+            let mut cfg = Config::new(key);
+            cfg.endpoint = gw.chat_endpoint();
+            Arc::new(Anthropic::new(cfg))
+        }
+        tutor_llm::gateway::GatewayApi::Openai => {
+            let mut cfg = openai::Config::openai(key);
+            cfg.endpoint = gw.chat_endpoint();
+            // gateways (and the models behind them) read `max_tokens`
+            cfg.max_tokens_field = "max_tokens";
+            Arc::new(OpenAiCompat::new(cfg))
+        }
+    }
 }
 
 /// Os servidores MCP desta sessão: os do utilizador e os do projecto, se confiado.
@@ -869,11 +901,19 @@ pub fn start(
         None => root.clone(),
     };
 
+    // The model-call policy (organisation's file, the person's gateway, this project): a
+    // refused provider never starts — a resumed session included.
+    let policy = crate::llm_policy::current(Some(&root));
+    policy.check(&meta.provider, spec.ollama_host.as_deref())?;
+    if meta.provider == "gateway" && meta.model.trim().is_empty() {
+        return Err("escolhe a rota do gateway (o «modelo» de uma conversa pelo gateway)".into());
+    }
     let provider = make_provider(
         &meta.provider,
         key_for(&meta.provider),
         spec.ollama_host.as_deref(),
         workspace_id,
+        policy.gateway.as_ref(),
     )?;
 
     // servidores MCP: ligam-se sempre; numa sessão nova as definições anunciadas ficam
@@ -3083,6 +3123,8 @@ pub struct ExtensionsStatus {
     pub mcp: FileTrust,
     /// H1: `.dxtutor/sandbox.json` (only what loosens the sandbox needs trust).
     pub sandbox: FileTrust,
+    /// `.dxtutor/llm.json`: requiring the gateway needs no trust; the gateway URL in it does.
+    pub llm: FileTrust,
     /// Nomes dos servidores MCP configurados (utilizador + projecto).
     pub mcp_servers: Vec<String>,
 }
@@ -3117,6 +3159,7 @@ pub fn extensions_status(
         hooks: file(HOOKS_FILE),
         mcp: file(mcp::PROJECT_FILE),
         sandbox: file(tutor_agent::os_sandbox::CONFIG_FILE),
+        llm: file(tutor_llm::gateway::PROJECT_FILE),
         mcp_servers: servers,
     }
 }
@@ -3128,6 +3171,7 @@ pub fn trust_project_file(root: &str, kind: &str, store: Option<&Path>) -> Resul
         "hooks" => HOOKS_FILE,
         "mcp" => mcp::PROJECT_FILE,
         "sandbox" => tutor_agent::os_sandbox::CONFIG_FILE,
+        "llm" => tutor_llm::gateway::PROJECT_FILE,
         other => return Err(format!("tipo desconhecido: {other}")),
     };
     let store = store.ok_or("sem HOME para guardar a confiança")?;
@@ -3240,6 +3284,8 @@ fn close_worktree(s: &Session, wt: &Path) {
 }
 
 #[cfg(test)]
+mod gateway_tests;
+#[cfg(test)]
 mod worktree_tests;
 
 #[cfg(test)]
@@ -3278,13 +3324,13 @@ mod tests {
         assert_eq!(client_compaction_at("ollama"), Some(80_000));
         assert_eq!(client_compaction_at("gemini"), Some(150_000));
         // sem chave: Claude/OpenAI/Gemini recusam; o Ollama não precisa
-        assert!(make_provider("codex", None, None, None)
+        assert!(make_provider("codex", None, None, None, None)
             .err()
             .unwrap()
             .contains("OPENAI_API_KEY"));
-        assert!(make_provider("gemini", Some(" ".into()), None, None).is_err());
-        assert!(make_provider("ollama", None, Some("http://box:11434"), None).is_ok());
-        assert!(make_provider("mistral", Some("k".into()), None, None).is_err());
+        assert!(make_provider("gemini", Some(" ".into()), None, None, None).is_err());
+        assert!(make_provider("ollama", None, Some("http://box:11434"), None, None).is_ok());
+        assert!(make_provider("mistral", Some("k".into()), None, None, None).is_err());
     }
 
     #[test]

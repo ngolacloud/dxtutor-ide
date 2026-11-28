@@ -14,6 +14,24 @@ export interface ProvidersConfig {
   ollamaHost: string;
   ollamaModel: string;
   assistantModel: string;
+  /** O gateway de IA da organização (URL base), quando a pessoa põe o seu; uma política do
+   *  sistema ou do projecto confiado pode pô-lo em vez dela. */
+  gatewayUrl?: string;
+  /** `anthropic` (omissão) ou `openai`: a API que o gateway fala. */
+  gatewayApi?: string;
+  /** A chave do gateway (mascarada, como as outras). */
+  gatewayKey?: string;
+}
+
+/** `tutor_llm::gateway::Policy` (serde camelCase): a política de chamadas a modelos desta
+ *  máquina e da pasta aberta. Decidida e aplicada no Rust; a UI só a mostra. */
+export interface LlmPolicy {
+  requireGateway: boolean;
+  allowLocal: boolean;
+  gateway: { url: string; api: "anthropic" | "openai" } | null;
+  gatewayFrom: string | null;
+  requiredBy: string[];
+  problems: string[];
 }
 
 /** Capacidade honesta de cada provedor (RF-AG-06). */
@@ -63,6 +81,9 @@ export const providersClient = (inv: Invoker = invoke) => ({
   chatStream: (a: { messages: ChatMsg[]; provider: string; model: string; requestId: string; mode: string; stepId: string | null }): Promise<void> =>
     inv<void>("assistant_chat_stream", { messages: a.messages, provider: a.provider, model: a.model, requestId: a.requestId, mode: a.mode, stepId: a.stepId }),
   cancel: (requestId: string): Promise<void> => inv<void>("assistant_cancel", { requestId }),
+  /** A política de chamadas a modelos para `root` (a pasta aberta); o backend lembra a pasta
+   *  para os caminhos que não recebem uma (chat, streaming, estudo). */
+  policyStatus: (root: string | null): Promise<LlmPolicy> => inv<LlmPolicy>("llm_policy_status", { root }),
 });
 
 export type ProvidersClient = ReturnType<typeof providersClient>;

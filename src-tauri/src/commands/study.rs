@@ -51,6 +51,39 @@ pub async fn submit(phase_id: String, code: String) -> Result<AssessmentDto, Str
     .map_err(|e| e.to_string())?
 }
 
+/// Whether the study helpers may call Anthropic directly: not when the model-call policy
+/// requires the organisation's gateway. They then answer offline (curated and generic hints)
+/// instead of failing — the essential path works with no provider.
+async fn remote_allowed() -> bool {
+    tauri::async_runtime::spawn_blocking(|| crate::llm_policy::check("claude", None, None).is_ok())
+        .await
+        .unwrap_or(false)
+}
+
+async fn hint_provider() -> Box<dyn tutor_llm::HintProvider> {
+    if remote_allowed().await {
+        default_provider()
+    } else {
+        Box::new(tutor_llm::OfflineProvider)
+    }
+}
+
+async fn plan_provider() -> Box<dyn tutor_llm::PlanProvider> {
+    if remote_allowed().await {
+        default_plan_provider()
+    } else {
+        Box::new(tutor_llm::OfflineProvider)
+    }
+}
+
+async fn fix_provider() -> Box<dyn tutor_llm::FixProvider> {
+    if remote_allowed().await {
+        default_fix_provider()
+    } else {
+        Box::new(tutor_llm::OfflineProvider)
+    }
+}
+
 /// Produce a progressive hint (level 1..3) for a guided-course step. Offline-safe:
 /// without `ANTHROPIC_API_KEY` the OfflineProvider returns a useful generic message.
 #[tauri::command]
@@ -74,7 +107,7 @@ pub async fn request_hint(phase_id: String, code: String, level: u8) -> Result<H
         test_output: None,
         level,
     };
-    let provider = default_provider();
+    let provider = hint_provider().await;
     let text = provider
         .hint(&req)
         .map_err(|e| format!("hint provider failed: {e}"))?;
@@ -100,7 +133,8 @@ pub async fn request_plan(
         comment,
         context_code: code,
     };
-    let plan = default_plan_provider()
+    let plan = plan_provider()
+        .await
         .plan(&req)
         .map_err(|e| format!("plan provider failed: {e}"))?;
     Ok(PlanDto { steps: plan.steps })
@@ -122,7 +156,8 @@ pub async fn request_fix(
         line,
         message,
     };
-    default_fix_provider()
+    fix_provider()
+        .await
         .fix_suggestion(&req)
         .map_err(|e| format!("fix provider failed: {e}"))
 }

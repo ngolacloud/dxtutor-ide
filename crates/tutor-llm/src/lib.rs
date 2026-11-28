@@ -21,6 +21,7 @@ use anyhow::{anyhow, Result};
 
 /// Local Dev-Assistant chat (Ollama). Separate from the pedagogical hint providers.
 pub mod chat;
+pub mod gateway;
 
 /// r23 F4a (X02): the body of an outgoing request with its secrets masked (and the count reported
 /// to the app, which shows it and audits it). Every request this crate sends goes through it.
