@@ -150,5 +150,26 @@ export const CODEV_NOTES: FeatureNotes = {
       limits: ["Só na app desktop.", "O URL tem de ser https (http só para um gateway nesta máquina)."],
       covers: ["desktop:gateway-settings", "desktop:gateway-routes", "codev:gateway-route"],
     },
+    {
+      title: "Servidores MCP remotos: entrar com OAuth e rever ferramentas que mudaram",
+      where: ["separador «Co-Dev run» › «MCP and hooks» (as linhas de cada servidor remoto ou com ferramentas à espera)", "chat do Co-Dev › «/comandos» (diz quais precisam de atenção)"],
+      what:
+        "Um servidor MCP pode estar noutra máquina («url» no mcp.json, transporte Streamable HTTP). Se pede uma conta, «Entrar» abre o browser na página dele e os tokens ficam no keychain do sistema. E o Co-Dev só usa as ferramentas de um servidor tal como as viu da primeira vez: se uma descrição ou um esquema mudar (ou aparecer uma ferramenta nova), essa ferramenta fica de fora até a reveres e aprovares.",
+      howTo: [
+        "Acrescenta o servidor ao ~/.config/dxtutor/mcp.json (ou ao .dxtutor/mcp.json do projecto, que tens de confiar em «/comandos»): {\"mcpServers\": {\"docs\": {\"url\": \"https://mcp.example.com/mcp\"}}}.",
+        "Abre uma conversa: se o servidor responder que precisa de entrar, o separador «Co-Dev run» mostra «precisa de entrar» e o botão «Entrar». Carrega, confirma no browser e volta: a próxima conversa já tem as ferramentas dele.",
+        "Quando uma ferramenta muda, a linha do servidor mostra-a com «Rever alterações»: o diálogo mostra a descrição antiga e a nova, se o esquema mudou e a definição completa. Aprovar fixa essa definição; a ferramenta volta na próxima conversa.",
+        "«Sair» apaga os tokens do keychain.",
+      ],
+      flow: [
+        "O cliente é do Rust (`tutor_agent::mcp`): cada mensagem é um POST ao url (JSON ou SSE), com o `Mcp-Session-Id` e o `MCP-Protocol-Version`; um DELETE fecha a sessão. Só https, ou http para esta máquina; nunca credenciais no URL.",
+        "Entrar (`codev_mcp_sign_in`, `tutor_agent::mcp::oauth`): o 401 do servidor → os metadados do recurso (RFC 9728) → os do servidor de autorização (RFC 8414, ou a descoberta OIDC) → o registo dinâmico do cliente (RFC 7591) quando não há `oauth.clientId` → o código de autorização com PKCE S256, o `state` verificado, o `resource` (RFC 8707) e o regresso a http://127.0.0.1:<porta>/callback. Fica no registo de auditoria antes e com o resultado.",
+        "Os tokens ficam no keychain (conta `mcp:<url>`) e nenhum comando os devolve à interface; renovam-se antes de expirar e num 401. Se a renovação falhar, o servidor passa a «precisa de entrar» — o browser nunca abre sozinho a meio de um turno.",
+        "As definições fixam-se por SHA-256 do nome, da descrição e do esquema (`tutor_agent::mcp::pins`), em ~/.config/dxtutor/mcp-pins.json — nunca no projecto. Aprovar (`codev_mcp_approve_tool`) só aceita a definição que viste (o hash) e fica no registo de auditoria.",
+      ],
+      tips: ["Uma descrição de ferramenta é uma instrução para o modelo: lê-a antes de aprovar. Uma que manda ler ficheiros ou enviar dados para fora não é para aprovar.", "Um servidor com o seu próprio cabeçalho Authorization (com ${env:NOME}) não usa OAuth."],
+      limits: ["Só na app desktop.", "Uma ferramenta que desaparece do servidor simplesmente sai; a aprovação vale para as conversas novas (uma conversa retomada continua sem a ferramenta retida)."],
+      covers: ["codev:hx-mcp-signin", "codev:hx-mcp-signout", "codev:hx-mcp-review"],
+    },
   ],
 };

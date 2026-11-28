@@ -526,6 +526,25 @@ test("H1: /comandos mostra a sandbox do projecto e deixa confiá-la", async () =
   expect(t.gateway.trust).toHaveBeenCalledWith("/proj", "sandbox");
 });
 
+test("MCP: /comandos says which server needs sign-in and which tools wait for review (only those)", async () => {
+  const t = setup();
+  (t.gateway.extensions as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+    parseExtensions({
+      commands: [], skills: [], hooks: { present: false, trusted: false }, mcp: { present: false, trusted: false }, mcpServers: ["docs", "fs", "wiki"],
+      mcpDetails: [
+        { name: "docs", transport: "http", url: "https://mcp.example.com/mcp", auth: "needs_sign_in", active: true, pending: [] },
+        { name: "fs", transport: "stdio", auth: "none", active: true, pending: [{ tool: "read", old: { hash: "a", description: "x" }, new: { hash: "b", description: "y" } }] },
+        { name: "wiki", transport: "http", auth: "signed_in", active: true, pending: [] },
+      ],
+    }),
+  );
+  await t.chat.commandsMenu();
+  const listing = t.calls.find((c) => c.startsWith("text ") && c.includes("**Servidores MCP**"))!;
+  expect(listing).toContain("**MCP «docs»**: precisa de entrar");
+  expect(listing).toContain("**MCP «fs»**: 1 ferramenta(s) com uma definição nova à espera da tua revisão (read)");
+  expect(listing).not.toContain("«wiki»");
+});
+
 test("conjunto 11: /backlog abre uma sessão de backlog; o /project continua nela; a conversa normal não a tem", async () => {
   const t = setup();
   t.setScript(() => t.emit(done()));

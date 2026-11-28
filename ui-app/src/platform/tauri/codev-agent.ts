@@ -132,3 +132,13 @@ export const agentExtensions = (root: string): Promise<unknown> => invoke<unknow
 /** Confia nos hooks (`"hooks"`) ou nos servidores MCP (`"mcp"`) do projecto, tal como estão. */
 export const trustAgentFile = (root: string, kind: "hooks" | "mcp" | "sandbox" | "llm"): Promise<void> =>
   invoke<void>("codev_agent_trust", { root, kind });
+
+/** Signs in to a remote MCP server (OAuth through the browser; the tokens stay in the OS keychain). */
+export const mcpSignIn = (root: string, server: string): Promise<unknown> => invoke<unknown>("codev_mcp_sign_in", { root, server });
+
+/** Signs out of a remote MCP server (its tokens leave the keychain). */
+export const mcpSignOut = (root: string, server: string): Promise<void> => invoke<void>("codev_mcp_sign_out", { root, server });
+
+/** Approves the changed definition of an MCP tool — the one reviewed (`hash`). */
+export const mcpApproveTool = (root: string, server: string, tool: string, hash: string): Promise<void> =>
+  invoke<void>("codev_mcp_approve_tool", { root, server, tool, hash });

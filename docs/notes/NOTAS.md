@@ -6,7 +6,7 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 
 ## Índice
 
-- [Co-Dev: o assistente escreve no editor e mostra quem está a trabalhar](#co-dev-o-assistente-escreve-no-editor-e-mostra-quem-esta-a-trabalhar) — 6 acções
+- [Co-Dev: o assistente escreve no editor e mostra quem está a trabalhar](#co-dev-o-assistente-escreve-no-editor-e-mostra-quem-esta-a-trabalhar) — 7 acções
 - [Rever e integrar (a porta de integração do Multi Co-Dev)](#rever-e-integrar-a-porta-de-integracao-do-multi-co-dev) — 6 acções
 - [Explain · Code review · Under the hood](#explain-code-review-under-the-hood) — 9 acções
 - [Quadro (backlog, sprints e kanban)](#quadro-backlog-sprints-e-kanban) — 2 acções
@@ -37,6 +37,7 @@ Quando o Co-Dev cria ou edita código, escreve-o no próprio editor: abre o fich
 | [Vários Co-Devs ao mesmo tempo (a faixa «Co-Devs»)](#varios-co-devs-ao-mesmo-tempo-a-faixa-co-devs) | Project › painel da issue › «Work on it with Co-Dev» · chat do Co-Dev › faixa «Co-Devs» por cima da conversa · mapa de agentes › detalhe de uma sessão › «Ver no chat» |
 | [Uma worktree por Co-Dev e os ficheiros reservados](#uma-worktree-por-co-dev-e-os-ficheiros-reservados) | Project › painel da issue › «Work on it with Co-Dev» (com outro Co-Dev aberto) · chat do Co-Dev › faixa «Co-Devs» › ☰ «Ficheiros», ✓ «Commit», ⌫ «Limpar» · chat do Co-Dev › barra da revisão de hunks (o ramo, «Ver no editor») |
 | [Usar o gateway de IA da organização](#usar-o-gateway-de-ia-da-organizacao) | Definições › «Gateway de IA da organização» e o cartão «Gateway» dos modelos e provedores · chat do Co-Dev › lista de modelos (com o Gateway activo, as rotas) |
+| [Servidores MCP remotos: entrar com OAuth e rever ferramentas que mudaram](#servidores-mcp-remotos-entrar-com-oauth-e-rever-ferramentas-que-mudaram) | separador «Co-Dev run» › «MCP and hooks» (as linhas de cada servidor remoto ou com ferramentas à espera) · chat do Co-Dev › «/comandos» (diz quais precisam de atenção) |
 
 ### Gerar o backlog e criar o Project (/backlog e /project)
 
@@ -225,6 +226,38 @@ As chamadas aos modelos podem passar pelo gateway da organização, que trata da
 - O URL tem de ser https (http só para um gateway nesta máquina).
 
 <sub>Cobre: `desktop:gateway-settings`, `desktop:gateway-routes`, `codev:gateway-route`</sub>
+
+### Servidores MCP remotos: entrar com OAuth e rever ferramentas que mudaram
+
+**Onde:** separador «Co-Dev run» › «MCP and hooks» (as linhas de cada servidor remoto ou com ferramentas à espera) · chat do Co-Dev › «/comandos» (diz quais precisam de atenção)
+
+Um servidor MCP pode estar noutra máquina («url» no mcp.json, transporte Streamable HTTP). Se pede uma conta, «Entrar» abre o browser na página dele e os tokens ficam no keychain do sistema. E o Co-Dev só usa as ferramentas de um servidor tal como as viu da primeira vez: se uma descrição ou um esquema mudar (ou aparecer uma ferramenta nova), essa ferramenta fica de fora até a reveres e aprovares.
+
+**Como usar**
+
+1. Acrescenta o servidor ao ~/.config/dxtutor/mcp.json (ou ao .dxtutor/mcp.json do projecto, que tens de confiar em «/comandos»): {"mcpServers": {"docs": {"url": "https://mcp.example.com/mcp"}}}.
+2. Abre uma conversa: se o servidor responder que precisa de entrar, o separador «Co-Dev run» mostra «precisa de entrar» e o botão «Entrar». Carrega, confirma no browser e volta: a próxima conversa já tem as ferramentas dele.
+3. Quando uma ferramenta muda, a linha do servidor mostra-a com «Rever alterações»: o diálogo mostra a descrição antiga e a nova, se o esquema mudou e a definição completa. Aprovar fixa essa definição; a ferramenta volta na próxima conversa.
+4. «Sair» apaga os tokens do keychain.
+
+**Fluxo (por dentro)**
+
+1. O cliente é do Rust (`tutor_agent::mcp`): cada mensagem é um POST ao url (JSON ou SSE), com o `Mcp-Session-Id` e o `MCP-Protocol-Version`; um DELETE fecha a sessão. Só https, ou http para esta máquina; nunca credenciais no URL.
+2. Entrar (`codev_mcp_sign_in`, `tutor_agent::mcp::oauth`): o 401 do servidor → os metadados do recurso (RFC 9728) → os do servidor de autorização (RFC 8414, ou a descoberta OIDC) → o registo dinâmico do cliente (RFC 7591) quando não há `oauth.clientId` → o código de autorização com PKCE S256, o `state` verificado, o `resource` (RFC 8707) e o regresso a http://127.0.0.1:<porta>/callback. Fica no registo de auditoria antes e com o resultado.
+3. Os tokens ficam no keychain (conta `mcp:<url>`) e nenhum comando os devolve à interface; renovam-se antes de expirar e num 401. Se a renovação falhar, o servidor passa a «precisa de entrar» — o browser nunca abre sozinho a meio de um turno.
+4. As definições fixam-se por SHA-256 do nome, da descrição e do esquema (`tutor_agent::mcp::pins`), em ~/.config/dxtutor/mcp-pins.json — nunca no projecto. Aprovar (`codev_mcp_approve_tool`) só aceita a definição que viste (o hash) e fica no registo de auditoria.
+
+**Dicas**
+
+- Uma descrição de ferramenta é uma instrução para o modelo: lê-a antes de aprovar. Uma que manda ler ficheiros ou enviar dados para fora não é para aprovar.
+- Um servidor com o seu próprio cabeçalho Authorization (com ${env:NOME}) não usa OAuth.
+
+**Limites**
+
+- Só na app desktop.
+- Uma ferramenta que desaparece do servidor simplesmente sai; a aprovação vale para as conversas novas (uma conversa retomada continua sem a ferramenta retida).
+
+<sub>Cobre: `codev:hx-mcp-signin`, `codev:hx-mcp-signout`, `codev:hx-mcp-review`</sub>
 
 ---
 

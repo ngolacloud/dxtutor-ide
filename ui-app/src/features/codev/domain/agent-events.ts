@@ -380,7 +380,72 @@ export interface ExtensionsStatus {
    *  trusted). Optional: an older backend does not send it. */
   llm?: { present: boolean; trusted: boolean };
   mcpServers: string[];
+  /** Each MCP server with its transport, its sign-in state and the tools waiting for approval (an older
+   *  backend does not send it: empty). */
+  mcpDetails?: McpServerInfo[];
 }
+
+/** How a server is signed in to (mirror of `tutor_agent::mcp::AuthState`). */
+export type McpAuth = "none" | "header" | "signed_in" | "signed_out" | "needs_sign_in";
+
+/** A tool's definition, as pinned or as the server now announces it. */
+export interface McpToolDefinition {
+  hash: string;
+  description: string;
+  inputSchema: unknown;
+}
+
+/** A tool whose definition changed (or that appeared) since it was pinned: held until the human approves. */
+export interface McpPendingChange {
+  tool: string;
+  old: McpToolDefinition | null;
+  new: McpToolDefinition;
+}
+
+/** One MCP server (mirror of `codev_mcp::McpServerInfo`). */
+export interface McpServerInfo {
+  name: string;
+  transport: "stdio" | "http";
+  url: string | null;
+  auth: McpAuth;
+  project: boolean;
+  active: boolean;
+  pending: McpPendingChange[];
+}
+
+const AUTHS: McpAuth[] = ["none", "header", "signed_in", "signed_out", "needs_sign_in"];
+
+function parseToolDefinition(v: unknown): McpToolDefinition | null {
+  if (!isObj(v) || !str(v.hash)) return null;
+  return { hash: v.hash as string, description: str(v.description) ? (v.description as string) : "", inputSchema: v.inputSchema ?? null };
+}
+
+export function parseMcpServers(v: unknown): McpServerInfo[] {
+  if (!Array.isArray(v)) return [];
+  return v.filter((s) => isObj(s) && str(s.name)).map((s) => {
+    const o = s as Record<string, unknown>;
+    const pending = Array.isArray(o.pending)
+      ? o.pending.flatMap((c) => {
+          if (!isObj(c) || !str(c.tool)) return [];
+          const now = parseToolDefinition(c.new);
+          return now ? [{ tool: c.tool as string, old: parseToolDefinition(c.old), new: now }] : [];
+        })
+      : [];
+    return {
+      name: o.name as string,
+      transport: o.transport === "http" ? "http" : "stdio",
+      url: str(o.url) ? (o.url as string) : null,
+      auth: AUTHS.includes(o.auth as McpAuth) ? (o.auth as McpAuth) : "none",
+      project: o.project === true,
+      active: o.active !== false,
+      pending,
+    };
+  });
+}
+
+/** Whether a server has something for the human: a sign-in to do, or tool changes to review. */
+export const mcpNeedsAttention = (s: McpServerInfo): boolean =>
+  s.active && (s.pending.length > 0 || (s.transport === "http" && (s.auth === "needs_sign_in" || s.auth === "signed_out")));
 
 export function parseExtensions(v: unknown): ExtensionsStatus {
   const o = isObj(v) ? v : {};
@@ -396,6 +461,7 @@ export function parseExtensions(v: unknown): ExtensionsStatus {
     mcp: ft(o.mcp),
     sandbox: ft(o.sandbox),
     mcpServers: Array.isArray(o.mcpServers) ? (o.mcpServers.filter(str) as string[]) : [],
+    mcpDetails: parseMcpServers(o.mcpDetails),
   };
 }
 

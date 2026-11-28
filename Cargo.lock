@@ -5420,11 +5420,14 @@ dependencies = [
 name = "tutor-agent"
 version = "0.7.0"
 dependencies = [
+ "base64 0.22.1",
+ "getrandom 0.2.17",
  "ignore",
  "libc",
  "regex",
  "serde",
  "serde_json",
+ "sha2",
  "similar",
  "tempfile",
  "toml 0.8.2",

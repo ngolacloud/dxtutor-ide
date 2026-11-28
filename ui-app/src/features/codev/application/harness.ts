@@ -6,12 +6,12 @@
    the project's MCP servers, hooks, commands and skills. No DOM, no window. */
 
 import type { AgentGateway } from "./ports";
-import type { AgentEvent, Checkpoint, ExtensionsStatus, Permissions } from "../domain/agent-events";
+import type { AgentEvent, Checkpoint, ExtensionsStatus, McpPendingChange, Permissions } from "../domain/agent-events";
 import { initialRun, reduceRun, turnStarted, type RunState } from "../domain/run-state";
 import { ptCopy, type CodevCopy } from "./messages";
 
 export interface HarnessDeps {
-  gateway: Pick<AgentGateway, "available" | "checkpoints" | "rewind" | "permissions" | "savePermissions" | "extensions" | "trust">;
+  gateway: Pick<AgentGateway, "available" | "checkpoints" | "rewind" | "permissions" | "savePermissions" | "extensions" | "trust" | "mcpSignIn" | "mcpSignOut" | "mcpApproveTool">;
   /** The open agent session, if any. */
   session(): string | null;
   root(): string;
@@ -22,6 +22,16 @@ export interface HarnessDeps {
   notify(message: string): void;
   /** Os textos para o humano na língua da interface (`./messages`); sem ela, os de antes (português). */
   copy?: CodevCopy;
+  /** The shared approval dialog (`app/approval.ts`, structural type): approving a changed MCP tool. */
+  approve?(req: HarnessApproval): Promise<{ approved: boolean }>;
+}
+
+/** What the approval dialog shows (the same shape as `app/approval.ts`'s request). */
+export interface HarnessApproval {
+  title: string;
+  command: string;
+  scope?: string;
+  list?: { heading: string; items: string[]; note?: string };
 }
 
 export interface HarnessState {
@@ -47,6 +57,14 @@ export function makeHarness(deps: HarnessDeps) {
     if (!s) return set({ checkpoints: [] });
     try {
       set({ checkpoints: await deps.gateway.checkpoints(s) });
+    } catch (e) {
+      err(e);
+    }
+  }
+
+  async function refreshExtensions(): Promise<void> {
+    try {
+      set({ extensions: await deps.gateway.extensions(deps.root()) });
     } catch (e) {
       err(e);
     }
@@ -114,7 +132,71 @@ export function makeHarness(deps: HarnessDeps) {
         err(e);
       }
     },
+    /** Signs in to a remote MCP server (the browser opens; the backend audits it and keeps the tokens). */
+    async mcpSignIn(server: string): Promise<void> {
+      if (!deps.gateway.mcpSignIn) return;
+      deps.notify(copy("mcpSigningIn", { server }));
+      try {
+        await deps.gateway.mcpSignIn(deps.root(), server);
+        deps.notify(copy("mcpSignedIn", { server }));
+      } catch (e) {
+        err(e);
+      }
+      await refreshExtensions();
+    },
+    async mcpSignOut(server: string): Promise<void> {
+      if (!deps.gateway.mcpSignOut || !deps.confirm(copy("mcpSignOutConfirm", { server }))) return;
+      try {
+        await deps.gateway.mcpSignOut(deps.root(), server);
+        deps.notify(copy("mcpSignedOut", { server }));
+      } catch (e) {
+        err(e);
+      }
+      await refreshExtensions();
+    },
+    /** «Review changes»: the old and the new definitions in the approval dialog; approved, the backend pins
+     *  the new one (only that one: the hash the human saw). */
+    async mcpReview(server: string, tool: string): Promise<void> {
+      const s = st.extensions?.mcpDetails?.find((x) => x.name === server);
+      const change = s?.pending.find((c) => c.tool === tool);
+      if (!change || !deps.approve || !deps.gateway.mcpApproveTool) return;
+      const d = await deps.approve(mcpApproval(server, change, copy));
+      if (!d.approved) return;
+      try {
+        await deps.gateway.mcpApproveTool(deps.root(), server, tool, change.new.hash);
+        deps.notify(copy("mcpApproved", { tool }));
+      } catch (e) {
+        err(e);
+      }
+      await refreshExtensions();
+    },
     open: (path: string, line?: number): void => deps.open(path, line),
+  };
+}
+
+const pretty = (v: unknown): string => {
+  try {
+    return JSON.stringify(v, null, 2) ?? "null";
+  } catch {
+    return String(v);
+  }
+};
+
+/** The approval request of a changed MCP tool: old vs new description and schema, the exact definition. */
+export function mcpApproval(server: string, c: McpPendingChange, copy: CodevCopy): HarnessApproval {
+  const items: string[] = [];
+  if (c.old) {
+    items.push(copy("mcpOldDesc", { text: c.old.description }));
+    items.push(copy("mcpNewDesc", { text: c.new.description }));
+    items.push(copy(pretty(c.old.inputSchema) === pretty(c.new.inputSchema) ? "mcpSchemaSame" : "mcpSchemaChanged"));
+  } else {
+    items.push(copy("mcpNewTool"));
+    items.push(copy("mcpNewDesc", { text: c.new.description }));
+  }
+  return {
+    title: copy("mcpApproveTitle", { tool: c.tool, server }),
+    command: copy("mcpApproveCommand", { tool: c.tool, server, hash: c.new.hash, description: c.new.description, schema: pretty(c.new.inputSchema) }),
+    list: { heading: copy("mcpOldVsNew"), items, note: copy("mcpApproveNote") },
   };
 }
 

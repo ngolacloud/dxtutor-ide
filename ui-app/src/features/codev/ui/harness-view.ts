@@ -9,6 +9,11 @@ import { esc } from "../../../core";
 import type { HarnessState } from "../application/harness";
 import { contextPct, contextWindow } from "../domain/run-state";
 import { md } from "./chat-view";
+import type { McpServerInfo } from "../domain/agent-events";
+import { translator } from "../../../app/i18n";
+import { CODEV_MCP_MESSAGES } from "./mcp-messages";
+
+const tm = translator(CODEV_MCP_MESSAGES);
 
 const ago = (ms: number, now: number): string => {
   const m = Math.max(0, Math.round((now - ms) / 60000));
@@ -93,6 +98,39 @@ function permissionsSection(st: HarnessState): string {
   );
 }
 
+/** One row per MCP server that has something to show: a remote one (its sign-in) or one with tool changes
+ *  waiting for approval. A local server with nothing pending adds nothing (the list above names it). */
+export function mcpRows(servers: McpServerInfo[]): string {
+  const auth = (s: McpServerInfo): string => {
+    switch (s.auth) {
+      case "signed_in":
+        return `<span class="hx-ok">${esc(tm("authSignedIn"))}</span> <button class="hx-btn" data-action="hx-mcp-signout" data-on="${esc(s.name)}"><span>${esc(tm("signOut"))}</span></button>`;
+      case "needs_sign_in":
+      case "signed_out":
+        return `<span class="hx-warn">${esc(tm(s.auth === "needs_sign_in" ? "authNeedsSignIn" : "authSignedOut"))}</span> <button class="hx-btn${s.auth === "needs_sign_in" ? " pri" : ""}" data-action="hx-mcp-signin" data-on="${esc(s.name)}" title="${esc(tm("signInTitle"))}"><span>${esc(tm("signIn"))}</span></button>`;
+      case "header":
+        return `<span class="hx-dim">${esc(tm("authHeader"))}</span>`;
+      default:
+        return `<span class="hx-dim">${esc(tm("authNone"))}</span>`;
+    }
+  };
+  return servers
+    .filter((s) => s.active && (s.transport === "http" || s.pending.length > 0))
+    .map((s) => {
+      const head = `<div class="hx-row hx-mcp"><b>MCP</b> <code>${esc(s.name)}</code> <span class="hx-dim">${s.transport === "http" ? `HTTP${s.url ? " · " + esc(s.url) : ""}` : "stdio"}</span>${s.transport === "http" ? " " + auth(s) : ""}</div>`;
+      const pend = s.pending.length
+        ? `<div class="hx-row hx-mcp-pend"><span class="hx-warn">${esc(tm("pending", { n: s.pending.length }))}</span> ${s.pending
+            .map(
+              (c) =>
+                `<code>${esc(c.tool)}</code>${c.old ? "" : ` <span class="hx-dim">(${esc(tm("newTool"))})</span>`} <button class="hx-btn" data-action="hx-mcp-review" data-on="${esc(s.name)}|${esc(c.tool)}" title="${esc(tm("reviewTitle"))}"><span>${esc(tm("review"))}</span></button>`,
+            )
+            .join(" ")}</div>`
+        : "";
+      return head + pend;
+    })
+    .join("");
+}
+
 function extensionsSection(st: HarnessState): string {
   const x = st.extensions;
   if (!x) return sec("MCP and hooks", empty("Loading…"));
@@ -101,7 +139,7 @@ function extensionsSection(st: HarnessState): string {
   return sec(
     "MCP and hooks",
     `<div class="hx-row"><b>Hooks</b> <code>.dxtutor/hooks.json</code> ${trust(x.hooks, "hooks")}</div>
-     <div class="hx-row"><b>MCP servers</b> ${x.mcpServers.length ? x.mcpServers.map((s) => `<code>${esc(s)}</code>`).join(" ") : `<span class="hx-dim">none</span>`} · project <code>.dxtutor/mcp.json</code> ${trust(x.mcp, "mcp")}</div>
+     <div class="hx-row"><b>MCP servers</b> ${x.mcpServers.length ? x.mcpServers.map((s) => `<code>${esc(s)}</code>`).join(" ") : `<span class="hx-dim">none</span>`} · project <code>.dxtutor/mcp.json</code> ${trust(x.mcp, "mcp")}</div>${mcpRows(x.mcpDetails ?? [])}
      ${x.sandbox?.present ? `<div class="hx-row"><b>Sandbox</b> <code>.dxtutor/sandbox.json</code> ${trust(x.sandbox, "sandbox")}</div>` : ""}
      ${x.llm?.present ? `<div class="hx-row"><b>AI gateway</b> <code>.dxtutor/llm.json</code> ${trust(x.llm, "llm")}</div>` : ""}
      <div class="hx-row"><b>Commands</b> ${x.commands.length ? x.commands.map((c) => `<code title="${esc(c.description)}">/${esc(c.name)}</code>`).join(" ") : `<span class="hx-dim">none — add <code>.dxtutor/commands/&lt;name&gt;.md</code></span>`}</div>

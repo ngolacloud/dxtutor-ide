@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 353 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 356 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -1777,6 +1777,47 @@ plano é aprovado).
 Testes: `cargo test -p dxtutor-ide headless schedule` e `--test headless_agent` (o binário real contra um Ollama falso:
 escreve, recusa o `rm -rf`, responde, código 0; a revisão não muda nada e é comentada no PR por um `gh` falso; um agendamento
 instala o timer num `systemctl` falso, corre só de leitura, guarda a execução, notifica e sai).
+
+## MCP remoto com OAuth e descrições fixadas (`tutor_agent::mcp`, `src-tauri/src/codev_mcp.rs`)
+
+O cliente MCP fala stdio (servidor local, na sandbox H1) e Streamable HTTP (`{"url": "https://…/mcp", "headers"?,
+"oauth"?: {"clientId"?, "scopes"?}}`): POST com `Accept: application/json, text/event-stream`, resposta JSON ou SSE,
+`Mcp-Session-Id` e `MCP-Protocol-Version` em cada pedido, DELETE ao fechar. As regras são do Rust, com testes:
+- **URL** (`mcp::url_allowed`): `https`, ou `http` só para esta máquina (`localhost`, qualquer IP de loopback); nunca
+  credenciais no URL (vão em `headers` com `${env:NOME}`). Um servidor remoto liga-se a partir do IDE, fora da sandbox
+  dos comandos; o de um `.dxtutor/mcp.json` só conta com o ficheiro confiado (a regra de sempre).
+- **OAuth** (`mcp::oauth`, a especificação de autorização do MCP 2025-06-18): um 401 com `WWW-Authenticate: Bearer
+  resource_metadata=…` → RFC 9728 → RFC 8414 (com a descoberta OIDC como alternativa, nas duas posições do caminho) →
+  RFC 7591 quando não há `clientId` (cliente público, um registo por entrada: a porta do redireccionamento muda) →
+  código de autorização com PKCE S256, `state` verificado, `resource` (RFC 8707) e o browser a voltar a
+  `http://127.0.0.1:<porta>/callback`. Cada endereço descoberto passa pelo `url_allowed`; um servidor de autorização
+  que anuncia métodos PKCE sem S256, um `issuer` diferente ou metadados de recurso doutra origem são recusados. Os
+  tokens (acesso e renovação, com o `token_endpoint`/`client_id` de que a renovação precisa) vão para o keychain
+  (`tutor_protect::keychain`, conta `mcp:<url canónico>`), nunca para um ficheiro nem para a UI; renovam-se antes de
+  expirar e num 401 (uma vez). Falhando, o servidor «precisa de entrar» (`mcp::NEEDS_SIGN_IN` no erro,
+  `AuthState::NeedsSignIn`) e as ferramentas dele ficam de fora — o browser NUNCA abre a meio de um turno. Um servidor
+  com o seu próprio `Authorization` nos `headers` não usa OAuth. Um erro só leva o `error`/`error_description` do
+  servidor, nunca um token.
+- **Entrar é do humano:** `codev_mcp_sign_in` (abre o browser pelo `open_browser` do Vault, espera 3 min),
+  `codev_mcp_sign_out` — os dois no registo de auditoria (`record_ide_audit`, feature `mcp`) antes e com o resultado;
+  sem auditoria não correm. Uma sessão em que o servidor estava ligado apanha o token novo no 401 seguinte (relê o
+  keychain); um servidor que não ligou entra na próxima conversa.
+- **Descrições fixadas** (`mcp::pins`, a defesa contra o «rug pull»): na primeira ligação de um servidor fixa-se o
+  SHA-256 do nome, da descrição e do `inputSchema` (JSON canónico) de cada ferramenta; depois, uma ferramenta mudada
+  ou nova NÃO chega ao modelo (`connect_all_with` com `pins`) e fica em `pending` com a definição nova; uma que
+  desaparece sai. O servidor conhece-se pelo nome e por onde corre (URL ou linha de comando). O ficheiro é
+  `~/.config/dxtutor/mcp-pins.json`, ao lado do `trusted.json` (`pins::beside`), nunca no projecto.
+  `codev_mcp_approve_tool` só aprova a definição que o humano viu (o hash; se mudou outra vez, recusa) e é auditado.
+  Vale para as sessões novas: uma retoma usa as definições gravadas e uma ferramenta retida fica sem ligação.
+- **UI** (só desktop; nenhum golden mudou): o `ExtensionsStatus` traz `mcpDetails` (transporte, URL, estado da
+  entrada, ferramentas à espera com a definição antiga e a nova); o separador «Co-Dev run» desenha uma linha só para
+  os servidores remotos ou com ferramentas à espera (`ui/harness-view.ts::mcpRows`, catálogo `ui/mcp-messages.ts`),
+  com «Sign in»/«Sign out» e «Review changes», que abre o diálogo de aprovação partilhado com o antes e o depois
+  (`application/harness.ts::mcpApproval`); o `/comandos` diz quais precisam de atenção.
+- Testes: `cargo test -p tutor-agent mcp::` (um servidor MCP HTTP falso e um servidor de autorização falso: 401 →
+  descoberta → registo → PKCE verificado → renovação → «precisa de entrar»; uma descrição mudada retida até ser
+  aprovada, em HTTP e em stdio; as regras do URL), `cargo test -p dxtutor-ide codev_mcp`, `tests/codev.harness.test.ts`
+  e o caso MCP de `tests/codev.agent-chat.test.ts`.
 
 ## A ferramenta `ide` e as skills do IDE (H3/H4, `src-tauri/src/ide_tool.rs`, `ide_tool/ops.rs`, `tutor_agent::extensions`)
 

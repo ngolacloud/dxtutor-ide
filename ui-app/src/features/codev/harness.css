@@ -27,5 +27,6 @@
   .hx-form{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;margin:8px 0}.hx-form label{display:flex;flex-direction:column;gap:3px;font-size:11.5px;color:var(--fg-muted)}
   .hx-ta{width:100%;box-sizing:border-box;background:var(--bg-input);border:1px solid var(--border-strong);border-radius:6px;color:var(--fg);font:12px var(--font-mono);padding:6px 8px;resize:vertical}
   .hx-row{font-size:12.5px;padding:4px 0;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .hx-warn{color:var(--yellow);font-size:12px}.hx-mcp-pend{padding-left:14px}
   .agent-report{margin-top:8px;border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12px;background:var(--bg-panel)}
   .agent-report summary{cursor:pointer;color:var(--fg-bright);font-weight:600}.agent-report .ar-t{font-weight:400;color:var(--fg-muted)}

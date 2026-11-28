@@ -299,6 +299,11 @@ export interface AgentGateway {
   savePermissions(root: string, rules: { allow: string[]; deny: string[] }): Promise<void>;
   extensions(root: string): Promise<ExtensionsStatus>;
   trust(root: string, kind: "hooks" | "mcp" | "sandbox" | "llm"): Promise<void>;
+  /** Signs in to a remote MCP server (OAuth, a human action: the browser opens; audited in the backend). */
+  mcpSignIn?(root: string, server: string): Promise<void>;
+  mcpSignOut?(root: string, server: string): Promise<void>;
+  /** Approves the changed definition of an MCP tool (`hash`: the one the human reviewed). */
+  mcpApproveTool?(root: string, server: string, tool: string, hash: string): Promise<void>;
   /** `origin`: the human request (RF-G01); `text: null` («try again») keeps the last one; `images` (H5c) go with the
    *  message. */
   send(session: string, text: string | null, origin?: AgentOrigin, images?: AgentImage[]): Promise<void>;
