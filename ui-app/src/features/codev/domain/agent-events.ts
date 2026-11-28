@@ -460,6 +460,7 @@ export function parseExtensions(v: unknown): ExtensionsStatus {
     hooks: ft(o.hooks),
     mcp: ft(o.mcp),
     sandbox: ft(o.sandbox),
+    ...(isObj(o.llm) ? { llm: ft(o.llm) } : {}),
     mcpServers: Array.isArray(o.mcpServers) ? (o.mcpServers.filter(str) as string[]) : [],
     mcpDetails: parseMcpServers(o.mcpDetails),
   };

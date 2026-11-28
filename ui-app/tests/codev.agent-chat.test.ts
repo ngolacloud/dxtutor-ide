@@ -436,6 +436,9 @@ test("F7: parse do estado das extensões e pedido de uma correcção", () => {
   expect(x.mcp).toEqual({ present: false, trusted: false });
   expect(x.mcpServers).toEqual(["s"]);
   expect(parseExtensions(null).commands).toEqual([]);
+  // o .dxtutor/llm.json do projecto (gateway da organização): só com um backend que o manda
+  expect(x.llm).toBeUndefined();
+  expect(parseExtensions({ llm: { present: true, trusted: false } }).llm).toEqual({ present: true, trusted: false });
 });
 
 test("i18n: com a porta copy (a interface em inglês), o pedido da issue e as notas saem em inglês", async () => {
