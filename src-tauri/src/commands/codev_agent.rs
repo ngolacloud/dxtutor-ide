@@ -355,3 +355,93 @@ pub async fn codev_agent_extensions(root: String) -> codev_agent::ExtensionsStat
 pub async fn codev_agent_trust(root: String, kind: String) -> Result<(), String> {
     codev_agent::trust_project_file(&root, &kind, tutor_agent::trust::default_store().as_deref())
 }
+
+fn mcp_env() -> crate::codev_mcp::McpEnv {
+    crate::codev_mcp::McpEnv {
+        user_mcp: tutor_agent::mcp::user_config(),
+        trust_store: tutor_agent::trust::default_store(),
+        tokens: crate::codev_mcp::os_tokens(),
+    }
+}
+
+fn mcp_audit(
+    app: &tauri::AppHandle,
+    root: &str,
+) -> impl Fn(&crate::board::IdeAudit) -> Result<(), String> {
+    let (app, root) = (app.clone(), root.to_string());
+    move |row| crate::board::record_ide_audit(&app, &root, row).map_err(|e| e.message)
+}
+
+async fn mcp_blocking<T: Send + 'static>(
+    f: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| format!("MCP task failed: {e}"))?
+}
+
+/// Signs in to a remote MCP server (OAuth): the browser opens at its authorization server and comes
+/// back to a loopback address; the tokens go to the OS keychain (never to the UI). A human action:
+/// audited before and with the result. Waits up to 3 minutes.
+#[tauri::command]
+pub async fn codev_mcp_sign_in(
+    app: tauri::AppHandle,
+    root: String,
+    server: String,
+) -> Result<tutor_agent::mcp::oauth::SignedIn, String> {
+    mcp_blocking(move || {
+        let audit = mcp_audit(&app, &root);
+        crate::codev_mcp::sign_in(
+            std::path::Path::new(root.trim()),
+            &mcp_env(),
+            &server,
+            &crate::commands::vault::open_browser,
+            tutor_agent::mcp::oauth::SIGN_IN_WAIT,
+            &audit,
+        )
+    })
+    .await
+}
+
+/// Signs out of a remote MCP server: its tokens leave the keychain (audited).
+#[tauri::command]
+pub async fn codev_mcp_sign_out(
+    app: tauri::AppHandle,
+    root: String,
+    server: String,
+) -> Result<(), String> {
+    mcp_blocking(move || {
+        let audit = mcp_audit(&app, &root);
+        crate::codev_mcp::sign_out(
+            std::path::Path::new(root.trim()),
+            &mcp_env(),
+            &server,
+            &audit,
+        )
+    })
+    .await
+}
+
+/// Approves the changed definition of an MCP tool — only the one the human reviewed (`hash`); it is
+/// offered to the model from the next conversation. Audited before and with the result.
+#[tauri::command]
+pub async fn codev_mcp_approve_tool(
+    app: tauri::AppHandle,
+    root: String,
+    server: String,
+    tool: String,
+    hash: String,
+) -> Result<(), String> {
+    mcp_blocking(move || {
+        let audit = mcp_audit(&app, &root);
+        crate::codev_mcp::approve_tool(
+            std::path::Path::new(root.trim()),
+            &mcp_env(),
+            &server,
+            &tool,
+            &hash,
+            &audit,
+        )
+    })
+    .await
+}

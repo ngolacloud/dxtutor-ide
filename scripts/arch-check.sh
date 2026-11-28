@@ -41,7 +41,7 @@ strip_comments() {
 }
 
 # Baseline esperada (Etapa 0 — MIGRATION §2/§3). Actualizar DELIBERADAMENTE.
-EXPECT_TOTAL=353
+EXPECT_TOTAL=356
 # @ts-nocheck: contamos a DIRECTIVA real (linha-comentário `// @ts-nocheck`), não
 # a palavra por substring (A6 antigo contava 24 com `grep -rl`, inflado por 13
 # ficheiros que só a mencionam em prosa/JSDoc). Baseline = 0 desde a U4j5b do ADR-0004
@@ -169,7 +169,9 @@ EXPECT_TSNOCHECK=0
 # dxtutor como cliente do gateway de IA da organização (fase A): commands/llm_policy.rs (novo) com
 # llm_policy_status: 351 + 1 = 352.
 # Gateway da organização (fase B, a UI): commands/llm_policy.rs ganha llm_gateway_routes (1→2): 353.
-declare -A EXPECT_PER_FILE=( [lib.rs]=0 [commands/review.rs]=3 [commands/codeintel.rs]=10 [commands/tests.rs]=8 [commands/git.rs]=41 [commands/codev.rs]=5 [commands/codev_agent.rs]=18 [commands/codev_worktree.rs]=7 [commands/codev_review.rs]=4 [commands/codev_autonomy.rs]=6 [commands/dictation.rs]=4 [commands/search.rs]=5 [commands/agent.rs]=16 [commands/assistant.rs]=8 [commands/debug_cmds.rs]=34 [commands/hood.rs]=3 [commands/ops.rs]=6 [commands/codebase.rs]=2 [commands/devcontainer.rs]=8 [commands/sandbox.rs]=3 [commands/scaffold.rs]=3 [commands/pair.rs]=4 [commands/plugins.rs]=3 [commands/study.rs]=16 [commands/missions.rs]=4 [bridge.rs]=16 [fsops.rs]=10 [lsp.rs]=29 [pty.rs]=7 [commands/panel.rs]=2 [commands/protect.rs]=5 [commands/iac.rs]=3 [commands/vault.rs]=10 [commands/deploy.rs]=2 [commands/runbook.rs]=5 [commands/platform.rs]=11 [commands/metrics.rs]=4 [commands/lsp_install.rs]=2 [commands/llm_policy.rs]=2 [board.rs]=24 )
+# MCP sobre HTTP com OAuth e descrições fixadas: commands/codev_agent.rs ganha codev_mcp_sign_in, codev_mcp_sign_out
+# e codev_mcp_approve_tool (18→21): 353 + 3 = 356.
+declare -A EXPECT_PER_FILE=( [lib.rs]=0 [commands/review.rs]=3 [commands/codeintel.rs]=10 [commands/tests.rs]=8 [commands/git.rs]=41 [commands/codev.rs]=5 [commands/codev_agent.rs]=21 [commands/codev_worktree.rs]=7 [commands/codev_review.rs]=4 [commands/codev_autonomy.rs]=6 [commands/dictation.rs]=4 [commands/search.rs]=5 [commands/agent.rs]=16 [commands/assistant.rs]=8 [commands/debug_cmds.rs]=34 [commands/hood.rs]=3 [commands/ops.rs]=6 [commands/codebase.rs]=2 [commands/devcontainer.rs]=8 [commands/sandbox.rs]=3 [commands/scaffold.rs]=3 [commands/pair.rs]=4 [commands/plugins.rs]=3 [commands/study.rs]=16 [commands/missions.rs]=4 [bridge.rs]=16 [fsops.rs]=10 [lsp.rs]=29 [pty.rs]=7 [commands/panel.rs]=2 [commands/protect.rs]=5 [commands/iac.rs]=3 [commands/vault.rs]=10 [commands/deploy.rs]=2 [commands/runbook.rs]=5 [commands/platform.rs]=11 [commands/metrics.rs]=4 [commands/lsp_install.rs]=2 [commands/llm_policy.rs]=2 [board.rs]=24 )
 
 echo "== A1 · comandos registados em generate_handler! =="
 # Extrai o bloco generate_handler!, remove comentários //, apanha os identificadores

@@ -468,6 +468,14 @@ export function makeAgentChat(deps: AgentChatDeps) {
       const state = (f: { present: boolean; trusted: boolean }) => (!f.present ? copy("notDefined") : f.trusted ? copy("trusted") : copy("toTrust"));
       lines.push(`**Hooks** (\`.dxtutor/hooks.json\`): ${state(x.hooks)}`);
       lines.push(copy("mcpLine", { servers: x.mcpServers.length ? x.mcpServers.join(", ") : copy("none"), state: state(x.mcp) }));
+      // a remote server that asked for a sign-in, or tools held until their new definition is approved
+      for (const s of x.mcpDetails ?? []) {
+        const what = [
+          ...(s.active && s.auth === "needs_sign_in" ? [copy("mcpNeedsSignIn")] : []),
+          ...(s.active && s.pending.length ? [copy("mcpPending", { n: s.pending.length, list: s.pending.map((c) => c.tool).join(", ") })] : []),
+        ];
+        if (what.length) lines.push(copy("mcpAttention", { server: s.name, what: what.join("; ") }));
+      }
       if (x.sandbox?.present) lines.push(copy("sandboxLine", { state: state(x.sandbox) }));
       if (x.llm?.present) lines.push(copy("llmLine", { state: state(x.llm) }));
       lines.push("`/plano <pedido>` · `/reverter` · `/retomar` · `/comandos`");

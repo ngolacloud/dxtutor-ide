@@ -12,6 +12,10 @@ serde_json = "1"
 # Síncrono de propósito (como o tutor-llm): a TUI e a CLI reutilizam o agente, e no
 # Tauri cada sessão corre numa thread dedicada (padrão do pty.rs).
 ureq = { version = "2.12", features = ["json"] }
+# MCP: the hash pinned for each tool, and OAuth (PKCE S256, random state and verifier)
+sha2 = "0.10"
+base64 = "0.22"
+getrandom = "0.2"
 # a política da modebar (Manual/Assistido/Auto) tem uma só fonte: tutor_llm::policy
 tutor-llm = { path = "../tutor-llm" }
 # r23 F4a: the redaction (re-exported as `redact`), the secret scan before an agent's commit

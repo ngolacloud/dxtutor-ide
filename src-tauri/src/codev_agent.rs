@@ -927,11 +927,16 @@ pub fn start(
     let mut meta = meta;
     let new_session = log.is_none();
     let connected = if meta.toolset >= 3 {
-        let (tools, mut n) = mcp::connect_all_in(
-            &mcp_servers(&root, &spec, &mut notes),
-            &work_root,
-            sandbox.as_deref(),
-        );
+        // a remote server signs in with the OAuth tokens in the keychain; a tool whose definition is
+        // not the pinned one (next to the trust store) stays out until the human approves it
+        let pin_file = spec.trust_store.as_deref().map(mcp::pins::beside);
+        let opts = mcp::ConnectOptions {
+            sandbox: sandbox.as_deref(),
+            pins: pin_file.as_deref(),
+            tokens: Some(crate::codev_mcp::os_tokens()),
+        };
+        let (tools, mut n, _) =
+            mcp::connect_all_with(&mcp_servers(&root, &spec, &mut notes), &work_root, &opts);
         notes.append(&mut n);
         tools
     } else {
@@ -3127,12 +3132,24 @@ pub struct ExtensionsStatus {
     pub llm: FileTrust,
     /// Nomes dos servidores MCP configurados (utilizador + projecto).
     pub mcp_servers: Vec<String>,
+    /// Each MCP server with its transport, sign-in state and the tools waiting for approval.
+    pub mcp_details: Vec<crate::codev_mcp::McpServerInfo>,
 }
 
 pub fn extensions_status(
     root: &str,
     store: Option<&Path>,
     user_mcp: Option<&Path>,
+) -> ExtensionsStatus {
+    extensions_status_with(root, store, user_mcp, crate::codev_mcp::os_tokens())
+}
+
+/// [`extensions_status`] with the keychain the MCP servers' OAuth tokens are read from.
+pub fn extensions_status_with(
+    root: &str,
+    store: Option<&Path>,
+    user_mcp: Option<&Path>,
+    tokens: Arc<dyn tutor_protect::keychain::Store>,
 ) -> ExtensionsStatus {
     let root = PathBuf::from(root.trim());
     let store = store.map(Path::to_path_buf);
@@ -3161,6 +3178,14 @@ pub fn extensions_status(
         sandbox: file(tutor_agent::os_sandbox::CONFIG_FILE),
         llm: file(tutor_llm::gateway::PROJECT_FILE),
         mcp_servers: servers,
+        mcp_details: crate::codev_mcp::servers(
+            &root,
+            &crate::codev_mcp::McpEnv {
+                user_mcp: user_mcp.map(Path::to_path_buf),
+                trust_store: store.clone(),
+                tokens,
+            },
+        ),
     }
 }
 

@@ -381,6 +381,10 @@ const ACTIONS: ActionTable = {
   },
   "hx-trust": { on: "click", run: (e) => void codevRun.trust(e.on as 'hooks' | 'mcp' | 'sandbox') },
   "hx-refresh": { on: "click", run: () => void codevRun.refresh() },
+  /* MCP: sign in to a remote server, sign out, review a tool's changed definition (data-on = server|tool) */
+  "hx-mcp-signin": { on: "click", run: (e) => void codevRun.mcpSignIn(e.on) },
+  "hx-mcp-signout": { on: "click", run: (e) => void codevRun.mcpSignOut(e.on) },
+  "hx-mcp-review": { on: "click", run: (e) => { const i = e.on.indexOf('|'); if (i > 0) void codevRun.mcpReview(e.on.slice(0, i), e.on.slice(i + 1)); } },
   "hunk-explain": {
     on: "click",
     run: (e) => {

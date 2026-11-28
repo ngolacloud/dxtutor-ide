@@ -17,9 +17,17 @@
 //! ```
 //! Cada mensagem é um `POST` ao `url` (`Accept: application/json, text/event-stream`); a resposta vem em JSON ou
 //! num stream SSE; a sessão segue no cabeçalho `Mcp-Session-Id` (e um `DELETE` fecha-a). Só `https`, ou `http` para
-//! esta máquina. `${env:NOME}` nos cabeçalhos lê-se do ambiente do IDE (o token não fica no ficheiro). A ligação é
-//! do IDE (fora da sandbox dos comandos); um `.dxtutor/mcp.json` do projecto continua a precisar da confiança do
-//! humano. Sem OAuth por agora.
+//! esta máquina, e nunca com credenciais no URL. `${env:NOME}` nos cabeçalhos lê-se do ambiente do IDE (o token não
+//! fica no ficheiro). A ligação é do IDE (fora da sandbox dos comandos); um `.dxtutor/mcp.json` do projecto continua
+//! a precisar da confiança do humano.
+//!
+//! OAuth ([`oauth`]): um servidor remoto sem `Authorization` nos cabeçalhos usa os tokens que o humano obteve ao
+//! entrar (no keychain, renovados quando expiram ou num 401); sem eles, ou se a renovação falhar, o servidor
+//! «precisa de entrar» e as ferramentas dele ficam de fora — o browser nunca abre a meio de um turno.
+//! `{"oauth": {"clientId": "…", "scopes": ["…"]}}` é opcional (sem `clientId`, o registo dinâmico).
+//!
+//! Descrições fixadas ([`pins`]): uma ferramenta cuja definição mudou desde a primeira ligação (ou que apareceu
+//! depois) não chega ao modelo até o humano a aprovar ([`connect_all_with`] com `pins`).
 
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
@@ -31,8 +39,14 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use tutor_protect::keychain::Store;
 
 use crate::tool::{Tool, ToolCtx, ToolOutput};
+
+pub mod oauth;
+pub mod pins;
+#[cfg(test)]
+mod remote_tests;
 
 pub const PROJECT_FILE: &str = ".dxtutor/mcp.json";
 pub const PROTOCOL_VERSION: &str = "2025-06-18";
@@ -54,16 +68,50 @@ pub struct ServerConfig {
     /// H5e: headers sent to a remote server (`${env:NAME}` read from the IDE's environment)
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub headers: BTreeMap<String, String>,
+    /// a remote server's OAuth client (optional: without a `clientId`, Dynamic Client Registration)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oauth: Option<OAuthConfig>,
+}
+
+/// `"oauth": {"clientId": "…", "scopes": ["…"]}` of a remote server.
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct OAuthConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scopes: Vec<String>,
+}
+
+impl ServerConfig {
+    /// Whether the config sets its own `Authorization` header (then OAuth is not used).
+    pub fn has_authorization_header(&self) -> bool {
+        self.headers
+            .keys()
+            .any(|k| k.trim().eq_ignore_ascii_case("authorization"))
+    }
 }
 
 /// H5e: whether a remote server's address is acceptable: `https`, or `http` only for this machine.
 pub fn url_allowed(url: &str) -> Result<(), String> {
+    let authority = url
+        .trim()
+        .split_once("://")
+        .map(|(_, r)| r.split(['/', '?', '#']).next().unwrap_or(""))
+        .unwrap_or("");
+    if authority.contains('@') {
+        return Err("an MCP server's URL never carries credentials: put them in `headers` (with ${env:NAME}) or sign in".into());
+    }
     let host =
         crate::tools::web::host_of(url).ok_or_else(|| format!("«{url}» is not an http(s) URL"))?;
     if url.trim().starts_with("https://") {
         return Ok(());
     }
-    if matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1") {
+    let loopback = host == "localhost"
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback());
+    if loopback {
         return Ok(());
     }
     Err(format!(
@@ -120,6 +168,12 @@ pub fn load_config(path: &Path) -> Result<BTreeMap<String, ServerConfig>, String
             (true, Some(u)) => {
                 url_allowed(u).map_err(|e| format!("{}: {name}: {e}", path.display()))?
             }
+            (false, None) if s.oauth.is_some() => {
+                return Err(format!(
+                    "{}: {name}: `oauth` is only for a remote server (`url`)",
+                    path.display()
+                ))
+            }
             _ => {}
         }
     }
@@ -175,7 +229,84 @@ enum Transport {
         url: String,
         headers: Vec<(String, String)>,
         session: Option<String>,
+        /// OAuth: where the tokens are (none when the config sets its own `Authorization`)
+        auth: Option<Arc<dyn Store>>,
+        /// the tokens in use (read from the keychain once, refreshed there)
+        tokens: Option<Box<oauth::Tokens>>,
+        /// whether the keychain was read (once per connection)
+        loaded: bool,
     },
+}
+
+/// How a server is signed in to (what `/comandos` shows).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthState {
+    /// a local server, or a remote one that asked for nothing
+    None,
+    /// the config sends its own `Authorization` header
+    Header,
+    /// OAuth tokens in the keychain
+    SignedIn,
+    /// a remote server without tokens, not yet known to need them
+    SignedOut,
+    /// it answered 401 and there is no token that works: the human signs in from the UI
+    NeedsSignIn,
+}
+
+/// What the last connection learned about each remote server's sign-in, by URL (this process only).
+fn auth_seen() -> &'static Mutex<BTreeMap<String, AuthState>> {
+    static M: Mutex<BTreeMap<String, AuthState>> = Mutex::new(BTreeMap::new());
+    &M
+}
+
+fn note_auth(url: &str, st: AuthState) {
+    auth_seen()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .insert(oauth::resource_of(url), st);
+}
+
+/// A remote server's sign-in state: its own header, the tokens in the keychain, or what the last
+/// connection learned (`SignedOut` when nothing is known yet).
+pub fn auth_state(cfg: &ServerConfig, tokens: Option<&dyn Store>) -> AuthState {
+    let Some(url) = &cfg.url else {
+        return AuthState::None;
+    };
+    if cfg.has_authorization_header() {
+        return AuthState::Header;
+    }
+    let seen = auth_seen()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .get(&oauth::resource_of(url))
+        .copied();
+    if seen == Some(AuthState::NeedsSignIn) {
+        return AuthState::NeedsSignIn;
+    }
+    if tokens.is_some_and(|s| oauth::load(s, url).ok().flatten().is_some()) {
+        return AuthState::SignedIn;
+    }
+    match seen {
+        Some(AuthState::None) => AuthState::None,
+        _ => AuthState::SignedOut,
+    }
+}
+
+/// Forgets what was learned about a server's sign-in (after the human signs in or out).
+pub fn reset_auth_state(url: &str) {
+    auth_seen()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .remove(&oauth::resource_of(url));
+}
+
+/// The text a server that needs sign-in fails with (the UI and the notes look for it).
+pub const NEEDS_SIGN_IN: &str = "needs sign-in";
+
+/// Whether a connection error is a server asking the human to sign in.
+pub fn needs_sign_in(err: &str) -> bool {
+    err.contains(NEEDS_SIGN_IN)
 }
 
 /// Uma ligação a um servidor MCP (o processo morre com ela; a sessão remota fecha-se).
@@ -183,6 +314,8 @@ pub struct McpClient {
     pub name: String,
     transport: Transport,
     next_id: u64,
+    /// how this connection is signed in
+    pub auth: AuthState,
 }
 
 impl Drop for McpClient {
@@ -197,6 +330,8 @@ impl Drop for McpClient {
                 url,
                 headers,
                 session: Some(sid),
+                tokens,
+                ..
             } => {
                 let mut r = agent
                     .delete(url)
@@ -205,6 +340,9 @@ impl Drop for McpClient {
                     .set("MCP-Protocol-Version", PROTOCOL_VERSION);
                 for (k, v) in headers.iter() {
                     r = r.set(k, v);
+                }
+                if let Some(t) = tokens {
+                    r = r.set("Authorization", &format!("Bearer {}", t.access_token));
                 }
                 let _ = r.call();
             }
@@ -260,8 +398,21 @@ impl McpClient {
         cwd: &Path,
         sandbox: Option<&crate::os_sandbox::OsSandbox>,
     ) -> Result<Self, String> {
+        Self::connect_with(name, cfg, cwd, sandbox, None)
+    }
+
+    /// [`connect_in`](Self::connect_in); a remote server without its own `Authorization` header signs
+    /// in with the OAuth tokens in `tokens` (the keychain), when given.
+    pub fn connect_with(
+        name: &str,
+        cfg: &ServerConfig,
+        cwd: &Path,
+        sandbox: Option<&crate::os_sandbox::OsSandbox>,
+        tokens: Option<Arc<dyn Store>>,
+    ) -> Result<Self, String> {
         if let Some(url) = &cfg.url {
-            return Self::connect_http(name, url, &cfg.headers);
+            let auth = tokens.filter(|_| !cfg.has_authorization_header());
+            return Self::connect_http(name, url, &cfg.headers, auth);
         }
         let mut cmd = Command::new(&cfg.command);
         cmd.args(&cfg.args).envs(&cfg.env).current_dir(cwd);
@@ -293,6 +444,7 @@ impl McpClient {
             name: name.to_string(),
             transport: Transport::Stdio { child, stdin, rx },
             next_id: 1,
+            auth: AuthState::None,
         };
         c.handshake()
     }
@@ -302,6 +454,7 @@ impl McpClient {
         name: &str,
         url: &str,
         headers: &BTreeMap<String, String>,
+        auth: Option<Arc<dyn Store>>,
     ) -> Result<Self, String> {
         url_allowed(url).map_err(|e| format!("MCP {name}: {e}"))?;
         let headers = headers
@@ -313,6 +466,9 @@ impl McpClient {
             .timeout_connect(Duration::from_secs(10))
             .user_agent(concat!("dxtutor-ide/", env!("CARGO_PKG_VERSION")))
             .build();
+        let has_header = headers
+            .iter()
+            .any(|(k, _)| k.trim().eq_ignore_ascii_case("authorization"));
         let c = McpClient {
             name: name.to_string(),
             transport: Transport::Http {
@@ -320,10 +476,22 @@ impl McpClient {
                 url: url.trim().to_string(),
                 headers,
                 session: None,
+                auth,
+                tokens: None,
+                loaded: false,
             },
             next_id: 1,
+            auth: AuthState::None,
         };
-        c.handshake()
+        let mut c = c.handshake()?;
+        c.auth = match &c.transport {
+            _ if has_header => AuthState::Header,
+            Transport::Http {
+                tokens: Some(_), ..
+            } => AuthState::SignedIn,
+            _ => AuthState::None,
+        };
+        Ok(c)
     }
 
     fn handshake(mut self) -> Result<Self, String> {
@@ -360,20 +528,75 @@ impl McpClient {
                 url,
                 headers,
                 session,
+                auth,
+                tokens,
+                loaded,
             } => {
-                let mut r = agent
-                    .post(url)
-                    .timeout(timeout)
-                    .set("Content-Type", "application/json")
-                    .set("Accept", "application/json, text/event-stream")
-                    .set("MCP-Protocol-Version", PROTOCOL_VERSION);
-                if let Some(sid) = session.as_deref() {
-                    r = r.set("Mcp-Session-Id", sid);
-                }
-                for (k, v) in headers.iter() {
-                    r = r.set(k, v);
-                }
-                let resp = match r.send_string(&msg.to_string()) {
+                let mut retried = false;
+                let sent = loop {
+                    // OAuth: the keychain's token, refreshed before it expires
+                    if let Some(store) = auth.as_deref() {
+                        if !*loaded {
+                            *loaded = true;
+                            *tokens = oauth::load(store, url).ok().flatten().map(Box::new);
+                        }
+                        if tokens.as_ref().is_some_and(|t| t.expired(oauth::now())) {
+                            *tokens = tokens
+                                .as_ref()
+                                .and_then(|t| oauth::refresh(t).ok())
+                                .map(Box::new);
+                            if let Some(t) = tokens.as_ref() {
+                                let _ = oauth::save(store, url, t);
+                            }
+                        }
+                    }
+                    let mut r = agent
+                        .post(url)
+                        .timeout(timeout)
+                        .set("Content-Type", "application/json")
+                        .set("Accept", "application/json, text/event-stream")
+                        .set("MCP-Protocol-Version", PROTOCOL_VERSION);
+                    if let Some(sid) = session.as_deref() {
+                        r = r.set("Mcp-Session-Id", sid);
+                    }
+                    for (k, v) in headers.iter() {
+                        r = r.set(k, v);
+                    }
+                    if let Some(t) = tokens.as_ref() {
+                        r = r.set("Authorization", &format!("Bearer {}", t.access_token));
+                    }
+                    match r.send_string(&msg.to_string()) {
+                        Err(ureq::Error::Status(401, _)) if auth.is_some() => {
+                            // a token the server no longer takes: refreshed once, then the human signs in
+                            if !retried {
+                                retried = true;
+                                // without a token in use: the human may have signed in since (the keychain)
+                                let fresh = match tokens.as_ref() {
+                                    None => auth
+                                        .as_deref()
+                                        .and_then(|s| oauth::load(s, url).ok().flatten())
+                                        .filter(|t| !t.expired(oauth::now())),
+                                    Some(t) if t.refresh_token.is_some() => oauth::refresh(t).ok(),
+                                    Some(_) => None,
+                                };
+                                if let Some(nt) = fresh {
+                                    if let Some(store) = auth.as_deref() {
+                                        let _ = oauth::save(store, url, &nt);
+                                    }
+                                    *tokens = Some(Box::new(nt));
+                                    continue;
+                                }
+                            }
+                            *tokens = None;
+                            note_auth(url, AuthState::NeedsSignIn);
+                            return Err(format!(
+                                "MCP {name}: {NEEDS_SIGN_IN} — the server refused the request (HTTP 401); sign in from /comandos (the «Co-Dev run» tab)"
+                            ));
+                        }
+                        other => break other,
+                    }
+                };
+                let resp = match sent {
                     Ok(resp) => resp,
                     Err(ureq::Error::Status(code, resp)) => {
                         return Err(format!(
@@ -631,6 +854,94 @@ pub fn connect_all_in(
         }
     }
     (tools, notes)
+}
+
+/// How [`connect_all_with`] connects: the OS sandbox for local servers, the pin file (a tool whose
+/// definition is not the pinned one is held for the human) and the keychain with the OAuth tokens.
+#[derive(Default)]
+pub struct ConnectOptions<'a> {
+    pub sandbox: Option<&'a crate::os_sandbox::OsSandbox>,
+    pub pins: Option<&'a Path>,
+    pub tokens: Option<Arc<dyn Store>>,
+}
+
+/// What happened to one server.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerReport {
+    pub name: String,
+    /// `stdio` or `http`
+    pub transport: &'static str,
+    pub auth: AuthState,
+    /// tools held until the human approves their new definition
+    pub held: Vec<String>,
+    pub error: Option<String>,
+}
+
+/// [`connect_all_in`] with OAuth tokens and pinned tool definitions; also says, per server, how it is
+/// signed in and which tools wait for the human.
+pub fn connect_all_with(
+    servers: &BTreeMap<String, ServerConfig>,
+    cwd: &Path,
+    opts: &ConnectOptions,
+) -> (Connected, Vec<String>, Vec<ServerReport>) {
+    let (mut tools, mut notes, mut reports) = (vec![], vec![], vec![]);
+    for (name, cfg) in servers {
+        let transport = if cfg.url.is_some() { "http" } else { "stdio" };
+        let mut report = ServerReport {
+            name: name.clone(),
+            transport,
+            auth: AuthState::None,
+            held: vec![],
+            error: None,
+        };
+        let connected = McpClient::connect_with(name, cfg, cwd, opts.sandbox, opts.tokens.clone())
+            .and_then(|mut c| c.list_tools().map(|t| (t, c)));
+        match connected {
+            Ok((defs, client)) => {
+                report.auth = client.auth;
+                if let Some(u) = &cfg.url {
+                    note_auth(u, client.auth);
+                }
+                let defs = match opts.pins {
+                    Some(p) => match pins::check(p, &pins::server_key(name, cfg), defs) {
+                        Ok((offered, held)) => {
+                            if !held.is_empty() {
+                                notes.push(format!(
+                                    "MCP {name}: {} ferramenta(s) com uma definição nova ficam de fora até as aprovares em /comandos: {}",
+                                    held.len(),
+                                    held.join(", ")
+                                ));
+                            }
+                            report.held = held;
+                            offered
+                        }
+                        Err(e) => {
+                            // without the pins nothing can be checked: nothing is offered
+                            notes
+                                .push(format!("MCP {name}: the tool pins could not be kept ({e})"));
+                            report.error = Some(e);
+                            vec![]
+                        }
+                    },
+                    None => defs,
+                };
+                let client = Arc::new(Mutex::new(client));
+                tools.extend(defs.into_iter().map(|d| (d, client.clone())));
+            }
+            Err(e) => {
+                if needs_sign_in(&e) {
+                    report.auth = AuthState::NeedsSignIn;
+                } else {
+                    report.auth = auth_state(cfg, opts.tokens.as_deref());
+                }
+                report.error = Some(e.clone());
+                notes.push(e);
+            }
+        }
+        reports.push(report);
+    }
+    (tools, notes, reports)
 }
 
 #[cfg(test)]

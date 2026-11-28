@@ -88,7 +88,7 @@ pub async fn vault_login_token(
     .await
 }
 
-fn open_browser(url: &str) -> Result<(), String> {
+pub(crate) fn open_browser(url: &str) -> Result<(), String> {
     let (program, args): (&str, Vec<&str>) = if cfg!(target_os = "macos") {
         ("open", vec![url])
     } else if cfg!(windows) {

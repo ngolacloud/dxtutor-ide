@@ -20,6 +20,7 @@ pub mod codeintel;
 pub mod codev;
 pub mod codev_agent;
 mod codev_autonomy;
+mod codev_mcp;
 mod codev_pr;
 mod codev_review;
 mod codev_worktree;
@@ -80,7 +81,8 @@ use commands::codev_agent::{
     codev_agent_extensions, codev_agent_history, codev_agent_live, codev_agent_override,
     codev_agent_permissions, codev_agent_review, codev_agent_rewind, codev_agent_save_permissions,
     codev_agent_send, codev_agent_sessions, codev_agent_set_mode, codev_agent_set_plan,
-    codev_agent_start, codev_agent_trust,
+    codev_agent_start, codev_agent_trust, codev_mcp_approve_tool, codev_mcp_sign_in,
+    codev_mcp_sign_out,
 };
 use commands::codev_autonomy::{
     codev_autonomy_grant, codev_autonomy_pause, codev_autonomy_revoke, codev_autonomy_state,
@@ -1091,6 +1093,10 @@ pub fn run() {
             codev_agent_rewind,
             codev_agent_extensions,
             codev_agent_trust,
+            // MCP over HTTP with OAuth and pinned tool definitions (commands/codev_agent.rs)
+            codev_mcp_sign_in,
+            codev_mcp_sign_out,
+            codev_mcp_approve_tool,
             // Multi Co-Dev, fase 3 — worktrees e reservas de ficheiros (commands/codev_worktree.rs)
             codev_worktree_plan,
             codev_worktree_create,

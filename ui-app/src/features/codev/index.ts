@@ -282,6 +282,7 @@ export const codevRun = makeHarness({
   open: (rel, line) => bridge.openPath(bridge.root() + rel, line),
   confirm: (m) => bridge.confirm(m),
   notify: (m) => bridge.toast(m),
+  approve: (r) => requestApproval(r),
 });
 const harnessView = makeHarnessView(codevRun.state, (f) => void codevRun.onChange(f), activeModel, () => Date.now());
 VIEW["codev-run"] = (_t, host) => {
